@@ -2,7 +2,10 @@ package dev.biribiri.elysium.content.internal;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 class StatusUrlsTests {
 
@@ -22,6 +25,31 @@ class StatusUrlsTests {
     @Test
     void countsPunctuationAfterAUrlSeparately() {
         assertThat(StatusUrls.countCharacters("https://a.example.")).isEqualTo(24);
+    }
+
+    @Test
+    void textAfterAUrlIsNotPartOfIt() {
+        for (var after : new String[]{"　次の文章", " next", "を見て", "。", "次", "한국어", "ไทย", "😀"}) {
+            var text = "https://a.example" + after;
+            assertThat(StatusUrls.countCharacters(text))
+                    .isEqualTo(23 + after.codePointCount(0, after.length()));
+        }
+    }
+
+    @Test
+    void countsLinksWithNonAsciiLettersAsOneUrl() {
+        assertThat(StatusUrls.countCharacters("https://ru.wikipedia.org/wiki/Москва")).isEqualTo(23);
+        assertThat(StatusUrls.countCharacters("https://a.example/café")).isEqualTo(23);
+    }
+
+    @Test
+    void handlesHugeInputQuickly() {
+        var size = 2_000_000;
+        assertTimeoutPreemptively(Duration.ofSeconds(10), () -> {
+            for (var filler : new String[]{")", "]", ".", "()", "x", "я"}) {
+                StatusUrls.countCharacters("https://a.example/" + filler.repeat(size));
+            }
+        });
     }
 
     @Test

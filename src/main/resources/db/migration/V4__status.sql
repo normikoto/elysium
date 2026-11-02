@@ -9,8 +9,9 @@ CREATE TABLE status
     language               TEXT,
     visibility             TEXT        NOT NULL CHECK (visibility IN ('public', 'unlisted', 'private', 'direct')),
     sensitive              BOOLEAN     NOT NULL DEFAULT false,
+    -- Stored separately so that a reply is still a reply after its parent or the parent's author is deleted.
+    reply                  BOOLEAN     NOT NULL DEFAULT false,
     in_reply_to_id         UUID REFERENCES status (id) ON DELETE SET NULL,
-    -- Kept separately so that a reply is still a reply after its parent is deleted.
     in_reply_to_account_id UUID REFERENCES actor (id) ON DELETE SET NULL,
     published_at           TIMESTAMPTZ NOT NULL,
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now()

@@ -65,6 +65,20 @@ class StatusRendererTests {
     }
 
     @Test
+    void keepsTextAfterAUrlOutOfTheLink() {
+        assertThat(StatusRenderer.render("https://a.example/bを見て。"))
+                .isEqualTo("<p>" + link("https://a.example/b") + "を見て。</p>");
+        assertThat(StatusRenderer.render("https://a.example　次"))
+                .isEqualTo("<p>" + link("https://a.example") + "　次</p>");
+    }
+
+    @Test
+    void linksUrlsWithNonAsciiLetters() {
+        assertThat(StatusRenderer.render("https://ru.wikipedia.org/wiki/Москва"))
+                .isEqualTo("<p>" + link("https://ru.wikipedia.org/wiki/Москва") + "</p>");
+    }
+
+    @Test
     void onlyLinksHttpUrls() {
         assertThat(StatusRenderer.render("javascript:alert(1) ftp://a.example xhttp://a.example https://"))
                 .isEqualTo("<p>javascript:alert(1) ftp://a.example xhttp://a.example https://</p>");

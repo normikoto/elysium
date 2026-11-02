@@ -3,10 +3,8 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.content.AccountStats;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -18,7 +16,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 @RestController
@@ -40,13 +37,9 @@ public class AccountsController {
 
     @GetMapping("/verify_credentials")
     @PreAuthorize("hasAnyAuthority('SCOPE_profile', 'SCOPE_read:accounts')")
-    public ResponseEntity<?> verifyCredentials(@AuthenticationPrincipal TokenPrincipal token) {
-        if (token.actorId().isEmpty()) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
-                    .body(Map.of("error", "This method requires an authenticated user"));
-        }
-        var actorId = token.actorId().get();
-        AccountStats stats = statuses.statsFor(Set.of(actorId)).get(actorId);
+    public ResponseEntity<CredentialAccountResponse> verifyCredentials(@AuthenticationPrincipal TokenPrincipal token) {
+        var actorId = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
+        var stats = statuses.statsFor(Set.of(actorId)).get(actorId);
         return ResponseEntity.of(actors.findLocalById(actorId)
                 .map(actor -> CredentialAccountResponse.from(AccountResponse.from(actor, stats, instance))));
     }

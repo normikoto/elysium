@@ -105,6 +105,41 @@ class StatusServiceTests {
     }
 
     @Test
+    void rejectsTextThatLooksBlank() {
+        for (var text : new String[]{" ", "​", "﻿", "⁠ ‍", "ㅤ", "⠀"}) {
+            assertThatThrownBy(() -> service.create(AUTHOR, draft(text, null)))
+                    .isInstanceOf(InvalidStatusException.class)
+                    .hasMessageContaining("blank");
+        }
+    }
+
+    @Test
+    void acceptsTextWithInvisibleCharactersAmongVisibleOnes() {
+        assertThat(service.create(AUTHOR, draft("a​b", null)).text()).isEqualTo("a​b");
+    }
+
+    @Test
+    void ignoresAContentWarningThatLooksBlank() {
+        var status = service.create(AUTHOR, draft("hello", "​"));
+        assertThat(status.spoilerText()).isEmpty();
+        assertThat(status.sensitive()).isFalse();
+    }
+
+    @Test
+    void countsUrlsAsAFixedLengthTowardTheLimit() {
+        var wider = new StatusService(
+                repository,
+                actors,
+                new InstanceProperties(BASE_URL),
+                new StatusProperties(25),
+                mock(PlatformTransactionManager.class));
+        var url = "https://a.example/" + "x".repeat(100);
+        assertThat(wider.create(AUTHOR, draft(url + " a", null)).text()).startsWith(url);
+        assertThatThrownBy(() -> wider.create(AUTHOR, draft(url + " ab", null)))
+                .isInstanceOf(InvalidStatusException.class);
+    }
+
+    @Test
     void validatesTheLanguage() {
         var valid = new NewStatus("hi", null, "pt-BR", Visibility.PUBLIC, false, null);
         assertThat(service.create(AUTHOR, valid).language()).isEqualTo("pt-BR");

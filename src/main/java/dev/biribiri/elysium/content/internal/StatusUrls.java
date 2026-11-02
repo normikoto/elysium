@@ -21,8 +21,19 @@ public final class StatusUrls {
      */
     private static final int MAX_RESERVED_URL_LENGTH = 2048;
 
+    /**
+     * Allows printable ASCII, and letters and digits so that links like {@code https://ru.wikipedia.org/wiki/Москва}
+     * work. Scripts that don't put spaces between words are left out, or a URL would run into the text after it.
+     *
+     * <p>This has to stay a single character class. Repeating a group with alternatives recurses for every character,
+     * so a long URL would overflow the stack.
+     */
     private static final Pattern URL = Pattern.compile(
-            "(?<![\\p{L}\\p{N}])https?://[^\\s<>\"]+", Pattern.CASE_INSENSITIVE);
+            "(?<![\\p{L}\\p{N}])https?://"
+                    + "[[!-~&&[^<>\"]]"
+                    + "[\\p{L}\\p{M}\\p{N}&&[^\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}\\p{IsHangul}\\p{IsThai}\\p{IsLao}"
+                    + "\\p{IsKhmer}\\p{IsMyanmar}\\u30FC\\uFF00-\\uFFEF]]]++",
+            Pattern.CASE_INSENSITIVE);
     private static final String TRAILING_PUNCTUATION = ".,;:!?'*_~";
 
     private StatusUrls() {
@@ -65,12 +76,17 @@ public final class StatusUrls {
      * URL also contains its opening bracket, as in Wikipedia links.
      */
     private static String trim(String url) {
+        // These are counted once and then updated, because URLs can be long enough for recounting to tie up the server.
+        var unmatchedParentheses = count(url, ')') - count(url, '(');
+        var unmatchedBrackets = count(url, ']') - count(url, '[');
         var end = url.length();
         while (end > 0) {
             var last = url.charAt(end - 1);
-            var unmatchedBracket = (last == ')' && unbalanced(url, end, '(', ')'))
-                    || (last == ']' && unbalanced(url, end, '[', ']'));
-            if (TRAILING_PUNCTUATION.indexOf(last) < 0 && !unmatchedBracket) {
+            if (last == ')' && unmatchedParentheses > 0) {
+                unmatchedParentheses--;
+            } else if (last == ']' && unmatchedBrackets > 0) {
+                unmatchedBrackets--;
+            } else if (TRAILING_PUNCTUATION.indexOf(last) < 0) {
                 break;
             }
             end--;
@@ -78,9 +94,7 @@ public final class StatusUrls {
         return url.substring(0, end);
     }
 
-    private static boolean unbalanced(String url, int end, char open, char close) {
-        var opened = url.substring(0, end).chars().filter(c -> c == open).count();
-        var closed = url.substring(0, end).chars().filter(c -> c == close).count();
-        return closed > opened;
+    private static long count(String url, char character) {
+        return url.chars().filter(c -> c == character).count();
     }
 }

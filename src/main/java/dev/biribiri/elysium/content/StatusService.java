@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -24,6 +25,11 @@ import java.util.regex.Pattern;
 public class StatusService {
 
     private static final Pattern LANGUAGE = Pattern.compile("[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}");
+
+    /**
+     * The Hangul fillers and the blank Braille pattern, which Unicode doesn't classify as spaces.
+     */
+    private static final Set<Integer> BLANK_CHARACTERS = Set.of(0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0);
 
     private final StatusRepository statuses;
     private final ActorService actors;
@@ -52,7 +58,8 @@ public class StatusService {
      */
     public Status create(UUID authorId, NewStatus draft) {
         var text = normalize(draft.text());
-        var spoilerText = normalize(draft.spoilerText());
+        // A content warning that can't be seen would hide nothing, but would still mark the status as sensitive.
+        var spoilerText = looksBlank(normalize(draft.spoilerText())) ? "" : normalize(draft.spoilerText());
         var language = draft.language() == null || draft.language().isBlank() ? null : draft.language().strip();
         validate(text, spoilerText, language);
 
@@ -80,6 +87,7 @@ public class StatusService {
                     language,
                     draft.visibility(),
                     draft.sensitive() || !spoilerText.isEmpty(),
+                    parent.isPresent(),
                     parent.map(Status::id).orElse(null),
                     parent.map(Status::actorId).orElse(null),
                     publishedAt,
@@ -150,7 +158,7 @@ public class StatusService {
     private void validate(String text, String spoilerText, String language) {
         requireStorable(text);
         requireStorable(spoilerText);
-        if (text.isEmpty()) {
+        if (looksBlank(text)) {
             throw new InvalidStatusException("Text can't be blank");
         }
         var length = StatusUrls.countCharacters(text) + spoilerText.codePointCount(0, spoilerText.length());
@@ -161,6 +169,18 @@ public class StatusService {
         if (language != null && !LANGUAGE.matcher(language).matches()) {
             throw new InvalidStatusException("Language is not a valid language code");
         }
+    }
+
+    /**
+     * Whether text would show nothing. {@link String#strip} only removes some kinds of space, so this also covers
+     * no-break spaces, invisible formatting characters such as zero-width spaces, and the letters and symbols that are
+     * drawn as blanks.
+     */
+    private static boolean looksBlank(String value) {
+        return value.codePoints().allMatch(codePoint -> Character.isWhitespace(codePoint)
+                || Character.isSpaceChar(codePoint)
+                || Character.getType(codePoint) == Character.FORMAT
+                || BLANK_CHARACTERS.contains(codePoint));
     }
 
     /**

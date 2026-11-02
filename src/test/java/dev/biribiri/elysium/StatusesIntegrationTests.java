@@ -169,6 +169,34 @@ class StatusesIntegrationTests {
     }
 
     @Test
+    void rejectsValuesOfTheWrongTypeRatherThanIgnoringThem() throws Exception {
+        for (var field : List.of(
+                "\"visibility\": 1",
+                "\"visibility\": {\"value\": \"direct\"}",
+                "\"visibility\": [\"direct\"]",
+                "\"in_reply_to_id\": 123",
+                "\"sensitive\": 1",
+                "\"spoiler_text\": []",
+                "\"language\": true")) {
+            mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Hello\", " + field + "}"))
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.error").value(containsString("Validation failed")));
+        }
+        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": 5}")).andExpect(status().isUnprocessableContent());
+        assertThat(jdbc.sql("SELECT count(*) FROM status").query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void acceptsMissingValuesInJson() throws Exception {
+        mockMvc.perform(jsonCreateRequest(alice(), """
+                        {"status": "Hello", "visibility": null, "sensitive": null, "spoiler_text": null,
+                         "language": "", "in_reply_to_id": null}
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.visibility").value("public"));
+    }
+
+    @Test
     void rejectsFeaturesThatDoNotExistYet() throws Exception {
         for (var body : List.of(
                 "{\"status\": \"Hello\", \"scheduled_at\": \"2030-01-01T00:00:00Z\"}",
@@ -227,6 +255,17 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.text").value("See https://a.example & more"));
         mockMvc.perform(get("/api/v1/statuses/" + id)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deleteReportsTheRepliesCount() throws Exception {
+        var parent = create(alice(), "Parent");
+        create(bob(), "Reply", "public", parent);
+        create(bob(), "Another reply", "unlisted", parent);
+        create(bob(), "Hidden reply", "private", parent);
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + parent), alice()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.replies_count").value(2));
     }
 
     @Test
@@ -316,6 +355,22 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.in_reply_to_account_id").value(aliceId()));
         mockMvc.perform(get("/api/v1/accounts/" + bobId() + "/statuses").param("exclude_replies", "true"))
                 .andExpect(jsonPath("$", empty()));
+    }
+
+    @Test
+    void aReplyStaysAReplyAfterTheParentsAuthorIsDeleted() throws Exception {
+        var parent = create(token("carol", "read write"), "Parent");
+        var reply = create(bob(), "Reply", "public", parent);
+        jdbc.sql("DELETE FROM actor WHERE username = 'carol'").update();
+
+        mockMvc.perform(get("/api/v1/statuses/" + reply))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.in_reply_to_id").value(nullValue()))
+                .andExpect(jsonPath("$.in_reply_to_account_id").value(nullValue()));
+        mockMvc.perform(get(TIMELINE)).andExpect(jsonPath("$", empty()));
+        mockMvc.perform(get("/api/v1/accounts/" + bobId() + "/statuses").param("exclude_replies", "true"))
+                .andExpect(jsonPath("$", empty()));
+        mockMvc.perform(get("/api/v1/accounts/" + bobId() + "/statuses")).andExpect(jsonPath("$", hasSize(1)));
     }
 
     // Lists

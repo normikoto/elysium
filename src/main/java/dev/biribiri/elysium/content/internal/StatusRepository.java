@@ -23,21 +23,20 @@ import java.util.UUID;
 public class StatusRepository {
 
     private static final String COLUMNS = """
-            s.id, s.uri, s.actor_id, s.text, s.content, s.spoiler_text, s.language, s.visibility, s.sensitive,
+            s.id, s.uri, s.actor_id, s.text, s.content, s.spoiler_text, s.language, s.visibility, s.sensitive, s.reply,
             s.in_reply_to_id, s.in_reply_to_account_id, s.published_at""";
 
-    private static final String SELECT = "SELECT " + COLUMNS + """
-            ,
-                   (SELECT count(*) FROM status r
-                    WHERE r.in_reply_to_id = s.id AND r.visibility IN ('public', 'unlisted')) AS replies_count
-            FROM status s
-            """;
+    private static final String COUNT_REPLIES = """
+            SELECT count(*) FROM status r
+            WHERE r.in_reply_to_id = %s AND r.visibility IN ('public', 'unlisted')""";
+
+    private static final String SELECT = "SELECT " + COLUMNS + ", (" + COUNT_REPLIES.formatted("s.id")
+            + ") AS replies_count FROM status s ";
 
     /**
      * Excludes replies to other accounts, but keeps an account's replies to itself.
      */
-    private static final String NOT_A_REPLY_TO_OTHERS =
-            "(s.in_reply_to_account_id IS NULL OR s.in_reply_to_account_id = s.actor_id)";
+    private static final String NOT_A_REPLY_TO_OTHERS = "(NOT s.reply OR s.in_reply_to_account_id = s.actor_id)";
 
     private static final RowMapper<Status> STATUS_MAPPER = (rs, rowNum) -> new Status(
             rs.getObject("id", UUID.class),
@@ -49,6 +48,7 @@ public class StatusRepository {
             rs.getString("language"),
             Visibility.fromValue(rs.getString("visibility")),
             rs.getBoolean("sensitive"),
+            rs.getBoolean("reply"),
             rs.getObject("in_reply_to_id", UUID.class),
             rs.getObject("in_reply_to_account_id", UUID.class),
             rs.getObject("published_at", OffsetDateTime.class).toInstant(),
@@ -63,9 +63,9 @@ public class StatusRepository {
     public void insert(Status status) {
         jdbc.sql("""
                         INSERT INTO status (id, uri, actor_id, text, content, spoiler_text, language, visibility, sensitive,
-                                            in_reply_to_id, in_reply_to_account_id, published_at)
+                                            reply, in_reply_to_id, in_reply_to_account_id, published_at)
                         VALUES (:id, :uri, :actorId, :text, :content, :spoilerText, :language, :visibility, :sensitive,
-                                :inReplyToId, :inReplyToAccountId, :publishedAt)
+                                :reply, :inReplyToId, :inReplyToAccountId, :publishedAt)
                         """)
                 .param("id", status.id())
                 .param("uri", status.uri().toString())
@@ -76,6 +76,7 @@ public class StatusRepository {
                 .param("language", status.language(), Types.VARCHAR)
                 .param("visibility", status.visibility().value())
                 .param("sensitive", status.sensitive())
+                .param("reply", status.reply())
                 .param("inReplyToId", status.inReplyToId(), Types.OTHER)
                 .param("inReplyToAccountId", status.inReplyToAccountId(), Types.OTHER)
                 .param("publishedAt", status.publishedAt().atOffset(ZoneOffset.UTC))
@@ -98,8 +99,9 @@ public class StatusRepository {
      * @return the deleted status, or empty if this actor has no status with this ID
      */
     public Optional<Status> delete(UUID id, UUID actorId) {
-        return jdbc.sql("DELETE FROM status s WHERE s.id = :id AND s.actor_id = :actorId RETURNING " + COLUMNS
-                        + ", 0 AS replies_count")
+        return jdbc.sql("WITH replies AS (SELECT (" + COUNT_REPLIES.formatted(":id") + ") AS replies_count) "
+                        + "DELETE FROM status s USING replies WHERE s.id = :id AND s.actor_id = :actorId "
+                        + "RETURNING " + COLUMNS + ", replies.replies_count")
                 .param("id", id)
                 .param("actorId", actorId)
                 .query(STATUS_MAPPER)

@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -38,13 +37,15 @@ public class StatusesController {
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
     public StatusResponse createFromForm(
             @AuthenticationPrincipal TokenPrincipal token, @RequestParam MultiValueMap<String, String> form) {
-        return create(token, Map.copyOf(form));
+        rejectUnsupported(form);
+        return create(token, form.toSingleValueMap());
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
     public StatusResponse createFromJson(
             @AuthenticationPrincipal TokenPrincipal token, @RequestBody Map<String, Object> body) {
+        rejectUnsupported(body);
         return create(token, body);
     }
 
@@ -69,16 +70,14 @@ public class StatusesController {
 
     private StatusResponse create(TokenPrincipal token, Map<String, ?> parameters) {
         var author = requireUser(token);
-        rejectUnsupported(parameters);
-
-        var visibility = string(parameters.get("visibility"));
+        var visibility = string(parameters, "visibility");
         var draft = new NewStatus(
-                string(parameters.get("status")),
-                string(parameters.get("spoiler_text")),
-                string(parameters.get("language")),
+                string(parameters, "status"),
+                string(parameters, "spoiler_text"),
+                string(parameters, "language"),
                 visibility == null ? Visibility.PUBLIC : Visibility.fromValue(visibility),
-                flag(parameters.get("sensitive")),
-                replyParent(string(parameters.get("in_reply_to_id"))));
+                flag(parameters, "sensitive"),
+                replyParent(string(parameters, "in_reply_to_id")));
         return responses.one(statuses.create(author, draft));
     }
 
@@ -115,18 +114,24 @@ public class StatusesController {
     }
 
     /**
-     * Reads a value from either request format: forms have a list of strings for each name, and JSON has a single value.
-     * An empty value counts as missing, because form clients send fields they haven't filled in.
+     * Reads a text value. An empty value counts as missing, because form clients send fields they haven't filled in. A
+     * value of the wrong type is rejected rather than treated as missing, or a malformed visibility would make a status
+     * public.
      */
-    private static String string(Object value) {
-        return switch (value) {
-            case String string when !string.isEmpty() -> string;
-            case List<?> values when !values.isEmpty() -> string(values.getFirst());
-            case null, default -> null;
+    private static String string(Map<String, ?> parameters, String name) {
+        return switch (parameters.get(name)) {
+            case null -> null;
+            case String string -> string.isEmpty() ? null : string;
+            default -> throw new InvalidRequestException("Validation failed: " + name + " must be a string");
         };
     }
 
-    private static boolean flag(Object value) {
-        return value instanceof Boolean flag ? flag : RequestParameters.flag(string(value));
+    private static boolean flag(Map<String, ?> parameters, String name) {
+        return switch (parameters.get(name)) {
+            case null -> false;
+            case Boolean flag -> flag;
+            case String string -> RequestParameters.flag(string);
+            default -> throw new InvalidRequestException("Validation failed: " + name + " must be a boolean");
+        };
     }
 }
