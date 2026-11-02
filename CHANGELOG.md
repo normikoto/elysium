@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   To switch, set `SPRING_CONFIG_ADDITIONAL_LOCATION` instead of `SPRING_CONFIG_LOCATION`, and remove any lines you
   didn't change from your `application.properties`. Lines you keep continue to override the built-in defaults. If you
   use `elysium.service`, make the same change in your installed copy.
+- `elysium.service` now starts after the network and any local PostgreSQL, restarts the server if it fails, and no longer
+  reports a normal stop as a failure. To switch, install the new file and run `systemctl daemon-reload`.
 - `./gradlew bootJar` now builds `build/libs/elysium.jar`, with no version in the file name.
 - `elysium.service` now runs the server as a dedicated `elysium` user and group, in a sandbox. To switch, move any changes
   you made to your installed copy into `systemctl edit elysium`, then run these as root, adjusting the paths if yours
