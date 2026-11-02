@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.actor.internal;
 
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 @ExtendWith(OutputCaptureExtension.class)
 class LocalActorBootstrapTests {
+
+    @Autowired
+    private ActorService actorService;
 
     @Autowired
     private ActorRepository actors;
@@ -42,7 +46,7 @@ class LocalActorBootstrapTests {
                 .param("domain", instance.domain())
                 .update();
 
-        new LocalActorBootstrap(actors, instance, "orphan").run(new DefaultApplicationArguments());
+        new LocalActorBootstrap(actorService, instance, "orphan").run(new DefaultApplicationArguments());
 
         assertThat(actors.findLocal("orphan", instance.domain())).isEmpty();
         assertThat(output).contains("Could not create local actor " + uri);
