@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.web;
 import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.actor.ActorService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,6 +20,7 @@ public class ActivityPubController {
         this.actors = actors;
     }
 
+    @CrossOrigin
     @GetMapping(path = "/users/{username}", produces = {ACTIVITY_JSON, LD_JSON})
     ResponseEntity<Person> actor(@PathVariable String username) {
         return ResponseEntity.of(actors.findLocalByUsername(username).map(Person::from));

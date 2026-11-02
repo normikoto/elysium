@@ -6,16 +6,19 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 
 @RestController
 public class WebFingerController {
-
-    private static final String ACCT_PREFIX = "acct:";
 
     private final ActorService actors;
     private final InstanceProperties instance;
@@ -25,28 +28,41 @@ public class WebFingerController {
         this.instance = instance;
     }
 
+    @CrossOrigin
     @GetMapping(path = "/.well-known/webfinger", produces = {"application/jrd+json", MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<JsonResourceDescriptor> webFinger(@RequestParam String resource) {
-        if (!resource.startsWith(ACCT_PREFIX)) {
+        URI uri;
+        try {
+            uri = new URI(resource);
+        } catch (URISyntaxException e) {
             return ResponseEntity.badRequest().build();
         }
-        var account = resource.substring(ACCT_PREFIX.length());
-        var separator = account.lastIndexOf('@');
-        if (separator <= 0 || separator == account.length() - 1) {
+        if (uri.getScheme() == null) {
             return ResponseEntity.badRequest().build();
         }
 
-        var username = account.substring(0, separator);
-        var domain = account.substring(separator + 1);
-        if (!domain.equalsIgnoreCase(instance.domain())) {
-            return ResponseEntity.notFound().build();
+        Optional<Actor> actor;
+        switch (uri.getScheme().toLowerCase(Locale.ROOT)) {
+            case "acct" -> {
+                var account = uri.getSchemeSpecificPart();
+                var separator = account.lastIndexOf('@');
+                if (separator <= 0 || separator == account.length() - 1) {
+                    return ResponseEntity.badRequest().build();
+                }
+                var domain = account.substring(separator + 1);
+                actor = domain.equalsIgnoreCase(instance.domain())
+                        ? actors.findLocalByUsername(account.substring(0, separator))
+                        : Optional.empty();
+            }
+            case "http", "https" -> actor = actors.findLocalByUri(uri);
+            default -> actor = Optional.empty();
         }
-        return ResponseEntity.of(actors.findLocalByUsername(username).map(WebFingerController::descriptor));
+        return ResponseEntity.of(actor.map(WebFingerController::descriptor));
     }
 
     private static JsonResourceDescriptor descriptor(Actor actor) {
         return new JsonResourceDescriptor(
-                ACCT_PREFIX + actor.username() + "@" + actor.domain(),
+                "acct:" + actor.username() + "@" + actor.domain(),
                 List.of(actor.uri()),
                 List.of(new JsonResourceDescriptor.Link("self", "application/activity+json", actor.uri())));
     }

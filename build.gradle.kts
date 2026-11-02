@@ -60,6 +60,10 @@ dependencyManagement {
     }
 }
 
+tasks.bootRun {
+    systemProperty("spring.profiles.active", "dev")
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }

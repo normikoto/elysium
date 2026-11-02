@@ -45,6 +45,19 @@ public class ActorRepository {
                 .optional();
     }
 
+    public Optional<Actor> findLocalByUri(URI uri) {
+        return jdbc.sql("""
+                        SELECT a.id, a.uri, a.username, a.domain, a.inbox_uri, a.outbox_uri, a.shared_inbox_uri,
+                               a.public_key_pem
+                        FROM actor a
+                        JOIN local_account l ON l.actor_id = a.id
+                        WHERE a.uri = :uri
+                        """)
+                .param("uri", uri.toString())
+                .query(ACTOR_MAPPER)
+                .optional();
+    }
+
     /**
      * Inserts a local actor unless one with the same identity already exists.
      *

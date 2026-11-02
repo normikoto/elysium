@@ -19,6 +19,8 @@ import java.util.Base64;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -129,7 +131,69 @@ class DiscoveryIntegrationTests {
 
     @Test
     void rejectsUnauthenticatedRequestsToOtherPaths() throws Exception {
-        mockMvc.perform(get("/actuator/metrics")).andExpect(status().is4xxClientError());
+        // This path exists, so it would return 200 rather than 403 if it were left open.
+        mockMvc.perform(get("/v3/api-docs")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void webFingerFindsActorByUri() throws Exception {
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", ACTOR_URI))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.subject").value("acct:admin@elysium.example"));
+    }
+
+    @Test
+    void webFingerTreatsTheAcctSchemeCaseInsensitively() throws Exception {
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", "ACCT:admin@elysium.example"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void webFingerReturnsNotFoundForWellFormedResourcesWithNoMatch() throws Exception {
+        for (var resource : new String[]{"https://other.example/users/admin", "mailto:admin@elysium.example"}) {
+            mockMvc.perform(get("/.well-known/webfinger").param("resource", resource))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
+    void rejectsInvalidUsernamesWithoutQuerying() throws Exception {
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:a\u0000b@elysium.example"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:not-valid@elysium.example"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/users/" + "a".repeat(31)).accept(ACTIVITY_JSON))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void allowsCrossOriginDiscovery() throws Exception {
+        mockMvc.perform(get("/.well-known/webfinger")
+                        .param("resource", "acct:admin@elysium.example")
+                        .header("Origin", "https://client.example"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+        mockMvc.perform(get("/users/admin").accept(ACTIVITY_JSON).header("Origin", "https://client.example"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+        mockMvc.perform(options("/.well-known/webfinger")
+                        .header("Origin", "https://client.example")
+                        .header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+    }
+
+    @Test
+    void permitsHeadRequestsOnPublicPaths() throws Exception {
+        mockMvc.perform(head("/users/admin").accept(ACTIVITY_JSON)).andExpect(status().isOk());
+        mockMvc.perform(head("/.well-known/webfinger").param("resource", "acct:admin@elysium.example"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void permitsHealthProbes() throws Exception {
+        mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
+        mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk());
     }
 
     private String publicKey() {

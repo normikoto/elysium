@@ -10,7 +10,6 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * Creates the actor named by {@code elysium.bootstrap.admin-username} until signups exist.
@@ -19,7 +18,6 @@ import java.util.regex.Pattern;
 public class LocalActorBootstrap implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(LocalActorBootstrap.class);
-    private static final Pattern VALID_USERNAME = Pattern.compile("[A-Za-z0-9_]+");
 
     private final ActorRepository actors;
     private final InstanceProperties instance;
@@ -39,9 +37,9 @@ public class LocalActorBootstrap implements ApplicationRunner {
         if (username.isBlank()) {
             return;
         }
-        if (!VALID_USERNAME.matcher(username).matches()) {
+        if (!Actor.isValidLocalUsername(username)) {
             throw new IllegalStateException(
-                    "elysium.bootstrap.admin-username may only contain letters, digits, and underscores: " + username);
+                    "elysium.bootstrap.admin-username must be 1 to 30 letters, digits, or underscores: " + username);
         }
         if (actors.findLocal(username, instance.domain()).isPresent()) {
             return;
@@ -60,6 +58,9 @@ public class LocalActorBootstrap implements ApplicationRunner {
                 keys.publicKeyPem());
         if (actors.createLocalIfAbsent(actor, keys.privateKeyPem())) {
             log.info("Created local actor {}", actor.uri());
+        } else if (actors.findLocal(username, instance.domain()).isEmpty()) {
+            // Another instance creating the same actor at the same moment isn't a problem, but this is.
+            log.warn("Could not create local actor {}: a non-local actor already has that identity", actor.uri());
         }
     }
 }
