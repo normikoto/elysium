@@ -3,6 +3,10 @@
 
 [Unit]
 Description=Elysium server
+# Only affects the start order if PostgreSQL is on this host. It doesn't wait for PostgreSQL to accept connections, so
+# Restart below covers the server starting too early.
+After=network-online.target postgresql.service
+Wants=network-online.target
 
 [Service]
 # Create this user and group first: see "Running as a service" in README.md.
@@ -17,6 +21,10 @@ Environment=SPRING_PROFILES_ACTIVE=prod
 # readable only by root.
 EnvironmentFile=-/etc/elysium/elysium.env
 ExecStart=/usr/bin/java -jar elysium.jar
+Restart=on-failure
+RestartSec=5
+# The JVM exits with this status when systemctl stop sends it SIGTERM, which isn't a failure.
+SuccessExitStatus=143
 
 # Everything below limits what the server can do if it's compromised. Check the result with:
 #   systemd-analyze security elysium.service
