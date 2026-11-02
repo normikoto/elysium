@@ -20,6 +20,10 @@ spring.datasource.password=
 # Lets anyone create an account at /signup. There's no email confirmation or rate limiting.
 #elysium.registration.enabled=false
 
+# The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Lowering this
+# doesn't affect existing statuses.
+#elysium.statuses.max-characters=5000
+
 # Uncomment if a reverse proxy handles HTTPS and is the only way to reach this server, so that redirects use the public
 # URL. The server trusts the forwarded headers it receives.
 #server.forward-headers-strategy=native

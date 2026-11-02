@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mastodon-compatible OAuth 2: app registration, authorization code and client credentials grants, token revocation,
   scopes, and server metadata
 - `GET /api/v1/apps/verify_credentials` and `GET /api/v1/accounts/verify_credentials`
+- Statuses: `POST /api/v1/statuses`, `GET /api/v1/statuses/:id`, `DELETE /api/v1/statuses/:id`, and
+  `GET /api/v1/accounts/:id/statuses`
+- `GET /api/v1/timelines/public`
+- `GET /api/v1/instance`, which tells clients the post length limit
+- `elysium.statuses.max-characters` to set the post length limit, which defaults to 5000
 - Public API documentation, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs`
 - `application.properties.example`, a starting point for your own config
 - Production Docker Compose setup in `compose.yaml`, which runs the image from `./gradlew bootBuildImage`

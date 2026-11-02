@@ -9,6 +9,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -62,6 +64,17 @@ public class ActorRepository {
                 .param("id", id)
                 .query(ACTOR_MAPPER)
                 .optional();
+    }
+
+    public List<Actor> findLocalByIds(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql(SELECT_LOCAL + "WHERE a.id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
+    }
+
+    public long countLocal() {
+        return jdbc.sql("SELECT count(*) FROM local_account").query(Long.class).single();
     }
 
     /**

@@ -9,6 +9,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -42,6 +44,14 @@ public class ActorService {
 
     public Optional<Actor> findLocalById(UUID id) {
         return actors.findLocalById(id);
+    }
+
+    public List<Actor> findLocalByIds(Collection<UUID> ids) {
+        return actors.findLocalByIds(ids);
+    }
+
+    public long countLocal() {
+        return actors.countLocal();
     }
 
     /**

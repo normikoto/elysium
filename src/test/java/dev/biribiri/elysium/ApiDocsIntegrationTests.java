@@ -32,7 +32,12 @@ class ApiDocsIntegrationTests {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.openapi").isString())
                 .andExpect(jsonPath("$.paths['/api/v1/apps']").exists())
-                .andExpect(jsonPath("$.paths['/api/v1/accounts/verify_credentials']").exists());
+                .andExpect(jsonPath("$.paths['/api/v1/accounts/verify_credentials']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/accounts/{id}/statuses']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/statuses']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/statuses/{id}']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/timelines/public']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/instance']").exists());
     }
 
     @Test

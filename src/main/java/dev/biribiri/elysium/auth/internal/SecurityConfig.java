@@ -54,6 +54,13 @@ class SecurityConfig {
     };
 
     /**
+     * API endpoints that can be read without a token. A token is still checked if the request includes one.
+     */
+    private static final String[] PUBLIC_API_PATHS = {
+            "/api/v1/instance", "/api/v1/statuses/*", "/api/v1/accounts/*/statuses", "/api/v1/timelines/public"
+    };
+
+    /**
      * Metadata Spring always publishes, but which describes things this server doesn't offer.
      */
     private static final Set<String> UNSUPPORTED_METADATA = Set.of(
@@ -98,6 +105,8 @@ class SecurityConfig {
                 .authorizeHttpRequests(requests -> requests
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.POST, APP_REGISTRATION_PATH).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_API_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.HEAD, PUBLIC_API_PATHS).permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(server -> server
                         .opaqueToken(token -> token.introspector(introspector))
@@ -225,7 +234,9 @@ class SecurityConfig {
         var configuration = new CorsConfiguration();
         configuration.addAllowedOrigin(CorsConfiguration.ALL);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        // Idempotency-Key is ignored, but clients that send it would otherwise fail the preflight request.
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
+        configuration.setExposedHeaders(List.of("Link"));
 
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
