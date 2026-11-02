@@ -33,7 +33,8 @@ cp .env.example .env
 docker compose up -d
 ```
 
-With rootless Docker, build the image with `./gradlew bootBuildImage -PbindDockerHostToBuilder=true`.
+If the image build can't connect to Docker, which can happen with Docker Desktop or Colima, build it with
+`./gradlew bootBuildImage -PbindDockerHostToBuilder=false`.
 
 PostgreSQL isn't reachable from outside its Docker network, and its data is kept in the `postgres-data` volume. The
 server listens on `127.0.0.1:8080`, so you need a reverse proxy on the same host to handle HTTPS. Because the proxy is
