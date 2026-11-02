@@ -28,10 +28,12 @@ java -jar elysium.jar
 image:
 ```shell
 ./gradlew bootBuildImage
-# Set your server's URL and a database password
 cp .env.example .env
+# Edit .env to set your server's URL and a database password...
 docker compose up -d
 ```
+
+With rootless Docker, build the image with `./gradlew bootBuildImage -PbindDockerHostToBuilder=true`.
 
 PostgreSQL isn't reachable from outside its Docker network, and its data is kept in the `postgres-data` volume. The
 server listens on `127.0.0.1:8080`, so you need a reverse proxy on the same host to handle HTTPS. Because the proxy is

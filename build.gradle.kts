@@ -69,10 +69,10 @@ tasks.bootRun {
 tasks.bootBuildImage {
     // compose.yaml runs this tag, so it doesn't need updating whenever the version changes.
     tags.add("elysium:latest")
-    // Gives the builder the Docker daemon this build is using. It otherwise always mounts /var/run/docker.sock, which
-    // fails with rootless Docker.
+    // The builder otherwise always mounts /var/run/docker.sock, which fails with rootless Docker. Binding the client's
+    // socket path instead can fail with Docker Desktop or Colima, where that path isn't in the daemon's VM, so it's opt-in.
     docker {
-        bindHostToBuilder = true
+        bindHostToBuilder = providers.gradleProperty("bindDockerHostToBuilder").map { it.toBoolean() }.orElse(false)
     }
 }
 
