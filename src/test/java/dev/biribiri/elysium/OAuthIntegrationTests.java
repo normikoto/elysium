@@ -20,6 +20,7 @@ import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -123,7 +124,7 @@ class OAuthIntegrationTests {
         var app = registerApp("read", REDIRECT_URI);
         assertThat(jdbc.sql("SELECT client_secret FROM oauth2_registered_client WHERE client_id = :id")
                 .param("id", app.clientId()).query(String.class).single())
-                .startsWith("{argon2id}$argon2id$")
+                .startsWith("{sha256}")
                 .doesNotContain(app.clientSecret());
     }
 
@@ -563,6 +564,33 @@ class OAuthIntegrationTests {
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.error").value("The access token is invalid"));
         }
+    }
+
+    @Test
+    void rejectsTokensWhoseAccountNoLongerExists() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        var token = userToken(app, "read");
+        jdbc.sql("UPDATE oauth2_authorization SET principal_name = :actorId WHERE access_token_value = :token")
+                .param("actorId", UUID.randomUUID().toString())
+                .param("token", token)
+                .update();
+
+        for (var path : List.of("/api/v1/accounts/verify_credentials", "/api/v1/apps/verify_credentials")) {
+            mockMvc.perform(withToken(get(path), token))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(header().string("WWW-Authenticate", "Bearer"))
+                    .andExpect(jsonPath("$.error").value("The access token is invalid"));
+        }
+    }
+
+    @Test
+    void keepsClientSecretsCheapToCheckAfterUse() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        appToken(app);
+        // Spring replaces a secret's hash after a login if the encoder says it needs upgrading.
+        assertThat(jdbc.sql("SELECT client_secret FROM oauth2_registered_client WHERE client_id = :id")
+                .param("id", app.clientId()).query(String.class).single())
+                .startsWith("{sha256}");
     }
 
     // Revocation

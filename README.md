@@ -37,8 +37,12 @@ redirects use the public URL. Only do this if the proxy is the only way to reach
 the forwarded headers it receives.
 
 ### Accounts and sign-ups
-Passwords can't be changed yet, and sign-ups have no email confirmation or rate limiting. Leave them off on a public
-server unless you've added rate limiting at your reverse proxy.
+Passwords can't be changed yet, and sign-ups have no email confirmation.
+
+Nothing limits how many login, sign-up, or app registration requests someone can make. The server limits how many
+passwords it hashes at once, so a flood of requests makes logins fail with a "busy" message rather than exhausting its
+memory, but it can still lock people out while it lasts. On a public server, add rate limiting at your reverse proxy,
+and leave sign-ups off unless you have it.
 
 Login sessions are stored in memory, so restarting logs people out of the login page. Applications' access tokens are
 stored in the database and aren't affected. If you run more than one instance, your load balancer needs to keep each

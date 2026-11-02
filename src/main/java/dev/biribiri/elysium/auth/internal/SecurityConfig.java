@@ -12,10 +12,12 @@ import org.springframework.security.config.annotation.web.configurers.oauth2.ser
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.server.authorization.authentication.ClientSecretAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.introspection.OpaqueTokenIntrospector;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.ExceptionMappingAuthenticationFailureHandler;
 import org.springframework.security.web.authentication.Http403ForbiddenEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
@@ -26,6 +28,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.springframework.security.config.Customizer.withDefaults;
@@ -114,6 +117,10 @@ class SecurityConfig {
         var requestCache = new HttpSessionRequestCache();
         requestCache.setRequestMatcher(request -> false);
 
+        var loginFailure = new ExceptionMappingAuthenticationFailureHandler();
+        loginFailure.setDefaultFailureUrl(LOGIN_PATH + "?error");
+        loginFailure.setExceptionMappings(Map.of(PasswordHashingBusyException.class.getName(), LOGIN_PATH + "?busy"));
+
         return http
                 // Applies the @CrossOrigin settings on controllers, including to preflight requests.
                 .cors(withDefaults())
@@ -127,7 +134,7 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, CONSENT_PATH).authenticated()
                         .anyRequest().denyAll())
                 .requestCache(cache -> cache.requestCache(requestCache))
-                .formLogin(login -> login.loginPage(LOGIN_PATH).permitAll())
+                .formLogin(login -> login.loginPage(LOGIN_PATH).failureHandler(loginFailure).permitAll())
                 .logout(withDefaults())
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(new Http403ForbiddenEntryPoint()))
                 .build();
@@ -151,6 +158,10 @@ class SecurityConfig {
                         .revocationResponseHandler(responses::revocationSuccess)
                         .errorResponseHandler(responses::revocationFailure))
                 .clientAuthentication(authentication -> authentication
+                        .authenticationProviders(providers -> providers.stream()
+                                .filter(ClientSecretAuthenticationProvider.class::isInstance)
+                                .map(ClientSecretAuthenticationProvider.class::cast)
+                                .forEach(provider -> provider.setPasswordEncoder(ClientSecretEncoder.INSTANCE)))
                         .errorResponseHandler(responses::clientAuthenticationFailure))
                 .authorizationServerMetadataEndpoint(endpoint -> endpoint.authorizationServerMetadataCustomizer(
                         metadata -> metadata

@@ -1,6 +1,7 @@
 package dev.biribiri.elysium;
 
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.auth.internal.PasswordHashingBusyException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationRunner;
@@ -10,10 +11,15 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -26,10 +32,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "elysium.registration.enabled=true",
         "elysium.bootstrap.admin-username=root",
-        "elysium.bootstrap.admin-password=first password"
+        "elysium.bootstrap.admin-password=" + LocalAccountIntegrationTests.ADMIN_PASSWORD
 })
 @AutoConfigureMockMvc
 class LocalAccountIntegrationTests {
+
+    /**
+     * Includes the syntax Spring would otherwise interpret, to check it's stored as written.
+     */
+    static final String ADMIN_PASSWORD = "first ${password} #{1+1}";
 
     private static final String PASSWORD = "a long enough password";
 
@@ -44,6 +55,9 @@ class LocalAccountIntegrationTests {
 
     @Autowired
     private ApplicationContext context;
+
+    @MockitoSpyBean
+    private PasswordEncoder passwordEncoder;
 
     @Test
     void showsTheSignUpForm() throws Exception {
@@ -121,9 +135,40 @@ class LocalAccountIntegrationTests {
         }
 
         assertThat(adminHash()).isEqualTo(hash);
-        mockMvc.perform(post("/login").with(csrf()).param("username", "root").param("password", "first password"))
+        mockMvc.perform(post("/login").with(csrf()).param("username", "root").param("password", ADMIN_PASSWORD))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(header().string("Location", "/"));
+    }
+
+    @Test
+    void aFailureAfterCreatingAnActorAlsoUndoesTheActor() {
+        assertThatThrownBy(() -> actors.createLocalIfAbsent("rolledback", actor -> {
+            throw new IllegalStateException("failed");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(actors.findLocalByUsername("rolledback")).isEmpty();
+    }
+
+    @Test
+    void loginTellsPeopleWhenTheServerIsTooBusy() throws Exception {
+        doThrow(new PasswordHashingBusyException()).when(passwordEncoder).matches(any(), any());
+
+        mockMvc.perform(post("/login").with(csrf()).param("username", "root").param("password", ADMIN_PASSWORD))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/login?busy"));
+        mockMvc.perform(get("/login").param("busy", ""))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("The server is busy")));
+    }
+
+    @Test
+    void signUpTellsPeopleWhenTheServerIsTooBusy() throws Exception {
+        doThrow(new PasswordHashingBusyException()).when(passwordEncoder).encode(any());
+
+        signUp("busyuser", PASSWORD, PASSWORD)
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().string(containsString("The server is busy")));
+        assertThat(actors.findLocalByUsername("busyuser")).isEmpty();
     }
 
     private String adminHash() {

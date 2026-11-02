@@ -33,10 +33,12 @@ class AccountPagesController {
             @RequestParam(required = false) String error,
             @RequestParam(required = false) String logout,
             @RequestParam(required = false) String registered,
+            @RequestParam(required = false) String busy,
             CsrfToken csrf,
             Model model) {
         addCsrf(model, csrf);
         model.addAttribute("failed", error != null);
+        model.addAttribute("busy", busy != null);
         model.addAttribute("loggedOut", logout != null);
         model.addAttribute("registered", registered != null);
         model.addAttribute("registrationEnabled", registrationEnabled);
@@ -61,15 +63,23 @@ class AccountPagesController {
             HttpServletResponse response) {
         requireRegistrationEnabled();
 
+        var status = HttpStatus.UNPROCESSABLE_CONTENT;
         var error = validate(username, password, confirmPassword);
-        if (error == null && !accounts.signUp(username, password)) {
-            error = "That username is taken.";
+        if (error == null) {
+            try {
+                if (!accounts.signUp(username, password)) {
+                    error = "That username is taken.";
+                }
+            } catch (PasswordHashingBusyException e) {
+                status = HttpStatus.SERVICE_UNAVAILABLE;
+                error = "The server is busy. Try again in a moment.";
+            }
         }
         if (error == null) {
             return "redirect:" + SecurityConfig.LOGIN_PATH + "?registered";
         }
 
-        response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
+        response.setStatus(status.value());
         addCsrf(model, csrf);
         model.addAttribute("username", username);
         model.addAttribute("error", error);

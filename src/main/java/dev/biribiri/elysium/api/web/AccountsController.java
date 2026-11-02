@@ -35,10 +35,7 @@ public class AccountsController {
                     .body(Map.of("error", "This method requires an authenticated user"));
         }
         var placeholder = instance.resolve(PLACEHOLDER_IMAGE_PATH).toString();
-        return actors.findLocalById(token.actorId().get())
-                .<ResponseEntity<?>>map(actor -> ResponseEntity.ok(CredentialAccountResponse.from(actor, placeholder)))
-                // The token outlived its account, so it no longer identifies anyone.
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(Map.of("error", "The access token is invalid")));
+        return ResponseEntity.of(actors.findLocalById(token.actorId().get())
+                .map(actor -> CredentialAccountResponse.from(actor, placeholder)));
     }
 }

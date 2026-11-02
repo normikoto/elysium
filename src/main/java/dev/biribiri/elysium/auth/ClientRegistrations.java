@@ -1,9 +1,9 @@
 package dev.biribiri.elysium.auth;
 
+import dev.biribiri.elysium.auth.internal.ClientSecretEncoder;
 import dev.biribiri.elysium.auth.internal.OAuthScopes;
 import org.springframework.security.crypto.keygen.Base64StringKeyGenerator;
 import org.springframework.security.crypto.keygen.StringKeyGenerator;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
@@ -41,13 +41,11 @@ public class ClientRegistrations {
     private static final Set<String> FORBIDDEN_REDIRECT_SCHEMES = Set.of("javascript", "data", "vbscript", "file");
 
     private final RegisteredClientRepository clients;
-    private final PasswordEncoder passwordEncoder;
     private final StringKeyGenerator credentials =
             new Base64StringKeyGenerator(Base64.getUrlEncoder().withoutPadding(), 32);
 
-    ClientRegistrations(RegisteredClientRepository clients, PasswordEncoder passwordEncoder) {
+    ClientRegistrations(RegisteredClientRepository clients) {
         this.clients = clients;
-        this.passwordEncoder = passwordEncoder;
     }
 
     /**
@@ -74,7 +72,7 @@ public class ClientRegistrations {
         var secret = credentials.generateKey();
         var client = RegisteredClient.withId(UUID.randomUUID().toString())
                 .clientId(credentials.generateKey())
-                .clientSecret(passwordEncoder.encode(secret))
+                .clientSecret(ClientSecretEncoder.INSTANCE.encode(secret))
                 .clientName(name)
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST)

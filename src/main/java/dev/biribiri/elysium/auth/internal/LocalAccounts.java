@@ -8,8 +8,6 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -26,17 +24,11 @@ class LocalAccounts implements UserDetailsService {
     private final ActorService actors;
     private final JdbcClient jdbc;
     private final PasswordEncoder passwordEncoder;
-    private final TransactionTemplate transaction;
 
-    LocalAccounts(
-            ActorService actors,
-            JdbcClient jdbc,
-            PasswordEncoder passwordEncoder,
-            PlatformTransactionManager transactionManager) {
+    LocalAccounts(ActorService actors, JdbcClient jdbc, PasswordEncoder passwordEncoder) {
         this.actors = actors;
         this.jdbc = jdbc;
         this.passwordEncoder = passwordEncoder;
-        this.transaction = new TransactionTemplate(transactionManager);
     }
 
     static boolean isValidPassword(String password) {
@@ -67,14 +59,9 @@ class LocalAccounts implements UserDetailsService {
      */
     boolean signUp(String username, String password) {
         requireValidPassword(password);
-        // Hashing is slow, so it happens before the transaction takes a connection.
+        // Hashing is slow, so it happens before the transaction takes a database connection.
         var hash = passwordEncoder.encode(password);
-        var created = transaction.execute(status -> {
-            var actor = actors.createLocalIfAbsent(username);
-            actor.ifPresent(value -> insertCredential(value.id(), hash));
-            return actor.isPresent();
-        });
-        return Boolean.TRUE.equals(created);
+        return actors.createLocalIfAbsent(username, actor -> insertCredential(actor.id(), hash)).isPresent();
     }
 
     /**
@@ -87,6 +74,10 @@ class LocalAccounts implements UserDetailsService {
 
     boolean hasPassword(UUID actorId) {
         return passwordHash(actorId).isPresent();
+    }
+
+    boolean passwordMatches(UUID actorId, String password) {
+        return passwordHash(actorId).filter(hash -> passwordEncoder.matches(password, hash)).isPresent();
     }
 
     private void insertCredential(UUID actorId, String hash) {

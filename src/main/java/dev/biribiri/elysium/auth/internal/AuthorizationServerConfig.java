@@ -15,6 +15,7 @@ import org.springframework.security.oauth2.server.authorization.client.JdbcRegis
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 
+import java.time.Duration;
 import java.util.Map;
 
 @Configuration(proxyBeanMethods = false)
@@ -28,15 +29,23 @@ class AuthorizationServerConfig {
     private static final int ARGON2_ITERATIONS = 2;
 
     /**
-     * Hashes both passwords and client secrets. Hashes carry the encoder ID as a prefix, so the parameters can change
-     * later without invalidating existing hashes. There must only be one of these beans, because Spring Authorization
-     * Server silently falls back to its own encoder otherwise.
+     * Each hash runs on one CPU, so more at once than there are CPUs would only make them all slower.
+     */
+    private static final int MAX_CONCURRENT_HASHES = Math.max(2, Runtime.getRuntime().availableProcessors());
+    private static final Duration MAX_HASH_WAIT = Duration.ofSeconds(5);
+
+    /**
+     * Hashes passwords. Hashes carry the encoder ID as a prefix, so the parameters can change later without invalidating
+     * existing hashes. Client secrets use {@link ClientSecretEncoder} instead.
      */
     @Bean
     PasswordEncoder passwordEncoder() {
         var argon2id = new Argon2PasswordEncoder(
                 ARGON2_SALT_BYTES, ARGON2_HASH_BYTES, ARGON2_PARALLELISM, ARGON2_MEMORY_KIB, ARGON2_ITERATIONS);
-        return new DelegatingPasswordEncoder(PASSWORD_ENCODER_ID, Map.of(PASSWORD_ENCODER_ID, argon2id));
+        return new ConcurrencyLimitedPasswordEncoder(
+                new DelegatingPasswordEncoder(PASSWORD_ENCODER_ID, Map.of(PASSWORD_ENCODER_ID, argon2id)),
+                MAX_CONCURRENT_HASHES,
+                MAX_HASH_WAIT);
     }
 
     @Bean

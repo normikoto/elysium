@@ -3,22 +3,27 @@ package dev.biribiri.elysium.actor;
 import dev.biribiri.elysium.actor.internal.ActorRepository;
 import dev.biribiri.elysium.actor.internal.RsaKeys;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 @Service
 public class ActorService {
 
     private final ActorRepository actors;
     private final InstanceProperties instance;
+    private final TransactionTemplate transaction;
 
-    ActorService(ActorRepository actors, InstanceProperties instance) {
+    ActorService(ActorRepository actors, InstanceProperties instance, PlatformTransactionManager transactionManager) {
         this.actors = actors;
         this.instance = instance;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -46,6 +51,19 @@ public class ActorService {
      * @throws IllegalArgumentException if the username isn't valid
      */
     public Optional<Actor> createLocalIfAbsent(String username) {
+        return createLocalIfAbsent(username, actor -> {
+        });
+    }
+
+    /**
+     * Creates a local actor unless an actor with the same identity already exists.
+     *
+     * @param onCreated runs in the same transaction if the actor is created, so if it fails then the actor isn't created
+     *                  either
+     * @return the new actor, or empty if the identity is taken
+     * @throws IllegalArgumentException if the username isn't valid
+     */
+    public Optional<Actor> createLocalIfAbsent(String username, Consumer<Actor> onCreated) {
         if (!Actor.isValidLocalUsername(username)) {
             throw new IllegalArgumentException("Local usernames must be 1 to 30 letters, digits, or underscores");
         }
@@ -53,6 +71,7 @@ public class ActorService {
             return Optional.empty();
         }
 
+        // Generating keys is slow, so it happens before the transaction takes a database connection.
         var keys = RsaKeys.generate();
         var actorPath = "/users/" + username;
         var actor = new Actor(
@@ -66,6 +85,13 @@ public class ActorService {
                 keys.publicKeyPem(),
                 // PostgreSQL stores microseconds, so this matches what a later read returns.
                 Instant.now().truncatedTo(ChronoUnit.MICROS));
-        return actors.createLocalIfAbsent(actor, keys.privateKeyPem()) ? Optional.of(actor) : Optional.empty();
+        var created = transaction.execute(status -> {
+            if (!actors.createLocalIfAbsent(actor, keys.privateKeyPem())) {
+                return false;
+            }
+            onCreated.accept(actor);
+            return true;
+        });
+        return Boolean.TRUE.equals(created) ? Optional.of(actor) : Optional.empty();
     }
 }
