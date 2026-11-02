@@ -1,3 +1,6 @@
+# To change a setting, run systemctl edit elysium instead of editing this file, so that installing a newer version of it
+# doesn't lose your change.
+
 [Unit]
 Description=Elysium server
 
@@ -9,22 +12,26 @@ WorkingDirectory=/opt/elysium
 # Location of your application.properties file. Copy it from application.properties.example in the repository.
 Environment=SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/elysium/application.properties
 Environment=SPRING_PROFILES_ACTIVE=prod
+# Optional environment variables that shouldn't be public, such as ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD. Don't use Environment=
+# for those, because any local user can read them with systemctl show. systemd reads this file as root, so it can be
+# readable only by root.
+EnvironmentFile=-/etc/elysium/elysium.env
 ExecStart=/usr/bin/java -jar elysium.jar
 
 # Everything below limits what the server can do if it's compromised. Check the result with:
 #   systemd-analyze security elysium.service
 
-# Privileges. To listen on a port below 1024, set AmbientCapabilities=CAP_NET_BIND_SERVICE, add the same value to
-# CapabilityBoundingSet, and remove PrivateUsers.
+# Privileges. To listen on a port below 1024, set AmbientCapabilities=CAP_NET_BIND_SERVICE and
+# CapabilityBoundingSet=CAP_NET_BIND_SERVICE, and set PrivateUsers=false.
 NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictSUIDSGID=true
 PrivateUsers=true
 
-# Filesystem. The server can only write to its private /tmp, and files it creates are private to its user. /home isn't
-# visible, so the JAR and JDK can't be installed there. If you configure the server to write elsewhere, such as to a log
-# file, allow that directory with ReadWritePaths.
+# Filesystem. The server can only write to its private /tmp and /var/tmp, and to /dev/shm, which isn't private. Files it
+# creates are private to its user. /home, /root and /run/user aren't visible, so the JAR and JDK can't be installed there.
+# If you configure the server to write elsewhere, such as to a log file, allow that directory with ReadWritePaths.
 UMask=0077
 ProtectSystem=strict
 ProtectHome=true

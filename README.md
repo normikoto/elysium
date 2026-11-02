@@ -12,7 +12,7 @@ You'll need JDK 25 or later installed on your system. Run the following:
 ./gradlew bootJar
 ```
 
-Copy the resulting JAR into a suitable location.
+Copy the resulting `build/libs/elysium.jar` into a suitable location.
 
 ## Running
 To run:
@@ -85,7 +85,7 @@ useradd --system --user-group --home-dir /opt/elysium --shell /usr/sbin/nologin 
 
 # Install the JAR. The server only needs to read it, so root keeps ownership.
 install -d -m 755 /opt/elysium
-install -m 644 build/libs/elysium-0.0.1-SNAPSHOT.jar /opt/elysium/elysium.jar
+install -m 644 build/libs/elysium.jar /opt/elysium/elysium.jar
 
 # Install your config, which only the elysium group can read because it contains your database password
 install -d -m 750 -g elysium /etc/elysium
@@ -93,11 +93,21 @@ install -m 640 -g elysium application.properties.example /etc/elysium/applicatio
 # Edit /etc/elysium/application.properties...
 
 cp elysium.service /etc/systemd/system
-# Optionally edit the service file to your needs...
 systemctl daemon-reload
 systemctl enable --now elysium.service
 ```
 
-The sandbox makes the filesystem read-only apart from a private `/tmp`, and hides `/home`, so `java` and the JAR must be
-installed outside it. If you need the server to write somewhere, or to listen on a port below 1024, the comments in
-`elysium.service` explain what to change.
+To change a setting in the service file, use `systemctl edit elysium` instead of editing the file, so that installing a
+newer version of it doesn't lose your change.
+
+To set the admin's password through `ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD`, put it in `/etc/elysium/elysium.env` before
+starting the service. systemd reads this file as root, so the server's user doesn't need access:
+```shell
+install -m 600 /dev/null /etc/elysium/elysium.env
+# Add a line to /etc/elysium/elysium.env: ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD=...
+```
+
+The sandbox makes the filesystem read-only apart from private `/tmp` and `/var/tmp` directories and `/dev/shm`, which
+isn't private. It also hides `/home`, `/root` and `/run/user`, so `java` and the JAR must be installed outside them. If
+you need the server to write somewhere, or to listen on a port below 1024, the comments in `elysium.service` explain what
+to change.
