@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET /api/v1/apps/verify_credentials` and `GET /api/v1/accounts/verify_credentials`
 - Public API documentation, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs`
 - `application.properties.example`, a starting point for your own config
+- Production Docker Compose setup in `compose.yaml`, which runs the image from `./gradlew bootBuildImage`
 
 ### Changed
 

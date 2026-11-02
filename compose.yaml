@@ -1,9 +1,48 @@
+# Production. Build the image with ./gradlew bootBuildImage, copy .env.example to .env and edit it, then run
+# docker compose up -d. For local development, see compose.dev.yaml instead.
+name: elysium-prod
+
 services:
+  app:
+    image: 'elysium:latest'
+    # This image only exists locally, so don't let a missing one pull something else with the same name from Docker Hub.
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: 'jdbc:postgresql://postgres:5432/${POSTGRES_DB:-elysium}'
+      SPRING_DATASOURCE_USERNAME: '${POSTGRES_USER:-elysium}'
+      SPRING_DATASOURCE_PASSWORD: '${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}'
+      ELYSIUM_INSTANCE_BASE_URL: '${ELYSIUM_INSTANCE_BASE_URL:?set ELYSIUM_INSTANCE_BASE_URL in .env}'
+      # Only passed on if they're set in .env. Otherwise the defaults built into the JAR apply.
+      ELYSIUM_BOOTSTRAP_ADMIN_USERNAME:
+      ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD:
+      ELYSIUM_REGISTRATION_ENABLED:
+      # The server trusts forwarded headers, which is why the port below is only published on the loopback interface.
+      # Keep it that way, with a reverse proxy on this host handling HTTPS, unless you also remove this setting.
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+    ports:
+      - '127.0.0.1:8080:8080'
+
   postgres:
     image: 'postgres:18-alpine'
+    restart: unless-stopped
     environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
-    ports:
-      - '5432'
+      POSTGRES_DB: '${POSTGRES_DB:-elysium}'
+      POSTGRES_USER: '${POSTGRES_USER:-elysium}'
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}'
+    healthcheck:
+      # Over TCP, because the image's temporary server during first-time setup only answers on the Unix socket.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      # PostgreSQL 18 images keep their data in a versioned directory under this path, not in its data subdirectory.
+      - 'postgres-data:/var/lib/postgresql'
+
+volumes:
+  postgres-data:

@@ -23,6 +23,25 @@ export SPRING_PROFILES_ACTIVE=prod
 java -jar elysium.jar
 ```
 
+### Running with Docker Compose
+`compose.yaml` runs the server and a PostgreSQL database. You'll need Docker, as well as JDK 25 or later to build the
+image:
+```shell
+./gradlew bootBuildImage
+cp .env.example .env
+# Edit .env to set your server's URL and a database password...
+docker compose up -d
+```
+
+If the image build can't connect to Docker, which can happen with Docker Desktop or Colima, build it with
+`./gradlew bootBuildImage -PbindDockerHostToBuilder=false`.
+
+PostgreSQL isn't reachable from outside its Docker network, and its data is kept in the `postgres-data` volume. The
+server listens on `127.0.0.1:8080`, so you need a reverse proxy on the same host to handle HTTPS. Because the proxy is
+the only way to reach the server, `server.forward-headers-strategy=native` is already set.
+
+To upgrade, run `./gradlew bootBuildImage` again, then `docker compose up -d`.
+
 ### Configuration
 Your `application.properties` only needs the settings you want to change. Anything else uses the defaults built into the
 JAR, so upgrades can update those defaults without you editing your file. If you use `SPRING_CONFIG_LOCATION` instead,
@@ -73,7 +92,7 @@ API documentation is public, with Swagger UI at `/api-docs/ui` and the OpenAPI d
 
 ### Local development
 `./gradlew bootRun` activates the `dev` profile, which sets the base URL to `http://localhost:8080`, and starts
-PostgreSQL through `compose.yaml`. If you run the application another way, such as from your IDE, activate the `dev`
+PostgreSQL through `compose.dev.yaml`. If you run the application another way, such as from your IDE, activate the `dev`
 profile yourself.
 
 ### Running as a service

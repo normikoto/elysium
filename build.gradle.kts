@@ -71,6 +71,17 @@ tasks.bootRun {
     systemProperty("spring.profiles.active", "dev")
 }
 
+tasks.bootBuildImage {
+    // compose.yaml runs this tag, so it doesn't need updating whenever the version changes.
+    tags.add("elysium:latest")
+    // The builder otherwise always mounts /var/run/docker.sock, which fails with rootless Docker. Binding the client's
+    // socket path instead can fail with Docker Desktop or Colima, where that path isn't in the daemon's VM, so it can be
+    // turned off with -PbindDockerHostToBuilder=false.
+    docker {
+        bindHostToBuilder = providers.gradleProperty("bindDockerHostToBuilder").map { it.toBoolean() }.orElse(true)
+    }
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }
