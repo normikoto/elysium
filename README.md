@@ -20,6 +20,17 @@ export SPRING_PROFILES_ACTIVE=prod
 java -jar elysium.jar
 ```
 
+### Configuration
+Set these in your `application.properties`:
+
+| Property                           | Description                                                                                                                                             |
+|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `elysium.instance.base-url`        | Public URL of the server, with no path. A real server must use a public HTTPS URL. Actor URIs and the instance domain come from it, so don't change it after federating. |
+| `elysium.bootstrap.admin-username` | Optional. Creates this local actor on startup if it doesn't exist yet.                                                                                  |
+
+You also need to point `spring.datasource.*` at your PostgreSQL database. Migrations run automatically on startup.
+
+### Running as a service
 If you're using a Linux distribution with systemd, you can use the `elysium.service` file to start the application on
 boot:
 ```shell
