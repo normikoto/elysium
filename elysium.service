@@ -3,8 +3,8 @@ Description=Elysium server
 
 [Service]
 WorkingDirectory=/opt/elysium
-# Location of the application.properties file. Copy the file from src/main/resources/application.proeprties.
-Environment=SPRING_CONFIG_LOCATION=/etc/elysium/application.properties
+# Location of your application.properties file. Copy it from application.properties.example in the repository.
+Environment=SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/elysium/application.properties
 Environment=SPRING_PROFILES_ACTIVE=prod
 ExecStart=/usr/bin/java -jar elysium.jar
 

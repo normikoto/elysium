@@ -1,0 +1,25 @@
+# Copy this file to where SPRING_CONFIG_ADDITIONAL_LOCATION points, then edit it.
+# Settings here override the defaults built into the JAR, so only add the ones you want to change.
+
+# Required: the public URL of this server, with no path. Federating with other servers requires a public HTTPS URL.
+# Don't change it after federating: actor URIs and the instance domain are derived from it.
+elysium.instance.base-url=https://example.com
+
+# Required: your PostgreSQL database. Migrations run automatically on startup.
+spring.datasource.url=jdbc:postgresql://localhost:5432/elysium
+spring.datasource.username=elysium
+spring.datasource.password=
+
+# Creates this local actor on startup if it doesn't exist yet.
+#elysium.bootstrap.admin-username=admin
+
+# Sets the admin's password if it doesn't have one. It never replaces an existing password. Must be 8 to 128 characters.
+# Prefer setting this through the ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD environment variable.
+#elysium.bootstrap.admin-password=
+
+# Lets anyone create an account at /signup. There's no email confirmation or rate limiting.
+#elysium.registration.enabled=false
+
+# Uncomment if a reverse proxy handles HTTPS and is the only way to reach this server, so that redirects use the public
+# URL. The server trusts the forwarded headers it receives.
+#server.forward-headers-strategy=native
