@@ -132,7 +132,7 @@ class DiscoveryIntegrationTests {
     @Test
     void rejectsUnauthenticatedRequestsToOtherPaths() throws Exception {
         // This path exists, so it would return 200 rather than 403 if it were left open.
-        mockMvc.perform(get("/v3/api-docs")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/actuator")).andExpect(status().isForbidden());
     }
 
     @Test
