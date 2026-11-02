@@ -78,10 +78,26 @@ profile yourself.
 
 ### Running as a service
 If you're using a Linux distribution with systemd, you can use the `elysium.service` file to start the application on
-boot:
+boot. It runs the server as a dedicated `elysium` user, in a sandbox. As root:
 ```shell
+# Create the user and group
+useradd --system --user-group --home-dir /opt/elysium --shell /usr/sbin/nologin elysium
+
+# Install the JAR. The server only needs to read it, so root keeps ownership.
+install -d -m 755 /opt/elysium
+install -m 644 build/libs/elysium-0.0.1-SNAPSHOT.jar /opt/elysium/elysium.jar
+
+# Install your config, which only the elysium group can read because it contains your database password
+install -d -m 750 -g elysium /etc/elysium
+install -m 640 -g elysium application.properties.example /etc/elysium/application.properties
+# Edit /etc/elysium/application.properties...
+
 cp elysium.service /etc/systemd/system
 # Optionally edit the service file to your needs...
 systemctl daemon-reload
 systemctl enable --now elysium.service
 ```
+
+The sandbox makes the filesystem read-only apart from a private `/tmp`, and hides `/home`, so `java` and the JAR must be
+installed outside it. If you need the server to write somewhere, or to listen on a port below 1024, the comments in
+`elysium.service` explain what to change.

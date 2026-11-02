@@ -2,11 +2,59 @@
 Description=Elysium server
 
 [Service]
+# Create this user and group first: see "Running as a service" in README.md.
+User=elysium
+Group=elysium
 WorkingDirectory=/opt/elysium
 # Location of your application.properties file. Copy it from application.properties.example in the repository.
 Environment=SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/elysium/application.properties
 Environment=SPRING_PROFILES_ACTIVE=prod
 ExecStart=/usr/bin/java -jar elysium.jar
+
+# Everything below limits what the server can do if it's compromised. Check the result with:
+#   systemd-analyze security elysium.service
+
+# Privileges. To listen on a port below 1024, set AmbientCapabilities=CAP_NET_BIND_SERVICE, add the same value to
+# CapabilityBoundingSet, and remove PrivateUsers.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+PrivateUsers=true
+
+# Filesystem. The server can only write to its private /tmp, and files it creates are private to its user. /home isn't
+# visible, so the JAR and JDK can't be installed there. If you configure the server to write elsewhere, such as to a log
+# file, allow that directory with ReadWritePaths.
+UMask=0077
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+
+# Kernel and host.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+
+# Processes. Other users' processes are hidden. ProcSubset=pid isn't set because it hides /proc/stat, which the JVM reads
+# for its system CPU metrics. The server still runs with it, so you can add it if you don't need those.
+ProtectProc=invisible
+RemoveIPC=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+
+# Network. Federation and PostgreSQL need outbound access, so IP addresses aren't restricted.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# System calls. MemoryDenyWriteExecute isn't set because it breaks the JVM's JIT compiler.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

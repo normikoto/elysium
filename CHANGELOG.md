@@ -25,3 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   To switch, set `SPRING_CONFIG_ADDITIONAL_LOCATION` instead of `SPRING_CONFIG_LOCATION`, and remove any lines you
   didn't change from your `application.properties`. Lines you keep continue to override the built-in defaults. If you
   use `elysium.service`, make the same change in your installed copy.
+- `elysium.service` now runs the server as a dedicated `elysium` user and group, in a sandbox. To switch, create the user
+  and let its group read your config, as described under "Running as a service" in the README, then install the new
+  file. The server can no longer write outside a private `/tmp` or see `/home`, so if it writes logs elsewhere or `java`
+  or the JAR is under `/home`, follow the comments in the file or move them.
