@@ -21,7 +21,10 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -591,6 +594,26 @@ class OAuthIntegrationTests {
         assertThat(jdbc.sql("SELECT client_secret FROM oauth2_registered_client WHERE client_id = :id")
                 .param("id", app.clientId()).query(String.class).single())
                 .startsWith("{sha256}");
+    }
+
+    /**
+     * More requests at once than the connection pool has connections. Checking a token looks up its client while reading
+     * the token, so if those used separate connections, these requests would all wait on each other until they timed out.
+     */
+    @Test
+    void checksMoreTokensAtOnceThanThereAreConnections() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        var token = userToken(app, "read");
+        try (var executor = Executors.newFixedThreadPool(32)) {
+            List<Callable<Integer>> requests = IntStream.range(0, 64)
+                    .<Callable<Integer>>mapToObj(i -> () -> mockMvc
+                            .perform(withToken(get("/api/v1/accounts/verify_credentials"), token))
+                            .andReturn().getResponse().getStatus())
+                    .toList();
+            for (var request : executor.invokeAll(requests)) {
+                assertThat(request.get()).isEqualTo(200);
+            }
+        }
     }
 
     // Revocation

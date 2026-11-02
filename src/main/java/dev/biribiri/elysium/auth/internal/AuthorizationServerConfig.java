@@ -14,6 +14,8 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.util.Map;
@@ -54,14 +56,17 @@ class AuthorizationServerConfig {
     }
 
     @Bean
-    OAuth2AuthorizationService authorizationService(JdbcOperations jdbc, RegisteredClientRepository clients) {
-        return new JdbcOAuth2AuthorizationService(jdbc, clients);
+    OAuth2AuthorizationService authorizationService(
+            JdbcOperations jdbc, RegisteredClientRepository clients, PlatformTransactionManager transactionManager) {
+        return new SingleConnectionAuthorizationService(
+                new JdbcOAuth2AuthorizationService(jdbc, clients), new TransactionTemplate(transactionManager));
     }
 
     @Bean
     OAuth2AuthorizationConsentService authorizationConsentService(
-            JdbcOperations jdbc, RegisteredClientRepository clients) {
-        return new JdbcOAuth2AuthorizationConsentService(jdbc, clients);
+            JdbcOperations jdbc, RegisteredClientRepository clients, PlatformTransactionManager transactionManager) {
+        return new SingleConnectionAuthorizationConsentService(
+                new JdbcOAuth2AuthorizationConsentService(jdbc, clients), new TransactionTemplate(transactionManager));
     }
 
     @Bean
