@@ -4,6 +4,10 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -12,11 +16,14 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
@@ -25,12 +32,24 @@ import java.util.UUID;
 @RequestMapping("/api/v1/statuses")
 public class StatusesController {
 
+    /**
+     * The most a character can take up in JSON, as an escaped surrogate pair like {@code \ud83d\ude00}.
+     */
+    private static final long MAX_BYTES_PER_CHARACTER = 12;
+
+    /**
+     * Room for the JSON syntax and the fields that don't count toward the length limit.
+     */
+    private static final long OTHER_FIELDS_BYTES = 64 * 1024;
+
     private final StatusService statuses;
     private final StatusResponses responses;
+    private final JsonMapper json;
 
-    StatusesController(StatusService statuses, StatusResponses responses) {
+    StatusesController(StatusService statuses, StatusResponses responses, JsonMapper json) {
         this.statuses = statuses;
         this.responses = responses;
+        this.json = json;
     }
 
     @PostMapping(consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
@@ -43,8 +62,15 @@ public class StatusesController {
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
-    public StatusResponse createFromJson(
-            @AuthenticationPrincipal TokenPrincipal token, @RequestBody Map<String, Object> body) {
+    // The API docs combine both mappings into one operation, and this replaces the body documented by the other one.
+    @RequestBody(required = true, content = {
+            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(type = "object")),
+            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE, schema = @Schema(type = "object")),
+            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE, schema = @Schema(type = "object"))
+    })
+    public StatusResponse createFromJson(@AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request)
+            throws IOException {
+        var body = readJson(request);
         rejectUnsupported(body);
         return create(token, body);
     }
@@ -68,14 +94,36 @@ public class StatusesController {
                 .orElseThrow(RecordNotFoundException::new);
     }
 
+    /**
+     * Reads the body here rather than through {@code @RequestBody}, which Spring would read in full before the
+     * authorization check runs, however large it is. Tomcat already limits the size of form bodies.
+     */
+    private Map<String, Object> readJson(HttpServletRequest request) throws IOException {
+        var limit = statuses.maxStoredCharacters() * MAX_BYTES_PER_CHARACTER + OTHER_FIELDS_BYTES;
+        var bytes = request.getInputStream().readNBytes(Math.toIntExact(Math.min(limit + 1, Integer.MAX_VALUE - 8)));
+        if (bytes.length > limit) {
+            throw new RequestTooLargeException();
+        }
+        Map<String, Object> body;
+        try {
+            body = json.readValue(bytes, new TypeReference<>() {
+            });
+        } catch (JacksonException e) {
+            body = null;
+        }
+        if (body == null) {
+            throw new InvalidRequestException("Validation failed: the request body must be a JSON object");
+        }
+        return body;
+    }
+
     private StatusResponse create(TokenPrincipal token, Map<String, ?> parameters) {
         var author = requireUser(token);
-        var visibility = string(parameters, "visibility");
         var draft = new NewStatus(
                 string(parameters, "status"),
                 string(parameters, "spoiler_text"),
                 string(parameters, "language"),
-                visibility == null ? Visibility.PUBLIC : Visibility.fromValue(visibility),
+                visibility(parameters),
                 flag(parameters, "sensitive"),
                 replyParent(string(parameters, "in_reply_to_id")));
         return responses.one(statuses.create(author, draft));
@@ -92,9 +140,16 @@ public class StatusesController {
     /**
      * Ignoring these would do the wrong thing without telling anyone. For example, a scheduled status would be published
      * right away. Clients can still send them empty.
+     *
+     * <p>A visibility that can't be read as one value is also rejected here, because reading only part of it could make
+     * a status public.
      */
     private static void rejectUnsupported(Map<String, ?> parameters) {
         parameters.forEach((name, value) -> {
+            var repeated = name.equals("visibility") && value instanceof Collection<?> values && values.size() > 1;
+            if (repeated || name.startsWith("visibility[")) {
+                throw new InvalidRequestException("Validation failed: visibility must be a single value");
+            }
             var unsupported = name.equals("media_ids") || name.equals("media_ids[]") || name.equals("scheduled_at")
                     || name.equals("poll") || name.startsWith("poll[");
             if (unsupported && isPresent(value)) {
@@ -114,9 +169,20 @@ public class StatusesController {
     }
 
     /**
+     * Only a missing visibility means public. An empty one is rejected, so that a client's mistake can't publish a status
+     * that was meant to be private.
+     */
+    private static Visibility visibility(Map<String, ?> parameters) {
+        return switch (parameters.get("visibility")) {
+            case null -> Visibility.PUBLIC;
+            case String value -> Visibility.fromValue(value);
+            default -> throw new InvalidRequestException("Validation failed: visibility must be a string");
+        };
+    }
+
+    /**
      * Reads a text value. An empty value counts as missing, because form clients send fields they haven't filled in. A
-     * value of the wrong type is rejected rather than treated as missing, or a malformed visibility would make a status
-     * public.
+     * value of the wrong type is rejected rather than treated as missing.
      */
     private static String string(Map<String, ?> parameters, String name) {
         return switch (parameters.get(name)) {

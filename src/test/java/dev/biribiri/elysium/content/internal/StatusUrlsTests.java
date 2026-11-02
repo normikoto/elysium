@@ -64,4 +64,14 @@ class StatusUrlsTests {
         assertThat(StatusUrls.countCharacters(longest)).isEqualTo(23);
         assertThat(StatusUrls.countCharacters(longest + "x")).isEqualTo(2049);
     }
+
+    @Test
+    void limitsHowManyCharactersUrlsCanSave() {
+        var prefix = "https://a.example/";
+        var url = prefix + "x".repeat(2048 - prefix.length());
+        assertThat(StatusUrls.countCharacters(url + " " + url)).isEqualTo(23 + 1 + 23);
+
+        var text = String.join(" ", url, url, url, url);
+        assertThat(StatusUrls.countCharacters(text)).isEqualTo(text.length() - StatusUrls.MAX_URL_SAVINGS);
+    }
 }

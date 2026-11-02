@@ -27,4 +27,23 @@ class StatusIdsTests {
         var timestamp = Instant.now();
         assertThat(StatusIds.fromTimestamp(timestamp)).isNotEqualTo(StatusIds.fromTimestamp(timestamp));
     }
+
+    @Test
+    void usesTheTimestampWhenItIsLaterThanThePreviousId() {
+        var previous = StatusIds.fromTimestamp(Instant.parse("2026-11-02T12:00:00Z"));
+        var timestamp = Instant.parse("2026-11-02T12:00:01Z");
+        assertThat(StatusIds.after(previous, timestamp).getMostSignificantBits() >>> 16)
+                .isEqualTo(timestamp.toEpochMilli());
+    }
+
+    @Test
+    void sortsAfterThePreviousIdInTheSameMillisecondOrWhenTheClockMovesBack() {
+        var timestamp = Instant.parse("2026-11-02T12:00:00Z");
+        var previous = StatusIds.fromTimestamp(timestamp);
+        for (var now : new Instant[]{timestamp, timestamp.minusSeconds(60)}) {
+            var id = StatusIds.after(previous, now);
+            assertThat(id.getMostSignificantBits() >>> 16).isEqualTo(timestamp.toEpochMilli() + 1);
+            assertThat(id.version()).isEqualTo(7);
+        }
+    }
 }

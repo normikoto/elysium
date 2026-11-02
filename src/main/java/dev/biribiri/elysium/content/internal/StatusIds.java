@@ -20,7 +20,19 @@ public final class StatusIds {
      * published.
      */
     public static UUID fromTimestamp(Instant timestamp) {
-        var mostSignificant = (timestamp.toEpochMilli() << 16) | 0x7000L | RANDOM.nextInt(1 << 12);
+        return generate(timestamp.toEpochMilli());
+    }
+
+    /**
+     * Generates an ID that sorts after {@code previous}, even if they share a millisecond or the clock has moved back.
+     */
+    public static UUID after(UUID previous, Instant timestamp) {
+        var previousMillis = previous.getMostSignificantBits() >>> 16;
+        return generate(Math.max(timestamp.toEpochMilli(), previousMillis + 1));
+    }
+
+    private static UUID generate(long millis) {
+        var mostSignificant = (millis << 16) | 0x7000L | RANDOM.nextInt(1 << 12);
         var leastSignificant = (RANDOM.nextLong() & 0x3FFFFFFFFFFFFFFFL) | 0x8000000000000000L;
         return new UUID(mostSignificant, leastSignificant);
     }

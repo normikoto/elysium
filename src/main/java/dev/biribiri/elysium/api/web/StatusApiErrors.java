@@ -27,6 +27,11 @@ class StatusApiErrors {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(Map.of("error", e.getMessage()));
     }
 
+    @ExceptionHandler(RequestTooLargeException.class)
+    ResponseEntity<Map<String, String>> requestTooLarge() {
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).body(Map.of("error", "Request body is too large"));
+    }
+
     @ExceptionHandler({RecordNotFoundException.class, ReplyParentNotFoundException.class})
     ResponseEntity<Map<String, String>> notFound() {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Record not found"));

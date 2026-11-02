@@ -38,6 +38,11 @@ public class StatusRepository {
      */
     private static final String NOT_A_REPLY_TO_OTHERS = "(NOT s.reply OR s.in_reply_to_account_id = s.actor_id)";
 
+    /**
+     * Identifies the lock on assigning status IDs. Any value works, as long as nothing else uses it as an advisory lock.
+     */
+    private static final long ID_ASSIGNMENT_LOCK = 0x656C79_7374617475L;
+
     private static final RowMapper<Status> STATUS_MAPPER = (rs, rowNum) -> new Status(
             rs.getObject("id", UUID.class),
             URI.create(rs.getString("uri")),
@@ -58,6 +63,21 @@ public class StatusRepository {
 
     StatusRepository(JdbcClient jdbc) {
         this.jdbc = jdbc;
+    }
+
+    /**
+     * Makes other transactions wait here until this one ends. Each statement runs on a new snapshot, so whatever runs
+     * after this sees the statuses that those before it committed.
+     */
+    public void lockIdAssignment() {
+        jdbc.sql("SELECT pg_advisory_xact_lock(:key)")
+                .param("key", ID_ASSIGNMENT_LOCK)
+                .query((rs, rowNum) -> true)
+                .single();
+    }
+
+    public Optional<UUID> findNewestId() {
+        return jdbc.sql("SELECT id FROM status ORDER BY id DESC LIMIT 1").query(UUID.class).optional();
     }
 
     public void insert(Status status) {

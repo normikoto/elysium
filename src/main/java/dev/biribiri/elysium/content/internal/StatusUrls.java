@@ -17,9 +17,16 @@ public final class StatusUrls {
     public static final int CHARACTERS_RESERVED_PER_URL = 23;
 
     /**
-     * Longer URLs count at their full length, so that the limit still bounds how much text a status can store.
+     * Longer URLs count at their full length.
      */
     private static final int MAX_RESERVED_URL_LENGTH = 2048;
+
+    /**
+     * How many characters all the URLs in a status can save in total by counting as fewer than they have, which is enough
+     * for two URLs of the longest length. After that, URLs count at their full length. Without this, a status full of
+     * long URLs could store many times the length limit, and even more once rendered.
+     */
+    public static final int MAX_URL_SAVINGS = 4096;
 
     /**
      * Allows printable ASCII, and letters and digits so that links like {@code https://ru.wikipedia.org/wiki/Москва}
@@ -58,14 +65,20 @@ public final class StatusUrls {
     }
 
     /**
-     * Counts code points, with each URL counted as {@value CHARACTERS_RESERVED_PER_URL} characters.
+     * Counts code points, with each URL counted as {@value CHARACTERS_RESERVED_PER_URL} characters, until the URLs have
+     * saved {@value MAX_URL_SAVINGS} characters.
      */
     public static int countCharacters(String text) {
         var count = text.codePointCount(0, text.length());
+        var savings = 0;
         for (var match : find(text)) {
             var length = text.codePointCount(match.start(), match.end());
-            if (length <= MAX_RESERVED_URL_LENGTH) {
+            if (length <= CHARACTERS_RESERVED_PER_URL) {
                 count += CHARACTERS_RESERVED_PER_URL - length;
+            } else if (length <= MAX_RESERVED_URL_LENGTH) {
+                var saved = Math.min(length - CHARACTERS_RESERVED_PER_URL, MAX_URL_SAVINGS - savings);
+                count -= saved;
+                savings += saved;
             }
         }
         return count;

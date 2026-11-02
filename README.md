@@ -92,7 +92,10 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
 
 - Statuses can't be edited, and media, polls, scheduled posts, and `GET /api/v1/statuses/:id/context` aren't implemented.
 - The length limit defaults to 5000 characters rather than 500. As in Mastodon, each URL counts as 23 characters, unless
-  it's longer than 2048 characters, in which case it counts at its full length.
+  it's longer than 2048 characters, in which case it counts at its full length. URLs can save at most 4096 characters
+  per status, and any URLs after that also count at their full length.
+- `visibility` defaults to `public` only when it's missing. An empty value is rejected, as are a repeated value and
+  `visibility[]`.
 - `GET /api/v1/instance` reports the limit in `max_toot_chars` and `configuration.statuses.max_characters`, but
   `/api/v2/instance` isn't implemented. Clients that don't read the limit from v1 may apply their own limit of 500.
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.

@@ -41,6 +41,15 @@ class ApiDocsIntegrationTests {
     }
 
     @Test
+    void documentsEveryFormatForCreatingAStatus() throws Exception {
+        var content = "$.paths['/api/v1/statuses'].post.requestBody.content";
+        mockMvc.perform(get("/api-docs"))
+                .andExpect(jsonPath(content + "['application/json']").exists())
+                .andExpect(jsonPath(content + "['application/x-www-form-urlencoded']").exists())
+                .andExpect(jsonPath(content + "['multipart/form-data']").exists());
+    }
+
+    @Test
     void servesTheOpenApiDocumentAsYaml() throws Exception {
         mockMvc.perform(get("/api-docs.yaml"))
                 .andExpect(status().isOk())

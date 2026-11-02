@@ -16,6 +16,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -84,6 +85,20 @@ class StatusServiceTests {
     void buildsTheUriFromTheAuthorAndId() {
         var status = service.create(AUTHOR, draft("hello", null));
         assertThat(status.uri()).isEqualTo(BASE_URL.resolve("/users/alice/statuses/" + status.id()));
+    }
+
+    @Test
+    void assignsTheIdWhileHoldingTheLock() {
+        var newest = UUID.fromString("019a0000-0000-7000-8000-000000000000");
+        when(repository.findNewestId()).thenReturn(Optional.of(newest));
+
+        var status = service.create(AUTHOR, draft("hello", null));
+
+        var order = inOrder(repository);
+        order.verify(repository).lockIdAssignment();
+        order.verify(repository).findNewestId();
+        order.verify(repository).insert(status);
+        assertThat(status.id().getMostSignificantBits() >>> 16).isGreaterThan(newest.getMostSignificantBits() >>> 16);
     }
 
     @Test

@@ -23,6 +23,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -129,12 +132,46 @@ class StatusesIntegrationTests {
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("status", "Hello")
                         .param("in_reply_to_id", "")
-                        .param("visibility", "")
                         .param("language", "")
                         .param("scheduled_at", ""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.visibility").value("public"))
                 .andExpect(jsonPath("$.language").value(nullValue()));
+    }
+
+    @Test
+    void rejectsAVisibilityThatIsEmptyOrAmbiguous() throws Exception {
+        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Secret\", \"visibility\": \"\"}"))
+                .andExpect(status().isUnprocessableContent());
+        for (var request : List.of(
+                createRequest(alice(), "Secret").param("visibility", ""),
+                createRequest(alice(), "Secret").param("visibility", "", "direct"),
+                createRequest(alice(), "Secret").param("visibility", "public", "direct"),
+                createRequest(alice(), "Secret").param("visibility[]", "private"),
+                createRequest(alice(), "Secret").param("visibility[]", ""))) {
+            mockMvc.perform(request)
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.error").value(containsString("Validation failed")));
+        }
+        assertThat(jdbc.sql("SELECT count(*) FROM status").query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void idsFollowTheOrderStatusesAreCommittedIn() throws Exception {
+        var token = alice();
+        // Stays below the connection pool's size of 10, because checking a token briefly needs two connections.
+        try (var executor = Executors.newFixedThreadPool(8)) {
+            List<Callable<String>> creates = IntStream.range(0, 200)
+                    .<Callable<String>>mapToObj(i -> () -> create(token, "Status " + i))
+                    .toList();
+            for (var created : executor.invokeAll(creates)) {
+                created.get();
+            }
+        }
+        // Inside the lock, a transaction gets its ID at its first write, so these numbers follow the commit order.
+        var byCommit = jdbc.sql("SELECT id FROM status ORDER BY xmin::text::bigint").query(String.class).list();
+        var byId = jdbc.sql("SELECT id FROM status ORDER BY id").query(String.class).list();
+        assertThat(byCommit).hasSize(200).isEqualTo(byId);
     }
 
     @Test
@@ -184,6 +221,41 @@ class StatusesIntegrationTests {
         }
         mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": 5}")).andExpect(status().isUnprocessableContent());
         assertThat(jdbc.sql("SELECT count(*) FROM status").query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void rejectsJsonThatIsNotAnObject() throws Exception {
+        for (var body : List.of("", "null", "[]", "\"Hello\"", "{\"status\": ")) {
+            mockMvc.perform(jsonCreateRequest(alice(), body))
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.error").value(containsString("JSON object")));
+        }
+    }
+
+    @Test
+    void limitsTheSizeOfJsonBodies() throws Exception {
+        var longestEscaped = "\\ud83d\\ude00".repeat(5000);
+        expectCreated(jsonCreateRequest(alice(), "{\"status\": \"" + longestEscaped + "\"}"));
+
+        var tooLarge = "{\"status\": \"" + "a".repeat(1024 * 1024) + "\"}";
+        mockMvc.perform(jsonCreateRequest(alice(), tooLarge))
+                .andExpect(status().isContentTooLarge())
+                .andExpect(jsonPath("$.error").value("Request body is too large"));
+    }
+
+    @Test
+    void checksTheScopeBeforeReadingAJsonBody() throws Exception {
+        var readOnly = token("alice", "read");
+        for (var body : List.of("{\"status\": ", "a".repeat(1024 * 1024))) {
+            mockMvc.perform(jsonCreateRequest(readOnly, body)).andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    void limitsHowMuchTextUrlsCanAddToAStatus() throws Exception {
+        var url = "https://a.example/" + "&".repeat(2000);
+        mockMvc.perform(createRequest(alice(), (url + " ").repeat(208)))
+                .andExpect(status().isUnprocessableContent());
     }
 
     @Test
@@ -371,6 +443,22 @@ class StatusesIntegrationTests {
         mockMvc.perform(get("/api/v1/accounts/" + bobId() + "/statuses").param("exclude_replies", "true"))
                 .andExpect(jsonPath("$", empty()));
         mockMvc.perform(get("/api/v1/accounts/" + bobId() + "/statuses")).andExpect(jsonPath("$", hasSize(1)));
+    }
+
+    @Test
+    void leavesOutStatusesWhoseAuthorCannotBeLoaded() throws Exception {
+        var orphan = create(token("dave", "read write"), "Orphan");
+        var kept = create(bob(), "Kept");
+        var older = create(token("dave", "read write"), "Older orphan");
+        jdbc.sql("DELETE FROM local_account WHERE actor_id = (SELECT id FROM actor WHERE username = 'dave')").update();
+
+        expectIds(get(TIMELINE), kept);
+        mockMvc.perform(get("/api/v1/statuses/" + orphan)).andExpect(status().isNotFound());
+        // The page is full before statuses are left out, so it still links to whatever is older.
+        mockMvc.perform(get(TIMELINE).param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", empty()))
+                .andExpect(header().string("Link", containsString("max_id=" + older)));
     }
 
     // Lists

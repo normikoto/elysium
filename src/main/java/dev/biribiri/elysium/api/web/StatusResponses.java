@@ -34,16 +34,27 @@ class StatusResponses {
         this.instance = instance;
     }
 
+    /**
+     * @throws RecordNotFoundException if the status's author can't be loaded
+     */
     StatusResponse one(Status status) {
-        return build(List.of(status), false).getFirst();
-    }
-
-    StatusResponse oneWithText(Status status) {
-        return build(List.of(status), true).getFirst();
+        return only(build(List.of(status), false));
     }
 
     /**
-     * Builds a page of statuses, with a {@code Link} header pointing to the pages around it.
+     * @throws RecordNotFoundException if the status's author can't be loaded
+     */
+    StatusResponse oneWithText(Status status) {
+        return only(build(List.of(status), true));
+    }
+
+    private static StatusResponse only(List<StatusResponse> built) {
+        return built.stream().findFirst().orElseThrow(RecordNotFoundException::new);
+    }
+
+    /**
+     * Builds a page of statuses, with a {@code Link} header pointing to the pages around it. The links come from every
+     * status found, so paging still works if {@link #build} leaves some out.
      *
      * @param filters the request's parameters to repeat in those links, leaving out the page cursors
      */
@@ -57,12 +68,17 @@ class StatusResponses {
         return response.body(build(found, false));
     }
 
+    /**
+     * Leaves out statuses whose author can't be loaded, such as when the account was deleted after the statuses were
+     * read, so that one of them doesn't fail the whole response.
+     */
     private List<StatusResponse> build(List<Status> found, boolean includeText) {
         var actorIds = found.stream().map(Status::actorId).collect(Collectors.toSet());
         var authors = actors.findLocalByIds(actorIds).stream()
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
         var stats = statuses.statsFor(actorIds);
         return found.stream()
+                .filter(status -> authors.containsKey(status.actorId()))
                 .map(status -> StatusResponse.from(
                         status,
                         AccountResponse.from(

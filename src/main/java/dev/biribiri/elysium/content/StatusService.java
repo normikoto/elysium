@@ -65,10 +65,6 @@ public class StatusService {
 
         var author = actors.findLocalById(authorId)
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
-        // PostgreSQL stores microseconds, so this matches what a later read returns.
-        var publishedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var id = StatusIds.fromTimestamp(publishedAt);
-        var uri = instance.resolve("/users/" + author.username() + "/statuses/" + id);
         var content = StatusRenderer.render(text);
 
         return transaction.execute(tx -> {
@@ -77,6 +73,17 @@ public class StatusService {
                     : Optional.of(statuses.findByIdAndLock(draft.inReplyToId())
                     .filter(candidate -> candidate.isVisibleTo(Optional.of(authorId)))
                     .orElseThrow(ReplyParentNotFoundException::new));
+
+            // Clients poll for statuses newer than the last ID they saw, so a status must never become visible after one
+            // with a later ID, or they would miss it. Holding this lock until commit makes IDs and commits happen in the
+            // same order.
+            statuses.lockIdAssignment();
+            // PostgreSQL stores microseconds, so this matches what a later read returns.
+            var publishedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+            var id = statuses.findNewestId()
+                    .map(newest -> StatusIds.after(newest, publishedAt))
+                    .orElseGet(() -> StatusIds.fromTimestamp(publishedAt));
+            var uri = instance.resolve("/users/" + author.username() + "/statuses/" + id);
             var status = new Status(
                     id,
                     uri,
@@ -142,6 +149,14 @@ public class StatusService {
      */
     public int charactersReservedPerUrl() {
         return StatusUrls.CHARACTERS_RESERVED_PER_URL;
+    }
+
+    /**
+     * The most characters a new status can have stored, which is more than the length limit because URLs count as fewer
+     * characters than they have.
+     */
+    public long maxStoredCharacters() {
+        return (long) properties.maxCharacters() + StatusUrls.MAX_URL_SAVINGS;
     }
 
     /**
