@@ -452,7 +452,7 @@ class OAuthIntegrationTests {
         var session = new MockHttpSession();
         mockMvc.perform(authorizeRequest(app, session, "read", null)).andExpect(status().is3xxRedirection());
 
-        mockMvc.perform(get("/v3/api-docs").session(session)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/actuator").session(session)).andExpect(status().isForbidden());
 
         assertThat(logIn(session, "admin", PASSWORD)).contains("/oauth/authorize");
     }
@@ -690,7 +690,7 @@ class OAuthIntegrationTests {
     @Test
     void aLoggedInUserCannotReachInternalEndpoints() throws Exception {
         var session = loggedInSession();
-        for (var path : List.of("/v3/api-docs", "/swagger-ui/index.html", "/actuator", "/actuator/env",
+        for (var path : List.of("/v3/api-docs", "/actuator", "/actuator/env",
                 "/actuator/prometheus", "/not-a-real-path")) {
             mockMvc.perform(get(path).session(session)).andExpect(status().isForbidden());
         }
@@ -699,7 +699,7 @@ class OAuthIntegrationTests {
     @Test
     void aBearerTokenCannotReachInternalEndpoints() throws Exception {
         var token = appToken(registerApp("read", REDIRECT_URI));
-        mockMvc.perform(withToken(get("/v3/api-docs"), token)).andExpect(status().isForbidden());
+        mockMvc.perform(withToken(get("/actuator"), token)).andExpect(status().isForbidden());
     }
 
     // CORS

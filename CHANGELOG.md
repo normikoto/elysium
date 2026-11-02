@@ -16,3 +16,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mastodon-compatible OAuth 2: app registration, authorization code and client credentials grants, token revocation,
   scopes, and server metadata
 - `GET /api/v1/apps/verify_credentials` and `GET /api/v1/accounts/verify_credentials`
+- Public API documentation, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs`

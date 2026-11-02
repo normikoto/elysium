@@ -59,6 +59,10 @@ differs from Mastodon in these ways:
 - Revoking an unknown token succeeds, rather than returning the 403 that Mastodon documents.
 - `/oauth/token` and `/oauth/revoke` only accept form-encoded bodies, not JSON.
 
+API documentation is public, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs` or
+`/api-docs.yaml`. These paths are set in `application.properties`, so if you maintain your own copy, make sure it
+includes the `springdoc.*` settings. Without them, the documentation isn't reachable.
+
 ### Local development
 `./gradlew bootRun` activates the `dev` profile, which sets the base URL to `http://localhost:8080`, and starts
 PostgreSQL through `compose.yaml`. If you run the application another way, such as from your IDE, activate the `dev`
