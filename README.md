@@ -17,13 +17,17 @@ Copy the resulting JAR into a suitable location.
 ## Running
 To run:
 ```shell
-# Copy from src/main/resources/application.properties in this repo
-export SPRING_CONFIG_LOCATION=/path/to/application.properties
+# Copy from application.properties.example in this repo
+export SPRING_CONFIG_ADDITIONAL_LOCATION=/path/to/application.properties
 export SPRING_PROFILES_ACTIVE=prod
 java -jar elysium.jar
 ```
 
 ### Configuration
+Your `application.properties` only needs the settings you want to change. Anything else uses the defaults built into the
+JAR, so upgrades can update those defaults without you editing your file. If you use `SPRING_CONFIG_LOCATION` instead,
+those defaults aren't loaded, and parts of the server won't work as documented.
+
 Set these in your `application.properties`:
 
 | Property                           | Description                                                                                                                                             |
@@ -65,8 +69,7 @@ differs from Mastodon in these ways:
 - `/oauth/token` and `/oauth/revoke` only accept form-encoded bodies, not JSON.
 
 API documentation is public, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs` or
-`/api-docs.yaml`. These paths are set in `application.properties`, so if you maintain your own copy, make sure it
-includes the `springdoc.*` settings. Without them, the documentation isn't reachable.
+`/api-docs.yaml`.
 
 ### Local development
 `./gradlew bootRun` activates the `dev` profile, which sets the base URL to `http://localhost:8080`, and starts

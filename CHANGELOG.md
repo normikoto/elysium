@@ -17,3 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scopes, and server metadata
 - `GET /api/v1/apps/verify_credentials` and `GET /api/v1/accounts/verify_credentials`
 - Public API documentation, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs`
+- `application.properties.example`, a starting point for your own config
+
+### Changed
+
+- Your config now only needs the settings you want to change, and the rest come from the defaults built into the JAR.
+  To switch, set `SPRING_CONFIG_ADDITIONAL_LOCATION` instead of `SPRING_CONFIG_LOCATION`, and remove any lines you
+  didn't change from your `application.properties`. Lines you keep continue to override the built-in defaults. If you
+  use `elysium.service`, make the same change in your installed copy.
