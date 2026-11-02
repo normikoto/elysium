@@ -62,6 +62,11 @@ dependencyManagement {
     }
 }
 
+tasks.bootJar {
+    // The install steps in the README use this name, so they don't need updating whenever the version changes.
+    archiveFileName = "elysium.jar"
+}
+
 tasks.bootRun {
     systemProperty("spring.profiles.active", "dev")
 }
