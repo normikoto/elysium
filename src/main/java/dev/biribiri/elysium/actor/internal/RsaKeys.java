@@ -8,11 +8,11 @@ import java.util.Base64;
 /**
  * An RSA keypair in PEM form: SubjectPublicKeyInfo for the public key and PKCS#8 for the private key.
  */
-record RsaKeys(String publicKeyPem, String privateKeyPem) {
+public record RsaKeys(String publicKeyPem, String privateKeyPem) {
 
     private static final int KEY_SIZE_BITS = 2048;
 
-    static RsaKeys generate() {
+    public static RsaKeys generate() {
         try {
             var generator = KeyPairGenerator.getInstance("RSA");
             generator.initialize(KEY_SIZE_BITS);

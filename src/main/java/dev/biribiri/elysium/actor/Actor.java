@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.actor;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -15,7 +16,8 @@ public record Actor(
         URI inboxUri,
         URI outboxUri,
         URI sharedInboxUri,
-        String publicKeyPem
+        String publicKeyPem,
+        Instant createdAt
 ) {
 
     private static final Pattern VALID_LOCAL_USERNAME = Pattern.compile("[A-Za-z0-9_]{1,30}");

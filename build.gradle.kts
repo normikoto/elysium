@@ -36,6 +36,8 @@ dependencies {
     implementation("org.springframework.modulith:spring-modulith-starter-jdbc")
     developmentOnly("org.springframework.boot:spring-boot-docker-compose")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+    // Spring Security's Argon2PasswordEncoder needs this. Spring Boot doesn't manage its version.
+    runtimeOnly("org.bouncycastle:bcprov-jdk18on:1.84")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("org.springframework.modulith:spring-modulith-observability-core")

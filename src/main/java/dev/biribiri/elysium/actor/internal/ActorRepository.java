@@ -7,22 +7,33 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
 public class ActorRepository {
 
+    private static final String SELECT_LOCAL = """
+            SELECT a.id, a.uri, a.username, a.domain, a.inbox_uri, a.outbox_uri, a.shared_inbox_uri,
+                   a.public_key_pem, a.created_at
+            FROM actor a
+            JOIN local_account l ON l.actor_id = a.id
+            """;
+
     private static final RowMapper<Actor> ACTOR_MAPPER = (rs, rowNum) -> {
         var sharedInbox = rs.getString("shared_inbox_uri");
         return new Actor(
-                rs.getObject("id", java.util.UUID.class),
+                rs.getObject("id", UUID.class),
                 URI.create(rs.getString("uri")),
                 rs.getString("username"),
                 rs.getString("domain"),
                 URI.create(rs.getString("inbox_uri")),
                 URI.create(rs.getString("outbox_uri")),
                 sharedInbox == null ? null : URI.create(sharedInbox),
-                rs.getString("public_key_pem"));
+                rs.getString("public_key_pem"),
+                rs.getObject("created_at", OffsetDateTime.class).toInstant());
     };
 
     private final JdbcClient jdbc;
@@ -32,13 +43,7 @@ public class ActorRepository {
     }
 
     public Optional<Actor> findLocal(String username, String domain) {
-        return jdbc.sql("""
-                        SELECT a.id, a.uri, a.username, a.domain, a.inbox_uri, a.outbox_uri, a.shared_inbox_uri,
-                               a.public_key_pem
-                        FROM actor a
-                        JOIN local_account l ON l.actor_id = a.id
-                        WHERE lower(a.username) = lower(:username) AND a.domain = :domain
-                        """)
+        return jdbc.sql(SELECT_LOCAL + "WHERE lower(a.username) = lower(:username) AND a.domain = :domain")
                 .param("username", username)
                 .param("domain", domain)
                 .query(ACTOR_MAPPER)
@@ -46,14 +51,15 @@ public class ActorRepository {
     }
 
     public Optional<Actor> findLocalByUri(URI uri) {
-        return jdbc.sql("""
-                        SELECT a.id, a.uri, a.username, a.domain, a.inbox_uri, a.outbox_uri, a.shared_inbox_uri,
-                               a.public_key_pem
-                        FROM actor a
-                        JOIN local_account l ON l.actor_id = a.id
-                        WHERE a.uri = :uri
-                        """)
+        return jdbc.sql(SELECT_LOCAL + "WHERE a.uri = :uri")
                 .param("uri", uri.toString())
+                .query(ACTOR_MAPPER)
+                .optional();
+    }
+
+    public Optional<Actor> findLocalById(UUID id) {
+        return jdbc.sql(SELECT_LOCAL + "WHERE a.id = :id")
+                .param("id", id)
                 .query(ACTOR_MAPPER)
                 .optional();
     }
@@ -67,8 +73,9 @@ public class ActorRepository {
     public boolean createLocalIfAbsent(Actor actor, String privateKeyPem) {
         var inserted = jdbc.sql("""
                         INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, shared_inbox_uri,
-                                           public_key_pem)
-                        VALUES (:id, :uri, :username, :domain, :inboxUri, :outboxUri, :sharedInboxUri, :publicKeyPem)
+                                           public_key_pem, created_at)
+                        VALUES (:id, :uri, :username, :domain, :inboxUri, :outboxUri, :sharedInboxUri, :publicKeyPem,
+                                :createdAt)
                         ON CONFLICT DO NOTHING
                         """)
                 .param("id", actor.id())
@@ -80,6 +87,7 @@ public class ActorRepository {
                 .param("sharedInboxUri", actor.sharedInboxUri() == null ? null : actor.sharedInboxUri().toString(),
                         java.sql.Types.VARCHAR)
                 .param("publicKeyPem", actor.publicKeyPem())
+                .param("createdAt", actor.createdAt().atOffset(ZoneOffset.UTC))
                 .update();
         if (inserted == 0) {
             return false;
