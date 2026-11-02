@@ -66,6 +66,16 @@ tasks.bootRun {
     systemProperty("spring.profiles.active", "dev")
 }
 
+tasks.bootBuildImage {
+    // compose.yaml runs this tag, so it doesn't need updating whenever the version changes.
+    tags.add("elysium:latest")
+    // Gives the builder the Docker daemon this build is using. It otherwise always mounts /var/run/docker.sock, which
+    // fails with rootless Docker.
+    docker {
+        bindHostToBuilder = true
+    }
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }
