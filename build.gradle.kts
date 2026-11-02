@@ -22,6 +22,7 @@ extra["springModulithVersion"] = "2.1.1"
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.springframework.boot:spring-boot-starter-freemarker")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-restclient")
@@ -32,8 +33,10 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0")
     implementation("org.springframework.modulith:spring-modulith-observability-api")
     implementation("org.springframework.modulith:spring-modulith-starter-core")
+    implementation("org.springframework.modulith:spring-modulith-starter-jdbc")
     developmentOnly("org.springframework.boot:spring-boot-docker-compose")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("org.springframework.modulith:spring-modulith-observability-core")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
@@ -55,6 +58,10 @@ dependencyManagement {
     imports {
         mavenBom("org.springframework.modulith:spring-modulith-bom:${property("springModulithVersion")}")
     }
+}
+
+tasks.bootRun {
+    systemProperty("spring.profiles.active", "dev")
 }
 
 tasks.withType<Test> {

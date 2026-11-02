@@ -20,6 +20,22 @@ export SPRING_PROFILES_ACTIVE=prod
 java -jar elysium.jar
 ```
 
+### Configuration
+Set these in your `application.properties`:
+
+| Property                           | Description                                                                                                                                             |
+|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `elysium.instance.base-url`        | Required. Public URL of the server, with no path. A real server must use a public HTTPS URL. Actor URIs and the instance domain come from it, so don't change it after federating. |
+| `elysium.bootstrap.admin-username` | Optional. Creates this local actor on startup if it doesn't exist yet.                                                                                  |
+
+You also need to point `spring.datasource.*` at your PostgreSQL database. Migrations run automatically on startup.
+
+### Local development
+`./gradlew bootRun` activates the `dev` profile, which sets the base URL to `http://localhost:8080`, and starts
+PostgreSQL through `compose.yaml`. If you run the application another way, such as from your IDE, activate the `dev`
+profile yourself.
+
+### Running as a service
 If you're using a Linux distribution with systemd, you can use the `elysium.service` file to start the application on
 boot:
 ```shell
