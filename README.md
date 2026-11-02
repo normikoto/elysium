@@ -3,6 +3,9 @@
 Experimental ActivityPub server using Java and Spring Boot. Aim is general compatibility with Mastodon and other common
 AP implementations.
 
+**There are known limitations and pitfalls when it comes to being production-ready right now, please don't run this on a
+public server unless you really know what you're doing.**
+
 ## Building
 You'll need JDK 25 or later installed on your system. Run the following:
 ```shell
@@ -37,12 +40,14 @@ redirects use the public URL. Only do this if the proxy is the only way to reach
 the forwarded headers it receives.
 
 ### Accounts and sign-ups
+Sign-ups are currently disabled by default.
+
 Passwords can't be changed yet, and sign-ups have no email confirmation.
 
-Nothing limits how many login, sign-up, or app registration requests someone can make. The server limits how many
-passwords it hashes at once, so a flood of requests makes logins fail with a "busy" message rather than exhausting its
-memory, but it can still lock people out while it lasts. On a public server, add rate limiting at your reverse proxy,
-and leave sign-ups off unless you have it.
+**Warning:**  The server has no rate limiting for logins or registrations, aside from a limit to how many passwords the
+server hashes at one time. For this reason, it's _strongly recommended_ to not use this software on a public facing
+server at this time. If you're daring, you can add rate limiting to your reverse proxy configuration to mitigate
+this problem.
 
 Login sessions are stored in memory, so restarting logs people out of the login page. Applications' access tokens are
 stored in the database and aren't affected. If you run more than one instance, your load balancer needs to keep each
