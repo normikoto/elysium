@@ -6,13 +6,10 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -68,26 +65,20 @@ class PagesController {
      * This shares its URL with the actor document. It must not declare what it produces: requests that accept anything
      * would then match both mappings equally, which Spring rejects as ambiguous. Without it, only requests that ask for
      * an ActivityPub type get the actor document.
-     *
-     * <p>A preflight request doesn't say which of the two it's for. Spring only answers it when both allow cross-origin
-     * requests, and otherwise picks one of them arbitrarily, which could leave out the CORS headers for the actor document.
      */
-    @CrossOrigin
     @GetMapping("/users/{username}")
     String profile(
             @PathVariable String username,
             @RequestParam(name = "max_id", required = false) String maxId,
-            Model model,
-            HttpServletResponse response) {
-        response.addHeader(HttpHeaders.VARY, HttpHeaders.ACCEPT);
+            Model model) {
         var actor = actors.findLocalByUsername(username).orElseThrow(PagesController::notFound);
         var page = firstPage(maxId == null ? null : uuid(maxId).orElseThrow(PagesController::notFound));
         var found = statuses.findByAccount(actor.id(), ANONYMOUS, true, page);
 
         model.addAttribute("actor", actor);
-        model.addAttribute("joined", LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC).toString());
+        model.addAttribute("joined", LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC));
         model.addAttribute("statusCount", statuses.statsFor(Set.of(actor.id())).get(actor.id()).statusesCount());
-        model.addAttribute("statuses", views(found));
+        model.addAttribute("statuses", found.stream().map(status -> StatusView.from(status, actor)).toList());
         // Only a full page can have older statuses after it.
         model.addAttribute("olderThan", found.size() == page.limit() ? found.getLast().id() : null);
         return "profile";
@@ -111,7 +102,7 @@ class PagesController {
     }
 
     private Optional<StatusView> view(Status status) {
-        return views(List.of(status)).stream().findFirst();
+        return actors.findLocalById(status.actorId()).map(author -> StatusView.from(status, author));
     }
 
     /**

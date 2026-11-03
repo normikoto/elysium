@@ -3,7 +3,7 @@
 <article class="status" th:fragment="card(view)" th:lang="${view.status.language}">
     <p class="status-meta">
         <a th:href="@{/users/{username}(username=${view.username})}" th:text="|@${view.username}|"></a>
-        <a th:href="@{${view.path}}"><time th:datetime="${view.timestamp}" th:text="${view.publishedAt}"></time></a>
+        <a th:href="@{${view.path}}"><time th:datetime="${view.status.publishedAt}" th:text="${view.publishedAt}"></time></a>
     </p>
     <details th:if="${view.status.sensitive}">
         <summary th:text="${#strings.isEmpty(view.status.spoilerText)} ? 'Sensitive content' : ${view.status.spoilerText}"></summary>

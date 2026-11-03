@@ -88,17 +88,14 @@ class WebPagesIntegrationTests {
         }
     }
 
-    /**
-     * Spring answers the preflight with its own settings when both mappings allow cross-origin requests, so the origin
-     * is repeated rather than being {@code *}. If only one allowed them, the answer would depend on registration order.
-     */
     @Test
     void allowsCrossOriginRequestsForBothRepresentations() throws Exception {
         mockMvc.perform(options("/users/alice")
                         .header("Origin", "https://client.example")
                         .header("Access-Control-Request-Method", "GET"))
                 .andExpect(status().isOk())
-                .andExpect(header().string("Access-Control-Allow-Origin", "https://client.example"));
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"))
+                .andExpect(header().doesNotExist("Access-Control-Allow-Credentials"));
 
         for (var accept : new String[]{"application/activity+json", "*/*"}) {
             mockMvc.perform(get("/users/alice").header("Accept", accept).header("Origin", "https://client.example"))
@@ -110,8 +107,12 @@ class WebPagesIntegrationTests {
 
     @Test
     void returnsNotFoundForUnknownProfiles() throws Exception {
-        mockMvc.perform(get("/users/nobody").accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
-        mockMvc.perform(get("/users/not-valid").accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
+        for (var accept : new String[]{"text/html", "application/activity+json"}) {
+            mockMvc.perform(get("/users/nobody").header("Accept", accept))
+                    .andExpect(status().isNotFound())
+                    .andExpect(header().stringValues("Vary", hasItem("Accept")));
+        }
+        mockMvc.perform(get("/users/not-valid")).andExpect(status().isNotFound());
     }
 
     // Front page
@@ -123,7 +124,7 @@ class WebPagesIntegrationTests {
         post(alice, "private text", Visibility.PRIVATE);
         post(alice, "direct text", Visibility.DIRECT);
 
-        mockMvc.perform(get("/").accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
                 .andExpect(content().string(containsString("elysium.example")))
@@ -165,7 +166,7 @@ class WebPagesIntegrationTests {
         post(alice, "direct text", Visibility.DIRECT);
         post(bob, "text from bob", Visibility.PUBLIC);
 
-        mockMvc.perform(get("/users/alice").accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/users/alice"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("@alice@elysium.example")))
                 .andExpect(content().string(containsString("public text")))
@@ -180,7 +181,7 @@ class WebPagesIntegrationTests {
         var parent = post(bob, "text from bob", Visibility.PUBLIC);
         reply(alice, "reply to bob", parent);
 
-        mockMvc.perform(get("/users/alice").accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/users/alice"))
                 .andExpect(content().string(not(containsString("reply to bob"))));
     }
 
@@ -191,14 +192,14 @@ class WebPagesIntegrationTests {
         }
         var oldest = "post number 0.";
 
-        var firstPage = mockMvc.perform(get("/users/alice").accept(MediaType.TEXT_HTML))
+        var firstPage = mockMvc.perform(get("/users/alice"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString(oldest))))
                 .andExpect(content().string(containsString("max_id=")))
                 .andReturn().getResponse().getContentAsString();
 
         var cursor = firstPage.substring(firstPage.indexOf("max_id=") + "max_id=".length()).split("\"")[0];
-        mockMvc.perform(get("/users/alice").param("max_id", cursor).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/users/alice").param("max_id", cursor))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString(oldest)))
                 .andExpect(content().string(not(containsString("max_id="))));
@@ -207,7 +208,7 @@ class WebPagesIntegrationTests {
     @Test
     void profileReturnsNotFoundForAMalformedCursor() throws Exception {
         for (var cursor : new String[]{"nonsense", "", "1-1-1-1-1"}) {
-            mockMvc.perform(get("/users/alice").param("max_id", cursor).accept(MediaType.TEXT_HTML))
+            mockMvc.perform(get("/users/alice").param("max_id", cursor))
                     .andExpect(status().isNotFound());
         }
     }
@@ -218,7 +219,7 @@ class WebPagesIntegrationTests {
     void showsPublicAndUnlistedStatuses() throws Exception {
         for (var visibility : new Visibility[]{Visibility.PUBLIC, Visibility.UNLISTED}) {
             var status = post(alice, "visible text", visibility);
-            mockMvc.perform(get(path(alice, status)).accept(MediaType.TEXT_HTML))
+            mockMvc.perform(get(path(alice, status)))
                     .andExpect(status().isOk())
                     .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
                     .andExpect(content().string(containsString("visible text")))
@@ -231,7 +232,7 @@ class WebPagesIntegrationTests {
     void hidesPrivateAndDirectStatuses() throws Exception {
         for (var visibility : new Visibility[]{Visibility.PRIVATE, Visibility.DIRECT}) {
             var status = post(alice, "hidden text", visibility);
-            mockMvc.perform(get(path(alice, status)).accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
+            mockMvc.perform(get(path(alice, status))).andExpect(status().isNotFound());
         }
     }
 
@@ -239,9 +240,9 @@ class WebPagesIntegrationTests {
     void aLoginSessionDoesNotRevealPrivateStatuses() throws Exception {
         var status = post(alice, "hidden text", Visibility.PRIVATE);
 
-        mockMvc.perform(get(path(alice, status)).with(user("alice")).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, status)).with(user("alice")))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(get("/users/alice").with(user("alice")).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/users/alice").with(user("alice")))
                 .andExpect(content().string(not(containsString("hidden text"))));
     }
 
@@ -249,15 +250,15 @@ class WebPagesIntegrationTests {
     void statusIsOnlyShownUnderItsAuthor() throws Exception {
         var status = post(alice, "text from alice", Visibility.PUBLIC);
 
-        mockMvc.perform(get(path(bob, status)).accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
-        mockMvc.perform(get("/users/ALICE/statuses/" + status.id()).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(bob, status))).andExpect(status().isNotFound());
+        mockMvc.perform(get("/users/ALICE/statuses/" + status.id()))
                 .andExpect(status().isOk());
     }
 
     @Test
     void returnsNotFoundForUnknownAndMalformedStatusIds() throws Exception {
         for (var id : new String[]{UUID.randomUUID().toString(), "nonsense", "1-1-1-1-1"}) {
-            mockMvc.perform(get("/users/alice/statuses/" + id).accept(MediaType.TEXT_HTML))
+            mockMvc.perform(get("/users/alice/statuses/" + id))
                     .andExpect(status().isNotFound());
         }
     }
@@ -267,7 +268,7 @@ class WebPagesIntegrationTests {
         var parent = post(bob, "text from bob", Visibility.PUBLIC);
         var reply = reply(alice, "reply to bob", parent);
 
-        mockMvc.perform(get(path(alice, reply)).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, reply)))
                 .andExpect(content().string(containsString("In reply to")))
                 .andExpect(content().string(containsString("href=\"" + path(bob, parent) + "\"")));
     }
@@ -277,7 +278,7 @@ class WebPagesIntegrationTests {
         var parent = post(alice, "hidden text", Visibility.PRIVATE);
         var reply = reply(alice, "reply to myself", parent);
 
-        mockMvc.perform(get(path(alice, reply)).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, reply)))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("In reply to"))))
                 .andExpect(content().string(not(containsString(parent.id().toString()))));
@@ -290,7 +291,7 @@ class WebPagesIntegrationTests {
         var status = statuses.create(alice.id(), new NewStatus(
                 "<script>alert('text')</script>", "<script>alert('warning')</script>", null, Visibility.PUBLIC, false, null));
 
-        mockMvc.perform(get(path(alice, status)).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, status)))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("<script>"))))
                 .andExpect(content().string(containsString("&lt;script&gt;")));
@@ -300,7 +301,7 @@ class WebPagesIntegrationTests {
     void keepsLinksInStatusText() throws Exception {
         var status = post(alice, "See https://example.com/page", Visibility.PUBLIC);
 
-        mockMvc.perform(get(path(alice, status)).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, status)))
                 .andExpect(content().string(containsString("<a href=\"https://example.com/page\"")));
     }
 
@@ -312,13 +313,13 @@ class WebPagesIntegrationTests {
                 "marked sensitive", null, null, Visibility.PUBLIC, true, null));
         var plain = post(alice, "nothing to hide", Visibility.PUBLIC);
 
-        mockMvc.perform(get(path(alice, warned)).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, warned)))
                 .andExpect(content().string(allOf(
                         containsString("<details>"), containsString("<summary>Spoilers</summary>"),
                         containsString("behind a warning"))));
-        mockMvc.perform(get(path(alice, sensitive)).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, sensitive)))
                 .andExpect(content().string(containsString("<summary>Sensitive content</summary>")));
-        mockMvc.perform(get(path(alice, plain)).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, plain)))
                 .andExpect(content().string(not(containsString("<details>"))));
     }
 
@@ -327,7 +328,7 @@ class WebPagesIntegrationTests {
         var status = statuses.create(alice.id(), new NewStatus(
                 "bonjour", null, "fr", Visibility.PUBLIC, false, null));
 
-        mockMvc.perform(get(path(alice, status)).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get(path(alice, status)))
                 .andExpect(content().string(containsString("lang=\"fr\"")));
     }
 
