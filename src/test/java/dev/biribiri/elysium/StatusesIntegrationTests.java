@@ -159,8 +159,7 @@ class StatusesIntegrationTests {
     @Test
     void idsFollowTheOrderStatusesAreCommittedIn() throws Exception {
         var token = alice();
-        // Stays below the connection pool's size of 10, because checking a token briefly needs two connections.
-        try (var executor = Executors.newFixedThreadPool(8)) {
+        try (var executor = Executors.newFixedThreadPool(16)) {
             List<Callable<String>> creates = IntStream.range(0, 200)
                     .<Callable<String>>mapToObj(i -> () -> create(token, "Status " + i))
                     .toList();
@@ -608,6 +607,37 @@ class StatusesIntegrationTests {
     }
 
     @Test
+    void statusStatsFollowDeletions() throws Exception {
+        var path = "/api/v1/accounts/verify_credentials";
+        var first = create(alice(), "First");
+        jdbc.sql("UPDATE status SET published_at = '2020-01-02T00:00:00Z' WHERE id = :id::uuid").param("id", first).update();
+        var second = create(alice(), "Second");
+        create(alice(), "Direct", "direct");
+        create(bob(), "Other account");
+        expectStatusCounts(3, 2);
+
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + second), alice())).andExpect(status().isOk());
+        expectStatusCounts(2, 1);
+        mockMvc.perform(withToken(get(path), alice())).andExpect(jsonPath("$.last_status_at").value("2020-01-02"));
+
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + first), alice())).andExpect(status().isOk());
+        expectStatusCounts(1, 0);
+        mockMvc.perform(withToken(get(path), alice())).andExpect(jsonPath("$.last_status_at").value(nullValue()));
+    }
+
+    @Test
+    void deletingAnAccountRemovesItsStatusesFromTheInstanceCount() throws Exception {
+        create(bob(), "Kept");
+        var erin = token("erin", "read write");
+        create(erin, "One");
+        create(erin, "Two");
+        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(3));
+
+        jdbc.sql("DELETE FROM actor WHERE username = 'erin'").update();
+        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(1));
+    }
+
+    @Test
     void instanceAdvertisesTheLengthLimitWithoutAToken() throws Exception {
         alice();
         create(alice(), "Public");
@@ -648,6 +678,12 @@ class StatusesIntegrationTests {
 
     private String bobId() throws Exception {
         return actorId("bob");
+    }
+
+    private void expectStatusCounts(int instance, int alice) throws Exception {
+        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(instance));
+        mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), alice()))
+                .andExpect(jsonPath("$.statuses_count").value(alice));
     }
 
     private String actorId(String username) throws Exception {

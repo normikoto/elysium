@@ -155,10 +155,16 @@ public class StatusRepository {
         }
         var stats = new HashMap<UUID, AccountStats>();
         jdbc.sql("""
-                        SELECT actor_id, count(*) AS statuses_count, max(published_at) AS last_status_at
-                        FROM status
-                        WHERE actor_id IN (:actorIds) AND visibility <> 'direct'
-                        GROUP BY actor_id
+                        SELECT c.actor_id, c.statuses_count, latest.published_at AS last_status_at
+                        FROM actor_status_count c
+                        CROSS JOIN LATERAL (
+                            SELECT s.published_at
+                            FROM status s
+                            WHERE s.actor_id = c.actor_id AND s.visibility <> 'direct'
+                            ORDER BY s.published_at DESC
+                            LIMIT 1
+                        ) latest
+                        WHERE c.actor_id IN (:actorIds)
                         """)
                 .param("actorIds", actorIds)
                 .query(rs -> {
@@ -170,7 +176,9 @@ public class StatusRepository {
     }
 
     public long countExcludingDirect() {
-        return jdbc.sql("SELECT count(*) FROM status WHERE visibility <> 'direct'").query(Long.class).single();
+        return jdbc.sql("SELECT coalesce(sum(statuses_count), 0)::bigint FROM actor_status_count")
+                .query(Long.class)
+                .single();
     }
 
     private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page) {
