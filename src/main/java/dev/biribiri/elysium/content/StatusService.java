@@ -1,0 +1,217 @@
+package dev.biribiri.elysium.content;
+
+import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.internal.StatusIds;
+import dev.biribiri.elysium.content.internal.StatusRenderer;
+import dev.biribiri.elysium.content.internal.StatusRepository;
+import dev.biribiri.elysium.content.internal.StatusUrls;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Pattern;
+
+@Service
+public class StatusService {
+
+    private static final Pattern LANGUAGE = Pattern.compile("[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}");
+
+    /**
+     * The Hangul fillers and the blank Braille pattern, which Unicode doesn't classify as spaces.
+     */
+    private static final Set<Integer> BLANK_CHARACTERS = Set.of(0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0);
+
+    private final StatusRepository statuses;
+    private final ActorService actors;
+    private final InstanceProperties instance;
+    private final StatusProperties properties;
+    private final TransactionTemplate transaction;
+
+    StatusService(
+            StatusRepository statuses,
+            ActorService actors,
+            InstanceProperties instance,
+            StatusProperties properties,
+            PlatformTransactionManager transactionManager) {
+        this.statuses = statuses;
+        this.actors = actors;
+        this.instance = instance;
+        this.properties = properties;
+        this.transaction = new TransactionTemplate(transactionManager);
+    }
+
+    /**
+     * Publishes a status.
+     *
+     * @throws InvalidStatusException       if the status breaks a validation rule
+     * @throws ReplyParentNotFoundException if the status being replied to doesn't exist or the author can't see it
+     */
+    public Status create(UUID authorId, NewStatus draft) {
+        var text = normalize(draft.text());
+        // A content warning that can't be seen would hide nothing, but would still mark the status as sensitive.
+        var spoilerText = looksBlank(normalize(draft.spoilerText())) ? "" : normalize(draft.spoilerText());
+        var language = draft.language() == null || draft.language().isBlank() ? null : draft.language().strip();
+        validate(text, spoilerText, language);
+
+        var author = actors.findLocalById(authorId)
+                .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
+        var content = StatusRenderer.render(text);
+
+        return transaction.execute(tx -> {
+            var parent = draft.inReplyToId() == null
+                    ? Optional.<Status>empty()
+                    : Optional.of(statuses.findByIdAndLock(draft.inReplyToId())
+                    .filter(candidate -> candidate.isVisibleTo(Optional.of(authorId)))
+                    .orElseThrow(ReplyParentNotFoundException::new));
+
+            // Clients poll for statuses newer than the last ID they saw, so a status must never become visible after one
+            // with a later ID, or they would miss it. Holding this lock until commit makes IDs and commits happen in the
+            // same order.
+            statuses.lockIdAssignment();
+            // PostgreSQL stores microseconds, so this matches what a later read returns.
+            var publishedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+            var id = statuses.findNewestId()
+                    .map(newest -> StatusIds.after(newest, publishedAt))
+                    .orElseGet(() -> StatusIds.fromTimestamp(publishedAt));
+            var uri = instance.resolve("/users/" + author.username() + "/statuses/" + id);
+            var status = new Status(
+                    id,
+                    uri,
+                    authorId,
+                    text,
+                    content,
+                    spoilerText,
+                    language,
+                    draft.visibility(),
+                    draft.sensitive() || !spoilerText.isEmpty(),
+                    parent.isPresent(),
+                    parent.map(Status::id).orElse(null),
+                    parent.map(Status::actorId).orElse(null),
+                    publishedAt,
+                    0);
+            statuses.insert(status);
+            return status;
+        });
+    }
+
+    /**
+     * Finds a status, if this viewer is allowed to see it.
+     */
+    public Optional<Status> findVisible(UUID id, Optional<UUID> viewer) {
+        return statuses.findById(id).filter(status -> status.isVisibleTo(viewer));
+    }
+
+    /**
+     * Deletes one of the author's own statuses.
+     *
+     * @return the deleted status, or empty if the author has no status with this ID
+     */
+    public Optional<Status> delete(UUID id, UUID authorId) {
+        return statuses.delete(id, authorId);
+    }
+
+    /**
+     * Lists public statuses from every account, leaving out replies to other accounts.
+     */
+    public List<Status> findPublic(StatusPage page) {
+        return statuses.findPublic(page);
+    }
+
+    /**
+     * Lists the statuses of one account that this viewer is allowed to see.
+     */
+    public List<Status> findByAccount(UUID actorId, Optional<UUID> viewer, boolean excludeReplies, StatusPage page) {
+        var ownAccount = viewer.filter(actorId::equals).isPresent();
+        return statuses.findByAccount(actorId, ownAccount, excludeReplies, page);
+    }
+
+    /**
+     * @return an entry for each given account
+     */
+    public Map<UUID, AccountStats> statsFor(Collection<UUID> actorIds) {
+        var stats = new HashMap<>(statuses.statsByAccount(actorIds));
+        actorIds.forEach(actorId -> stats.putIfAbsent(actorId, AccountStats.EMPTY));
+        return stats;
+    }
+
+    /**
+     * What each URL counts as toward the length limit.
+     */
+    public int charactersReservedPerUrl() {
+        return StatusUrls.CHARACTERS_RESERVED_PER_URL;
+    }
+
+    /**
+     * The most characters a new status can have stored, which is more than the length limit because URLs count as fewer
+     * characters than they have.
+     */
+    public long maxStoredCharacters() {
+        return (long) properties.maxCharacters() + StatusUrls.MAX_URL_SAVINGS;
+    }
+
+    /**
+     * Counts the statuses on this server, leaving out direct ones. Every status is local until federation exists.
+     */
+    public long countLocal() {
+        return statuses.countExcludingDirect();
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.replace("\r\n", "\n").replace('\r', '\n').strip();
+    }
+
+    private void validate(String text, String spoilerText, String language) {
+        requireStorable(text);
+        requireStorable(spoilerText);
+        if (looksBlank(text)) {
+            throw new InvalidStatusException("Text can't be blank");
+        }
+        var length = StatusUrls.countCharacters(text) + spoilerText.codePointCount(0, spoilerText.length());
+        if (length > properties.maxCharacters()) {
+            throw new InvalidStatusException(
+                    "Text can't be longer than %d characters".formatted(properties.maxCharacters()));
+        }
+        if (language != null && !LANGUAGE.matcher(language).matches()) {
+            throw new InvalidStatusException("Language is not a valid language code");
+        }
+    }
+
+    /**
+     * Whether text would show nothing. {@link String#strip} only removes some kinds of space, so this also covers
+     * no-break spaces, invisible formatting characters such as zero-width spaces, and the letters and symbols that are
+     * drawn as blanks.
+     */
+    private static boolean looksBlank(String value) {
+        return value.codePoints().allMatch(codePoint -> Character.isWhitespace(codePoint)
+                || Character.isSpaceChar(codePoint)
+                || Character.getType(codePoint) == Character.FORMAT
+                || BLANK_CHARACTERS.contains(codePoint));
+    }
+
+    /**
+     * PostgreSQL rejects NUL, which would be a server error, and an unpaired surrogate would silently be stored as "?".
+     */
+    private static void requireStorable(String value) {
+        for (var i = 0; i < value.length(); i++) {
+            var character = value.charAt(i);
+            var paired = Character.isHighSurrogate(character)
+                    && i + 1 < value.length()
+                    && Character.isLowSurrogate(value.charAt(i + 1));
+            if (paired) {
+                i++;
+            } else if (character == '\0' || Character.isSurrogate(character)) {
+                throw new InvalidStatusException("Text contains invalid characters");
+            }
+        }
+    }
+}

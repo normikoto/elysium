@@ -1,0 +1,77 @@
+package dev.biribiri.elysium.content.internal;
+
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+
+class StatusUrlsTests {
+
+    @Test
+    void countsCodePointsInPlainText() {
+        assertThat(StatusUrls.countCharacters("hello")).isEqualTo(5);
+        assertThat(StatusUrls.countCharacters("😀😀")).isEqualTo(2);
+    }
+
+    @Test
+    void countsEachUrlAs23Characters() {
+        assertThat(StatusUrls.countCharacters("https://a.example")).isEqualTo(23);
+        assertThat(StatusUrls.countCharacters("https://a.example/" + "x".repeat(500))).isEqualTo(23);
+        assertThat(StatusUrls.countCharacters("see https://a.example and http://b.example")).isEqualTo(4 + 23 + 5 + 23);
+    }
+
+    @Test
+    void countsPunctuationAfterAUrlSeparately() {
+        assertThat(StatusUrls.countCharacters("https://a.example.")).isEqualTo(24);
+    }
+
+    @Test
+    void textAfterAUrlIsNotPartOfIt() {
+        for (var after : new String[]{"　次の文章", " next", "を見て", "。", "次", "한국어", "ไทย", "😀"}) {
+            var text = "https://a.example" + after;
+            assertThat(StatusUrls.countCharacters(text))
+                    .isEqualTo(23 + after.codePointCount(0, after.length()));
+        }
+    }
+
+    @Test
+    void countsLinksWithNonAsciiLettersAsOneUrl() {
+        assertThat(StatusUrls.countCharacters("https://ru.wikipedia.org/wiki/Москва")).isEqualTo(23);
+        assertThat(StatusUrls.countCharacters("https://a.example/café")).isEqualTo(23);
+    }
+
+    @Test
+    void handlesHugeInputQuickly() {
+        var size = 2_000_000;
+        assertTimeoutPreemptively(Duration.ofSeconds(10), () -> {
+            for (var filler : new String[]{")", "]", ".", "()", "x", "я"}) {
+                StatusUrls.countCharacters("https://a.example/" + filler.repeat(size));
+            }
+        });
+    }
+
+    @Test
+    void doesNotCountOtherSchemesAsUrls() {
+        assertThat(StatusUrls.countCharacters("ftp://a.example")).isEqualTo(15);
+    }
+
+    @Test
+    void countsVeryLongUrlsAtTheirFullLength() {
+        var prefix = "https://a.example/";
+        var longest = prefix + "x".repeat(2048 - prefix.length());
+        assertThat(StatusUrls.countCharacters(longest)).isEqualTo(23);
+        assertThat(StatusUrls.countCharacters(longest + "x")).isEqualTo(2049);
+    }
+
+    @Test
+    void limitsHowManyCharactersUrlsCanSave() {
+        var prefix = "https://a.example/";
+        var url = prefix + "x".repeat(2048 - prefix.length());
+        assertThat(StatusUrls.countCharacters(url + " " + url)).isEqualTo(23 + 1 + 23);
+
+        var text = String.join(" ", url, url, url, url);
+        assertThat(StatusUrls.countCharacters(text)).isEqualTo(text.length() - StatusUrls.MAX_URL_SAVINGS);
+    }
+}
