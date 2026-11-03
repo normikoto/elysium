@@ -4,6 +4,7 @@ import com.networknt.schema.InputFormat;
 import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
@@ -26,6 +27,7 @@ import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,8 +63,8 @@ class DiscoveryIntegrationTests {
     private StatusService statuses;
 
     @BeforeEach
-    void createActor() {
-        actors.createLocalIfAbsent("admin");
+    void setUp() {
+        createActor("admin");
     }
 
     @Test
@@ -146,7 +148,7 @@ class DiscoveryIntegrationTests {
     void creatingAnExistingActorChangesNothing() throws Exception {
         var keyBefore = publicKey();
 
-        assertThat(actors.createLocalIfAbsent("admin")).isEmpty();
+        assertThat(createActor("admin")).isEmpty();
 
         assertThat(jdbc.sql("SELECT count(*) FROM actor WHERE username = 'admin'").query(Long.class).single()).isOne();
         assertThat(publicKey()).isEqualTo(keyBefore);
@@ -338,5 +340,10 @@ class DiscoveryIntegrationTests {
 
     private String publicKey() {
         return jdbc.sql("SELECT public_key_pem FROM actor WHERE username = 'admin'").query(String.class).single();
+    }
+
+    private Optional<Actor> createActor(String username) {
+        return actors.createLocalIfAbsent(username, actor -> {
+        });
     }
 }

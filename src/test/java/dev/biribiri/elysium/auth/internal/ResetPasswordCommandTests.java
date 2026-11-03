@@ -71,7 +71,8 @@ class ResetPasswordCommandTests {
 
     @Test
     void givesAnAccountWithoutAPasswordItsFirstOne() {
-        actors.createLocalIfAbsent("passwordless");
+        actors.createLocalIfAbsent("passwordless", actor -> {
+        });
 
         assertThat(run(() -> NEW_PASSWORD, "passwordless")).isZero();
 
@@ -91,6 +92,19 @@ class ResetPasswordCommandTests {
         assertThat(authorizationExists(own)).isFalse();
         assertThat(authorizationExists(other)).isTrue();
         assertThat(authorizationExists(appOnly)).isTrue();
+    }
+
+    @Test
+    void revokesOnlyThatAccountsConsent() {
+        var actorId = account("noconsent");
+        var otherActorId = account("hasconsent");
+        consent(actorId);
+        consent(otherActorId);
+
+        assertThat(run(() -> NEW_PASSWORD, "noconsent")).isZero();
+
+        assertThat(consentExists(actorId)).isFalse();
+        assertThat(consentExists(otherActorId)).isTrue();
     }
 
     @Test
@@ -121,6 +135,7 @@ class ResetPasswordCommandTests {
     void anInvalidPasswordChangesNothing() {
         var actorId = account("invalid");
         var authorization = authorization(actorId.toString(), "authorization_code");
+        consent(actorId);
 
         assertThat(run(() -> "short", "invalid")).isOne();
         assertThat(run(() -> null, "invalid")).isOne();
@@ -128,6 +143,7 @@ class ResetPasswordCommandTests {
         assertThat(err.toString()).contains("8 to 128");
         assertThat(passwordWorks("invalid", OLD_PASSWORD)).isTrue();
         assertThat(authorizationExists(authorization)).isTrue();
+        assertThat(consentExists(actorId)).isTrue();
     }
 
     private UUID account(String username) {
@@ -167,8 +183,26 @@ class ResetPasswordCommandTests {
                 .single() == 1;
     }
 
+    private void consent(UUID actorId) {
+        jdbc.sql("""
+                        INSERT INTO oauth2_authorization_consent (registered_client_id, principal_name, authorities)
+                        VALUES ('some-client', :principalName, 'SCOPE_read')
+                        """)
+                .param("principalName", actorId.toString())
+                .update();
+    }
+
+    private boolean consentExists(UUID actorId) {
+        return jdbc.sql("SELECT count(*) FROM oauth2_authorization_consent WHERE principal_name = :principalName")
+                .param("principalName", actorId.toString())
+                .query(Long.class)
+                .single() == 1;
+    }
+
     private int run(PasswordReader passwords, String username) {
-        return new CommandLine(new ResetPasswordCommand(actors, accounts, passwords))
+        var command = new ResetPasswordCommand();
+        command.wire(actors, accounts, passwords);
+        return new CommandLine(command)
                 .setOut(new PrintWriter(out, true))
                 .setErr(new PrintWriter(err, true))
                 .execute(username);

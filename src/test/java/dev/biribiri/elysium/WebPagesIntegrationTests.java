@@ -374,7 +374,8 @@ class WebPagesIntegrationTests {
     }
 
     private Actor account(String username) {
-        actors.createLocalIfAbsent(username);
+        actors.createLocalIfAbsent(username, actor -> {
+        });
         return actors.findLocalByUsername(username).orElseThrow();
     }
 

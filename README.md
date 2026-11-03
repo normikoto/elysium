@@ -71,16 +71,22 @@ It asks for the password, which must be 8 to 128 characters. Without a terminal,
 stdin, so scripts can pipe it in. Run `java -jar elysium.jar help` to list the commands.
 
 Commands need the same configuration as the server, and can run while it's up. Like the server, they apply any pending
-database migrations, so run them from the JAR version you're already running unless you're upgrading.
+database migrations, so run them from the JAR version you're already running unless you're upgrading. `help` and mistakes
+in a command line don't need any configuration, and don't touch the database. To pass Spring options, such as
+`--spring.profiles.active=prod`, put them before the command.
 
 How you run a command depends on how you run the server. `reset-password` works the same way as `create-user`:
 ```shell
 # Docker Compose
 docker compose run --rm app create-user alice
 
-# Running as a service, as root. Also pass any settings you keep in /etc/elysium/elysium.env.
-sudo -u elysium env SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/elysium/application.properties SPRING_PROFILES_ACTIVE=prod \
-    java -jar /opt/elysium/elysium.jar create-user alice
+# Running as a service, as root. This loads the service's settings, without putting secrets on the command line. To pipe
+# in a password, use --pipe instead of --pty.
+systemd-run --pty --wait --collect --uid=elysium --gid=elysium \
+    -p EnvironmentFile=-/etc/elysium/elysium.env \
+    -p Environment=SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/elysium/application.properties \
+    -p Environment=SPRING_PROFILES_ACTIVE=prod \
+    /usr/bin/java -jar /opt/elysium/elysium.jar create-user alice
 
 # Local development. The password is shown as you type it.
 ./gradlew bootRun --args='create-user alice'
@@ -157,6 +163,14 @@ systemctl enable --now elysium.service
 
 To change a setting in the service file, use `systemctl edit elysium` instead of editing the file, so that installing a
 newer version of it doesn't lose your change.
+
+To keep a secret out of `application.properties`, such as through `SPRING_DATASOURCE_PASSWORD`, put it in
+`/etc/elysium/elysium.env` before starting the service. systemd reads this file as root, so the server's user doesn't need
+access:
+```shell
+install -m 600 /dev/null /etc/elysium/elysium.env
+# Add a line to /etc/elysium/elysium.env: SPRING_DATASOURCE_PASSWORD=...
+```
 
 The sandbox makes the filesystem read-only apart from private `/tmp` and `/var/tmp` directories and `/dev/shm`, which
 isn't private. It also hides `/home`, `/root` and `/run/user`, so `java` and the JAR must be installed outside them. If

@@ -129,7 +129,9 @@ class CreateUserCommandTests {
     }
 
     private int run(PasswordReader passwords, String username) {
-        return new CommandLine(new CreateUserCommand(actors, accounts, passwords))
+        var command = new CreateUserCommand();
+        command.wire(actors, accounts, passwords);
+        return new CommandLine(command)
                 .setOut(new PrintWriter(out, true))
                 .setErr(new PrintWriter(err, true))
                 .execute(username);

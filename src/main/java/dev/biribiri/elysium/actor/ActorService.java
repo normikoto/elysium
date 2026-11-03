@@ -57,17 +57,6 @@ public class ActorService {
     /**
      * Creates a local actor unless an actor with the same identity already exists.
      *
-     * @return the new actor, or empty if the identity is taken
-     * @throws IllegalArgumentException if the username isn't valid
-     */
-    public Optional<Actor> createLocalIfAbsent(String username) {
-        return createLocalIfAbsent(username, actor -> {
-        });
-    }
-
-    /**
-     * Creates a local actor unless an actor with the same identity already exists.
-     *
      * @param onCreated runs in the same transaction if the actor is created, so if it fails then the actor isn't created
      *                  either
      * @return the new actor, or empty if the identity is taken

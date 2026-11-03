@@ -2,60 +2,89 @@ package dev.biribiri.elysium;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.DefaultApplicationArguments;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.context.ApplicationContext;
-import org.springframework.context.annotation.Import;
+import org.springframework.context.ConfigurableApplicationContext;
+
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Import(TestcontainersConfiguration.class)
-@SpringBootTest
 @ExtendWith(OutputCaptureExtension.class)
 class CommandRunnerTests {
 
-    @Autowired
-    private ApplicationContext context;
-
     @Test
-    void aServerStartIsNotACommand(CapturedOutput output) {
-        assertThat(run()).isZero();
-        assertThat(run("--server.port=9000")).isZero();
-
-        assertThat(output).doesNotContain("Usage:");
+    void aServerStartIsNotACommand() {
+        assertThat(CommandRunner.isCommand(new String[0])).isFalse();
+        assertThat(CommandRunner.isCommand(new String[]{"--server.port=9000"})).isFalse();
+        assertThat(CommandRunner.isCommand(new String[]{"--server.port=9000", "--debug"})).isFalse();
     }
 
     @Test
-    void findsCommandsInTheContext() {
-        assertThat(new CommandRunner(context).commandLine().getSubcommands())
-                .containsKeys("create-user", "reset-password", "help");
+    void anythingElseIsACommand() {
+        assertThat(CommandRunner.isCommand(new String[]{"create-user", "alice"})).isTrue();
+        assertThat(CommandRunner.isCommand(new String[]{"--spring.profiles.active=prod", "create-user"})).isTrue();
+        assertThat(CommandRunner.isCommand(new String[]{"create-usr"})).isTrue();
+        assertThat(CommandRunner.isCommand(new String[]{"--help"})).isTrue();
+        assertThat(CommandRunner.isCommand(new String[]{"-h"})).isTrue();
     }
 
     @Test
-    void rejectsUnknownCommandsAndWrongArguments(CapturedOutput output) {
-        assertThat(run("create-usr", "alice")).isEqualTo(2);
-        assertThat(run("create-user")).isEqualTo(2);
-        assertThat(run("create-user", "alice", "bob")).isEqualTo(2);
-        assertThat(run("reset-password")).isEqualTo(2);
-
-        assertThat(output).contains("Usage:");
+    void findsCommandsOnTheClasspath() {
+        assertThat(CommandRunner.commandLine().getSubcommands())
+                .containsOnlyKeys("create-user", "reset-password", "help");
     }
 
     @Test
-    void printsHelp(CapturedOutput output) {
-        assertThat(run("help")).isZero();
+    void rejectsMistakesWithoutStartingSpring(CapturedOutput output) throws Exception {
+        assertThat(runWithoutSpring("create-usr", "alice")).isEqualTo(2);
+        assertThat(runWithoutSpring("create-user")).isEqualTo(2);
+        assertThat(runWithoutSpring("create-user", "alice", "bob")).isEqualTo(2);
+        assertThat(runWithoutSpring("reset-password")).isEqualTo(2);
+        assertThat(runWithoutSpring("create-user", "alice", "--spring.profiles.active=prod")).isEqualTo(2);
+
+        assertThat(output).contains("Did you mean").contains("Usage:");
+    }
+
+    @Test
+    void printsHelpWithoutStartingSpring(CapturedOutput output) throws Exception {
+        for (var args : List.of(new String[]{"help"}, new String[]{"--help"}, new String[]{"-h"})) {
+            assertThat(runWithoutSpring(args)).isZero();
+        }
         assertThat(output).contains("create-user").contains("reset-password");
 
-        assertThat(run("create-user", "--help")).isZero();
+        assertThat(runWithoutSpring("create-user", "--help")).isZero();
+        assertThat(runWithoutSpring("help", "create-user")).isZero();
         assertThat(output).contains("USERNAME");
     }
 
-    private int run(String... args) {
-        var runner = new CommandRunner(context);
-        runner.run(new DefaultApplicationArguments(args));
-        return runner.getExitCode();
+    @Test
+    void runsACommandWithSpringsOptionsAndNoPorts(CapturedOutput output) throws Exception {
+        var started = new AtomicReference<ConfigurableApplicationContext>();
+
+        var exitCode = CommandRunner.run(
+                new String[]{"--spring.application.name=from-option", "--server.port=9000", "reset-password", "nobody"},
+                springArgs -> {
+                    var application = CommandRunner.application();
+                    application.addPrimarySources(List.of(TestcontainersConfiguration.class));
+                    started.set(application.run(springArgs));
+                    return started.get();
+                });
+
+        // Reaching this message means the command's dependencies were all injected.
+        assertThat(exitCode).isOne();
+        assertThat(output).contains("There's no local account named nobody");
+        var environment = started.get().getEnvironment();
+        assertThat(environment.getProperty("spring.application.name")).isEqualTo("from-option");
+        assertThat(environment.getProperty("server.port")).isEqualTo("-1");
+        assertThat(environment.getProperty("management.server.port")).isEqualTo("-1");
+        assertThat(started.get().isActive()).isFalse();
+    }
+
+    private static int runWithoutSpring(String... args) throws Exception {
+        return CommandRunner.run(args, springArgs -> {
+            throw new AssertionError("Spring shouldn't have started");
+        });
     }
 }

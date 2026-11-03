@@ -69,8 +69,8 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
-     * Sets an actor's password, replacing any existing one, and revokes the tokens and pending authorization codes it
-     * has issued to applications.
+     * Sets an actor's password, replacing any existing one, and revokes its applications' access: their tokens, pending
+     * authorization codes, and the consent that would let them get new codes without asking.
      */
     void resetPassword(UUID actorId, String password) {
         requireValidPassword(password);
@@ -89,6 +89,9 @@ class LocalAccounts implements UserDetailsService {
             jdbc.sql("DELETE FROM oauth2_authorization WHERE principal_name = :principalName")
                     .param("principalName", actorId.toString())
                     .update();
+            jdbc.sql("DELETE FROM oauth2_authorization_consent WHERE principal_name = :principalName")
+                    .param("principalName", actorId.toString())
+                    .update();
         });
     }
 
@@ -96,7 +99,6 @@ class LocalAccounts implements UserDetailsService {
         jdbc.sql("""
                         INSERT INTO account_credential (actor_id, password_hash)
                         VALUES (:actorId, :hash)
-                        ON CONFLICT DO NOTHING
                         """)
                 .param("actorId", actorId)
                 .param("hash", hash)
