@@ -9,7 +9,7 @@ After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
-# Create this user and group first: see "Running as a service" in README.md.
+# Create this user and group first: see "Running as a service" in docs/installation.md.
 User=elysium
 Group=elysium
 WorkingDirectory=/opt/elysium
