@@ -42,6 +42,7 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("org.springframework.modulith:spring-modulith-observability-core")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
+    testImplementation("com.networknt:json-schema-validator:3.0.8")
     testImplementation("org.springframework.boot:spring-boot-starter-jdbc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-restclient-test")
     testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-authorization-server-test")
@@ -59,6 +60,13 @@ dependencies {
 dependencyManagement {
     imports {
         mavenBom("org.springframework.modulith:spring-modulith-bom:${property("springModulithVersion")}")
+    }
+}
+
+springBoot {
+    // NodeInfo reports the version from this. Leaving out the time keeps the task up to date between builds.
+    buildInfo {
+        excludes = setOf("time")
     }
 }
 

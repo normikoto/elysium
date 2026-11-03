@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.auth.internal;
 
 import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.actor.RegistrationProperties;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.stereotype.Controller;
@@ -19,13 +19,11 @@ import org.springframework.web.server.ResponseStatusException;
 class AccountPagesController {
 
     private final LocalAccounts accounts;
-    private final boolean registrationEnabled;
+    private final RegistrationProperties registration;
 
-    AccountPagesController(
-            LocalAccounts accounts,
-            @Value("${elysium.registration.enabled:false}") boolean registrationEnabled) {
+    AccountPagesController(LocalAccounts accounts, RegistrationProperties registration) {
         this.accounts = accounts;
-        this.registrationEnabled = registrationEnabled;
+        this.registration = registration;
     }
 
     @GetMapping(SecurityConfig.LOGIN_PATH)
@@ -41,7 +39,7 @@ class AccountPagesController {
         model.addAttribute("busy", busy != null);
         model.addAttribute("loggedOut", logout != null);
         model.addAttribute("registered", registered != null);
-        model.addAttribute("registrationEnabled", registrationEnabled);
+        model.addAttribute("registrationEnabled", registration.enabled());
         return "login";
     }
 
@@ -101,7 +99,7 @@ class AccountPagesController {
     }
 
     private void requireRegistrationEnabled() {
-        if (!registrationEnabled) {
+        if (!registration.enabled()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
     }

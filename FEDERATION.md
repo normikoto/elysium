@@ -7,10 +7,12 @@ or receive activities. This file only describes what's implemented today.
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): actor documents only
 - [WebFinger](https://webfinger.net/)
+- [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
 ## Supported FEPs
 
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
+- [FEP-f1d5: NodeInfo in Fediverse Software](https://codeberg.org/fediverse/fep/src/branch/main/fep/f1d5/fep-f1d5.md)
 
 ## ActivityPub
 
@@ -45,6 +47,14 @@ No activities are sent or received yet.
 `/.well-known/webfinger` accepts `acct:{username}@{domain}` and actor URLs as the `resource`. Responses are served as
 `application/jrd+json` or `application/json`, include a `self` link to the actor document and a
 `http://webfinger.net/rel/profile-page` link to the user's profile page, and can be read from any origin through CORS.
+
+## NodeInfo
+
+`/.well-known/nodeinfo` links to NodeInfo documents at `/nodeinfo/2.1` and `/nodeinfo/2.0`, and all of these can be read
+from any origin through CORS. The documents match, except that only 2.1 includes the software's repository. They report
+`activitypub` as the protocol, even though federation isn't complete yet. Their usage statistics include the total number
+of local users and `localPosts`, which counts replies but not direct messages. Active user counts and `localComments`
+aren't reported.
 
 ## Additional documentation
 

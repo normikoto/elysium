@@ -3,11 +3,11 @@ package dev.biribiri.elysium.web;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
@@ -42,19 +42,19 @@ class PagesController {
     private final StatusService statuses;
     private final InstanceProperties instance;
     private final ContentNegotiationManager contentNegotiation;
-    private final boolean registrationEnabled;
+    private final RegistrationProperties registration;
 
     PagesController(
             ActorService actors,
             StatusService statuses,
             InstanceProperties instance,
             ContentNegotiationManager contentNegotiation,
-            @Value("${elysium.registration.enabled:false}") boolean registrationEnabled) {
+            RegistrationProperties registration) {
         this.actors = actors;
         this.statuses = statuses;
         this.instance = instance;
         this.contentNegotiation = contentNegotiation;
-        this.registrationEnabled = registrationEnabled;
+        this.registration = registration;
     }
 
     @GetMapping("/")
@@ -63,7 +63,7 @@ class PagesController {
         model.addAttribute("userCount", actors.countLocal());
         model.addAttribute("statusCount", statuses.countLocal());
         model.addAttribute("showLogin", principal == null);
-        model.addAttribute("registrationEnabled", registrationEnabled);
+        model.addAttribute("registrationEnabled", registration.enabled());
         model.addAttribute("statuses", views(statuses.findPublic(firstPage(null))));
         return "home";
     }
