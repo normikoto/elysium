@@ -1,6 +1,8 @@
 package dev.biribiri.elysium;
 
 import com.jayway.jsonpath.JsonPath;
+import dev.biribiri.elysium.actor.ActorService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -10,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -41,11 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {
-        "elysium.instance.base-url=https://elysium.example",
-        "elysium.bootstrap.admin-username=admin",
-        "elysium.bootstrap.admin-password=" + OAuthIntegrationTests.PASSWORD
-})
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class OAuthIntegrationTests {
 
@@ -60,6 +59,27 @@ class OAuthIntegrationTests {
 
     @Autowired
     private JdbcClient jdbc;
+
+    @Autowired
+    private ActorService actors;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    // Sign-ups are off in this class, and the code that creates accounts is internal to the auth module.
+    @BeforeEach
+    void createAccount() {
+        if (actors.findLocalByUsername("oauthuser").isPresent()) {
+            return;
+        }
+        var hash = passwordEncoder.encode(PASSWORD);
+        actors.createLocalIfAbsent("oauthuser", actor -> jdbc.sql("""
+                        INSERT INTO account_credential (actor_id, password_hash) VALUES (:actorId, :hash)
+                        """)
+                .param("actorId", actor.id())
+                .param("hash", hash)
+                .update());
+    }
 
     // App registration
 
@@ -353,7 +373,7 @@ class OAuthIntegrationTests {
         mockMvc.perform(get(URI.create(consent)).session(session))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("Test")))
-                .andExpect(content().string(containsString("admin")))
+                .andExpect(content().string(containsString("oauthuser")))
                 .andExpect(content().string(containsString("value=\"" + queryParameter(consent, "state") + "\"")))
                 .andExpect(content().string(containsString("<title>Authorize application - Elysium</title>")))
                 .andExpect(content().string(containsString("action=\"/oauth/authorize\"")))
@@ -475,7 +495,7 @@ class OAuthIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("name=\"_csrf\"")));
 
-        var resumed = logIn(session, "admin", PASSWORD);
+        var resumed = logIn(session, "oauthuser", PASSWORD);
         assertThat(resumed).contains("/oauth/authorize").contains("client_id=" + app.clientId());
         assertThat(mockMvc.perform(get(URI.create(resumed)).session(session)).andReturn().getResponse().getRedirectedUrl())
                 .startsWith("http://localhost/oauth/consent");
@@ -489,23 +509,23 @@ class OAuthIntegrationTests {
 
         mockMvc.perform(get("/actuator").session(session)).andExpect(status().isForbidden());
 
-        assertThat(logIn(session, "admin", PASSWORD)).contains("/oauth/authorize");
+        assertThat(logIn(session, "oauthuser", PASSWORD)).contains("/oauth/authorize");
     }
 
     @Test
     void loginIgnoresUsernameCase() throws Exception {
-        assertThat(logIn(new MockHttpSession(), "ADMIN", PASSWORD)).isNotEqualTo("/login?error");
+        assertThat(logIn(new MockHttpSession(), "OAUTHUSER", PASSWORD)).isNotEqualTo("/login?error");
     }
 
     @Test
     void rejectsWrongPasswordsAndUnknownUsers() throws Exception {
-        assertThat(logIn(new MockHttpSession(), "admin", "wrong password")).isEqualTo("/login?error");
+        assertThat(logIn(new MockHttpSession(), "oauthuser", "wrong password")).isEqualTo("/login?error");
         assertThat(logIn(new MockHttpSession(), "nobody", PASSWORD)).isEqualTo("/login?error");
     }
 
     @Test
     void loginNeedsACsrfToken() throws Exception {
-        mockMvc.perform(post("/login").param("username", "admin").param("password", PASSWORD))
+        mockMvc.perform(post("/login").param("username", "oauthuser").param("password", PASSWORD))
                 .andExpect(status().isForbidden());
     }
 
@@ -521,7 +541,7 @@ class OAuthIntegrationTests {
     void storesPasswordsWithArgon2idAndKeepsThemOutOfAuthorizations() throws Exception {
         assertThat(jdbc.sql("""
                         SELECT c.password_hash FROM account_credential c
-                        JOIN actor a ON a.id = c.actor_id WHERE a.username = 'admin'
+                        JOIN actor a ON a.id = c.actor_id WHERE a.username = 'oauthuser'
                         """).query(String.class).single())
                 .startsWith("{argon2id}$argon2id$");
 
@@ -544,10 +564,10 @@ class OAuthIntegrationTests {
         mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), userToken(app, "read")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").isString())
-                .andExpect(jsonPath("$.username").value("admin"))
-                .andExpect(jsonPath("$.acct").value("admin"))
-                .andExpect(jsonPath("$.display_name").value("admin"))
-                .andExpect(jsonPath("$.url").value("https://elysium.example/users/admin"))
+                .andExpect(jsonPath("$.username").value("oauthuser"))
+                .andExpect(jsonPath("$.acct").value("oauthuser"))
+                .andExpect(jsonPath("$.display_name").value("oauthuser"))
+                .andExpect(jsonPath("$.url").value("https://elysium.example/users/oauthuser"))
                 .andExpect(jsonPath("$.avatar").value("https://elysium.example/images/missing.png"))
                 .andExpect(jsonPath("$.created_at").isString())
                 .andExpect(jsonPath("$.followers_count").value(0))
@@ -830,7 +850,7 @@ class OAuthIntegrationTests {
 
     private MockHttpSession loggedInSession() throws Exception {
         var session = new MockHttpSession();
-        assertThat(logIn(session, "admin", PASSWORD)).isNotEqualTo("/login?error");
+        assertThat(logIn(session, "oauthuser", PASSWORD)).isNotEqualTo("/login?error");
         return session;
     }
 

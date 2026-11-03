@@ -16,9 +16,9 @@ WorkingDirectory=/opt/elysium
 # Location of your application.properties file. Copy it from application.properties.example in the repository.
 Environment=SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/elysium/application.properties
 Environment=SPRING_PROFILES_ACTIVE=prod
-# Optional environment variables that shouldn't be public, such as ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD. Don't use Environment=
-# for those, because any local user can read them with systemctl show. systemd reads this file as root, so it can be
-# readable only by root.
+# Optional environment variables that shouldn't be public, such as SPRING_DATASOURCE_PASSWORD. Don't use Environment= for
+# those, because any local user can read them with systemctl show. systemd reads this file as root, so it can be readable
+# only by root.
 EnvironmentFile=-/etc/elysium/elysium.env
 ExecStart=/usr/bin/java -jar elysium.jar
 Restart=on-failure

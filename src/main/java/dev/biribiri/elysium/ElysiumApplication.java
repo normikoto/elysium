@@ -11,7 +11,18 @@ import org.springframework.boot.security.oauth2.server.authorization.autoconfigu
 public class ElysiumApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(ElysiumApplication.class, args);
+        if (!CommandRunner.isCommand(args)) {
+            SpringApplication.run(ElysiumApplication.class, args);
+            return;
+        }
+
+        // System properties override the operator's config and environment. A command can run alongside the server, so
+        // it can't open the same ports. Without the quieter logging, a password prompt gets lost in startup messages.
+        System.setProperty("server.port", "-1");
+        System.setProperty("management.server.port", "-1");
+        System.setProperty("spring.main.banner-mode", "off");
+        System.setProperty("logging.level.root", "ERROR");
+        System.exit(SpringApplication.exit(SpringApplication.run(ElysiumApplication.class, args)));
     }
 
 }

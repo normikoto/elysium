@@ -52,8 +52,6 @@ Set these in your `application.properties`:
 | Property                           | Description                                                                                                                                             |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `elysium.instance.base-url`        | Required. Public URL of the server, with no path. A real server must use a public HTTPS URL. Actor URIs and the instance domain come from it, so don't change it after federating. |
-| `elysium.bootstrap.admin-username` | Optional. Creates this local actor on startup if it doesn't exist yet.                                                                                  |
-| `elysium.bootstrap.admin-password` | Optional. Sets the admin's password if it doesn't have one, and never replaces an existing one. Must be 8 to 128 characters. Prefer setting this through the `ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD` environment variable. |
 | `elysium.registration.enabled`     | Optional. Set to `true` to let anyone create an account at `/signup`. Defaults to `false`.                                                               |
 | `elysium.statuses.max-characters`  | Optional. The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Defaults to `5000`. Lowering it doesn't affect existing statuses. |
 
@@ -64,9 +62,37 @@ redirects use the public URL. Only do this if the proxy is the only way to reach
 the forwarded headers it receives.
 
 ### Accounts and sign-ups
-Sign-ups are currently disabled by default.
+Sign-ups are currently disabled by default, so create your first account with the `create-user` command:
+```shell
+java -jar elysium.jar create-user alice
+```
 
-Passwords can't be changed yet, and sign-ups have no email confirmation.
+It asks for the password, which must be 8 to 128 characters. Without a terminal, it reads the password as one line from
+stdin, so scripts can pipe it in. Run `java -jar elysium.jar help` to list the commands.
+
+Commands need the same configuration as the server, and can run while it's up. Like the server, they apply any pending
+database migrations, so run them from the JAR version you're already running unless you're upgrading.
+
+How you run a command depends on how you run the server. `reset-password` works the same way as `create-user`:
+```shell
+# Docker Compose
+docker compose run --rm app create-user alice
+
+# Running as a service, as root. Also pass any settings you keep in /etc/elysium/elysium.env.
+sudo -u elysium env SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/elysium/application.properties SPRING_PROFILES_ACTIVE=prod \
+    java -jar /opt/elysium/elysium.jar create-user alice
+
+# Local development. The password is shown as you type it.
+./gradlew bootRun --args='create-user alice'
+```
+
+With Docker Compose, the image also prints some JVM startup messages and a memory report around the command's output.
+They don't mean anything went wrong.
+
+People can't change their own passwords yet, and sign-ups have no email confirmation. To replace someone's password, run
+`reset-password alice`. It also revokes the access of all their applications, so they'll need to authorize them again.
+Anyone already logged in through a browser stays logged in until the server restarts, and could authorize an application
+until then, so restart the server if the account may be compromised.
 
 **Warning:**  The server has no rate limiting for logins or registrations, aside from a limit to how many passwords the
 server hashes at one time. For this reason, it's _strongly recommended_ to not use this software on a public facing
@@ -131,13 +157,6 @@ systemctl enable --now elysium.service
 
 To change a setting in the service file, use `systemctl edit elysium` instead of editing the file, so that installing a
 newer version of it doesn't lose your change.
-
-To set the admin's password through `ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD`, put it in `/etc/elysium/elysium.env` before
-starting the service. systemd reads this file as root, so the server's user doesn't need access:
-```shell
-install -m 600 /dev/null /etc/elysium/elysium.env
-# Add a line to /etc/elysium/elysium.env: ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD=...
-```
 
 The sandbox makes the filesystem read-only apart from private `/tmp` and `/var/tmp` directories and `/dev/shm`, which
 isn't private. It also hides `/home`, `/root` and `/run/user`, so `java` and the JAR must be installed outside them. If

@@ -30,6 +30,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-resource-server")
     implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("info.picocli:picocli:4.7.7")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0")
     implementation("org.springframework.modulith:spring-modulith-observability-api")
     implementation("org.springframework.modulith:spring-modulith-starter-core")
@@ -77,6 +78,8 @@ tasks.bootJar {
 
 tasks.bootRun {
     systemProperty("spring.profiles.active", "dev")
+    // Gradle doesn't forward stdin otherwise, and commands read passwords from it.
+    standardInput = System.`in`
 }
 
 tasks.bootBuildImage {

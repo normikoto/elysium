@@ -10,13 +10,6 @@ spring.datasource.url=jdbc:postgresql://localhost:5432/elysium
 spring.datasource.username=elysium
 spring.datasource.password=
 
-# Creates this local actor on startup if it doesn't exist yet.
-#elysium.bootstrap.admin-username=admin
-
-# Sets the admin's password if it doesn't have one. It never replaces an existing password. Must be 8 to 128 characters.
-# Prefer setting this through the ELYSIUM_BOOTSTRAP_ADMIN_PASSWORD environment variable.
-#elysium.bootstrap.admin-password=
-
 # Lets anyone create an account at /signup. There's no email confirmation or rate limiting.
 #elysium.registration.enabled=false
 
