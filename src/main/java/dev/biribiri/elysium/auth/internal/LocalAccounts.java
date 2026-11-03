@@ -8,6 +8,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -24,11 +25,14 @@ class LocalAccounts implements UserDetailsService {
     private final ActorService actors;
     private final JdbcClient jdbc;
     private final PasswordEncoder passwordEncoder;
+    private final TransactionTemplate transaction;
 
-    LocalAccounts(ActorService actors, JdbcClient jdbc, PasswordEncoder passwordEncoder) {
+    LocalAccounts(
+            ActorService actors, JdbcClient jdbc, PasswordEncoder passwordEncoder, TransactionTemplate transaction) {
         this.actors = actors;
         this.jdbc = jdbc;
         this.passwordEncoder = passwordEncoder;
+        this.transaction = transaction;
     }
 
     static boolean isValidPassword(String password) {
@@ -65,26 +69,36 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
-     * Sets an actor's password unless it already has one.
+     * Sets an actor's password, replacing any existing one, and revokes its applications' access: their tokens, pending
+     * authorization codes, and the consent that would let them get new codes without asking.
      */
-    void setInitialPassword(UUID actorId, String password) {
+    void resetPassword(UUID actorId, String password) {
         requireValidPassword(password);
-        insertCredential(actorId, passwordEncoder.encode(password));
-    }
-
-    boolean hasPassword(UUID actorId) {
-        return passwordHash(actorId).isPresent();
-    }
-
-    boolean passwordMatches(UUID actorId, String password) {
-        return passwordHash(actorId).filter(hash -> passwordEncoder.matches(password, hash)).isPresent();
+        // Hashing is slow, so it happens before the transaction takes a database connection.
+        var hash = passwordEncoder.encode(password);
+        transaction.executeWithoutResult(status -> {
+            jdbc.sql("""
+                            INSERT INTO account_credential (actor_id, password_hash)
+                            VALUES (:actorId, :hash)
+                            ON CONFLICT (actor_id) DO UPDATE
+                            SET password_hash = EXCLUDED.password_hash, updated_at = now()
+                            """)
+                    .param("actorId", actorId)
+                    .param("hash", hash)
+                    .update();
+            jdbc.sql("DELETE FROM oauth2_authorization WHERE principal_name = :principalName")
+                    .param("principalName", actorId.toString())
+                    .update();
+            jdbc.sql("DELETE FROM oauth2_authorization_consent WHERE principal_name = :principalName")
+                    .param("principalName", actorId.toString())
+                    .update();
+        });
     }
 
     private void insertCredential(UUID actorId, String hash) {
         jdbc.sql("""
                         INSERT INTO account_credential (actor_id, password_hash)
                         VALUES (:actorId, :hash)
-                        ON CONFLICT DO NOTHING
                         """)
                 .param("actorId", actorId)
                 .param("hash", hash)

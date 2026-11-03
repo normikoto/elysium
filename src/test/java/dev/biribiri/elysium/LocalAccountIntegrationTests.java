@@ -4,13 +4,9 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.auth.internal.PasswordHashingBusyException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,18 +25,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {
-        "elysium.registration.enabled=true",
-        "elysium.bootstrap.admin-username=root",
-        "elysium.bootstrap.admin-password=" + LocalAccountIntegrationTests.ADMIN_PASSWORD
-})
+@SpringBootTest(properties = "elysium.registration.enabled=true")
 @AutoConfigureMockMvc
 class LocalAccountIntegrationTests {
-
-    /**
-     * Includes the syntax Spring would otherwise interpret, to check it's stored as written.
-     */
-    static final String ADMIN_PASSWORD = "first ${password} #{1+1}";
 
     private static final String PASSWORD = "a long enough password";
 
@@ -48,13 +35,7 @@ class LocalAccountIntegrationTests {
     private MockMvc mockMvc;
 
     @Autowired
-    private JdbcClient jdbc;
-
-    @Autowired
     private ActorService actors;
-
-    @Autowired
-    private ApplicationContext context;
 
     @MockitoSpyBean
     private PasswordEncoder passwordEncoder;
@@ -125,22 +106,6 @@ class LocalAccountIntegrationTests {
     }
 
     @Test
-    void theAdminBootstrapSetsAPasswordOnlyOnce() throws Exception {
-        var hash = adminHash();
-        assertThat(hash).startsWith("{argon2id}$argon2id$");
-
-        // Every runner, as at each restart. An unchanged hash also means a changed property wouldn't replace it.
-        for (var runner : context.getBeansOfType(ApplicationRunner.class).values()) {
-            runner.run(new DefaultApplicationArguments());
-        }
-
-        assertThat(adminHash()).isEqualTo(hash);
-        mockMvc.perform(post("/login").with(csrf()).param("username", "root").param("password", ADMIN_PASSWORD))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(header().string("Location", "/"));
-    }
-
-    @Test
     void aFailureAfterCreatingAnActorAlsoUndoesTheActor() {
         assertThatThrownBy(() -> actors.createLocalIfAbsent("rolledback", actor -> {
             throw new IllegalStateException("failed");
@@ -151,9 +116,10 @@ class LocalAccountIntegrationTests {
 
     @Test
     void loginTellsPeopleWhenTheServerIsTooBusy() throws Exception {
+        signUp("busylogin", PASSWORD, PASSWORD).andExpect(status().is3xxRedirection());
         doThrow(new PasswordHashingBusyException()).when(passwordEncoder).matches(any(), any());
 
-        mockMvc.perform(post("/login").with(csrf()).param("username", "root").param("password", ADMIN_PASSWORD))
+        mockMvc.perform(post("/login").with(csrf()).param("username", "busylogin").param("password", PASSWORD))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/login?busy"));
         mockMvc.perform(get("/login").param("busy", ""))
@@ -169,13 +135,6 @@ class LocalAccountIntegrationTests {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().string(containsString("The server is busy")));
         assertThat(actors.findLocalByUsername("busyuser")).isEmpty();
-    }
-
-    private String adminHash() {
-        return jdbc.sql("""
-                        SELECT c.password_hash FROM account_credential c
-                        JOIN actor a ON a.id = c.actor_id WHERE a.username = 'root'
-                        """).query(String.class).single();
     }
 
     private org.springframework.test.web.servlet.ResultActions signUp(

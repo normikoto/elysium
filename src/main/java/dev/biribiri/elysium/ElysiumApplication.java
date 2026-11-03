@@ -10,7 +10,10 @@ import org.springframework.boot.security.oauth2.server.authorization.autoconfigu
 @ConfigurationPropertiesScan
 public class ElysiumApplication {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        if (CommandRunner.isCommand(args)) {
+            System.exit(CommandRunner.run(args));
+        }
         SpringApplication.run(ElysiumApplication.class, args);
     }
 

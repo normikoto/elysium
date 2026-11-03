@@ -4,15 +4,15 @@ import com.networknt.schema.InputFormat;
 import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.actor.internal.LocalActorBootstrap;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
@@ -27,6 +27,7 @@ import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,10 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {
-        "elysium.instance.base-url=https://elysium.example",
-        "elysium.bootstrap.admin-username=admin"
-})
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class DiscoveryIntegrationTests {
 
@@ -59,13 +57,15 @@ class DiscoveryIntegrationTests {
     private JdbcClient jdbc;
 
     @Autowired
-    private LocalActorBootstrap bootstrap;
-
-    @Autowired
     private ActorService actors;
 
     @Autowired
     private StatusService statuses;
+
+    @BeforeEach
+    void setUp() {
+        createActor("admin");
+    }
 
     @Test
     void webFingerFindsLocalActor() throws Exception {
@@ -145,10 +145,10 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
-    void bootstrapRunsAreIdempotent() throws Exception {
+    void creatingAnExistingActorChangesNothing() throws Exception {
         var keyBefore = publicKey();
 
-        bootstrap.run(new DefaultApplicationArguments());
+        assertThat(createActor("admin")).isEmpty();
 
         assertThat(jdbc.sql("SELECT count(*) FROM actor WHERE username = 'admin'").query(Long.class).single()).isOne();
         assertThat(publicKey()).isEqualTo(keyBefore);
@@ -340,5 +340,10 @@ class DiscoveryIntegrationTests {
 
     private String publicKey() {
         return jdbc.sql("SELECT public_key_pem FROM actor WHERE username = 'admin'").query(String.class).single();
+    }
+
+    private Optional<Actor> createActor(String username) {
+        return actors.createLocalIfAbsent(username, actor -> {
+        });
     }
 }

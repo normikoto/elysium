@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial scaffolding
 - Local accounts with username and password login, hashed with Argon2id
 - Optional sign-up page, turned on with `elysium.registration.enabled`
-- `elysium.bootstrap.admin-password` to set the bootstrap admin's first password
+- `create-user` command to create a local account, and `reset-password` command to replace an account's password and
+  revoke its applications' access
 - Mastodon-compatible OAuth 2: app registration, authorization code and client credentials grants, token revocation,
   scopes, and server metadata
 - `GET /api/v1/apps/verify_credentials` and `GET /api/v1/accounts/verify_credentials`
