@@ -68,11 +68,24 @@ class WebPagesIntegrationTests {
     // Choosing between the page and the actor document
 
     @Test
-    void servesTheProfilePageToAnythingThatDoesNotAskForActivityPub() throws Exception {
-        for (var accept : new String[]{BROWSER_ACCEPT, "text/html", "*/*"}) {
+    void servesTheProfilePageToClientsThatAcceptHtml() throws Exception {
+        for (var accept : new String[]{BROWSER_ACCEPT, "text/html", "text/*", "*/*", "application/json, */*;q=0.1"}) {
             expectProfilePage(get("/users/alice").header("Accept", accept));
         }
         expectProfilePage(get("/users/alice"));
+    }
+
+    @Test
+    void rejectsClientsThatCannotReadThePages() throws Exception {
+        var status = post(alice, "public text", Visibility.PUBLIC);
+        for (var path : new String[]{"/users/alice", path(alice, status)}) {
+            for (var accept : new String[]{"application/json", "image/png", "nonsense"}) {
+                mockMvc.perform(get(path).header("Accept", accept)).andExpect(status().isNotAcceptable());
+            }
+        }
+        // Statuses have no ActivityPub document yet.
+        mockMvc.perform(get(path(alice, status)).header("Accept", "application/activity+json"))
+                .andExpect(status().isNotAcceptable());
     }
 
     @Test
@@ -80,6 +93,9 @@ class WebPagesIntegrationTests {
         for (var accept : new String[]{
                 "application/activity+json",
                 "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams https://example.com/other\"",
+                "application/ld+json",
                 "application/activity+json, */*;q=0.1"}) {
             mockMvc.perform(get("/users/alice").header("Accept", accept))
                     .andExpect(status().isOk())
@@ -330,6 +346,23 @@ class WebPagesIntegrationTests {
 
         mockMvc.perform(get(path(alice, status)))
                 .andExpect(content().string(containsString("lang=\"fr\"")));
+    }
+
+    @Test
+    void doesNotAssumeTheLanguageOfAStatusWithoutOne() throws Exception {
+        var status = post(alice, "no language set", Visibility.PUBLIC);
+
+        mockMvc.perform(get(path(alice, status)))
+                .andExpect(content().string(containsString("lang=\"und\"")));
+    }
+
+    @Test
+    void profileDoesNotCountPostsItCannotShow() throws Exception {
+        post(alice, "private text", Visibility.PRIVATE);
+
+        mockMvc.perform(get("/users/alice"))
+                .andExpect(content().string(containsString("No posts to show.")))
+                .andExpect(content().string(not(containsString("Posts:"))));
     }
 
     private void expectProfilePage(MockHttpServletRequestBuilder request) throws Exception {

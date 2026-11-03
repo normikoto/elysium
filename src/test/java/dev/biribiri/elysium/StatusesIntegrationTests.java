@@ -297,6 +297,19 @@ class StatusesIntegrationTests {
     }
 
     @Test
+    void onlyLinksToStatusPagesThatExist() throws Exception {
+        for (var visibility : List.of("public", "unlisted")) {
+            mockMvc.perform(createRequest(alice(), "Text").param("visibility", visibility))
+                    .andExpect(jsonPath("$.url").value(containsString("https://elysium.example/users/alice/statuses/")));
+        }
+        for (var visibility : List.of("private", "direct")) {
+            mockMvc.perform(createRequest(alice(), "Text").param("visibility", visibility))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.url").value(nullValue()));
+        }
+    }
+
+    @Test
     void hidesPrivateAndDirectStatusesFromEveryoneButTheirAuthor() throws Exception {
         for (var visibility : List.of("private", "direct")) {
             var id = create(alice(), "Secret", visibility);

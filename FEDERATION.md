@@ -18,8 +18,9 @@ or receive activities. This file only describes what's implemented today.
 
 Local users are `Person` actors at `/users/{username}`. These documents are served as `application/activity+json` or
 `application/ld+json; profile="https://www.w3.org/ns/activitystreams"`, and any origin can read them through CORS. A
-request has to ask for one of these types in its `Accept` header. Anything else, including `*/*` or no header, gets the
-user's HTML profile page.
+request has to ask for one of these types in its `Accept` header, and `application/ld+json` is accepted with any profile.
+Requests that accept HTML instead, including `*/*` or no header, get the user's profile page, and others get a 406. The
+document's `url` links to that page, which is at the same URL.
 
 Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`.
 
@@ -34,15 +35,16 @@ No activities are sent or received yet.
 - Actor documents advertise `inbox` and `outbox`, but those endpoints aren't implemented yet, so actors can't be
   followed.
 - Actor documents don't include `followers` or `following` collections.
-- Status URIs (`/users/{username}/statuses/{id}`) only serve an HTML page, not an ActivityPub object.
+- Status URIs (`/users/{username}/statuses/{id}`) only serve an HTML page, not an ActivityPub object, so requests for
+  ActivityPub types get a 406.
 - There's no shared inbox.
 - HTTP Signatures aren't implemented, so requests are neither signed nor verified.
 
 ## WebFinger
 
 `/.well-known/webfinger` accepts `acct:{username}@{domain}` and actor URLs as the `resource`. Responses are served as
-`application/jrd+json` or `application/json`, include a `self` link to the actor document, and can be read from any
-origin through CORS.
+`application/jrd+json` or `application/json`, include a `self` link to the actor document and a
+`http://webfinger.net/rel/profile-page` link to the user's profile page, and can be read from any origin through CORS.
 
 ## Additional documentation
 

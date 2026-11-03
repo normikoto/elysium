@@ -55,7 +55,10 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.subject").value("acct:admin@elysium.example"))
                 .andExpect(jsonPath("$.links[0].rel").value("self"))
                 .andExpect(jsonPath("$.links[0].type").value("application/activity+json"))
-                .andExpect(jsonPath("$.links[0].href").value(ACTOR_URI));
+                .andExpect(jsonPath("$.links[0].href").value(ACTOR_URI))
+                .andExpect(jsonPath("$.links[1].rel").value("http://webfinger.net/rel/profile-page"))
+                .andExpect(jsonPath("$.links[1].type").value("text/html"))
+                .andExpect(jsonPath("$.links[1].href").value(ACTOR_URI));
     }
 
     @Test
@@ -91,6 +94,7 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.id").value(ACTOR_URI))
                 .andExpect(jsonPath("$.type").value("Person"))
                 .andExpect(jsonPath("$.preferredUsername").value("admin"))
+                .andExpect(jsonPath("$.url").value(ACTOR_URI))
                 .andExpect(jsonPath("$.inbox").value(ACTOR_URI + "/inbox"))
                 .andExpect(jsonPath("$.outbox").value(ACTOR_URI + "/outbox"))
                 .andExpect(jsonPath("$.publicKey.id").value(ACTOR_URI + "#main-key"))

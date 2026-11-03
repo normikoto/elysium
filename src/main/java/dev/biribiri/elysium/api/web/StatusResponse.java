@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -64,7 +65,7 @@ record StatusResponse(
                 status.visibility().value(),
                 status.language(),
                 status.uri().toString(),
-                status.uri().toString(),
+                pageUrl(status),
                 status.repliesCount(),
                 0,
                 0,
@@ -84,6 +85,13 @@ record StatusResponse(
                 false,
                 false,
                 false);
+    }
+
+    /**
+     * Web pages always read as an anonymous viewer, so other statuses have no page to link to.
+     */
+    private static String pageUrl(Status status) {
+        return status.isVisibleTo(Optional.empty()) ? status.uri().toString() : null;
     }
 
     private static String format(Instant instant) {

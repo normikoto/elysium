@@ -3,7 +3,7 @@
 <th:block th:fragment="content">
     <div class="wide">
         <p th:text="|@${actor.username}@${actor.domain}|"></p>
-        <p>Joined <span th:text="${joined}"></span> · Posts: <span th:text="${statusCount}"></span></p>
+        <p>Joined <span th:text="${joined}"></span></p>
         <p th:if="${#lists.isEmpty(statuses)}">No posts to show.</p>
         <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>
         <p th:if="${olderThan != null}">

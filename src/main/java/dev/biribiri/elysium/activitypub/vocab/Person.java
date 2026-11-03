@@ -14,6 +14,7 @@ public record Person(
         URI id,
         String type,
         String preferredUsername,
+        URI url,
         URI inbox,
         URI outbox,
         PublicKey publicKey
@@ -29,6 +30,8 @@ public record Person(
                 actor.uri(),
                 "Person",
                 actor.username(),
+                // Browsers get the profile page from the same URL as the actor document.
+                actor.uri(),
                 actor.inboxUri(),
                 actor.outboxUri(),
                 new PublicKey(actor.uri() + "#main-key", actor.uri(), actor.publicKeyPem()));

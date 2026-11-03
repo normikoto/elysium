@@ -132,7 +132,8 @@ class SecurityConfig {
         loginFailure.setExceptionMappings(Map.of(PasswordHashingBusyException.class.getName(), LOGIN_PATH + "?busy"));
 
         return http
-                // Applies the @CrossOrigin settings on controllers, including to preflight requests.
+                // Applies Spring MVC's CORS settings, including to preflight requests: @CrossOrigin on controllers, and
+                // the mappings in WebMvcConfigurer classes.
                 .cors(withDefaults())
                 .authorizeHttpRequests(requests -> requests
                         // Lets Spring's error handling keep its original status instead of turning it into a 403.
@@ -228,7 +229,8 @@ class SecurityConfig {
      * rather than cookies, so this doesn't expose logged-in sessions. The authorization endpoint isn't included.
      *
      * <p>This must not be a bean: Spring Security would then use a bean named {@code corsConfigurationSource} for every
-     * chain, in place of the {@code @CrossOrigin} settings on the discovery controllers.
+     * chain, in place of Spring MVC's CORS settings: {@code @CrossOrigin} on the discovery controller, and the mapping
+     * for actor URLs in the {@code activitypub} module.
      */
     private static CorsConfigurationSource clientCors() {
         var configuration = new CorsConfiguration();

@@ -6,13 +6,18 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.accept.ContentNegotiationManager;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.security.Principal;
@@ -20,7 +25,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -37,16 +41,19 @@ class PagesController {
     private final ActorService actors;
     private final StatusService statuses;
     private final InstanceProperties instance;
+    private final ContentNegotiationManager contentNegotiation;
     private final boolean registrationEnabled;
 
     PagesController(
             ActorService actors,
             StatusService statuses,
             InstanceProperties instance,
+            ContentNegotiationManager contentNegotiation,
             @Value("${elysium.registration.enabled:false}") boolean registrationEnabled) {
         this.actors = actors;
         this.statuses = statuses;
         this.instance = instance;
+        this.contentNegotiation = contentNegotiation;
         this.registrationEnabled = registrationEnabled;
     }
 
@@ -64,20 +71,21 @@ class PagesController {
     /**
      * This shares its URL with the actor document. It must not declare what it produces: requests that accept anything
      * would then match both mappings equally, which Spring rejects as ambiguous. Without it, only requests that ask for
-     * an ActivityPub type get the actor document.
+     * an ActivityPub type get the actor document, and {@link #requireHtmlAccepted} rejects the rest.
      */
     @GetMapping("/users/{username}")
     String profile(
             @PathVariable String username,
             @RequestParam(name = "max_id", required = false) String maxId,
-            Model model) {
+            Model model,
+            HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
+        requireHtmlAccepted(request);
         var actor = actors.findLocalByUsername(username).orElseThrow(PagesController::notFound);
         var page = firstPage(maxId == null ? null : uuid(maxId).orElseThrow(PagesController::notFound));
         var found = statuses.findByAccount(actor.id(), ANONYMOUS, true, page);
 
         model.addAttribute("actor", actor);
         model.addAttribute("joined", LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC));
-        model.addAttribute("statusCount", statuses.statsFor(Set.of(actor.id())).get(actor.id()).statusesCount());
         model.addAttribute("statuses", found.stream().map(status -> StatusView.from(status, actor)).toList());
         // Only a full page can have older statuses after it.
         model.addAttribute("olderThan", found.size() == page.limit() ? found.getLast().id() : null);
@@ -85,7 +93,9 @@ class PagesController {
     }
 
     @GetMapping("/users/{username}/statuses/{id}")
-    String status(@PathVariable String username, @PathVariable String id, Model model) {
+    String status(@PathVariable String username, @PathVariable String id, Model model, HttpServletRequest request)
+            throws HttpMediaTypeNotAcceptableException {
+        requireHtmlAccepted(request);
         var view = uuid(id)
                 .flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
                 .flatMap(this::view)
@@ -99,6 +109,17 @@ class PagesController {
                 .flatMap(this::view)
                 .orElse(null));
         return "status";
+    }
+
+    /**
+     * A client that can't read HTML, such as another server fetching a status, should get an error it can understand
+     * rather than a page it fails to parse.
+     */
+    private void requireHtmlAccepted(HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
+        var accepted = contentNegotiation.resolveMediaTypes(new ServletWebRequest(request));
+        if (accepted.stream().noneMatch(MediaType.TEXT_HTML::isCompatibleWith)) {
+            throw new HttpMediaTypeNotAcceptableException(List.of(MediaType.TEXT_HTML));
+        }
     }
 
     private Optional<StatusView> view(Status status) {
