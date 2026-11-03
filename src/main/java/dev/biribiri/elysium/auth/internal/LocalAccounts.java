@@ -89,7 +89,7 @@ class LocalAccounts implements UserDetailsService {
      * time an account is created.
      */
     boolean hasNoAccounts() {
-        return actors.countLocal() == 0;
+        return !actors.hasLocalAccounts();
     }
 
     /**

@@ -134,6 +134,27 @@ class SetRoleCommandTests {
     }
 
     @Test
+    void warnsAboutNoAdminsEvenIfNothingChanged() {
+        jdbc.sql("UPDATE account_credential SET role = 'USER'").update();
+        account("stilluser");
+
+        assertThat(run("stilluser", "user")).isZero();
+
+        assertThat(out.toString()).contains("already a regular user").contains("no admins");
+    }
+
+    @Test
+    void warnsThatSessionsSurviveRemovingTheRole() {
+        account("sessions");
+
+        assertThat(run("sessions", "admin")).isZero();
+        assertThat(out.toString()).doesNotContain("restart");
+
+        assertThat(run("sessions", "user")).isZero();
+        assertThat(out.toString()).contains("restart the server before giving it back");
+    }
+
+    @Test
     void refusesAnUnknownUsername() {
         assertThat(run("nobody", "admin")).isOne();
 

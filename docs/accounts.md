@@ -54,7 +54,8 @@ java -jar elysium.jar set-role alice user
 
 Changes apply straight away, with no restart, including to anyone who's already logged in. If an admin's account may be
 compromised, remove the role first, because [`reset-password`](#accounts-and-sign-ups) doesn't end their browser sessions.
-You can remove the last admin, and use the same command to choose another.
+Those sessions stay logged in without admin access, and giving the role back would restore it to them, so restart the
+server before you do. You can remove the last admin, and use the same command to choose another.
 
 Applications only get admin scopes from an admin. A regular user can't approve them, and they have no effect on app
 tokens, which don't belong to any user, even if the application registered with them. Changing an account's role also
