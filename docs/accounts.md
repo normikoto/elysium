@@ -1,6 +1,7 @@
 # Accounts and sign-ups
 
-Sign-ups are currently disabled by default, so create your first account with the `create-user` command:
+Sign-ups are currently disabled by default, and the first account can only be created with the `create-user` command,
+which makes it [an admin](#admins):
 ```shell
 java -jar elysium.jar create-user alice
 ```
@@ -38,6 +39,27 @@ People can't change their own passwords yet, and sign-ups have no email confirma
 `reset-password alice`. It also revokes the access of all their applications, so they'll need to authorize them again.
 Anyone already logged in through a browser stays logged in until the server restarts, and could authorize an application
 until then, so restart the server if the account may be compromised.
+
+## Admins
+The server's first account becomes an admin, and later accounts are regular users. If sign-ups are turned on, `/signup`
+refuses to create the first account, and says it's unavailable until `create-user` has been run. Otherwise the first
+stranger to sign up would become an admin.
+
+If your server had accounts before this role was added, they stay regular users, so choose an admin with `set-role`. It
+also removes the role, and runs the same way as `create-user`:
+```shell
+java -jar elysium.jar set-role alice admin
+java -jar elysium.jar set-role alice user
+```
+
+Changes apply straight away, with no restart, including to anyone who's already logged in. If an admin's account may be
+compromised, remove the role first, because [`reset-password`](#accounts-and-sign-ups) doesn't end their browser sessions.
+You can remove the last admin, and use the same command to choose another.
+
+Applications only get admin scopes from an admin. A regular user can't approve them, and they have no effect on app
+tokens, which don't belong to any user, even if the application registered with them. Changing an account's role also
+revokes its applications that have admin scopes, along with the rest of their access to that account, so they'll need to
+be authorized again.
 
 ## Rate limits
 Logins and sign-ups are limited, and requests over a limit get a `429` response with a `Retry-After` header:

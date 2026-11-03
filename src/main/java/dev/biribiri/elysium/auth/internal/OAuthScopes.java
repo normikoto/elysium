@@ -80,4 +80,20 @@ public final class OAuthScopes {
         }
         return expanded;
     }
+
+    /**
+     * Whether a scope gives access to admin features, so that it only works for admins.
+     */
+    public static boolean isAdmin(String scope) {
+        return scope.startsWith("admin:");
+    }
+
+    /**
+     * Removes the scopes that only work for admins, keeping the others in their order.
+     */
+    public static Set<String> withoutAdmin(Set<String> scopes) {
+        return scopes.stream()
+                .filter(scope -> !isAdmin(scope))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
 }

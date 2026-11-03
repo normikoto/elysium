@@ -9,7 +9,7 @@ Set these in your `application.properties`:
 | Property                           | Description                                                                                                                                             |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `elysium.instance.base-url`        | Required. Public URL of the server, with no path. A real server must use a public HTTPS URL. Actor URIs and the instance domain come from it, so don't change it after federating. |
-| `elysium.registration.enabled`     | Optional. Set to `true` to let anyone create an account at `/signup`. Defaults to `false`. See [Accounts and sign-ups](accounts.md). |
+| `elysium.registration.enabled`     | Optional. Set to `true` to let anyone create an account at `/signup`, once the first account exists. That account has to come from the `create-user` command. Defaults to `false`. See [Accounts and sign-ups](accounts.md). |
 | `elysium.rate-limit.enabled`       | Optional. Set to `false` to turn off the limits on logins and sign-ups, if you enforce your own elsewhere. Defaults to `true`. See [Rate limits](accounts.md#rate-limits). |
 | `elysium.statuses.max-characters`  | Optional. The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Defaults to `5000`. Lowering it doesn't affect existing statuses. |
 

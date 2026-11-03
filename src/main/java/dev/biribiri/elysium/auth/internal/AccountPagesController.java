@@ -48,8 +48,11 @@ class AccountPagesController {
     }
 
     @GetMapping(SecurityConfig.SIGNUP_PATH)
-    String signupForm(CsrfToken csrf, Model model) {
+    String signupForm(CsrfToken csrf, Model model, HttpServletResponse response) {
         requireRegistrationEnabled();
+        if (accounts.hasNoAccounts()) {
+            return signupUnavailable(response);
+        }
         addCsrf(model, csrf);
         model.addAttribute("username", "");
         return "signup";
@@ -65,6 +68,9 @@ class AccountPagesController {
             HttpServletRequest request,
             HttpServletResponse response) {
         requireRegistrationEnabled();
+        if (accounts.hasNoAccounts()) {
+            return signupUnavailable(response);
+        }
 
         var status = HttpStatus.UNPROCESSABLE_CONTENT;
         var error = validate(username, password, confirmPassword);
@@ -80,6 +86,9 @@ class AccountPagesController {
                     if (!accounts.signUp(username, password)) {
                         error = "That username is taken.";
                     }
+                } catch (FirstAccountRefusedException e) {
+                    limits.signUpNotCounted(request);
+                    return signupUnavailable(response);
                 } catch (PasswordHashingBusyException e) {
                     limits.signUpNotCounted(request);
                     status = HttpStatus.SERVICE_UNAVAILABLE;
@@ -114,6 +123,14 @@ class AccountPagesController {
             return "The passwords don't match.";
         }
         return null;
+    }
+
+    /**
+     * The first account has to come from the {@code create-user} command: see {@link FirstAccountRefusedException}.
+     */
+    private static String signupUnavailable(HttpServletResponse response) {
+        response.setStatus(HttpStatus.FORBIDDEN.value());
+        return "signup-unavailable";
     }
 
     private void requireRegistrationEnabled() {

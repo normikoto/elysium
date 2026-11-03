@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional sign-up page, turned on with `elysium.registration.enabled`
 - `create-user` command to create a local account, and `reset-password` command to replace an account's password and
   revoke its applications' access
+- An admin role. The first account from `create-user` becomes an admin, and the `set-role` command gives or removes the
+  role. The sign-up page refuses to create the first account, and `admin:*` scopes only work for admins
 - Mastodon-compatible OAuth 2: app registration, authorization code and client credentials grants, token revocation,
   scopes, and server metadata
 - `GET /api/v1/apps/verify_credentials` and `GET /api/v1/accounts/verify_credentials`

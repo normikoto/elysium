@@ -13,6 +13,7 @@ import org.springframework.security.oauth2.server.resource.introspection.OpaqueT
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -23,10 +24,12 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
 
     private final OAuth2AuthorizationService authorizations;
     private final ActorService actors;
+    private final LocalAccounts accounts;
 
-    TokenIntrospector(OAuth2AuthorizationService authorizations, ActorService actors) {
+    TokenIntrospector(OAuth2AuthorizationService authorizations, ActorService actors, LocalAccounts accounts) {
         this.authorizations = authorizations;
         this.actors = actors;
+        this.accounts = accounts;
     }
 
     @Override
@@ -40,12 +43,27 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
             throw new BadOpaqueTokenException("Inactive access token");
         }
 
+        var actorId = actorId(authorization);
         return new TokenPrincipal(
                 authorization.getRegisteredClientId(),
-                actorId(authorization),
-                OAuthScopes.expand(accessToken.getToken().getScopes()),
+                actorId,
+                effectiveScopes(accessToken.getToken().getScopes(), actorId),
                 accessToken.getToken().getIssuedAt(),
                 accessToken.getToken().getExpiresAt());
+    }
+
+    /**
+     * Admin scopes only work while the token's user is an admin, which is checked here so that removing the role applies
+     * to tokens straight away. App tokens have no user, and anyone can register an app with any scopes and get one, so
+     * they never have admin access.
+     */
+    private Set<String> effectiveScopes(Set<String> granted, Optional<UUID> actorId) {
+        var scopes = OAuthScopes.expand(granted);
+        // Most tokens have no admin scopes, and they shouldn't need another query on every request.
+        if (scopes.stream().noneMatch(OAuthScopes::isAdmin) || actorId.filter(accounts::isAdmin).isPresent()) {
+            return scopes;
+        }
+        return OAuthScopes.withoutAdmin(scopes);
     }
 
     /**

@@ -23,10 +23,12 @@ class ConsentController {
 
     private final ClientRegistrations clients;
     private final ActorService actors;
+    private final LocalAccounts accounts;
 
-    ConsentController(ClientRegistrations clients, ActorService actors) {
+    ConsentController(ClientRegistrations clients, ActorService actors, LocalAccounts accounts) {
         this.clients = clients;
         this.actors = actors;
+        this.accounts = accounts;
     }
 
     @GetMapping(SecurityConfig.CONSENT_PATH)
@@ -38,15 +40,21 @@ class ConsentController {
             Model model) {
         var client = clients.findByClientId(clientId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST));
-        var username = actors.findLocalById(UUID.fromString(principal.getName()))
+        var actorId = UUID.fromString(principal.getName());
+        var username = actors.findLocalById(actorId)
                 .map(Actor::username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST));
+
+        // This is only so that the page is accurate. SecurityConfig enforces it when the form is submitted.
+        var requested = OAuthScopes.parse(scope);
+        var grantable = accounts.isAdmin(actorId) ? requested : OAuthScopes.withoutAdmin(requested);
 
         model.addAttribute("clientName", client.name());
         model.addAttribute("clientId", clientId);
         model.addAttribute("state", state);
         model.addAttribute("username", username);
-        model.addAttribute("scopes", List.copyOf(OAuthScopes.parse(scope)));
+        model.addAttribute("scopes", List.copyOf(grantable));
+        model.addAttribute("adminScopesLeftOut", grantable.size() < requested.size());
         model.addAttribute("authorizePath", SecurityConfig.AUTHORIZE_PATH);
         return "consent";
     }
