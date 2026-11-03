@@ -20,10 +20,16 @@ If the server is behind a reverse proxy, set `server.forward-headers-strategy=na
 URL and [rate limits](accounts.md#rate-limits) apply to each client's address. Without it, every client appears to have
 the proxy's address and shares one limit, so one person could stop everyone from logging in.
 
-- **The proxy must be the only way to reach the server**, because the server trusts the forwarded headers it receives.
-  Anyone who can reach it directly could pretend to be any address, and so get around the limits.
-- **The proxy must send `X-Forwarded-For` and `X-Forwarded-Proto`.** Caddy does this by default. nginx doesn't, so add:
+**Warning:** With that setting on, a wrong proxy configuration can turn the per-address limits off without any sign of a
+problem. If the server trusts an `X-Forwarded-For` value that a client wrote, the client can send a new address with
+every request. Check all of these:
+
+- **The proxy must be the only way to reach the server.** Anyone who can reach it directly can send any header.
+- **The proxy must add the client's real address to `X-Forwarded-For`,** and not just pass on what the client sent. It
+  must also send `X-Forwarded-Proto` and the original `Host`. Caddy does all of this by default. nginx passes on
+  `X-Forwarded-For` from the client unchanged and replaces `Host`, so you need to add:
   ```nginx
+  proxy_set_header Host $host;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   proxy_set_header X-Forwarded-Proto $scheme;
   ```
@@ -31,5 +37,6 @@ the proxy's address and shares one limit, so one person could stop everyone from
   it doesn't, add its address to `server.tomcat.remoteip.internal-proxies`, which replaces the default list.
 
 If the server gets a login or sign-up attempt from a private or loopback address while its base URL is public, it logs
-a warning once. That usually means one of these isn't set up correctly. It's expected if you're testing from the same
-host or network.
+a warning once. That usually means it's seeing the proxy's address instead of the client's. It's expected if you're
+testing from the same host or network. The warning can't detect made-up addresses, because they look like any other
+client's.

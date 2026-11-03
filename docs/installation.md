@@ -36,7 +36,8 @@ If the image build can't connect to Docker, which can happen with Docker Desktop
 PostgreSQL isn't reachable from outside its Docker network, and its data is kept in the `postgres-data` volume. The
 server listens on `127.0.0.1:8080`, so you need a reverse proxy on the same host to handle HTTPS. Because the proxy is
 the only way to reach the server, `server.forward-headers-strategy=native` is already set. The proxy still needs to
-[send the forwarded headers](configuration.md#reverse-proxies), or rate limits will treat all clients as one.
+[set the forwarded headers itself](configuration.md#reverse-proxies), or clients may be able to get around the rate
+limits by making up their addresses.
 
 To upgrade, run `./gradlew bootBuildImage` again, then `docker compose up -d`.
 

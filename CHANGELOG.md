@@ -29,8 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `application.properties.example`, a starting point for your own config
 - Production Docker Compose setup in `compose.yaml`, which runs the image from `./gradlew bootBuildImage`
 - Rate limits on failed logins and on sign-ups, on by default and turned off with `elysium.rate-limit.enabled=false`.
-  Behind a reverse proxy, these need `server.forward-headers-strategy=native` and a proxy that sends `X-Forwarded-For`,
-  or all clients share one limit. See `docs/configuration.md`.
+  Behind a reverse proxy, these need `server.forward-headers-strategy=native` and a proxy that adds the client's address
+  to `X-Forwarded-For`. Otherwise all clients can share one limit, or clients can get around the limits by making up
+  their addresses. nginx needs configuring to do this. See `docs/configuration.md`.
 
 ### Changed
 

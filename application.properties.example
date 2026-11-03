@@ -22,5 +22,6 @@ spring.datasource.password=
 
 # Uncomment if a reverse proxy is the only way to reach this server, so that redirects use the public URL and rate limits
 # apply to each client's address. Without this behind a proxy, all clients share one limit. The server trusts the
-# forwarded headers it receives, and the proxy needs to send them: see docs/configuration.md.
+# forwarded headers it receives, so the proxy must set them itself, or clients can get around the rate limits by making up
+# their addresses. nginx needs configuring to do this: see docs/configuration.md.
 #server.forward-headers-strategy=native

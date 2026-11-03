@@ -163,7 +163,9 @@ class SecurityConfig {
                         })
                         .failureHandler((request, response, failure) -> {
                             // Unknown usernames are reported as bad credentials too.
-                            if (!(failure instanceof BadCredentialsException)) {
+                            if (failure instanceof BadCredentialsException) {
+                                limits.loginFailed(request);
+                            } else {
                                 limits.loginNotCounted(request);
                             }
                             loginFailure.onAuthenticationFailure(request, response, failure);

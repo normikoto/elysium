@@ -53,8 +53,12 @@ IPv6 addresses are counted by their /64 network. Successful logins don't count a
 validation don't count at all. The limits don't apply to `create-user`, and don't end existing login sessions. Someone
 trying many passwords can make a username unavailable for logging in until the hour is up, including for its owner.
 
-Counts are kept in memory, so restarting resets them, and each instance has its own. If the server is behind a reverse
-proxy, it has to be [set up to see clients' addresses](configuration.md#reverse-proxies), or all clients share one limit.
+Each limit counts in fixed periods that start with the first attempt, so a burst around the end of a period can briefly
+reach twice the limit. Counts are kept in memory, so restarting resets them, and each instance has its own.
+
+If the server is behind a reverse proxy, it has to be [set up correctly](configuration.md#reverse-proxies). Otherwise
+all clients can share one limit, or clients can get around the limits by making up their addresses.
+
 To turn the limits off, because you enforce your own elsewhere, set `elysium.rate-limit.enabled=false`.
 
 **Warning:** These limits only slow down abuse from a small number of addresses. An attacker with many addresses can

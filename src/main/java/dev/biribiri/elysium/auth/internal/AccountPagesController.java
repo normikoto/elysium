@@ -84,6 +84,10 @@ class AccountPagesController {
                     limits.signUpNotCounted(request);
                     status = HttpStatus.SERVICE_UNAVAILABLE;
                     error = "The server is busy. Try again in a moment.";
+                } catch (RuntimeException e) {
+                    // Such as the database being down, which shouldn't use up the attempts of people retrying.
+                    limits.signUpNotCounted(request);
+                    throw e;
                 }
             }
         }

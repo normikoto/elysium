@@ -42,6 +42,13 @@ class LoginRateLimitFilter extends OncePerRequestFilter {
             response.sendError(HttpStatus.TOO_MANY_REQUESTS.value());
             return;
         }
-        chain.doFilter(request, response);
+        try {
+            chain.doFilter(request, response);
+        } catch (IOException | ServletException | RuntimeException e) {
+            // Spring Security's failure handler only sees authentication failures. This does nothing if the attempt
+            // already finished.
+            limits.loginNotCounted(request);
+            throw e;
+        }
     }
 }

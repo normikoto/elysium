@@ -5,11 +5,12 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
 
 import java.time.Duration;
+import java.util.Optional;
 
 /**
- * Counts attempts per key in fixed time windows. Counts are kept in memory, so they're lost on restart and aren't shared
- * between instances. The number of keys is bounded because callers can be made to track attacker-chosen values, so a
- * flood of new keys can evict old ones.
+ * Counts attempts per key in fixed time windows, so a burst across the end of a window can reach twice the limit. Counts
+ * are kept in memory, so they're lost on restart and aren't shared between instances. The number of keys is bounded
+ * because callers can be made to track attacker-chosen values, so a flood of new keys can evict old ones.
  */
 final class RateLimiter {
 
@@ -34,35 +35,20 @@ final class RateLimiter {
      * Takes a slot if the key has one left. A request that's turned away doesn't use a slot, so retrying doesn't extend
      * the wait.
      *
-     * @return whether a slot was taken
+     * @return the slot, or empty if there's none left
      */
-    boolean tryAcquire(String key) {
-        var acquired = new boolean[1];
+    Optional<Slot> tryAcquire(String key) {
+        var acquired = new Slot[1];
         windows.asMap().compute(key, (ignored, current) -> {
             var now = ticker.read();
             var active = current == null || hasEnded(current, now) ? new Window(now, 0) : current;
             if (active.count() >= limit) {
                 return active;
             }
-            acquired[0] = true;
+            acquired[0] = new Slot(key, active.start());
             return new Window(active.start(), active.count() + 1);
         });
-        return acquired[0];
-    }
-
-    /**
-     * Gives back a slot taken by {@link #tryAcquire}.
-     */
-    void release(String key) {
-        windows.asMap().computeIfPresent(key, (ignored, current) ->
-                new Window(current.start(), Math.max(0, current.count() - 1)));
-    }
-
-    /**
-     * Forgets everything counted for a key.
-     */
-    void reset(String key) {
-        windows.invalidate(key);
+        return Optional.ofNullable(acquired[0]);
     }
 
     /**
@@ -87,5 +73,36 @@ final class RateLimiter {
     }
 
     private record Window(long start, int count) {
+    }
+
+    /**
+     * One attempt counted against a key.
+     */
+    final class Slot {
+
+        private final String key;
+        private final long windowStart;
+
+        private Slot(String key, long windowStart) {
+            this.key = key;
+            this.windowStart = windowStart;
+        }
+
+        /**
+         * Gives the slot back. If its window has ended this does nothing, because an attempt that waited a long time
+         * shouldn't erase one counted in the next window.
+         */
+        void release() {
+            windows.asMap().computeIfPresent(key, (ignored, current) -> current.start() == windowStart
+                    ? new Window(current.start(), Math.max(0, current.count() - 1))
+                    : current);
+        }
+
+        /**
+         * Forgets everything counted for this slot's key.
+         */
+        void resetKey() {
+            windows.invalidate(key);
+        }
     }
 }

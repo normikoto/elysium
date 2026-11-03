@@ -38,6 +38,15 @@ class AuthRateLimitsTests {
     }
 
     @Test
+    void trimsUsernamesAsSpringSecurityDoes() {
+        assertLoginsAllowed(2, " alice", ADDRESS);
+        assertLoginsAllowed(2, "alice\t", ADDRESS);
+        assertLoginsAllowed(1, "alice", ADDRESS);
+
+        assertThat(limits.beginLogin(login(" alice ", ADDRESS))).isPresent();
+    }
+
+    @Test
     void limitsFailuresFromAnAddressAcrossUsernames() {
         for (var i = 0; i < 20; i++) {
             assertThat(limits.beginLogin(login("user" + i, ADDRESS))).isEmpty();
@@ -100,9 +109,10 @@ class AuthRateLimitsTests {
     @Test
     void aSuccessfulLoginClearsFailuresForThatUsernameAndAddress() {
         assertLoginsAllowed(4, "alice", ADDRESS);
-        assertThat(limits.beginLogin(login("alice", ADDRESS))).isEmpty();
+        var success = login("alice", ADDRESS);
+        assertThat(limits.beginLogin(success)).isEmpty();
 
-        limits.loginSucceeded(login("alice", ADDRESS));
+        limits.loginSucceeded(success);
 
         assertLoginsAllowed(5, "alice", ADDRESS);
         assertThat(limits.beginLogin(login("alice", ADDRESS))).isPresent();
@@ -113,9 +123,10 @@ class AuthRateLimitsTests {
         for (var i = 0; i < 19; i++) {
             assertThat(limits.beginLogin(login("user" + i, ADDRESS))).isEmpty();
         }
-        assertThat(limits.beginLogin(login("mine", ADDRESS))).isEmpty();
+        var success = login("mine", ADDRESS);
+        assertThat(limits.beginLogin(success)).isEmpty();
 
-        limits.loginSucceeded(login("mine", ADDRESS));
+        limits.loginSucceeded(success);
 
         // Only the successful attempt's own slot came back.
         assertThat(limits.beginLogin(login("victim", ADDRESS))).isEmpty();
@@ -125,9 +136,47 @@ class AuthRateLimitsTests {
     @Test
     void aLoginThatWasntCountedGivesBackItsSlots() {
         for (var i = 0; i < 100; i++) {
-            assertThat(limits.beginLogin(login("alice", ADDRESS))).isEmpty();
-            limits.loginNotCounted(login("alice", ADDRESS));
+            var attempt = login("alice", ADDRESS);
+            assertThat(limits.beginLogin(attempt)).isEmpty();
+            limits.loginNotCounted(attempt);
         }
+    }
+
+    @Test
+    void onlyTheFirstWayOfFinishingALoginHasAnyEffect() {
+        assertLoginsAllowed(1, "alice", ADDRESS);
+        var attempt = login("alice", ADDRESS);
+        assertThat(limits.beginLogin(attempt)).isEmpty();
+
+        limits.loginNotCounted(attempt);
+        limits.loginNotCounted(attempt);
+        limits.loginSucceeded(attempt);
+
+        assertLoginsAllowed(4, "alice", ADDRESS);
+        assertThat(limits.beginLogin(login("alice", ADDRESS))).isPresent();
+    }
+
+    @Test
+    void aFailedLoginStaysCountedEvenIfSomethingGoesWrongAfterwards() {
+        var attempt = login("alice", ADDRESS);
+        assertThat(limits.beginLogin(attempt)).isEmpty();
+
+        limits.loginFailed(attempt);
+        limits.loginNotCounted(attempt);
+
+        assertLoginsAllowed(4, "alice", ADDRESS);
+        assertThat(limits.beginLogin(login("alice", ADDRESS))).isPresent();
+    }
+
+    @Test
+    void aLoginTurnedAwayHasNothingToGiveBack() {
+        assertLoginsAllowed(5, "alice", ADDRESS);
+        var blocked = login("alice", ADDRESS);
+        assertThat(limits.beginLogin(blocked)).isPresent();
+
+        limits.loginNotCounted(blocked);
+
+        assertThat(limits.beginLogin(login("alice", ADDRESS))).isPresent();
     }
 
     @Test
@@ -162,8 +211,10 @@ class AuthRateLimitsTests {
     @Test
     void aSignUpThatWasntCountedGivesBackItsSlot() {
         for (var i = 0; i < 20; i++) {
-            assertThat(limits.beginSignUp(login(null, ADDRESS))).isEmpty();
-            limits.signUpNotCounted(login(null, ADDRESS));
+            var attempt = login(null, ADDRESS);
+            assertThat(limits.beginSignUp(attempt)).isEmpty();
+            limits.signUpNotCounted(attempt);
+            limits.signUpNotCounted(attempt);
         }
     }
 
@@ -185,6 +236,7 @@ class AuthRateLimitsTests {
             assertThat(disabled.beginSignUp(login(null, ADDRESS))).isEmpty();
         }
         disabled.loginSucceeded(login("alice", ADDRESS));
+        disabled.loginFailed(login("alice", ADDRESS));
         disabled.loginNotCounted(login("alice", ADDRESS));
         disabled.signUpNotCounted(login(null, ADDRESS));
     }
@@ -207,21 +259,24 @@ class AuthRateLimitsTests {
     }
 
     @Test
-    void warnsAboutIpv6LocalAddresses(CapturedOutput output) {
-        limits(true, "https://example.com").beginLogin(login("alice", "::1"));
-        assertThat(output).contains("forward-headers-strategy");
-    }
+    void warnsAboutEveryRangeTomcatTrustsAsAProxy(CapturedOutput output) {
+        var addresses = new String[]{
+                "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.0.1", "169.254.0.1", "100.64.0.1", "100.127.255.255",
+                "::1", "fe80::1", "fc00::1", "fd00::1"
+        };
 
-    @Test
-    void warnsAboutIpv6UniqueLocalAddresses(CapturedOutput output) {
-        limits(true, "https://example.com").beginLogin(login("alice", "fd00::1"));
-        assertThat(output).contains("forward-headers-strategy");
+        for (var address : addresses) {
+            limits(true, "https://example.com").beginLogin(login("alice", address));
+        }
+
+        assertThat(output.getAll().split("forward-headers-strategy", -1)).hasSize(addresses.length + 1);
     }
 
     @Test
     void doesntWarnAboutPublicAddresses(CapturedOutput output) {
-        limits.beginLogin(login("alice", ADDRESS));
-        limits.beginLogin(login("alice", "2001:db8::1"));
+        for (var address : new String[]{ADDRESS, "2001:db8::1", "100.63.255.255", "100.128.0.1", "172.32.0.1"}) {
+            limits.beginLogin(login("alice", address));
+        }
 
         assertThat(output).doesNotContain("forward-headers-strategy");
     }

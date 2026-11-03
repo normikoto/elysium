@@ -17,9 +17,9 @@ class RateLimiterTests {
 
     @Test
     void turnsAwayAttemptsOverTheLimit() {
-        assertThat(limiter.tryAcquire("key")).isTrue();
-        assertThat(limiter.tryAcquire("key")).isTrue();
-        assertThat(limiter.tryAcquire("key")).isFalse();
+        assertThat(limiter.tryAcquire("key")).isPresent();
+        assertThat(limiter.tryAcquire("key")).isPresent();
+        assertThat(limiter.tryAcquire("key")).isEmpty();
     }
 
     @Test
@@ -27,7 +27,7 @@ class RateLimiterTests {
         limiter.tryAcquire("key");
         limiter.tryAcquire("key");
 
-        assertThat(limiter.tryAcquire("other")).isTrue();
+        assertThat(limiter.tryAcquire("other")).isPresent();
     }
 
     @Test
@@ -36,10 +36,10 @@ class RateLimiterTests {
         limiter.tryAcquire("key");
 
         advance(WINDOW.minusNanos(1));
-        assertThat(limiter.tryAcquire("key")).isFalse();
+        assertThat(limiter.tryAcquire("key")).isEmpty();
 
         advance(Duration.ofNanos(1));
-        assertThat(limiter.tryAcquire("key")).isTrue();
+        assertThat(limiter.tryAcquire("key")).isPresent();
     }
 
     @Test
@@ -51,41 +51,52 @@ class RateLimiterTests {
 
         assertThat(limiter.timeUntilReset("key")).isEqualTo(Duration.ofMinutes(1));
         advance(Duration.ofMinutes(1));
-        assertThat(limiter.tryAcquire("key")).isTrue();
+        assertThat(limiter.tryAcquire("key")).isPresent();
     }
 
     @Test
     void releasingGivesASlotBack() {
         limiter.tryAcquire("key");
-        limiter.tryAcquire("key");
+        var slot = limiter.tryAcquire("key").orElseThrow();
 
-        limiter.release("key");
+        slot.release();
 
-        assertThat(limiter.tryAcquire("key")).isTrue();
-        assertThat(limiter.tryAcquire("key")).isFalse();
+        assertThat(limiter.tryAcquire("key")).isPresent();
+        assertThat(limiter.tryAcquire("key")).isEmpty();
     }
 
     @Test
     void releasingMoreThanWasTakenDoesntAddSlots() {
-        limiter.tryAcquire("key");
-        limiter.release("key");
-        limiter.release("key");
-        limiter.release("unknown");
+        var slot = limiter.tryAcquire("key").orElseThrow();
+        slot.release();
+        slot.release();
 
-        assertThat(limiter.tryAcquire("key")).isTrue();
-        assertThat(limiter.tryAcquire("key")).isTrue();
-        assertThat(limiter.tryAcquire("key")).isFalse();
+        assertThat(limiter.tryAcquire("key")).isPresent();
+        assertThat(limiter.tryAcquire("key")).isPresent();
+        assertThat(limiter.tryAcquire("key")).isEmpty();
+    }
+
+    @Test
+    void releasingASlotFromAnEarlierWindowDoesntAffectTheCurrentOne() {
+        var old = limiter.tryAcquire("key").orElseThrow();
+        advance(WINDOW);
+        limiter.tryAcquire("key");
+        limiter.tryAcquire("key");
+
+        old.release();
+
+        assertThat(limiter.tryAcquire("key")).isEmpty();
     }
 
     @Test
     void resettingForgetsTheCount() {
         limiter.tryAcquire("key");
-        limiter.tryAcquire("key");
+        var slot = limiter.tryAcquire("key").orElseThrow();
 
-        limiter.reset("key");
+        slot.resetKey();
 
-        assertThat(limiter.tryAcquire("key")).isTrue();
-        assertThat(limiter.tryAcquire("key")).isTrue();
+        assertThat(limiter.tryAcquire("key")).isPresent();
+        assertThat(limiter.tryAcquire("key")).isPresent();
     }
 
     @Test

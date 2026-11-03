@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
@@ -129,6 +130,35 @@ class RateLimitIntegrationTests {
     }
 
     @Test
+    void aServerErrorDoesntUseUpLoginAttempts() throws Exception {
+        createAccount("errorlimit");
+        var address = newAddress();
+        doThrow(new IllegalStateException("failed")).when(passwordEncoder).matches(any(), any());
+
+        for (var i = 0; i < 6; i++) {
+            assertThatThrownBy(() -> logIn("errorlimit", PASSWORD, address))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        Mockito.reset(passwordEncoder);
+        logIn("errorlimit", PASSWORD, address).andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    void spacesAroundAUsernameDontGetAroundItsLimit() throws Exception {
+        createAccount("paddedname");
+        var address = newAddress();
+
+        // Spring Security trims the username, so this tests the real account's password.
+        logIn(" paddedname ", PASSWORD, address).andExpect(redirectedUrl("/"));
+
+        failLogins(3, "paddedname ", address);
+        failLogins(2, " paddedname", address);
+        logIn(" paddedname ", PASSWORD, address).andExpect(status().isTooManyRequests());
+        logIn("paddedname", PASSWORD, address).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
     void limitsAnAddressAcrossUsernames() throws Exception {
         var address = newAddress();
         for (var i = 0; i < 20; i++) {
@@ -191,6 +221,20 @@ class RateLimitIntegrationTests {
 
         Mockito.reset(passwordEncoder);
         signUp("busysignup", PASSWORD, address).andExpect(redirectedUrl("/login?registered"));
+    }
+
+    @Test
+    void aServerErrorDoesntUseUpSignUpAttempts() throws Exception {
+        var address = newAddress();
+        doThrow(new IllegalStateException("failed")).when(passwordEncoder).encode(any());
+
+        for (var i = 0; i < 6; i++) {
+            assertThatThrownBy(() -> signUp("errorsignup", PASSWORD, address))
+                    .hasRootCauseInstanceOf(IllegalStateException.class);
+        }
+
+        Mockito.reset(passwordEncoder);
+        signUp("errorsignup", PASSWORD, address).andExpect(redirectedUrl("/login?registered"));
     }
 
     private void createAccount(String username) throws Exception {
