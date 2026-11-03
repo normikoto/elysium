@@ -1,7 +1,5 @@
 package dev.biribiri.elysium.auth.internal;
 
-import freemarker.template.TemplateException;
-import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
@@ -20,8 +18,9 @@ import org.springframework.security.web.DefaultRedirectStrategy;
 import org.springframework.security.web.RedirectStrategy;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.web.servlet.view.freemarker.FreeMarkerConfigurer;
 import org.springframework.web.util.UriUtils;
+import org.thymeleaf.ITemplateEngine;
+import org.thymeleaf.context.Context;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
@@ -40,12 +39,12 @@ class OAuthResponses {
     private static final String OUT_OF_BAND_REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob";
 
     private final JsonMapper json;
-    private final FreeMarkerConfigurer freeMarker;
+    private final ITemplateEngine templates;
     private final RedirectStrategy redirects = new DefaultRedirectStrategy();
 
-    OAuthResponses(JsonMapper json, FreeMarkerConfigurer freeMarker) {
+    OAuthResponses(JsonMapper json, ITemplateEngine templates) {
         this.json = json;
-        this.freeMarker = freeMarker;
+        this.templates = templates;
     }
 
     /**
@@ -53,7 +52,7 @@ class OAuthResponses {
      * it silently drops query parameters on them. That also covers the out-of-band URI.
      */
     void authorizationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication)
-            throws IOException, ServletException {
+            throws IOException {
         var result = (OAuth2AuthorizationCodeRequestAuthenticationToken) authentication;
         var redirectUri = result.getRedirectUri();
         var code = result.getAuthorizationCode().getTokenValue();
@@ -73,7 +72,7 @@ class OAuthResponses {
      * is what leaving the URI on the exception's token signifies. Anything else must not redirect.
      */
     void authorizationFailure(HttpServletRequest request, HttpServletResponse response, AuthenticationException failure)
-            throws IOException, ServletException {
+            throws IOException {
         var error = ((OAuth2AuthenticationException) failure).getError();
         var result = failure instanceof OAuth2AuthorizationCodeRequestAuthenticationException requestFailure
                 ? requestFailure.getAuthorizationCodeRequestAuthentication()
@@ -173,17 +172,15 @@ class OAuthResponses {
         response.getWriter().write(json.writeValueAsString(body));
     }
 
-    private void renderOutOfBand(HttpServletResponse response, HttpStatus status, Map<String, ?> model)
-            throws IOException, ServletException {
+    private void renderOutOfBand(HttpServletResponse response, HttpStatus status, Map<String, Object> model)
+            throws IOException {
         response.setStatus(status.value());
         response.setContentType(MediaType.TEXT_HTML_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-        try {
-            freeMarker.getConfiguration().getTemplate("oob-code.ftlh").process(model, response.getWriter());
-        } catch (TemplateException e) {
-            throw new ServletException("Could not render the out-of-band page", e);
-        }
+        var context = new Context();
+        context.setVariables(model);
+        templates.process("oob-code", context, response.getWriter());
     }
 
     private static void putIfPresent(Map<String, String> parameters, String name, String value) {

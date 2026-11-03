@@ -1,0 +1,18 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Log in', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="alert" th:if="${failed}">Incorrect username or password.</p>
+    <p class="notice" role="alert" th:if="${busy}">The server is busy. Try again in a moment.</p>
+    <p class="notice" th:if="${loggedOut}">You've logged out.</p>
+    <p class="notice" th:if="${registered}">Your account is ready. Log in to continue.</p>
+    <form method="post" action="/login">
+        <input type="hidden" th:name="${csrfParameter}" th:value="${csrfToken}">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+        <button type="submit">Log in</button>
+    </form>
+    <p th:if="${registrationEnabled}"><a href="/signup">Create an account</a></p>
+</th:block>
+</html>

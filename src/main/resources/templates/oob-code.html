@@ -1,0 +1,11 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page(${code != null} ? 'Authorization code' : 'Authorization failed', ~{::content})}">
+<th:block th:fragment="content">
+    <th:block th:if="${code != null}">
+        <p>Copy this code and paste it into the application:</p>
+        <code th:text="${code}"></code>
+    </th:block>
+    <p th:unless="${code != null}">The application wasn't authorized: <code th:text="${error}"></code></p>
+</th:block>
+</html>
