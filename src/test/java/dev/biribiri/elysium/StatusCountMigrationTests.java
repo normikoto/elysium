@@ -49,8 +49,7 @@ class StatusCountMigrationTests {
         flyway("5").migrate();
 
         assertThat(count(alice)).isEqualTo(3);
-        assertThat(jdbc.sql("SELECT count(*) FROM " + SCHEMA + ".actor_status_count WHERE actor_id = :id")
-                .param("id", bob).query(Long.class).single()).isZero();
+        assertThat(count(bob)).isZero();
         assertThat(count(carol)).isEqualTo(1);
     }
 
@@ -87,6 +86,7 @@ class StatusCountMigrationTests {
         return jdbc.sql("SELECT statuses_count FROM " + SCHEMA + ".actor_status_count WHERE actor_id = :id")
                 .param("id", actorId)
                 .query(Long.class)
-                .single();
+                .optional()
+                .orElse(0L);
     }
 }

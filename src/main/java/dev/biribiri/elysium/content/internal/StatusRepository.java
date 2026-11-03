@@ -155,16 +155,13 @@ public class StatusRepository {
         }
         var stats = new HashMap<UUID, AccountStats>();
         jdbc.sql("""
-                        SELECT c.actor_id, c.statuses_count, latest.published_at AS last_status_at
-                        FROM actor_status_count c
-                        CROSS JOIN LATERAL (
-                            SELECT s.published_at
+                        SELECT c.actor_id, c.statuses_count, (
+                            SELECT max(s.published_at)
                             FROM status s
                             WHERE s.actor_id = c.actor_id AND s.visibility <> 'direct'
-                            ORDER BY s.published_at DESC
-                            LIMIT 1
-                        ) latest
-                        WHERE c.actor_id IN (:actorIds)
+                        ) AS last_status_at
+                        FROM actor_status_count c
+                        WHERE c.actor_id IN (:actorIds) AND c.statuses_count > 0
                         """)
                 .param("actorIds", actorIds)
                 .query(rs -> {

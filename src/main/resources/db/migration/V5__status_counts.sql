@@ -1,6 +1,6 @@
 -- How many statuses each actor has, leaving out direct ones. Counting them on every read would mean scanning every status
--- of every account in a response. Triggers keep this correct however statuses are removed, including when deleting an
--- actor cascades to its statuses. They assume a status's actor and visibility never change.
+-- of every account in a response. Triggers keep this correct however statuses are deleted, including when deleting an
+-- actor cascades to its statuses. They assume a status's actor and visibility never change, and TRUNCATE skips them.
 CREATE TABLE actor_status_count
 (
     actor_id       UUID PRIMARY KEY REFERENCES actor (id) ON DELETE CASCADE,
@@ -13,17 +13,14 @@ FROM status
 WHERE visibility <> 'direct'
 GROUP BY actor_id;
 
-CREATE FUNCTION count_inserted_statuses() RETURNS trigger
+CREATE FUNCTION count_inserted_status() RETURNS trigger
     LANGUAGE plpgsql AS
 $$
 BEGIN
     INSERT INTO actor_status_count (actor_id, statuses_count)
-    SELECT actor_id, count(*)
-    FROM inserted
-    WHERE visibility <> 'direct'
-    GROUP BY actor_id
+    VALUES (NEW.actor_id, 1)
     ON CONFLICT (actor_id) DO UPDATE
-        SET statuses_count = actor_status_count.statuses_count + excluded.statuses_count;
+        SET statuses_count = actor_status_count.statuses_count + 1;
     RETURN NULL;
 END;
 $$;
@@ -43,14 +40,14 @@ BEGIN
 END;
 $$;
 
--- These run once per statement rather than once per row, so deleting an account with many statuses updates its count once.
 CREATE TRIGGER status_count_insert
     AFTER INSERT
     ON status
-    REFERENCING NEW TABLE AS inserted
-    FOR EACH STATEMENT
-EXECUTE FUNCTION count_inserted_statuses();
+    FOR EACH ROW
+    WHEN (NEW.visibility <> 'direct')
+EXECUTE FUNCTION count_inserted_status();
 
+-- This runs once per statement rather than once per row, so deleting an account with many statuses updates its count once.
 CREATE TRIGGER status_count_delete
     AFTER DELETE
     ON status
