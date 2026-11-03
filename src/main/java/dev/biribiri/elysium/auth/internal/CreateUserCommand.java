@@ -8,12 +8,14 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
 
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 @Command(
         name = "create-user",
         mixinStandardHelpOptions = true,
-        description = "Creates a local account, even if sign-ups are disabled. Asks for its password.")
+        description = "Creates a local account, even if sign-ups are disabled. The server's first account becomes an "
+                + "admin. Asks for its password.")
 class CreateUserCommand implements Callable<Integer> {
 
     private ActorService actors;
@@ -46,16 +48,21 @@ class CreateUserCommand implements Callable<Integer> {
             return 1;
         }
 
+        Optional<AccountRole> role;
         try {
-            if (!accounts.signUp(username, passwords.read())) {
-                err.println("The username " + username + " is taken");
-                return 1;
-            }
+            role = accounts.createAccount(username, passwords.read());
         } catch (IllegalArgumentException e) {
             err.println(e.getMessage());
             return 1;
         }
+        if (role.isEmpty()) {
+            err.println("The username " + username + " is taken");
+            return 1;
+        }
         out.println("Created account " + username);
+        if (role.get() == AccountRole.ADMIN) {
+            out.println("It's the server's first account, so it's an admin.");
+        }
         return 0;
     }
 }

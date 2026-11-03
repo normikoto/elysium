@@ -2,6 +2,7 @@ package dev.biribiri.elysium;
 
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.auth.internal.PasswordHashingBusyException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,6 +40,11 @@ class LocalAccountIntegrationTests {
 
     @MockitoSpyBean
     private PasswordEncoder passwordEncoder;
+
+    @BeforeEach
+    void makeSureAnAccountExists() {
+        TestAccounts.makeSureAnAccountExists(actors);
+    }
 
     @Test
     void showsTheSignUpForm() throws Exception {

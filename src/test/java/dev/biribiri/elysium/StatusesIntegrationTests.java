@@ -2,6 +2,7 @@ package dev.biribiri.elysium;
 
 import com.jayway.jsonpath.JsonPath;
 import org.hamcrest.Matcher;
+import dev.biribiri.elysium.actor.ActorService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,9 +72,13 @@ class StatusesIntegrationTests {
     @Autowired
     private JdbcClient jdbc;
 
+    @Autowired
+    private ActorService actors;
+
     @BeforeEach
-    void removeStatuses() {
+    void setUp() {
         jdbc.sql("DELETE FROM status").update();
+        TestAccounts.makeSureAnAccountExists(actors);
     }
 
     // Creating

@@ -1,8 +1,10 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,6 +45,11 @@ class CreateUserCommandTests {
 
     @Autowired
     private JdbcClient jdbc;
+
+    @BeforeEach
+    void makeSureAnAccountExists() {
+        TestAccounts.makeSureAnAccountExists(actors);
+    }
 
     @Test
     void createsAnAccountThatCanLogIn() {

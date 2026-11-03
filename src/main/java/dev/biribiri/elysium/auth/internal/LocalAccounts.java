@@ -12,15 +12,22 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Passwords for local actors.
+ * Passwords and roles for local actors.
  */
 @Service
 class LocalAccounts implements UserDetailsService {
 
     static final int MIN_PASSWORD_LENGTH = 8;
     static final int MAX_PASSWORD_LENGTH = 128;
+
+    /**
+     * Identifies the advisory lock that's held while deciding whether a new account is the first. PostgreSQL's advisory
+     * locks are shared by the whole database, so this is just an arbitrary number that nothing else uses.
+     */
+    private static final long FIRST_ACCOUNT_LOCK = 7_391_046_215L;
 
     private final ActorService actors;
     private final JdbcClient jdbc;
@@ -49,23 +56,122 @@ class LocalAccounts implements UserDetailsService {
     @Override
     public UserDetails loadUserByUsername(String username) {
         return actors.findLocalByUsername(username)
-                .flatMap(actor -> passwordHash(actor.id()).map(hash -> User.withUsername(actor.id().toString())
-                        .password(hash)
-                        .roles("USER")
+                .flatMap(actor -> credential(actor.id()).map(credential -> User.withUsername(actor.id().toString())
+                        .password(credential.passwordHash())
+                        .roles(credential.role() == AccountRole.ADMIN ? new String[]{"USER", "ADMIN"}
+                                : new String[]{"USER"})
                         .build()))
                 .orElseThrow(() -> new UsernameNotFoundException("No local account with that username"));
     }
 
     /**
-     * Creates a new account.
+     * Creates a new account for someone using the sign-up page.
      *
      * @return whether it was created, which it won't be if the username is taken
+     * @throws FirstAccountRefusedException if no other account exists yet, in which case nothing is created
      */
     boolean signUp(String username, String password) {
+        return create(username, password, false).isPresent();
+    }
+
+    /**
+     * Creates a new account on behalf of the server's operator. The server's first account becomes an admin.
+     *
+     * @return the new account's role, or empty if the username is taken
+     */
+    Optional<AccountRole> createAccount(String username, String password) {
+        return create(username, password, true);
+    }
+
+    /**
+     * Whether nobody has an account yet, so that the sign-up page would refuse to create one. This is only for turning
+     * people away early. It's the check made while creating an account that counts, since this can be out of date by the
+     * time an account is created.
+     */
+    boolean hasNoAccounts() {
+        return !actors.hasLocalAccounts();
+    }
+
+    /**
+     * Whether an account is an admin right now. Access checks have to use this, rather than the authorities of a login
+     * session or a stored authorization. Those are copies from when they were created, and commands run in a separate
+     * process that can't reach sessions, so a copy can't be updated when the role changes.
+     */
+    boolean isAdmin(UUID actorId) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM account_credential WHERE actor_id = :actorId AND role = 'ADMIN')")
+                .param("actorId", actorId)
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * Changes an account's role. If that changes anything, this also revokes the account's applications that have admin
+     * scopes: their tokens, pending authorization codes, and the consent that would let them get new codes without
+     * asking. Those scopes only work while the account is an admin, so without this, removing the role and later giving it
+     * back would restore old tokens. Giving the role for the first time would also bring to life any admin scopes that
+     * the account approved as a regular user.
+     *
+     * @return what happened, or empty if the account has no password, which is where its role is stored
+     */
+    Optional<RoleChange> setRole(UUID actorId, AccountRole role) {
+        return transaction.execute(status -> {
+            if (credential(actorId).isEmpty()) {
+                return Optional.empty();
+            }
+            var changed = jdbc.sql("""
+                            UPDATE account_credential
+                            SET role = :role, updated_at = now()
+                            WHERE actor_id = :actorId AND role <> :role
+                            """)
+                    .param("actorId", actorId)
+                    .param("role", role.name())
+                    .update() > 0;
+            var revoked = changed && revokeAdminGrants(actorId);
+            var adminsRemain = jdbc.sql("SELECT EXISTS (SELECT 1 FROM account_credential WHERE role = 'ADMIN')")
+                    .query(Boolean.class)
+                    .single();
+            return Optional.of(new RoleChange(changed, revoked, adminsRemain));
+        });
+    }
+
+    private boolean revokeAdminGrants(UUID actorId) {
+        var authorizations = jdbc.sql("""
+                        DELETE FROM oauth2_authorization
+                        WHERE principal_name = :principalName
+                          AND (authorized_scopes LIKE '%admin:%' OR access_token_scopes LIKE '%admin:%')
+                        """)
+                .param("principalName", actorId.toString())
+                .update();
+        var consents = jdbc.sql("""
+                        DELETE FROM oauth2_authorization_consent
+                        WHERE principal_name = :principalName AND authorities LIKE '%admin:%'
+                        """)
+                .param("principalName", actorId.toString())
+                .update();
+        return authorizations + consents > 0;
+    }
+
+    private Optional<AccountRole> create(String username, String password, boolean mayBeFirst) {
         requireValidPassword(password);
         // Hashing is slow, so it happens before the transaction takes a database connection.
         var hash = passwordEncoder.encode(password);
-        return actors.createLocalIfAbsent(username, actor -> insertCredential(actor.id(), hash)).isPresent();
+        var role = new AtomicReference<AccountRole>();
+        var created = actors.createLocalIfAbsent(username, actor -> {
+            // Each transaction can only see the others' accounts once they've committed, so only one at a time can
+            // decide. This has to be a separate statement from the count, so that the count sees whatever was committed
+            // while waiting. It's not a table lock because this transaction has already written to the table, so two of
+            // them upgrading their locks could deadlock.
+            jdbc.sql("SELECT pg_advisory_xact_lock(:key)").param("key", FIRST_ACCOUNT_LOCK).query(rs -> {
+            });
+            // This includes the account being created.
+            var first = actors.countLocal() == 1;
+            if (first && !mayBeFirst) {
+                throw new FirstAccountRefusedException();
+            }
+            role.set(first ? AccountRole.ADMIN : AccountRole.USER);
+            insertCredential(actor.id(), hash, role.get());
+        });
+        return created.map(actor -> role.get());
     }
 
     /**
@@ -95,20 +201,22 @@ class LocalAccounts implements UserDetailsService {
         });
     }
 
-    private void insertCredential(UUID actorId, String hash) {
+    private void insertCredential(UUID actorId, String hash, AccountRole role) {
         jdbc.sql("""
-                        INSERT INTO account_credential (actor_id, password_hash)
-                        VALUES (:actorId, :hash)
+                        INSERT INTO account_credential (actor_id, password_hash, role)
+                        VALUES (:actorId, :hash, :role)
                         """)
                 .param("actorId", actorId)
                 .param("hash", hash)
+                .param("role", role.name())
                 .update();
     }
 
-    private Optional<String> passwordHash(UUID actorId) {
-        return jdbc.sql("SELECT password_hash FROM account_credential WHERE actor_id = :actorId")
+    private Optional<Credential> credential(UUID actorId) {
+        return jdbc.sql("SELECT password_hash, role FROM account_credential WHERE actor_id = :actorId")
                 .param("actorId", actorId)
-                .query(String.class)
+                .query((rs, rowNum) -> new Credential(
+                        rs.getString("password_hash"), AccountRole.valueOf(rs.getString("role"))))
                 .optional();
     }
 
@@ -117,5 +225,18 @@ class LocalAccounts implements UserDetailsService {
             throw new IllegalArgumentException("Passwords must be %d to %d characters"
                     .formatted(MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH));
         }
+    }
+
+    private record Credential(String passwordHash, AccountRole role) {
+    }
+
+    /**
+     * The result of setting an account's role.
+     *
+     * @param changed      whether the account had a different role before
+     * @param revokedApps  whether any of the account's applications lost their access
+     * @param adminsRemain whether the server has any admins now
+     */
+    record RoleChange(boolean changed, boolean revokedApps, boolean adminsRemain) {
     }
 }

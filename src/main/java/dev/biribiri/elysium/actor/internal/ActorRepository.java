@@ -77,6 +77,10 @@ public class ActorRepository {
         return jdbc.sql("SELECT count(*) FROM local_account").query(Long.class).single();
     }
 
+    public boolean hasLocalAccounts() {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM local_account)").query(Boolean.class).single();
+    }
+
     /**
      * Inserts a local actor unless one with the same identity already exists.
      *

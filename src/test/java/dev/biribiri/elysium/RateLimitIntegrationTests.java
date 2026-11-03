@@ -2,6 +2,7 @@ package dev.biribiri.elysium;
 
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.auth.internal.PasswordHashingBusyException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +53,11 @@ class RateLimitIntegrationTests {
 
     @MockitoSpyBean
     private PasswordEncoder passwordEncoder;
+
+    @BeforeEach
+    void makeSureAnAccountExists() {
+        TestAccounts.makeSureAnAccountExists(actors);
+    }
 
     @Test
     void turnsAwayLoginsOverTheLimitWithoutHashing() throws Exception {

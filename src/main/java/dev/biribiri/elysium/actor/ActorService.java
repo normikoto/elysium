@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.internal.ActorRepository;
 import dev.biribiri.elysium.actor.internal.RsaKeys;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
@@ -26,6 +27,9 @@ public class ActorService {
         this.actors = actors;
         this.instance = instance;
         this.transaction = new TransactionTemplate(transactionManager);
+        // Whatever the database's default is, each statement in onCreated has to see what's been committed so far. Taking
+        // a lock and then counting accounts wouldn't otherwise see those committed while waiting for the lock.
+        this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
     /**
@@ -52,6 +56,10 @@ public class ActorService {
 
     public long countLocal() {
         return actors.countLocal();
+    }
+
+    public boolean hasLocalAccounts() {
+        return actors.hasLocalAccounts();
     }
 
     /**

@@ -10,7 +10,8 @@ spring.datasource.url=jdbc:postgresql://localhost:5432/elysium
 spring.datasource.username=elysium
 spring.datasource.password=
 
-# Lets anyone create an account at /signup. There's no email confirmation.
+# Lets anyone create an account at /signup. There's no email confirmation. The first account has to come from the
+# create-user command, and becomes an admin.
 #elysium.registration.enabled=false
 
 # Limits logins and sign-ups. Only turn this off if you enforce your own limits elsewhere.

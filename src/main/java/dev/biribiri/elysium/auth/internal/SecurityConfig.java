@@ -51,6 +51,11 @@ class SecurityConfig {
     private static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
     private static final String APP_REGISTRATION_PATH = "/api/v1/apps";
 
+    /**
+     * Pages for admins, which all go under this path so that they're covered by one rule.
+     */
+    private static final String ADMIN_PATHS = "/admin/**";
+
     private static final String[] PUBLIC_PATHS = {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
             "/users/*/statuses/*", "/actuator/health", "/actuator/health/**", "/images/*", "/api-docs/**",
@@ -82,11 +87,12 @@ class SecurityConfig {
     @Bean
     @Order(1)
     SecurityFilterChain authorizationServerChain(
-            HttpSecurity http, InstanceProperties instance, OAuthResponses responses) throws Exception {
+            HttpSecurity http, InstanceProperties instance, OAuthResponses responses, AdminAccess adminAccess)
+            throws Exception {
         return http
                 .securityMatcher(authorizationServerRequests())
                 .cors(cors -> cors.configurationSource(clientCors()))
-                .oauth2AuthorizationServer(server -> configure(server, instance, responses))
+                .oauth2AuthorizationServer(server -> configure(server, instance, responses, adminAccess))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
                         new ClientOrLoginEntryPoint(new LoginUrlAuthenticationEntryPoint(LOGIN_PATH), responses)))
@@ -125,7 +131,7 @@ class SecurityConfig {
      */
     @Bean
     @Order(3)
-    SecurityFilterChain defaultChain(HttpSecurity http, AuthRateLimits limits) throws Exception {
+    SecurityFilterChain defaultChain(HttpSecurity http, AuthRateLimits limits, AdminAccess adminAccess) throws Exception {
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
         // can't lose a pending authorization.
         var requestCache = new HttpSessionRequestCache();
@@ -153,6 +159,8 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, SIGNUP_PATH).permitAll()
                         .requestMatchers(HttpMethod.POST, SIGNUP_PATH).permitAll()
                         .requestMatchers(HttpMethod.GET, CONSENT_PATH).authenticated()
+                        // Not hasRole: see AdminAccess.
+                        .requestMatchers(ADMIN_PATHS).access(adminAccess)
                         .anyRequest().denyAll())
                 .requestCache(cache -> cache.requestCache(requestCache))
                 .formLogin(login -> login
@@ -177,9 +185,13 @@ class SecurityConfig {
     }
 
     private static void configure(
-            OAuth2AuthorizationServerConfigurer server, InstanceProperties instance, OAuthResponses responses) {
+            OAuth2AuthorizationServerConfigurer server,
+            InstanceProperties instance,
+            OAuthResponses responses,
+            AdminAccess adminAccess) {
         server.authorizationEndpoint(endpoint -> endpoint
                         .authorizationRequestConverter(DefaultScopeConverters.authorizationRequest())
+                        .authorizationRequestConverter(new ConsentScopeConverter(adminAccess))
                         .consentPage(CONSENT_PATH)
                         .authorizationResponseHandler(responses::authorizationSuccess)
                         .errorResponseHandler(responses::authorizationFailure)
