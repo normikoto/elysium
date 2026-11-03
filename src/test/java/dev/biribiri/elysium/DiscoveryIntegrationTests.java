@@ -1,5 +1,9 @@
 package dev.biribiri.elysium;
 
+import com.networknt.schema.InputFormat;
+import com.networknt.schema.Schema;
+import com.networknt.schema.SchemaRegistry;
+import com.networknt.schema.SpecificationVersion;
 import dev.biribiri.elysium.actor.internal.LocalActorBootstrap;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,10 +11,13 @@ import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
@@ -225,8 +232,7 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.services.outbound").isEmpty())
                 .andExpect(jsonPath("$.openRegistrations").value(false))
                 .andExpect(jsonPath("$.usage.users.total").value(users))
-                .andExpect(jsonPath("$.usage.localPosts").isNumber())
-                .andExpect(jsonPath("$.metadata").isMap());
+                .andExpect(jsonPath("$.usage.users.total").value(users));
     }
 
     @Test
@@ -249,8 +255,25 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.services.outbound").isEmpty())
                 .andExpect(jsonPath("$.openRegistrations").value(false))
                 .andExpect(jsonPath("$.usage.users.total").value(users))
-                .andExpect(jsonPath("$.usage.localPosts").isNumber())
-                .andExpect(jsonPath("$.metadata").isMap());
+                .andExpect(jsonPath("$.usage.users.total").value(users));
+    }
+
+    @Test
+    void nodeInfoMatchesThePublishedSchemas() throws Exception {
+        for (var version : new String[]{"2.0", "2.1"}) {
+            assertThat(nodeInfoSchema(version).validate(nodeInfo(version), InputFormat.JSON)).isEmpty();
+        }
+    }
+
+    @Test
+    void nodeInfoSchemasRejectDocumentsThatDoNotMatch() throws Exception {
+        // This keeps the test above from passing if the schemas ever stop being enforced. With its version changed, the
+        // 2.1 document only differs from the 2.0 one by having a repository, which the 2.0 schema doesn't allow.
+        var document = nodeInfo("2.1").replace("\"version\":\"2.1\"", "\"version\":\"2.0\"");
+
+        assertThat(nodeInfoSchema("2.0").validate(document, InputFormat.JSON))
+                .singleElement()
+                .satisfies(error -> assertThat(error.getKeyword()).isEqualTo("additionalProperties"));
     }
 
     @Test
@@ -274,6 +297,21 @@ class DiscoveryIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/login\"")))
                 .andExpect(content().string(not(containsString("href=\"/signup\""))));
+    }
+
+    private String nodeInfo(String version) throws Exception {
+        return mockMvc.perform(get("/nodeinfo/" + version).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    /**
+     * Reads a copy of a schema from https://github.com/jhass/nodeinfo/tree/main/schemas, which is under CC0.
+     */
+    private static Schema nodeInfoSchema(String version) throws IOException {
+        var schema = new ClassPathResource("nodeinfo/schema-" + version + ".json");
+        return SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_4)
+                .getSchema(schema.getContentAsString(StandardCharsets.UTF_8), InputFormat.JSON);
     }
 
     private String publicKey() {

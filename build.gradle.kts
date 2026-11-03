@@ -42,6 +42,7 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("org.springframework.modulith:spring-modulith-observability-core")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
+    testImplementation("com.networknt:json-schema-validator:3.0.8")
     testImplementation("org.springframework.boot:spring-boot-starter-jdbc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-restclient-test")
     testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-authorization-server-test")
