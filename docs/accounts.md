@@ -39,10 +39,29 @@ People can't change their own passwords yet, and sign-ups have no email confirma
 Anyone already logged in through a browser stays logged in until the server restarts, and could authorize an application
 until then, so restart the server if the account may be compromised.
 
-**Warning:**  The server has no rate limiting for logins or registrations, aside from a limit to how many passwords the
-server hashes at one time. For this reason, it's _strongly recommended_ to not use this software on a public facing
-server at this time. If you're daring, you can add rate limiting to your reverse proxy configuration to mitigate
-this problem.
+## Rate limits
+Logins and sign-ups are limited, and requests over a limit get a `429` response with a `Retry-After` header:
+
+| Attempts                                         | Limit             |
+|--------------------------------------------------|-------------------|
+| Failed logins from one address                   | 20 per 15 minutes |
+| Failed logins for one username from one address  | 5 per 15 minutes  |
+| Failed logins for one username from any address  | 50 per hour       |
+| Sign-ups from one address                        | 5 per hour        |
+
+IPv6 addresses are counted by their /64 network. Successful logins don't count as failures, and sign-ups rejected by
+validation don't count at all. The limits don't apply to `create-user`, and don't end existing login sessions. Someone
+trying many passwords can make a username unavailable for logging in until the hour is up, including for its owner.
+
+Counts are kept in memory, so restarting resets them, and each instance has its own. If the server is behind a reverse
+proxy, it has to be [set up to see clients' addresses](configuration.md#reverse-proxies), or all clients share one limit.
+To turn the limits off, because you enforce your own elsewhere, set `elysium.rate-limit.enabled=false`.
+
+**Warning:** These limits only slow down abuse from a small number of addresses. An attacker with many addresses can
+spread out their attempts, and there's still no email confirmation, approval queue, or invite system for sign-ups. For
+this reason, it's _strongly recommended_ to not use this software on a public facing server at this time.
+
+## Login sessions
 
 Login sessions are stored in memory, so restarting logs people out of the login page. Applications' access tokens are
 stored in the database and aren't affected. If you run more than one instance, your load balancer needs to keep each
