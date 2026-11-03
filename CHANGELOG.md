@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/users/:username` now returns the actor document only to requests that ask for an ActivityPub type. Requests that
   accept HTML, including `Accept: */*` or no `Accept` header, get the profile page.
 - `/users/:username` now accepts `application/ld+json` with any profile.
+- `/users/:username/statuses/:id` now returns a `Note` object for public and unlisted statuses to requests that ask for an
+  ActivityPub type, instead of a 406.
 - Public and unlisted statuses in the API now have a `url`, which links to their page.
 - Actor documents now have a `url`, and WebFinger responses now have a `http://webfinger.net/rel/profile-page` link.
 - Your config now only needs the settings you want to change, and the rest come from the defaults built into the JAR.

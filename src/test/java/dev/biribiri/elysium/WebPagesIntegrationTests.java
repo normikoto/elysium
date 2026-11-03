@@ -18,6 +18,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.allOf;
@@ -26,6 +27,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -42,6 +44,8 @@ class WebPagesIntegrationTests {
 
     private static final String BROWSER_ACCEPT =
             "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8";
+    private static final MediaType ACTIVITY_JSON = MediaType.parseMediaType("application/activity+json");
+    private static final String PUBLIC_COLLECTION = "https://www.w3.org/ns/activitystreams#Public";
 
     @Autowired
     private MockMvc mockMvc;
@@ -83,9 +87,6 @@ class WebPagesIntegrationTests {
                 mockMvc.perform(get(path).header("Accept", accept)).andExpect(status().isNotAcceptable());
             }
         }
-        // Statuses have no ActivityPub document yet.
-        mockMvc.perform(get(path(wanda, status)).header("Accept", "application/activity+json"))
-                .andExpect(status().isNotAcceptable());
     }
 
     @Test
@@ -298,6 +299,190 @@ class WebPagesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("In reply to"))))
                 .andExpect(content().string(not(containsString(parent.id().toString()))));
+    }
+
+    // Status objects
+
+    @Test
+    void servesAPublicStatusAsANote() throws Exception {
+        var status = post(wanda, "See https://example.com/page", Visibility.PUBLIC);
+
+        mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(ACTIVITY_JSON))
+                .andExpect(jsonPath("$['@context'][0]").value("https://www.w3.org/ns/activitystreams"))
+                .andExpect(jsonPath("$['@context'][1].sensitive").value("as:sensitive"))
+                .andExpect(jsonPath("$.id").value(status.uri().toString()))
+                .andExpect(jsonPath("$.type").value("Note"))
+                .andExpect(jsonPath("$.attributedTo").value(wanda.uri().toString()))
+                .andExpect(jsonPath("$.url").value(status.uri().toString()))
+                .andExpect(jsonPath("$.published")
+                        .value(status.publishedAt().truncatedTo(ChronoUnit.SECONDS).toString()))
+                .andExpect(jsonPath("$.to.length()").value(1))
+                .andExpect(jsonPath("$.to[0]").value(PUBLIC_COLLECTION))
+                .andExpect(jsonPath("$.cc").isEmpty())
+                .andExpect(jsonPath("$.content").value(status.content()))
+                .andExpect(jsonPath("$.content").value(containsString("<a href=\"https://example.com/page\"")))
+                .andExpect(jsonPath("$.sensitive").value(false))
+                .andExpect(jsonPath("$.summary").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.inReplyTo").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.contentMap").doesNotHaveJsonPath());
+    }
+
+    @Test
+    void addressesAnUnlistedNoteDifferently() throws Exception {
+        var status = post(wanda, "unlisted text", Visibility.UNLISTED);
+
+        mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.to").isEmpty())
+                .andExpect(jsonPath("$.cc.length()").value(1))
+                .andExpect(jsonPath("$.cc[0]").value(PUBLIC_COLLECTION));
+    }
+
+    @Test
+    void doesNotServePrivateOrDirectStatusesAsNotes() throws Exception {
+        for (var visibility : new Visibility[]{Visibility.PRIVATE, Visibility.DIRECT}) {
+            var status = post(wanda, "hidden text", visibility);
+
+            mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                    .andExpect(status().isNotFound())
+                    .andExpect(content().string(not(containsString("hidden text"))));
+        }
+    }
+
+    @Test
+    void doesNotServeADeletedStatusAsANote() throws Exception {
+        var status = post(wanda, "deleted text", Visibility.PUBLIC);
+        statuses.delete(status.id(), wanda.id());
+
+        mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(content().string(not(containsString("deleted text"))));
+    }
+
+    @Test
+    void noteIsOnlyServedUnderItsAuthor() throws Exception {
+        var status = post(wanda, "text from wanda", Visibility.PUBLIC);
+
+        mockMvc.perform(get(path(walt, status)).accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/users/nobody/statuses/" + status.id()).accept(ACTIVITY_JSON))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/users/WANDA/statuses/" + status.id()).accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(status.uri().toString()));
+    }
+
+    @Test
+    void returnsNotFoundForUnknownAndMalformedNoteIds() throws Exception {
+        for (var id : new String[]{UUID.randomUUID().toString(), "nonsense", "1-1-1-1-1"}) {
+            mockMvc.perform(get("/users/wanda/statuses/" + id).accept(ACTIVITY_JSON))
+                    .andExpect(status().isNotFound())
+                    .andExpect(header().stringValues("Vary", hasItem("Accept")));
+        }
+    }
+
+    @Test
+    void noteLinksToAVisibleParent() throws Exception {
+        var parent = post(walt, "text from walt", Visibility.UNLISTED);
+        var reply = reply(wanda, "reply to walt", parent);
+
+        mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.inReplyTo").value(parent.uri().toString()));
+    }
+
+    @Test
+    void noteDoesNotRevealAHiddenParent() throws Exception {
+        var parent = post(wanda, "hidden text", Visibility.PRIVATE);
+        var reply = reply(wanda, "reply to myself", parent);
+
+        mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.inReplyTo").doesNotHaveJsonPath())
+                .andExpect(content().string(not(containsString(parent.id().toString()))));
+    }
+
+    @Test
+    void noteLeavesOutADeletedParent() throws Exception {
+        var parent = post(walt, "text from walt", Visibility.PUBLIC);
+        var reply = reply(wanda, "reply to walt", parent);
+        statuses.delete(parent.id(), walt.id());
+
+        mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.inReplyTo").doesNotHaveJsonPath());
+    }
+
+    @Test
+    void noteIncludesContentWarningsAsPlainText() throws Exception {
+        var status = statuses.create(wanda.id(), new NewStatus(
+                "behind a warning", "Tom & Jerry", null, Visibility.PUBLIC, false, null));
+
+        mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.summary").value("Tom & Jerry"))
+                .andExpect(jsonPath("$.sensitive").value(true));
+    }
+
+    @Test
+    void noteCanBeSensitiveWithoutAContentWarning() throws Exception {
+        var status = statuses.create(wanda.id(), new NewStatus(
+                "marked sensitive", null, null, Visibility.PUBLIC, true, null));
+
+        mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.sensitive").value(true))
+                .andExpect(jsonPath("$.summary").doesNotHaveJsonPath());
+    }
+
+    @Test
+    void noteIncludesTheContentUnderItsLanguage() throws Exception {
+        var status = statuses.create(wanda.id(), new NewStatus(
+                "bonjour", null, "fr", Visibility.PUBLIC, false, null));
+
+        mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.contentMap.fr").value(status.content()));
+    }
+
+    @Test
+    void choosesBetweenTheStatusPageAndTheNote() throws Exception {
+        var status = post(wanda, "public text", Visibility.PUBLIC);
+
+        for (var accept : new String[]{
+                "application/activity+json",
+                "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams https://example.com/other\"",
+                "application/ld+json",
+                "application/activity+json, */*;q=0.1"}) {
+            mockMvc.perform(get(path(wanda, status)).header("Accept", accept))
+                    .andExpect(status().isOk())
+                    .andExpect(header().stringValues("Vary", hasItem("Accept")))
+                    .andExpect(jsonPath("$.type").value("Note"));
+        }
+        for (var accept : new String[]{BROWSER_ACCEPT, "text/html", "*/*"}) {
+            mockMvc.perform(get(path(wanda, status)).header("Accept", accept))
+                    .andExpect(status().isOk())
+                    .andExpect(header().stringValues("Vary", hasItem("Accept")))
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
+        }
+    }
+
+    @Test
+    void allowsCrossOriginAndHeadRequestsForStatusUrls() throws Exception {
+        var status = post(wanda, "public text", Visibility.PUBLIC);
+
+        mockMvc.perform(options(path(wanda, status))
+                        .header("Origin", "https://client.example")
+                        .header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"))
+                .andExpect(header().doesNotExist("Access-Control-Allow-Credentials"));
+        for (var accept : new String[]{"application/activity+json", "*/*"}) {
+            mockMvc.perform(get(path(wanda, status)).header("Accept", accept).header("Origin", "https://client.example"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Access-Control-Allow-Origin", "*"))
+                    .andExpect(header().doesNotExist("Access-Control-Allow-Credentials"));
+        }
+        mockMvc.perform(head(path(wanda, status)).accept(ACTIVITY_JSON)).andExpect(status().isOk());
     }
 
     // Rendering

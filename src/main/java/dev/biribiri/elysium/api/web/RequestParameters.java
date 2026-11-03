@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.StatusPage;
 
@@ -20,19 +21,10 @@ final class RequestParameters {
     }
 
     /**
-     * Parses an ID, or returns empty if it isn't one. {@link UUID#fromString} alone also accepts values like
-     * {@code 1-1-1-1-1}.
+     * Parses an ID, or returns empty if it's missing or isn't one.
      */
     static Optional<UUID> uuid(String value) {
-        if (value == null) {
-            return Optional.empty();
-        }
-        try {
-            var parsed = UUID.fromString(value);
-            return parsed.toString().equalsIgnoreCase(value) ? Optional.of(parsed) : Optional.empty();
-        } catch (IllegalArgumentException e) {
-            return Optional.empty();
-        }
+        return Ids.parse(value);
     }
 
     /**

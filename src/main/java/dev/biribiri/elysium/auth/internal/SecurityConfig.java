@@ -255,7 +255,7 @@ class SecurityConfig {
      *
      * <p>This must not be a bean: Spring Security would then use a bean named {@code corsConfigurationSource} for every
      * chain, in place of Spring MVC's CORS settings: {@code @CrossOrigin} on the discovery controller, and the mapping
-     * for actor URLs in the {@code activitypub} module.
+     * for actor and status URLs in the {@code activitypub} module.
      */
     private static CorsConfigurationSource clientCors() {
         var configuration = new CorsConfiguration();
