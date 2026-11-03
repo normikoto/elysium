@@ -1,6 +1,7 @@
 package dev.biribiri.elysium;
 
 import com.jayway.jsonpath.JsonPath;
+import org.hamcrest.Matcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
@@ -55,6 +57,7 @@ class StatusesIntegrationTests {
     private static final String PASSWORD = "correct horse battery staple";
     private static final String REDIRECT_URI = "https://app.example/callback";
     private static final String TIMELINE = "/api/v1/timelines/public";
+    private static final String VERIFY_CREDENTIALS = "/api/v1/accounts/verify_credentials";
 
     /**
      * Logging in is slow because of Argon2, so each token is only created once. Spring reuses the context, and with it
@@ -159,8 +162,7 @@ class StatusesIntegrationTests {
     @Test
     void idsFollowTheOrderStatusesAreCommittedIn() throws Exception {
         var token = alice();
-        // Stays below the connection pool's size of 10, because checking a token briefly needs two connections.
-        try (var executor = Executors.newFixedThreadPool(8)) {
+        try (var executor = Executors.newFixedThreadPool(16)) {
             List<Callable<String>> creates = IntStream.range(0, 200)
                     .<Callable<String>>mapToObj(i -> () -> create(token, "Status " + i))
                     .toList();
@@ -587,24 +589,51 @@ class StatusesIntegrationTests {
 
     @Test
     void verifyCredentialsReportsStatusStatsWithoutDirectStatuses() throws Exception {
-        var path = "/api/v1/accounts/verify_credentials";
-        mockMvc.perform(withToken(get(path), alice()))
+        mockMvc.perform(withToken(get(VERIFY_CREDENTIALS), alice()))
                 .andExpect(jsonPath("$.statuses_count").value(0))
                 .andExpect(jsonPath("$.last_status_at").value(nullValue()));
 
         create(alice(), "Direct", "direct");
-        mockMvc.perform(withToken(get(path), alice()))
+        mockMvc.perform(withToken(get(VERIFY_CREDENTIALS), alice()))
                 .andExpect(jsonPath("$.statuses_count").value(0))
                 .andExpect(jsonPath("$.last_status_at").value(nullValue()));
 
         create(alice(), "Public");
         create(alice(), "Private", "private");
-        mockMvc.perform(withToken(get(path), alice()))
+        mockMvc.perform(withToken(get(VERIFY_CREDENTIALS), alice()))
                 .andExpect(jsonPath("$.username").value("alice"))
                 .andExpect(jsonPath("$.source.privacy").value("public"))
                 .andExpect(jsonPath("$.account").doesNotExist())
                 .andExpect(jsonPath("$.statuses_count").value(2))
                 .andExpect(jsonPath("$.last_status_at").value(matchesPattern("\\d{4}-\\d{2}-\\d{2}")));
+    }
+
+    @Test
+    void statusStatsFollowDeletions() throws Exception {
+        var first = create(alice(), "First");
+        jdbc.sql("UPDATE status SET published_at = '2020-01-02T00:00:00Z' WHERE id = :id::uuid").param("id", first).update();
+        var second = create(alice(), "Second");
+        create(alice(), "Direct", "direct");
+        create(bob(), "Other account");
+        expectStatusStats(3, 2, not(nullValue()));
+
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + second), alice())).andExpect(status().isOk());
+        expectStatusStats(2, 1, equalTo("2020-01-02"));
+
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + first), alice())).andExpect(status().isOk());
+        expectStatusStats(1, 0, nullValue());
+    }
+
+    @Test
+    void deletingAnAccountRemovesItsStatusesFromTheInstanceCount() throws Exception {
+        create(bob(), "Kept");
+        var erin = token("erin", "read write");
+        create(erin, "One");
+        create(erin, "Two");
+        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(3));
+
+        jdbc.sql("DELETE FROM actor WHERE username = 'erin'").update();
+        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(1));
     }
 
     @Test
@@ -648,6 +677,13 @@ class StatusesIntegrationTests {
 
     private String bobId() throws Exception {
         return actorId("bob");
+    }
+
+    private void expectStatusStats(int instanceCount, int aliceCount, Matcher<Object> aliceLastStatusAt) throws Exception {
+        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(instanceCount));
+        mockMvc.perform(withToken(get(VERIFY_CREDENTIALS), alice()))
+                .andExpect(jsonPath("$.statuses_count").value(aliceCount))
+                .andExpect(jsonPath("$.last_status_at").value(aliceLastStatusAt));
     }
 
     private String actorId(String username) throws Exception {
