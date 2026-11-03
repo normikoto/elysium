@@ -2,6 +2,7 @@ package dev.biribiri.elysium.web;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.Status;
@@ -81,7 +82,7 @@ class PagesController {
             HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
         var actor = actors.findLocalByUsername(username).orElseThrow(PagesController::notFound);
-        var page = firstPage(maxId == null ? null : Status.parseId(maxId).orElseThrow(PagesController::notFound));
+        var page = firstPage(maxId == null ? null : Ids.parse(maxId).orElseThrow(PagesController::notFound));
         var found = statuses.findByAccount(actor.id(), ANONYMOUS, true, page);
 
         model.addAttribute("actor", actor);
@@ -100,7 +101,7 @@ class PagesController {
     String status(@PathVariable String username, @PathVariable String id, Model model, HttpServletRequest request)
             throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
-        var view = Status.parseId(id)
+        var view = Ids.parse(id)
                 .flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
                 .flatMap(this::view)
                 // Otherwise any account's URL could show this status.

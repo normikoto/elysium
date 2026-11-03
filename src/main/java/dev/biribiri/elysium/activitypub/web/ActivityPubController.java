@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.web;
 import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import org.springframework.http.ResponseEntity;
@@ -46,7 +47,7 @@ public class ActivityPubController {
 
     @GetMapping(path = "/users/{username}/statuses/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     ResponseEntity<Note> note(@PathVariable String username, @PathVariable String id) {
-        return ResponseEntity.of(actors.findLocalByUsername(username).flatMap(author -> Status.parseId(id)
+        return ResponseEntity.of(actors.findLocalByUsername(username).flatMap(author -> Ids.parse(id)
                 .flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
                 // Otherwise any account's URL could serve this status.
                 .filter(status -> status.actorId().equals(author.id()))

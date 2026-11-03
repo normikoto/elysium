@@ -50,12 +50,11 @@ public record Note(
     public static Note from(Status status, Actor author, URI inReplyTo) {
         // Actors have no followers collection to address yet. Other servers tell public and unlisted statuses apart by
         // whether the public collection is in "to" or "cc".
-        var to = switch (status.visibility()) {
-            case PUBLIC -> PUBLIC;
-            case UNLISTED -> List.<String>of();
+        var audience = switch (status.visibility()) {
+            case PUBLIC -> new Audience(PUBLIC, List.of());
+            case UNLISTED -> new Audience(List.of(), PUBLIC);
             case PRIVATE, DIRECT -> throw new IllegalArgumentException("The status isn't public or unlisted");
         };
-        var cc = to.isEmpty() ? PUBLIC : List.<String>of();
 
         return new Note(
                 CONTEXT,
@@ -65,12 +64,15 @@ public record Note(
                 // Browsers get the status's page from the same URL as this document.
                 status.uri(),
                 DateTimeFormatter.ISO_INSTANT.format(status.publishedAt().truncatedTo(ChronoUnit.SECONDS)),
-                to,
-                cc,
+                audience.to(),
+                audience.cc(),
                 status.content(),
                 status.sensitive(),
                 status.spoilerText().isEmpty() ? null : status.spoilerText(),
                 inReplyTo,
                 status.language() == null ? null : Map.of(status.language(), status.content()));
+    }
+
+    private record Audience(List<String> to, List<String> cc) {
     }
 }

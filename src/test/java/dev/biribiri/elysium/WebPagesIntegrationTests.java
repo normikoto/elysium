@@ -352,6 +352,16 @@ class WebPagesIntegrationTests {
     }
 
     @Test
+    void doesNotServeADeletedStatusAsANote() throws Exception {
+        var status = post(wanda, "deleted text", Visibility.PUBLIC);
+        statuses.delete(status.id(), wanda.id());
+
+        mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(content().string(not(containsString("deleted text"))));
+    }
+
+    @Test
     void noteIsOnlyServedUnderItsAuthor() throws Exception {
         var status = post(wanda, "text from wanda", Visibility.PUBLIC);
 

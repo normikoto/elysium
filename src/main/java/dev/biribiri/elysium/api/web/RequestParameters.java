@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 
 import java.util.Locale;
@@ -24,7 +24,7 @@ final class RequestParameters {
      * Parses an ID, or returns empty if it's missing or isn't one.
      */
     static Optional<UUID> uuid(String value) {
-        return value == null ? Optional.empty() : Status.parseId(value);
+        return Ids.parse(value);
     }
 
     /**

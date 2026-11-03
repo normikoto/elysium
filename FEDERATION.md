@@ -53,6 +53,7 @@ No activities are sent or received yet.
   followed.
 - Actor documents don't include `followers` or `following` collections.
 - `Note` objects aren't addressed to followers, because actors don't have a followers collection yet.
+- `Note` objects for replies don't address the parent's author or include a `Mention` tag.
 - A reply's `inReplyTo` is left out if its parent is private, direct, or deleted, so it looks like it isn't a reply.
 - Deleted statuses get a 404, not a `Tombstone`.
 - There's no shared inbox.

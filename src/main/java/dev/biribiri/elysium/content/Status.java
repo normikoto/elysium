@@ -34,19 +34,6 @@ public record Status(
 ) {
 
     /**
-     * Parses an ID, or returns empty if it isn't one. {@link UUID#fromString} alone also accepts values like
-     * {@code 1-1-1-1-1}.
-     */
-    public static Optional<UUID> parseId(String value) {
-        try {
-            var parsed = UUID.fromString(value);
-            return parsed.toString().equalsIgnoreCase(value) ? Optional.of(parsed) : Optional.empty();
-        } catch (IllegalArgumentException e) {
-            return Optional.empty();
-        }
-    }
-
-    /**
      * Follows don't exist yet, so private and direct statuses can only be seen by their author.
      */
     public boolean isVisibleTo(Optional<UUID> viewer) {
