@@ -5,7 +5,7 @@ or receive activities. This file only describes what's implemented today.
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): actor documents only
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects only
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -28,6 +28,21 @@ Each actor document includes `publicKey` with an RSA 2048 key, identified as `{a
 
 Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively.
 
+### Objects
+
+Public and unlisted statuses are `Note` objects at `/users/{username}/statuses/{id}`, which is also the URL of their web
+page. These are served the same way as actor documents: the same `Accept` types get the object, requests that accept HTML
+get the page, and any origin can read both through CORS. Private and direct statuses, and deleted statuses, get a 404.
+
+A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, and `sensitive`, which is defined in its
+`@context` as `as:sensitive`. It can also have:
+
+- `summary`: the content warning, as plain text rather than HTML, which matches Mastodon.
+- `inReplyTo`: the parent status.
+- `contentMap`: the `content` under its language, if one is set.
+
+Public statuses have the public collection in `to`, and unlisted statuses have it in `cc`.
+
 ### Activities
 
 No activities are sent or received yet.
@@ -37,8 +52,9 @@ No activities are sent or received yet.
 - Actor documents advertise `inbox` and `outbox`, but those endpoints aren't implemented yet, so actors can't be
   followed.
 - Actor documents don't include `followers` or `following` collections.
-- Status URIs (`/users/{username}/statuses/{id}`) only serve an HTML page, not an ActivityPub object, so requests for
-  ActivityPub types get a 406.
+- `Note` objects aren't addressed to followers, because actors don't have a followers collection yet.
+- A reply's `inReplyTo` is left out if its parent is private, direct, or deleted, so it looks like it isn't a reply.
+- Deleted statuses get a 404, not a `Tombstone`.
 - There's no shared inbox.
 - HTTP Signatures aren't implemented, so requests are neither signed nor verified.
 

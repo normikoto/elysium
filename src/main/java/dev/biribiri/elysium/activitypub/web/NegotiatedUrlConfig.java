@@ -10,8 +10,8 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Settings for actor URLs, which serve the actor document or a web page depending on the {@code Accept} header. These
- * apply to the URL rather than to either handler:
+ * Settings for actor and status URLs, which serve an ActivityPub document or a web page depending on the {@code Accept}
+ * header. These apply to the URL rather than to either handler:
  *
  * <ul>
  * <li>A cache must not mix up the two responses.
@@ -20,13 +20,15 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
-class ActorUrlConfig implements WebMvcConfigurer {
+class NegotiatedUrlConfig implements WebMvcConfigurer {
 
-    private static final String ACTOR_URLS = "/users/*";
+    private static final String[] NEGOTIATED_URLS = {"/users/*", "/users/*/statuses/*"};
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping(ACTOR_URLS).allowedMethods("GET", "HEAD");
+        for (var url : NEGOTIATED_URLS) {
+            registry.addMapping(url).allowedMethods("GET", "HEAD");
+        }
     }
 
     @Override
@@ -37,6 +39,6 @@ class ActorUrlConfig implements WebMvcConfigurer {
                 response.addHeader(HttpHeaders.VARY, HttpHeaders.ACCEPT);
                 return true;
             }
-        }).addPathPatterns(ACTOR_URLS);
+        }).addPathPatterns(NEGOTIATED_URLS);
     }
 }

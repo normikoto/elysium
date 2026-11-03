@@ -81,7 +81,7 @@ class PagesController {
             HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
         var actor = actors.findLocalByUsername(username).orElseThrow(PagesController::notFound);
-        var page = firstPage(maxId == null ? null : uuid(maxId).orElseThrow(PagesController::notFound));
+        var page = firstPage(maxId == null ? null : Status.parseId(maxId).orElseThrow(PagesController::notFound));
         var found = statuses.findByAccount(actor.id(), ANONYMOUS, true, page);
 
         model.addAttribute("actor", actor);
@@ -92,11 +92,15 @@ class PagesController {
         return "profile";
     }
 
+    /**
+     * This shares its URL with the status's ActivityPub object, so like {@link #profile} it must not declare what it
+     * produces.
+     */
     @GetMapping("/users/{username}/statuses/{id}")
     String status(@PathVariable String username, @PathVariable String id, Model model, HttpServletRequest request)
             throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
-        var view = uuid(id)
+        var view = Status.parseId(id)
                 .flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
                 .flatMap(this::view)
                 // Otherwise any account's URL could show this status.
@@ -112,8 +116,8 @@ class PagesController {
     }
 
     /**
-     * A client that can't read HTML, such as another server fetching a status, should get an error it can understand
-     * rather than a page it fails to parse.
+     * A client that can't read HTML, such as one that only asks for {@code application/json}, should get an error it can
+     * understand rather than a page it fails to parse.
      */
     private void requireHtmlAccepted(HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
         var accepted = contentNegotiation.resolveMediaTypes(new ServletWebRequest(request));
@@ -142,19 +146,6 @@ class PagesController {
 
     private static StatusPage firstPage(UUID maxId) {
         return new StatusPage(StatusPage.DEFAULT_LIMIT, maxId, null, null);
-    }
-
-    /**
-     * Parses an ID, or returns empty if it isn't one. {@link UUID#fromString} alone also accepts values like
-     * {@code 1-1-1-1-1}.
-     */
-    private static Optional<UUID> uuid(String value) {
-        try {
-            var parsed = UUID.fromString(value);
-            return parsed.toString().equalsIgnoreCase(value) ? Optional.of(parsed) : Optional.empty();
-        } catch (IllegalArgumentException e) {
-            return Optional.empty();
-        }
     }
 
     private static ResponseStatusException notFound() {
