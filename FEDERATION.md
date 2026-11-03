@@ -12,6 +12,7 @@ or receive activities. This file only describes what's implemented today.
 ## Supported FEPs
 
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
+- [FEP-f1d5: NodeInfo in Fediverse Software](https://codeberg.org/fediverse/fep/src/branch/main/fep/f1d5/fep-f1d5.md)
 
 ## ActivityPub
 
