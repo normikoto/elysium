@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.activitypub.web;
 
+import dev.biribiri.elysium.activitypub.vocab.JsonResourceDescriptor;
 import dev.biribiri.elysium.activitypub.vocab.NodeInfo;
-import dev.biribiri.elysium.activitypub.vocab.NodeInfoLinks;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RegistrationProperties;
@@ -16,6 +16,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
+@CrossOrigin
 @RestController
 public class NodeInfoController {
 
@@ -44,15 +45,13 @@ public class NodeInfoController {
         this.registration = registration;
     }
 
-    @CrossOrigin
     @GetMapping(path = "/.well-known/nodeinfo", produces = {"application/jrd+json", MediaType.APPLICATION_JSON_VALUE})
-    NodeInfoLinks links() {
-        return new NodeInfoLinks(List.of(
-                new NodeInfoLinks.Link(SCHEMA_2_1, instance.resolve(PATH_2_1)),
-                new NodeInfoLinks.Link(SCHEMA_2_0, instance.resolve(PATH_2_0))));
+    JsonResourceDescriptor links() {
+        return JsonResourceDescriptor.ofLinks(List.of(
+                new JsonResourceDescriptor.Link(SCHEMA_2_1, instance.resolve(PATH_2_1)),
+                new JsonResourceDescriptor.Link(SCHEMA_2_0, instance.resolve(PATH_2_0))));
     }
 
-    @CrossOrigin
     @GetMapping(path = PATH_2_1, produces = "application/json; profile=\"" + SCHEMA_2_1 + "#\"")
     NodeInfo nodeInfo2_1() {
         return nodeInfo("2.1", REPOSITORY);
@@ -61,7 +60,6 @@ public class NodeInfoController {
     /**
      * The 2.0 schema doesn't allow a repository.
      */
-    @CrossOrigin
     @GetMapping(path = PATH_2_0, produces = "application/json; profile=\"" + SCHEMA_2_0 + "#\"")
     NodeInfo nodeInfo2_0() {
         return nodeInfo("2.0", null);

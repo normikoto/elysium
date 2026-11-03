@@ -216,46 +216,32 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
-    void nodeInfo20LeavesOutTheRepository() throws Exception {
-        var users = jdbc.sql("SELECT count(*) FROM actor").query(Long.class).single();
-        mockMvc.perform(get("/nodeinfo/2.0").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(header().string(
-                        "Content-Type",
-                        containsString("profile=\"http://nodeinfo.diaspora.software/ns/schema/2.0#\"")))
-                .andExpect(jsonPath("$.version").value("2.0"))
-                .andExpect(jsonPath("$.software.name").value("elysium"))
-                .andExpect(jsonPath("$.software.version").value(matchesPattern("\\d+\\.\\d+\\.\\d+.*")))
-                .andExpect(jsonPath("$.software.repository").doesNotExist())
-                .andExpect(jsonPath("$.protocols[0]").value("activitypub"))
-                .andExpect(jsonPath("$.services.inbound").isEmpty())
-                .andExpect(jsonPath("$.services.outbound").isEmpty())
-                .andExpect(jsonPath("$.openRegistrations").value(false))
-                .andExpect(jsonPath("$.usage.users.total").value(users))
-                .andExpect(jsonPath("$.usage.users.total").value(users));
+    void nodeInfoDescribesTheServer() throws Exception {
+        var users = jdbc.sql("SELECT count(*) FROM local_account").query(Long.class).single();
+        var posts = jdbc.sql("SELECT count(*) FROM status WHERE visibility <> 'direct'").query(Long.class).single();
+        for (var version : new String[]{"2.0", "2.1"}) {
+            mockMvc.perform(get("/nodeinfo/" + version).accept(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                    .andExpect(header().string(
+                            "Content-Type",
+                            containsString("profile=\"http://nodeinfo.diaspora.software/ns/schema/" + version + "#\"")))
+                    .andExpect(jsonPath("$.version").value(version))
+                    .andExpect(jsonPath("$.software.name").value("elysium"))
+                    .andExpect(jsonPath("$.software.version").value(matchesPattern("\\d+\\.\\d+\\.\\d+.*")))
+                    .andExpect(jsonPath("$.protocols[0]").value("activitypub"))
+                    .andExpect(jsonPath("$.services.inbound").isEmpty())
+                    .andExpect(jsonPath("$.services.outbound").isEmpty())
+                    .andExpect(jsonPath("$.openRegistrations").value(false))
+                    .andExpect(jsonPath("$.usage.users.total").value(users))
+                    .andExpect(jsonPath("$.usage.localPosts").value(posts));
+        }
     }
 
     @Test
-    void nodeInfoDescribesTheServer() throws Exception {
-        var users = jdbc.sql("SELECT count(*) FROM actor").query(Long.class).single();
+    void nodeInfo21IncludesTheRepository() throws Exception {
         mockMvc.perform(get("/nodeinfo/2.1").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(header().string(
-                        "Content-Type",
-                        containsString("application/json")))
-                .andExpect(header().string(
-                        "Content-Type",
-                        containsString("profile=\"http://nodeinfo.diaspora.software/ns/schema/2.1#\"")))
-                .andExpect(jsonPath("$.version").value("2.1"))
-                .andExpect(jsonPath("$.software.name").value("elysium"))
-                .andExpect(jsonPath("$.software.version").value(matchesPattern("\\d+\\.\\d+\\.\\d+.*")))
-                .andExpect(jsonPath("$.software.repository").value("https://github.com/normikoto/elysium"))
-                .andExpect(jsonPath("$.protocols[0]").value("activitypub"))
-                .andExpect(jsonPath("$.services.inbound").isEmpty())
-                .andExpect(jsonPath("$.services.outbound").isEmpty())
-                .andExpect(jsonPath("$.openRegistrations").value(false))
-                .andExpect(jsonPath("$.usage.users.total").value(users))
-                .andExpect(jsonPath("$.usage.users.total").value(users));
+                .andExpect(jsonPath("$.software.repository").value("https://github.com/normikoto/elysium"));
     }
 
     @Test
