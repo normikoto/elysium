@@ -1,0 +1,96 @@
+package dev.biribiri.elysium.activitypub.signature;
+
+import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
+import dev.biribiri.elysium.actor.InstanceProperties;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.util.List;
+
+/**
+ * Checks the signature on an incoming request. This doesn't depend on the signature format, which is up to each
+ * {@link SignatureScheme}.
+ *
+ * <p>Checks that don't need the network come first, so that as few requests as possible make this server fetch a key.
+ */
+@Component
+public class SignatureVerifier {
+
+    /**
+     * How long a signature lasts if it doesn't say. These values match Mastodon's, so that this server accepts what
+     * Mastodon accepts. A request that passes can be sent again within this time, so callers have to cope with
+     * duplicates.
+     */
+    private static final Duration DEFAULT_LIFETIME = Duration.ofMinutes(5);
+    private static final Duration MAX_LIFETIME = Duration.ofHours(12);
+    private static final Duration CLOCK_SKEW = Duration.ofHours(1);
+
+    private final List<SignatureScheme> schemes;
+    private final PublicKeyResolver keys;
+    private final InstanceProperties instance;
+    private final Clock clock;
+
+    @Autowired
+    SignatureVerifier(List<SignatureScheme> schemes, PublicKeyResolver keys, InstanceProperties instance) {
+        this(schemes, keys, instance, Clock.systemUTC());
+    }
+
+    SignatureVerifier(List<SignatureScheme> schemes, PublicKeyResolver keys, InstanceProperties instance, Clock clock) {
+        this.schemes = schemes;
+        this.keys = keys;
+        this.instance = instance;
+        this.clock = clock;
+    }
+
+    /**
+     * Checks a request's signature. This can block while fetching the sender's key, so it mustn't be called inside a
+     * database transaction.
+     *
+     * @return who signed the request. Callers still have to check that this actor can do what the request asks.
+     * @throws SignatureVerificationException if the signature can't be accepted
+     */
+    public VerifiedSignature verify(HttpRequestData request) {
+        var scheme = schemes.stream()
+                .filter(candidate -> candidate.appliesTo(request))
+                .findFirst()
+                .orElseThrow(() -> new SignatureVerificationException(
+                        Failure.NO_SUPPORTED_SIGNATURE, "Request has no signature in a supported format"));
+        var claim = scheme.parse(request);
+        checkTimeWindow(claim);
+
+        var keyId = KeyId.parse(claim.keyId(), instance);
+        var key = keys.resolve(keyId);
+        if (!matches(claim, key)) {
+            // The sender may have changed its key since this server fetched it.
+            key = keys.refresh(keyId, key)
+                    .filter(refreshed -> matches(claim, refreshed))
+                    .orElseThrow(() -> new SignatureVerificationException(
+                            Failure.REJECTED, "Signature doesn't match the key " + claim.keyId()));
+        }
+        return new VerifiedSignature(key.keyId(), key.owner());
+    }
+
+    private void checkTimeWindow(SignatureClaim claim) {
+        var now = clock.instant();
+        var created = claim.created();
+        var longest = created.plus(MAX_LIFETIME);
+        var expires = claim.expires() == null ? created.plus(DEFAULT_LIFETIME) : claim.expires();
+        expires = expires.isAfter(longest) ? longest : expires;
+        if (created.isAfter(now.plus(CLOCK_SKEW))) {
+            throw expired("Signature was made in the future: " + created);
+        }
+        if (now.isAfter(expires.plus(CLOCK_SKEW))) {
+            throw expired("Signature expired at " + expires);
+        }
+    }
+
+    private static boolean matches(SignatureClaim claim, ResolvedKey key) {
+        return claim.algorithm().verify(key.key(), claim.signatureBase(), claim.signature());
+    }
+
+    private static SignatureVerificationException expired(String message) {
+        return new SignatureVerificationException(Failure.REJECTED, message);
+    }
+}

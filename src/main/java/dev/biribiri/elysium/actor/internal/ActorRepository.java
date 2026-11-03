@@ -73,6 +73,16 @@ public class ActorRepository {
         return jdbc.sql(SELECT_LOCAL + "WHERE a.id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
     }
 
+    /**
+     * Reads an actor's private key. Actor queries leave this column out, so the key can't end up in an {@link Actor}.
+     */
+    public Optional<String> findPrivateKeyPem(UUID actorId) {
+        return jdbc.sql("SELECT private_key_pem FROM local_account WHERE actor_id = :actorId")
+                .param("actorId", actorId)
+                .query(String.class)
+                .optional();
+    }
+
     public long countLocal() {
         return jdbc.sql("SELECT count(*) FROM local_account").query(Long.class).single();
     }
