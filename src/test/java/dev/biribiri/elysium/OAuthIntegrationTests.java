@@ -313,6 +313,7 @@ class OAuthIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
                 .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().string(containsString("<title>Authorization code - Elysium</title>")))
                 .andReturn().getResponse().getContentAsString();
         var matcher = OOB_CODE.matcher(page);
         assertThat(matcher.find()).isTrue();
@@ -353,7 +354,38 @@ class OAuthIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("Test")))
                 .andExpect(content().string(containsString("admin")))
-                .andExpect(content().string(containsString("value=\"" + queryParameter(consent, "state") + "\"")));
+                .andExpect(content().string(containsString("value=\"" + queryParameter(consent, "state") + "\"")))
+                .andExpect(content().string(containsString("<title>Authorize application - Elysium</title>")))
+                .andExpect(content().string(containsString("action=\"/oauth/authorize\"")))
+                .andExpect(content().string(not(containsString("_csrf"))));
+    }
+
+    @Test
+    void pagesAreCompleteHtmlDocuments() throws Exception {
+        var page = mockMvc.perform(get("/login"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(page).startsWith("<!doctype html>");
+        assertThat(page).contains("<title>Log in - Elysium</title>").contains("<h1>Log in</h1>");
+        assertThat(page).doesNotContain(" th:");
+    }
+
+    @Test
+    void showsTheErrorForADeniedOutOfBandRedirect() throws Exception {
+        var app = registerApp("read", OOB);
+        var session = loggedInSession();
+        var consent = mockMvc.perform(authorizeRequest(app, session, "read", null, OOB))
+                .andExpect(status().is3xxRedirection())
+                .andReturn().getResponse().getRedirectedUrl();
+
+        mockMvc.perform(post("/oauth/authorize").session(session)
+                        .param("client_id", app.clientId())
+                        .param("state", queryParameter(consent, "state")))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(containsString("<title>Authorization failed - Elysium</title>")))
+                .andExpect(content().string(containsString("<code>access_denied</code>")));
     }
 
     @Test

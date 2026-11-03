@@ -1,0 +1,22 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Authorize application', ~{::content})}">
+<th:block th:fragment="content">
+    <p><strong th:text="${clientName}"></strong> wants to access your account, <strong th:text="${username}"></strong>, with these permissions:</p>
+    <ul>
+        <li th:each="scope : ${scopes}"><code th:text="${scope}"></code></li>
+    </ul>
+    <!--/* th:action would add a CSRF token, which these forms don't use: see ConsentController. */-->
+    <form class="actions" method="post" th:attr="action=${authorizePath}">
+        <input type="hidden" name="client_id" th:value="${clientId}">
+        <input type="hidden" name="state" th:value="${state}">
+        <input type="hidden" name="scope" th:each="scope : ${scopes}" th:value="${scope}">
+        <button type="submit">Authorize</button>
+    </form>
+    <!--/* Sending no scopes is how a denial is expressed to the authorization endpoint. */-->
+    <form class="actions" method="post" th:attr="action=${authorizePath}">
+        <input type="hidden" name="client_id" th:value="${clientId}">
+        <input type="hidden" name="state" th:value="${state}">
+        <button type="submit">Deny</button>
+    </form>
+</th:block>
+</html>

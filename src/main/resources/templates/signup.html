@@ -1,10 +1,11 @@
-<#import "layout.ftlh" as layout>
-<@layout.page title="Create an account">
-    <#if error??><p class="notice" role="alert">${error}</p></#if>
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Create an account', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
     <form method="post" action="/signup">
-        <input type="hidden" name="${csrfParameter}" value="${csrfToken}">
+        <input type="hidden" th:name="${csrfParameter}" th:value="${csrfToken}">
         <label for="username">Username</label>
-        <input type="text" id="username" name="username" value="${username}" autocomplete="username" required autofocus>
+        <input type="text" id="username" name="username" th:value="${username}" autocomplete="username" required autofocus>
         <label for="password">Password</label>
         <input type="password" id="password" name="password" autocomplete="new-password" minlength="8" maxlength="128"
                required>
@@ -13,4 +14,5 @@
         <button type="submit">Create account</button>
     </form>
     <p><a href="/login">Log in instead</a></p>
-</@layout.page>
+</th:block>
+</html>

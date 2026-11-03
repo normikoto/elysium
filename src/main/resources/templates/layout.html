@@ -1,10 +1,9 @@
-<#macro page title>
 <!doctype html>
-<html lang="en">
+<html lang="en" xmlns:th="http://www.thymeleaf.org" th:fragment="page(title, content)">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${title} - Elysium</title>
+    <title th:text="|${title} - Elysium|"></title>
     <style>
         :root { color-scheme: light dark; }
         body { font-family: system-ui, sans-serif; line-height: 1.5; margin: 0 auto; max-width: 26rem; padding: 2rem 1rem; }
@@ -18,8 +17,7 @@
     </style>
 </head>
 <body>
-<h1>${title}</h1>
-<#nested>
+<h1 th:text="${title}"></h1>
+<th:block th:replace="${content}"></th:block>
 </body>
 </html>
-</#macro>
