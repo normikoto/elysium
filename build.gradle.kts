@@ -72,7 +72,7 @@ springBoot {
 }
 
 tasks.bootJar {
-    // The install steps in the README use this name, so they don't need updating whenever the version changes.
+    // The install steps in docs/installation.md use this name, so they don't need updating whenever the version changes.
     archiveFileName = "elysium.jar"
 }
 
