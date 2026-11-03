@@ -2,7 +2,8 @@
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(|${status} ${error}|, ~{::content})}">
 <th:block th:fragment="content">
     <p th:if="${status == 404}">This page doesn't exist, or you can't see it.</p>
-    <p th:unless="${status == 404}">Something went wrong with this request.</p>
+    <p th:if="${status == 429}">Too many login attempts. Wait a while, then <a href="/login">try again</a>.</p>
+    <p th:unless="${status == 404 or status == 429}">Something went wrong with this request.</p>
     <p><a href="/">Back to the front page</a></p>
 </th:block>
 </html>

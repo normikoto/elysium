@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
@@ -20,6 +21,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.ExceptionMappingAuthenticationFailureHandler;
 import org.springframework.security.web.authentication.Http403ForbiddenEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -122,7 +125,7 @@ class SecurityConfig {
      */
     @Bean
     @Order(3)
-    SecurityFilterChain defaultChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain defaultChain(HttpSecurity http, AuthRateLimits limits) throws Exception {
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
         // can't lose a pending authorization.
         var requestCache = new HttpSessionRequestCache();
@@ -132,7 +135,13 @@ class SecurityConfig {
         loginFailure.setDefaultFailureUrl(LOGIN_PATH + "?error");
         loginFailure.setExceptionMappings(Map.of(PasswordHashingBusyException.class.getName(), LOGIN_PATH + "?busy"));
 
+        // Setting a success handler replaces Spring's default one, which is also what it would give this request cache.
+        var loginSuccess = new SavedRequestAwareAuthenticationSuccessHandler();
+        loginSuccess.setRequestCache(requestCache);
+
         return http
+                // Runs after the CSRF filter, so requests without a valid token don't use up anyone's attempts.
+                .addFilterBefore(new LoginRateLimitFilter(limits), UsernamePasswordAuthenticationFilter.class)
                 // Applies Spring MVC's CORS settings, including to preflight requests: @CrossOrigin on controllers, and
                 // the mappings in WebMvcConfigurer classes.
                 .cors(withDefaults())
@@ -146,7 +155,22 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, CONSENT_PATH).authenticated()
                         .anyRequest().denyAll())
                 .requestCache(cache -> cache.requestCache(requestCache))
-                .formLogin(login -> login.loginPage(LOGIN_PATH).failureHandler(loginFailure).permitAll())
+                .formLogin(login -> login
+                        .loginPage(LOGIN_PATH)
+                        .successHandler((request, response, authentication) -> {
+                            limits.loginSucceeded(request);
+                            loginSuccess.onAuthenticationSuccess(request, response, authentication);
+                        })
+                        .failureHandler((request, response, failure) -> {
+                            // Unknown usernames are reported as bad credentials too.
+                            if (failure instanceof BadCredentialsException) {
+                                limits.loginFailed(request);
+                            } else {
+                                limits.loginNotCounted(request);
+                            }
+                            loginFailure.onAuthenticationFailure(request, response, failure);
+                        })
+                        .permitAll())
                 .logout(withDefaults())
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(new Http403ForbiddenEntryPoint()))
                 .build();

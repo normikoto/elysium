@@ -4,8 +4,8 @@ Experimental ActivityPub server using Java and Spring Boot. Aim is general compa
 AP implementations.
 
 **There are known limitations and pitfalls when it comes to being production-ready right now, please don't run this on a
-public server unless you really know what you're doing.** For example, the server has
-[no rate limiting for logins or registrations](docs/accounts.md).
+public server unless you really know what you're doing.** For example,
+[sign-ups have no email confirmation](docs/accounts.md).
 
 ## Documentation
 - [Installation](docs/installation.md): building and running the server, with Docker Compose or as a systemd service

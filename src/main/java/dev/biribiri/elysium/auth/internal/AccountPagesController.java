@@ -2,7 +2,9 @@ package dev.biribiri.elysium.auth.internal;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.RegistrationProperties;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.stereotype.Controller;
@@ -20,10 +22,12 @@ class AccountPagesController {
 
     private final LocalAccounts accounts;
     private final RegistrationProperties registration;
+    private final AuthRateLimits limits;
 
-    AccountPagesController(LocalAccounts accounts, RegistrationProperties registration) {
+    AccountPagesController(LocalAccounts accounts, RegistrationProperties registration, AuthRateLimits limits) {
         this.accounts = accounts;
         this.registration = registration;
+        this.limits = limits;
     }
 
     @GetMapping(SecurityConfig.LOGIN_PATH)
@@ -58,19 +62,33 @@ class AccountPagesController {
             @RequestParam String confirmPassword,
             CsrfToken csrf,
             Model model,
+            HttpServletRequest request,
             HttpServletResponse response) {
         requireRegistrationEnabled();
 
         var status = HttpStatus.UNPROCESSABLE_CONTENT;
         var error = validate(username, password, confirmPassword);
         if (error == null) {
-            try {
-                if (!accounts.signUp(username, password)) {
-                    error = "That username is taken.";
+            // This comes after validating, so that a mistyped password doesn't use up an attempt.
+            var wait = limits.beginSignUp(request);
+            if (wait.isPresent()) {
+                response.setHeader(HttpHeaders.RETRY_AFTER, AuthRateLimits.retryAfterSeconds(wait.get()));
+                status = HttpStatus.TOO_MANY_REQUESTS;
+                error = "Too many sign-ups from your network. Try again later.";
+            } else {
+                try {
+                    if (!accounts.signUp(username, password)) {
+                        error = "That username is taken.";
+                    }
+                } catch (PasswordHashingBusyException e) {
+                    limits.signUpNotCounted(request);
+                    status = HttpStatus.SERVICE_UNAVAILABLE;
+                    error = "The server is busy. Try again in a moment.";
+                } catch (RuntimeException e) {
+                    // Such as the database being down, which shouldn't use up the attempts of people retrying.
+                    limits.signUpNotCounted(request);
+                    throw e;
                 }
-            } catch (PasswordHashingBusyException e) {
-                status = HttpStatus.SERVICE_UNAVAILABLE;
-                error = "The server is busy. Try again in a moment.";
             }
         }
         if (error == null) {
