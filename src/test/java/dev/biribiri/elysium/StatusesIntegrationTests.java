@@ -95,7 +95,7 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.language").value("en"))
                 .andExpect(jsonPath("$.visibility").value("unlisted"))
                 .andExpect(jsonPath("$.uri").value(containsString("https://elysium.example/users/alice/statuses/")))
-                .andExpect(jsonPath("$.url").value(nullValue()))
+                .andExpect(jsonPath("$.url").value(containsString("https://elysium.example/users/alice/statuses/")))
                 .andExpect(jsonPath("$.text").doesNotExist())
                 .andExpect(jsonPath("$.account.username").value("alice"))
                 .andExpect(jsonPath("$.account.statuses_count").value(1))
@@ -294,6 +294,19 @@ class StatusesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.text").doesNotExist());
+    }
+
+    @Test
+    void onlyLinksToStatusPagesThatExist() throws Exception {
+        for (var visibility : List.of("public", "unlisted")) {
+            mockMvc.perform(createRequest(alice(), "Text").param("visibility", visibility))
+                    .andExpect(jsonPath("$.url").value(containsString("https://elysium.example/users/alice/statuses/")));
+        }
+        for (var visibility : List.of("private", "direct")) {
+            mockMvc.perform(createRequest(alice(), "Text").param("visibility", visibility))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.url").value(nullValue()));
+        }
     }
 
     @Test

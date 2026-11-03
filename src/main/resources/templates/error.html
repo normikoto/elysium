@@ -1,0 +1,8 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(|${status} ${error}|, ~{::content})}">
+<th:block th:fragment="content">
+    <p th:if="${status == 404}">This page doesn't exist, or you can't see it.</p>
+    <p th:unless="${status == 404}">Something went wrong with this request.</p>
+    <p><a href="/">Back to the front page</a></p>
+</th:block>
+</html>

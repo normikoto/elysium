@@ -1,0 +1,15 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(${domain}, ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>Users: <span th:text="${userCount}"></span> · Posts: <span th:text="${statusCount}"></span></p>
+        <p>
+            <a href="/login" th:if="${showLogin}">Log in</a>
+            <a href="/signup" th:if="${registrationEnabled}">Create an account</a>
+        </p>
+        <h2>Recent posts</h2>
+        <p th:if="${#lists.isEmpty(statuses)}">No posts yet.</p>
+        <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>
+    </div>
+</th:block>
+</html>

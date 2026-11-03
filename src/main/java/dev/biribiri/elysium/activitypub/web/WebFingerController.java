@@ -64,6 +64,9 @@ public class WebFingerController {
         return new JsonResourceDescriptor(
                 "acct:" + actor.username() + "@" + actor.domain(),
                 List.of(actor.uri()),
-                List.of(new JsonResourceDescriptor.Link("self", "application/activity+json", actor.uri())));
+                List.of(
+                        new JsonResourceDescriptor.Link("self", "application/activity+json", actor.uri()),
+                        new JsonResourceDescriptor.Link(
+                                "http://webfinger.net/rel/profile-page", MediaType.TEXT_HTML_VALUE, actor.uri())));
     }
 }

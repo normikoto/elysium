@@ -18,6 +18,7 @@ import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -54,7 +55,10 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.subject").value("acct:admin@elysium.example"))
                 .andExpect(jsonPath("$.links[0].rel").value("self"))
                 .andExpect(jsonPath("$.links[0].type").value("application/activity+json"))
-                .andExpect(jsonPath("$.links[0].href").value(ACTOR_URI));
+                .andExpect(jsonPath("$.links[0].href").value(ACTOR_URI))
+                .andExpect(jsonPath("$.links[1].rel").value("http://webfinger.net/rel/profile-page"))
+                .andExpect(jsonPath("$.links[1].type").value("text/html"))
+                .andExpect(jsonPath("$.links[1].href").value(ACTOR_URI));
     }
 
     @Test
@@ -90,6 +94,7 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.id").value(ACTOR_URI))
                 .andExpect(jsonPath("$.type").value("Person"))
                 .andExpect(jsonPath("$.preferredUsername").value("admin"))
+                .andExpect(jsonPath("$.url").value(ACTOR_URI))
                 .andExpect(jsonPath("$.inbox").value(ACTOR_URI + "/inbox"))
                 .andExpect(jsonPath("$.outbox").value(ACTOR_URI + "/outbox"))
                 .andExpect(jsonPath("$.publicKey.id").value(ACTOR_URI + "#main-key"))
@@ -194,6 +199,14 @@ class DiscoveryIntegrationTests {
     void permitsHealthProbes() throws Exception {
         mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
         mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk());
+    }
+
+    @Test
+    void frontPageLeavesOutSignUpWhenRegistrationIsDisabled() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/login\"")))
+                .andExpect(content().string(not(containsString("href=\"/signup\""))));
     }
 
     private String publicKey() {

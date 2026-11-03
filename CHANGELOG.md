@@ -22,11 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET /api/v1/instance`, which tells clients the post length limit
 - `elysium.statuses.max-characters` to set the post length limit, which defaults to 5000
 - Public API documentation, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs`
+- A front page at `/`, and public pages for profiles at `/users/:username` and statuses at
+  `/users/:username/statuses/:id`
 - `application.properties.example`, a starting point for your own config
 - Production Docker Compose setup in `compose.yaml`, which runs the image from `./gradlew bootBuildImage`
 
 ### Changed
 
+- `/users/:username` now returns the actor document only to requests that ask for an ActivityPub type. Requests that
+  accept HTML, including `Accept: */*` or no `Accept` header, get the profile page.
+- `/users/:username` now accepts `application/ld+json` with any profile.
+- Public and unlisted statuses in the API now have a `url`, which links to their page.
+- Actor documents now have a `url`, and WebFinger responses now have a `http://webfinger.net/rel/profile-page` link.
 - Your config now only needs the settings you want to change, and the rest come from the defaults built into the JAR.
   To switch, set `SPRING_CONFIG_ADDITIONAL_LOCATION` instead of `SPRING_CONFIG_LOCATION`, and remove any lines you
   didn't change from your `application.properties`. Lines you keep continue to override the built-in defaults. If you

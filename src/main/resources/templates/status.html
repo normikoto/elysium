@@ -1,0 +1,12 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(|Post by @${view.username}|, ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p th:if="${parent != null}">
+            In reply to <a th:href="@{${parent.path}}" th:text="|@${parent.username}|"></a>
+        </p>
+        <th:block th:insert="~{status-card :: card(${view})}"></th:block>
+        <p><a th:href="@{/users/{username}(username=${view.username})}" th:text="|More from @${view.username}|"></a></p>
+    </div>
+</th:block>
+</html>
