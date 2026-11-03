@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.signature;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.Ticker;
@@ -41,7 +42,8 @@ class PublicKeyResolver {
     private static final Duration UNAVAILABLE_TTL = Duration.ofMinutes(1);
 
     /**
-     * Stops a sender with bad signatures from causing a fetch for every request.
+     * Stops a sender with bad signatures from causing a fetch for every request. This applies whether or not the last
+     * try worked, so a server that's having trouble doesn't get more requests because of it.
      */
     private static final Duration MIN_AGE_TO_REFRESH = Duration.ofMinutes(5);
     private static final long MAX_CACHED_KEYS = 10_000;
@@ -63,6 +65,12 @@ class PublicKeyResolver {
     private final AsyncCache<String, Lookup> cache;
     private final ConcurrentHashMap<String, CompletableFuture<Lookup>> refreshes = new ConcurrentHashMap<>();
 
+    /**
+     * Refreshes that failed, kept apart from the keys. Marking the failure on a cached key would restart that key's time
+     * to live, so forged signatures could keep an old key around for as long as its server is down.
+     */
+    private final Cache<String, Lookup> failedRefreshes;
+
     @Autowired
     PublicKeyResolver(ActorService actors, KeyDocuments documents) {
         this(actors, documents, Ticker.systemTicker(), Executors.newVirtualThreadPerTaskExecutor());
@@ -82,6 +90,11 @@ class PublicKeyResolver {
                 .ticker(ticker)
                 .expireAfter(Expiry.<String, Lookup>writing((keyId, lookup) -> lookup.timeToLive()))
                 .buildAsync();
+        this.failedRefreshes = Caffeine.newBuilder()
+                .maximumSize(MAX_CACHED_KEYS)
+                .ticker(ticker)
+                .expireAfterWrite(MIN_AGE_TO_REFRESH)
+                .build();
     }
 
     /**
@@ -96,7 +109,10 @@ class PublicKeyResolver {
 
     /**
      * Tries fetching a key again, after it didn't match a signature. It may have changed since it was fetched. If the
-     * key was fetched recently, this doesn't fetch it again.
+     * key was fetched recently, or a refresh was tried recently, this doesn't fetch it again.
+     *
+     * <p>Anyone can cause a refresh by sending a bad signature, so only a {@code 404} or {@code 410} forgets the key.
+     * Otherwise, a firewall or maintenance page that's answering for a while would stop valid signatures from passing.
      *
      * @param stale the key that didn't match
      * @return the new key, or empty if there isn't a different one to try
@@ -117,15 +133,33 @@ class PublicKeyResolver {
             }
         }
 
+        var failed = failedRefreshes.getIfPresent(keyId.value());
+        if (failed != null) {
+            return refreshResult(keyId, stale, failed);
+        }
+
         var refresh = refreshes.computeIfAbsent(keyId.value(), ignored -> fetch(keyId));
         refresh.whenComplete((lookup, failure) -> {
-            refreshes.remove(keyId.value(), refresh);
-            // A temporary failure leaves the old key in place, so its other signatures can still be checked.
-            if (lookup instanceof Found || lookup instanceof Missing) {
-                cache.put(keyId.value(), CompletableFuture.completedFuture(lookup));
+            // Before it stops being in progress, so that a request arriving in between can't start another one.
+            switch (lookup) {
+                case Found ignored -> cache.put(keyId.value(), CompletableFuture.completedFuture(lookup));
+                case Gone ignored -> cache.put(keyId.value(), CompletableFuture.completedFuture(lookup));
+                case Missing ignored -> failedRefreshes.put(keyId.value(), lookup);
+                case Unavailable ignored -> failedRefreshes.put(keyId.value(), lookup);
+                // Being over a limit, which isn't a request to the server.
+                case null -> {
+                }
             }
+            refreshes.remove(keyId.value(), refresh);
         });
-        var key = found(keyId, await(refresh));
+        return refreshResult(keyId, stale, await(refresh));
+    }
+
+    private static Optional<ResolvedKey> refreshResult(KeyId keyId, ResolvedKey stale, Lookup lookup) {
+        if (lookup instanceof Missing) {
+            return Optional.empty();
+        }
+        var key = found(keyId, lookup);
         return key.key().equals(stale.key()) ? Optional.empty() : Optional.of(key);
     }
 
@@ -147,9 +181,8 @@ class PublicKeyResolver {
      * remembered, and the next request can try again.
      */
     private CompletableFuture<Lookup> fetch(KeyId keyId) {
-        if (!throttle.tryAcquire(keyId.authority())) {
-            return CompletableFuture.failedFuture(
-                    new FetchLimitException("Too many fetches from " + keyId.authority()));
+        if (!throttle.tryAcquire(keyId.host())) {
+            return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches from " + keyId.host()));
         }
         if (!fetches.tryAcquire()) {
             return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches at once"));
@@ -173,6 +206,9 @@ class PublicKeyResolver {
             return new Found(documents.fetch(keyId), ticker.read());
         } catch (KeyFetchException e) {
             log.debug("Couldn't get key {}: {}", keyId.value(), e.getMessage());
+            if (e.isGone()) {
+                return new Gone();
+            }
             return e.isTemporary() ? new Unavailable() : new Missing();
         } catch (RuntimeException e) {
             log.warn("Unexpected failure getting key {}", keyId.value(), e);
@@ -196,10 +232,14 @@ class PublicKeyResolver {
     private static ResolvedKey found(KeyId keyId, Lookup lookup) {
         return switch (lookup) {
             case Found found -> found.key();
-            case Missing ignored -> throw new SignatureVerificationException(
-                    Failure.REJECTED, "Couldn't get the key " + keyId.value());
+            case Missing ignored -> throw rejected(keyId);
+            case Gone ignored -> throw rejected(keyId);
             case Unavailable ignored -> throw unavailable("Couldn't fetch the key " + keyId.value());
         };
+    }
+
+    private static SignatureVerificationException rejected(KeyId keyId) {
+        return new SignatureVerificationException(Failure.REJECTED, "Couldn't get the key " + keyId.value());
     }
 
     private static SignatureVerificationException unavailable(String message) {
@@ -223,6 +263,14 @@ class PublicKeyResolver {
     }
 
     private record Missing() implements Lookup {
+
+        @Override
+        public Duration timeToLive() {
+            return MISSING_TTL;
+        }
+    }
+
+    private record Gone() implements Lookup {
 
         @Override
         public Duration timeToLive() {

@@ -25,8 +25,11 @@ class KeyIdTests {
     }
 
     @Test
-    void keepsANonDefaultPortInTheAuthority() {
-        assertThat(KeyId.parse("https://remote.example:8443/k", INSTANCE).authority()).isEqualTo("remote.example:8443");
+    void keepsANonDefaultPortInTheAuthorityButNotTheHost() {
+        var keyId = KeyId.parse("https://REMOTE.example:8443/k", INSTANCE);
+
+        assertThat(keyId.authority()).isEqualTo("remote.example:8443");
+        assertThat(keyId.host()).isEqualTo("remote.example");
     }
 
     @ParameterizedTest

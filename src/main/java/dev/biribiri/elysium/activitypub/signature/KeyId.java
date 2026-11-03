@@ -13,9 +13,10 @@ import java.util.Locale;
  * @param value     the ID as it was sent
  * @param document  the URL of the document that has the key, or for a local key, the URL of the actor
  * @param authority the host, plus the port if it isn't the scheme's default
+ * @param host      the host alone, in lowercase
  * @param local     whether this names a key on this server, which should never be fetched
  */
-record KeyId(String value, URI document, String authority, boolean local) {
+record KeyId(String value, URI document, String authority, String host, boolean local) {
 
     private static final int MAX_LENGTH = 2048;
 
@@ -45,18 +46,19 @@ record KeyId(String value, URI document, String authority, boolean local) {
             throw rejected("Key ID isn't one this server can look up");
         }
 
+        var lowerHost = host.toLowerCase(Locale.ROOT);
         var authority = authority(scheme, host, uri.getPort());
         if (authority.equals(instance.domain())) {
             // Built by joining rather than URI.resolve, which would treat a path like //other.example/ as a new host.
             var path = uri.getRawPath() == null ? "" : uri.getRawPath();
             var query = uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery();
-            return new KeyId(value, URI.create(instance.baseUrl() + path + query), authority, true);
+            return new KeyId(value, URI.create(instance.baseUrl() + path + query), authority, lowerHost, true);
         }
         if (!scheme.equals("https")) {
             throw rejected("Key ID on another server has to use HTTPS");
         }
         var hash = value.indexOf('#');
-        return new KeyId(value, URI.create(hash == -1 ? value : value.substring(0, hash)), authority, false);
+        return new KeyId(value, URI.create(hash == -1 ? value : value.substring(0, hash)), authority, lowerHost, false);
     }
 
     /**
@@ -66,6 +68,9 @@ record KeyId(String value, URI document, String authority, boolean local) {
         return value.indexOf('#') != -1;
     }
 
+    /**
+     * @return the host in lowercase, plus the port if it isn't the scheme's default
+     */
     static String authority(String scheme, String host, int port) {
         var defaultPort = scheme.equalsIgnoreCase("https") ? 443 : 80;
         var lowerHost = host.toLowerCase(Locale.ROOT);

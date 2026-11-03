@@ -80,8 +80,7 @@ class KeyDocuments {
         if (entry == null || !entry.isObject() || !entry.path("publicKeyPem").isString()) {
             throw permanent("Actor doesn't have the key " + keyId.value());
         }
-        var owner = entry.path("owner");
-        if (!owner.isMissingNode() && !id.equals(owner.stringValue(null))) {
+        if (!entry.path("owner").isMissingNode() && !id.equals(ownerId(entry))) {
             throw permanent("Key " + keyId.value() + " in an actor document has a different owner");
         }
         return new ResolvedKey(keyId.value(), URI.create(id), parseKey(entry));
@@ -92,8 +91,7 @@ class KeyDocuments {
             throw permanent("Key ID " + keyId.value() + " has a fragment, but its document is a key");
         }
         var key = parseKey(keyDocument);
-        var ownerNode = keyDocument.path("owner");
-        var ownerId = ownerNode.isObject() ? ownerNode.path("id").stringValue(null) : ownerNode.stringValue(null);
+        var ownerId = ownerId(keyDocument);
         if (ownerId == null) {
             throw permanent("Key " + keyId.value() + " doesn't have an owner");
         }
@@ -125,6 +123,9 @@ class KeyDocuments {
         var status = response.status();
         if (status >= 500 || status == 429) {
             throw KeyFetchException.temporary("Fetching " + url + " returned " + status, null);
+        }
+        if (status == 404 || status == 410) {
+            throw KeyFetchException.gone("Fetching " + url + " returned " + status);
         }
         if (status != 200) {
             throw permanent("Fetching " + url + " returned " + status);
@@ -196,6 +197,14 @@ class KeyDocuments {
 
     private static String entryId(JsonNode entry) {
         return entry.isString() ? entry.stringValue() : entry.path("id").stringValue(null);
+    }
+
+    /**
+     * @return the ID of a key's owner, which can be an ID or an object, or null if it doesn't have one
+     */
+    private static String ownerId(JsonNode key) {
+        var owner = key.path("owner");
+        return owner.isObject() ? owner.path("id").stringValue(null) : owner.stringValue(null);
     }
 
     private static PublicKey parseKey(JsonNode holder) throws KeyFetchException {

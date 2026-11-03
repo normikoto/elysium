@@ -8,8 +8,9 @@ import java.time.Duration;
 
 /**
  * Limits how often this server fetches from each host, in fixed time windows. Anyone can send a request naming a key on
- * any host, so without this they could use this server to send traffic at another one. Hosts are attacker-chosen, so the
- * number tracked is bounded. Counts are kept in memory, so they're lost on restart.
+ * any host, so without this they could use this server to send traffic at another one. This goes by host rather than by
+ * host and port, or using different ports would get around it. Hosts are attacker-chosen, so the number tracked is
+ * bounded. Counts are kept in memory, so they're lost on restart.
  */
 final class FetchThrottle {
 

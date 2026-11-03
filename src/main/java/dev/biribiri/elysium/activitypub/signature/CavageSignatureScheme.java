@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -115,6 +114,16 @@ class CavageSignatureScheme implements SignatureScheme {
         return List.of(names.split("\\s+"));
     }
 
+    /**
+     * This also decides what {@link CavageRequestSigner} signs, so that this server accepts its own requests.
+     *
+     * @return whether a signature has to cover a digest. Any method but these can have a body, so even an empty one
+     *         counts: otherwise, a sender could leave out the digest and have someone else add a body.
+     */
+    static boolean needsDigest(String method, byte[] body) {
+        return !METHODS_WITHOUT_BODIES.contains(method) || body.length > 0;
+    }
+
     private static void checkStrength(HttpRequestData request, String algorithm, List<String> covered) {
         for (var item : covered) {
             if (item.startsWith("(") && !PSEUDO_HEADERS.contains(item)) {
@@ -131,8 +140,7 @@ class CavageSignatureScheme implements SignatureScheme {
         if (!covered.contains(DATE) && !covered.contains(CREATED)) {
             throw rejected("Signature has to cover date or (created)");
         }
-        var mayHaveBody = !METHODS_WITHOUT_BODIES.contains(request.method()) || request.body().length > 0;
-        if (mayHaveBody && !covered.contains(DIGEST_ITEM)) {
+        if (needsDigest(request.method(), request.body()) && !covered.contains(DIGEST_ITEM)) {
             throw rejected("Signature has to cover digest");
         }
     }
@@ -207,21 +215,13 @@ class CavageSignatureScheme implements SignatureScheme {
             // Only the first one splits, because base64 padding also has equals signs.
             var parts = entry.strip().split("=", 2);
             if (parts.length == 2 && parts[0].equalsIgnoreCase("sha-256")) {
-                if (!MessageDigest.isEqual(decodeBase64(parts[1], "Digest"), sha256(request.body()))) {
+                if (!MessageDigest.isEqual(decodeBase64(parts[1], "Digest"), Digests.sha256(request.body()))) {
                     throw rejected("Digest doesn't match the request's body");
                 }
                 return;
             }
         }
         throw rejected("Digest header doesn't have a SHA-256 digest");
-    }
-
-    private static byte[] sha256(byte[] body) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(body);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is not available", e);
-        }
     }
 
     private static String required(Map<String, String> parameters, String name) {

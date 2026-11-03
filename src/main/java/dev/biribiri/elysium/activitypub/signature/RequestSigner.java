@@ -14,6 +14,8 @@ public interface RequestSigner {
     /**
      * @param body the request's body, which is empty if it doesn't have one
      * @return the headers to add to the request
+     * @throws IllegalArgumentException if the target doesn't have a host that can be signed. Targets often come from
+     *                                  other servers, so this isn't always a mistake in the caller.
      */
     HttpHeaders sign(String method, URI target, byte[] body, SigningKey key);
 }

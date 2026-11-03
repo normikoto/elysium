@@ -59,6 +59,22 @@ class KeyDocumentsTests {
     }
 
     @Test
+    void allowsAKeyInAnActorToGiveItsOwnerAsAnObject() throws Exception {
+        serve(ACTOR, actorWith("{\"id\":\"%s\",\"owner\":{\"id\":\"%s\"},\"publicKeyPem\":\"%s\"}"
+                .formatted(KEY_ID, ACTOR, PEM)));
+
+        assertThat(documents.fetch(keyId(KEY_ID)).owner()).hasToString(ACTOR);
+    }
+
+    @Test
+    void rejectsAKeyInAnActorWhoseOwnerIsAnObjectForAnotherActor() throws Exception {
+        serve(ACTOR, actorWith("{\"id\":\"%s\",\"owner\":{\"id\":\"%s\"},\"publicKeyPem\":\"%s\"}"
+                .formatted(KEY_ID, "https://remote.example/users/mallory", PEM)));
+
+        assertPermanent(KEY_ID);
+    }
+
+    @Test
     void acceptsAnActorIdAsAKeyIdIfItHasOneKey() throws Exception {
         serve(ACTOR, actorWith(keyObject(KEY_ID, ACTOR)));
 
@@ -254,11 +270,20 @@ class KeyDocumentsTests {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {301, 302, 400, 401, 403, 404, 410})
+    @ValueSource(ints = {301, 302, 400, 401, 403})
     void treatsOtherAnswersAsPermanent(int status) throws Exception {
         when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, new byte[0]));
 
         assertPermanent(KEY_ID);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {404, 410})
+    void treatsMissingDocumentsAsGone(int status) throws Exception {
+        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, new byte[0]));
+
+        assertThatThrownBy(() -> documents.fetch(keyId(KEY_ID)))
+                .isInstanceOfSatisfying(KeyFetchException.class, e -> assertThat(e.isGone()).isTrue());
     }
 
     @ParameterizedTest
@@ -293,7 +318,10 @@ class KeyDocumentsTests {
 
     private void assertPermanent(String id) {
         assertThatThrownBy(() -> documents.fetch(keyId(id)))
-                .isInstanceOfSatisfying(KeyFetchException.class, e -> assertThat(e.isTemporary()).isFalse());
+                .isInstanceOfSatisfying(KeyFetchException.class, e -> {
+                    assertThat(e.isTemporary()).isFalse();
+                    assertThat(e.isGone()).isFalse();
+                });
     }
 
     private void assertTemporary(String id) {

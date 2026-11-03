@@ -143,6 +143,21 @@ class PublicKeyResolverTests {
         assertFails("https://remote.example/users/next#main-key", Failure.REJECTED);
     }
 
+    /**
+     * Otherwise, using different ports would get around the limit.
+     */
+    @Test
+    void countsEveryPortOfAHostTowardItsLimit() throws Exception {
+        when(documents.fetch(any())).thenThrow(KeyFetchException.permanent("gone", null));
+
+        for (var i = 0; i < 60; i++) {
+            assertFails("https://remote.example:" + (1000 + i) + "/key", Failure.REJECTED);
+        }
+        assertFails("https://REMOTE.example:2000/key", Failure.KEY_UNAVAILABLE);
+
+        verify(documents, times(60)).fetch(any());
+    }
+
     @Test
     void doesNotRememberBeingOverTheLimit() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
@@ -234,6 +249,75 @@ class PublicKeyResolverTests {
     }
 
     @Test
+    void doesNotTryAgainSoonAfterARefreshFailsForNow() throws Exception {
+        when(documents.fetch(any()))
+                .thenReturn(KEY)
+                .thenThrow(KeyFetchException.temporary("down", null))
+                .thenReturn(NEW_KEY);
+        var stale = resolver.resolve(keyId(KEY_ID));
+        advance(Duration.ofMinutes(5));
+
+        assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
+        advance(Duration.ofMinutes(5).minusSeconds(1));
+        assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
+        verify(documents, times(2)).fetch(any());
+
+        advance(Duration.ofSeconds(1));
+        assertThat(resolver.refresh(keyId(KEY_ID), stale)).contains(NEW_KEY);
+        verify(documents, times(3)).fetch(any());
+    }
+
+    @Test
+    void doesNotLetFailedRefreshesKeepAnOldKeyAlive() throws Exception {
+        when(documents.fetch(any()))
+                .thenReturn(KEY)
+                .thenThrow(KeyFetchException.temporary("down", null));
+        var stale = resolver.resolve(keyId(KEY_ID));
+
+        advance(Duration.ofHours(23));
+        assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
+        advance(Duration.ofHours(1));
+
+        assertFails(KEY_ID, Failure.KEY_UNAVAILABLE);
+    }
+
+    @Test
+    void keepsTheKeyIfARefreshGetsAnAnswerThatIsNotGone() throws Exception {
+        when(documents.fetch(any()))
+                .thenReturn(KEY)
+                .thenThrow(KeyFetchException.permanent("a firewall said 403", null))
+                .thenReturn(NEW_KEY);
+        var stale = resolver.resolve(keyId(KEY_ID));
+        advance(Duration.ofMinutes(5));
+
+        assertThat(resolver.refresh(keyId(KEY_ID), stale)).isEmpty();
+        assertThat(resolver.resolve(keyId(KEY_ID))).isEqualTo(KEY);
+
+        // Also not tried again until the time is up.
+        assertThat(resolver.refresh(keyId(KEY_ID), stale)).isEmpty();
+        verify(documents, times(2)).fetch(any());
+        advance(Duration.ofMinutes(5));
+        assertThat(resolver.refresh(keyId(KEY_ID), stale)).contains(NEW_KEY);
+    }
+
+    @Test
+    void doesNotRememberARefreshThatWasOverTheLimit() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY);
+        var stale = resolver.resolve(keyId(KEY_ID));
+        advance(Duration.ofMinutes(5));
+        for (var i = 0; i < 60; i++) {
+            resolver.resolve(keyId("https://remote.example/users/u" + i + "#main-key"));
+        }
+        assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
+        verify(documents, times(61)).fetch(any());
+
+        advance(Duration.ofMinutes(1));
+
+        when(documents.fetch(any())).thenReturn(NEW_KEY);
+        assertThat(resolver.refresh(keyId(KEY_ID), stale)).contains(NEW_KEY);
+    }
+
+    @Test
     void keepsTheOldKeyIfARefreshFailsForNow() throws Exception {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
@@ -252,13 +336,11 @@ class PublicKeyResolverTests {
     void forgetsTheKeyIfItIsGoneOnRefresh() throws Exception {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
-                .thenThrow(KeyFetchException.permanent("gone", null));
+                .thenThrow(KeyFetchException.gone("gone"));
         var stale = resolver.resolve(keyId(KEY_ID));
         advance(Duration.ofMinutes(5));
 
-        assertThatThrownBy(() -> resolver.refresh(keyId(KEY_ID), stale))
-                .isInstanceOfSatisfying(SignatureVerificationException.class,
-                        e -> assertThat(e.failure()).isEqualTo(Failure.REJECTED));
+        assertRefreshFails(stale, Failure.REJECTED);
 
         assertFails(KEY_ID, Failure.REJECTED);
     }
@@ -314,6 +396,12 @@ class PublicKeyResolverTests {
         return new Actor(
                 UUID.randomUUID(), uri, "alice", "example.test", URI.create(uri + "/inbox"), URI.create(uri + "/outbox"),
                 null, SignatureFixtures.PUBLIC_KEY_PEM, Instant.EPOCH);
+    }
+
+    private void assertRefreshFails(ResolvedKey stale, Failure failure) {
+        assertThatThrownBy(() -> resolver.refresh(keyId(KEY_ID), stale))
+                .isInstanceOfSatisfying(SignatureVerificationException.class,
+                        e -> assertThat(e.failure()).isEqualTo(failure));
     }
 
     private void assertFails(String id, Failure failure) {

@@ -7,8 +7,6 @@ import org.springframework.stereotype.Component;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -34,6 +32,8 @@ public class CavageRequestSigner implements RequestSigner {
 
     @Override
     public HttpHeaders sign(String method, URI target, byte[] body, SigningKey key) {
+        // Checked first so that a bad URL always gets this error.
+        var host = host(target);
         var added = new HttpHeaders();
         // Spring writes a proper HTTP date. DateTimeFormatter.RFC_1123_DATE_TIME doesn't pad single-digit days, which
         // other servers can reject.
@@ -44,11 +44,11 @@ public class CavageRequestSigner implements RequestSigner {
         names.add("(request-target)");
         lines.add("(request-target): " + method.toLowerCase(Locale.ROOT) + " " + requestTarget(target));
         names.add("host");
-        lines.add("host: " + host(target));
+        lines.add("host: " + host);
         names.add("date");
         lines.add("date: " + added.getFirst(HttpHeaders.DATE));
-        if (body.length > 0) {
-            added.set("Digest", "SHA-256=" + Base64.getEncoder().encodeToString(sha256(body)));
+        if (CavageSignatureScheme.needsDigest(method, body)) {
+            added.set("Digest", "SHA-256=" + Base64.getEncoder().encodeToString(Digests.sha256(body)));
             names.add("digest");
             lines.add("digest: " + added.getFirst("Digest"));
         }
@@ -70,18 +70,10 @@ public class CavageRequestSigner implements RequestSigner {
      * Leaves out a default port, as HTTP clients do when writing the {@code Host} header.
      */
     private static String host(URI target) {
-        var scheme = target.getScheme().toLowerCase(Locale.ROOT);
-        var host = target.getHost().toLowerCase(Locale.ROOT);
-        var port = target.getPort();
-        var defaultPort = scheme.equals("https") ? 443 : 80;
-        return port == -1 || port == defaultPort ? host : host + ":" + port;
-    }
-
-    private static byte[] sha256(byte[] body) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(body);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is not available", e);
+        // URI has no host for names it can't parse, such as ones with underscores or that aren't ASCII.
+        if (target.getScheme() == null || target.getHost() == null) {
+            throw new IllegalArgumentException("Can't sign a request to a URL without a valid host: " + target);
         }
+        return KeyId.authority(target.getScheme(), target.getHost(), target.getPort());
     }
 }

@@ -3,6 +3,8 @@ package dev.biribiri.elysium.activitypub.signature;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 
 import java.net.URI;
@@ -81,6 +83,37 @@ class CavageRequestSignerTests {
         var verified = verifier().verify(received("POST", "/users/alice/inbox", BODY, signed));
 
         assertThat(verified.keyId()).isEqualTo(KEY_ID);
+    }
+
+    /**
+     * Otherwise this server, and Mastodon, would refuse a POST that this signer made.
+     */
+    @Test
+    void signsADigestOfAnEmptyBodyOnMethodsThatCanHaveOne() {
+        var empty = new byte[0];
+
+        var headers = signer.sign("POST", INBOX, empty, KEY);
+
+        assertThat(headers.getFirst("Digest")).isEqualTo("SHA-256=47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=");
+        assertThat(headers.getFirst("Signature")).contains("headers=\"(request-target) host date digest\"");
+        assertThat(verifier().verify(received("POST", "/users/alice/inbox", empty, headers)).keyId()).isEqualTo(KEY_ID);
+    }
+
+    @Test
+    void signsADigestOfAGetThatHasABody() {
+        var headers = signer.sign("GET", INBOX, BODY, KEY);
+
+        assertThat(verifier().verify(received("GET", "/users/alice/inbox", BODY, headers)).keyId()).isEqualTo(KEY_ID);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://my_host.example/inbox", "https://b\u00fccher.example/inbox", "mailto:a@example.test", "/inbox"
+    })
+    void explainsThatItCannotSignAUrlWithoutAValidHost(String target) {
+        assertThatThrownBy(() -> signer.sign("POST", URI.create(target), BODY, KEY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("valid host");
     }
 
     @Test
