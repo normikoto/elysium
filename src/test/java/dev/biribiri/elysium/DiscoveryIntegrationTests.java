@@ -220,6 +220,7 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.version").value("2.1"))
                 .andExpect(jsonPath("$.software.name").value("elysium"))
                 .andExpect(jsonPath("$.software.version").value(matchesPattern("\\d+\\.\\d+\\.\\d+.*")))
+                .andExpect(jsonPath("$.software.repository").value("https://github.com/normikoto/elysium"))
                 .andExpect(jsonPath("$.protocols[0]").value("activitypub"))
                 .andExpect(jsonPath("$.services.inbound").isEmpty())
                 .andExpect(jsonPath("$.services.outbound").isEmpty())

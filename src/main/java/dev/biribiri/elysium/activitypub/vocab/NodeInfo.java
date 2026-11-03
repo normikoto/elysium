@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.vocab;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -15,7 +16,7 @@ public record NodeInfo(
         Usage usage,
         Map<String, Object> metadata) {
 
-    public record Software(String name, String version) {
+    public record Software(String name, String version, URI repository) {
     }
 
     public record Services(List<String> inbound, List<String> outbound) {

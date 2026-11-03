@@ -2,9 +2,9 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,19 +24,19 @@ public class InstanceController {
     private final StatusProperties statusProperties;
     private final ActorService actors;
     private final StatusService statuses;
-    private final boolean registrationEnabled;
+    private final RegistrationProperties registration;
 
     InstanceController(
             InstanceProperties instance,
             StatusProperties statusProperties,
             ActorService actors,
             StatusService statuses,
-            @Value("${elysium.registration.enabled:false}") boolean registrationEnabled) {
+            RegistrationProperties registration) {
         this.instance = instance;
         this.statusProperties = statusProperties;
         this.actors = actors;
         this.statuses = statuses;
-        this.registrationEnabled = registrationEnabled;
+        this.registration = registration;
     }
 
     @GetMapping
@@ -54,7 +54,7 @@ public class InstanceController {
                 new InstanceResponse.Stats(actors.countLocal(), statuses.countLocal(), 0),
                 null,
                 List.of(),
-                registrationEnabled,
+                registration.enabled(),
                 false,
                 false,
                 maxCharacters,
