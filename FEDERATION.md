@@ -7,7 +7,7 @@ or receive activities. This file only describes what's implemented today.
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): actor documents only
 - [WebFinger](https://webfinger.net/)
-- [NodeInfo](https://nodeinfo.diaspora.software/) 2.1
+- [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
 ## Supported FEPs
 
@@ -49,10 +49,11 @@ No activities are sent or received yet.
 
 ## NodeInfo
 
-`/.well-known/nodeinfo` links to a NodeInfo 2.1 document at `/nodeinfo/2.1`, and both can be read from any origin through
-CORS. The document reports `activitypub` as the protocol, even though federation isn't complete yet. Its usage statistics
-include the total number of local users and `localPosts`, which counts replies but not direct messages. Active user
-counts and `localComments` aren't reported.
+`/.well-known/nodeinfo` links to NodeInfo documents at `/nodeinfo/2.1` and `/nodeinfo/2.0`, and all of these can be read
+from any origin through CORS. The documents match, except that only 2.1 includes the software's repository. They report
+`activitypub` as the protocol, even though federation isn't complete yet. Their usage statistics include the total number
+of local users and `localPosts`, which counts replies but not direct messages. Active user counts and `localComments`
+aren't reported.
 
 ## Additional documentation
 

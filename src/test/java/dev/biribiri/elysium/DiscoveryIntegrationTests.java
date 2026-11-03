@@ -197,13 +197,36 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
-    void nodeInfoWellKnownLinksToTheDocument() throws Exception {
+    void nodeInfoWellKnownLinksToEachVersion() throws Exception {
         mockMvc.perform(get("/.well-known/nodeinfo").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.links.length()").value(1))
+                .andExpect(jsonPath("$.links.length()").value(2))
                 .andExpect(jsonPath("$.links[0].rel").value("http://nodeinfo.diaspora.software/ns/schema/2.1"))
-                .andExpect(jsonPath("$.links[0].href").value("https://elysium.example/nodeinfo/2.1"));
+                .andExpect(jsonPath("$.links[0].href").value("https://elysium.example/nodeinfo/2.1"))
+                .andExpect(jsonPath("$.links[1].rel").value("http://nodeinfo.diaspora.software/ns/schema/2.0"))
+                .andExpect(jsonPath("$.links[1].href").value("https://elysium.example/nodeinfo/2.0"));
+    }
+
+    @Test
+    void nodeInfo20LeavesOutTheRepository() throws Exception {
+        var users = jdbc.sql("SELECT count(*) FROM actor").query(Long.class).single();
+        mockMvc.perform(get("/nodeinfo/2.0").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        "Content-Type",
+                        containsString("profile=\"http://nodeinfo.diaspora.software/ns/schema/2.0#\"")))
+                .andExpect(jsonPath("$.version").value("2.0"))
+                .andExpect(jsonPath("$.software.name").value("elysium"))
+                .andExpect(jsonPath("$.software.version").value(matchesPattern("\\d+\\.\\d+\\.\\d+.*")))
+                .andExpect(jsonPath("$.software.repository").doesNotExist())
+                .andExpect(jsonPath("$.protocols[0]").value("activitypub"))
+                .andExpect(jsonPath("$.services.inbound").isEmpty())
+                .andExpect(jsonPath("$.services.outbound").isEmpty())
+                .andExpect(jsonPath("$.openRegistrations").value(false))
+                .andExpect(jsonPath("$.usage.users.total").value(users))
+                .andExpect(jsonPath("$.usage.localPosts").isNumber())
+                .andExpect(jsonPath("$.metadata").isMap());
     }
 
     @Test
@@ -232,7 +255,7 @@ class DiscoveryIntegrationTests {
 
     @Test
     void nodeInfoCanBeReadFromAnyOrigin() throws Exception {
-        for (var path : new String[]{"/.well-known/nodeinfo", "/nodeinfo/2.1"}) {
+        for (var path : new String[]{"/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1"}) {
             mockMvc.perform(get(path).header("Origin", "https://client.example"))
                     .andExpect(status().isOk())
                     .andExpect(header().string("Access-Control-Allow-Origin", "*"));

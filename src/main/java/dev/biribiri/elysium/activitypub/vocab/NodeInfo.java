@@ -1,11 +1,13 @@
 package dev.biribiri.elysium.activitypub.vocab;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
 /**
- * A NodeInfo document, following version 2.1 of the schema.
+ * A NodeInfo document, following version 2.0 or 2.1 of the schema.
  */
 public record NodeInfo(
         String version,
@@ -16,6 +18,7 @@ public record NodeInfo(
         Usage usage,
         Map<String, Object> metadata) {
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Software(String name, String version, URI repository) {
     }
 

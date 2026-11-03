@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GET /api/v1/accounts/:id/statuses`
 - `GET /api/v1/timelines/public`
 - `GET /api/v1/instance`, which tells clients the post length limit
-- NodeInfo 2.1 at `/nodeinfo/2.1`, with discovery at `/.well-known/nodeinfo`
+- NodeInfo 2.0 and 2.1 at `/nodeinfo/2.0` and `/nodeinfo/2.1`, with discovery at `/.well-known/nodeinfo`
 - `elysium.statuses.max-characters` to set the post length limit, which defaults to 5000
 - Public API documentation, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs`
 - A front page at `/`, and public pages for profiles at `/users/:username` and statuses at
