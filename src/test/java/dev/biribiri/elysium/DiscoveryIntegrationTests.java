@@ -4,7 +4,12 @@ import com.networknt.schema.InputFormat;
 import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.internal.LocalActorBootstrap;
+import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
@@ -22,6 +27,7 @@ import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -54,6 +60,12 @@ class DiscoveryIntegrationTests {
 
     @Autowired
     private LocalActorBootstrap bootstrap;
+
+    @Autowired
+    private ActorService actors;
+
+    @Autowired
+    private StatusService statuses;
 
     @Test
     void webFingerFindsLocalActor() throws Exception {
@@ -239,6 +251,21 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
+    void nodeInfoCountsLocalPostsExceptDirectOnes() throws Exception {
+        jdbc.sql("DELETE FROM status").update();
+        var author = actors.findLocalByUsername("admin").orElseThrow().id();
+        var parent = createStatus(author, Visibility.PUBLIC, null);
+        var unlisted = createStatus(author, Visibility.UNLISTED, null);
+        createStatus(author, Visibility.PRIVATE, null);
+        createStatus(author, Visibility.DIRECT, null);
+        createStatus(author, Visibility.PUBLIC, parent.id());
+        expectLocalPosts(4);
+
+        statuses.delete(unlisted.id(), author);
+        expectLocalPosts(3);
+    }
+
+    @Test
     void nodeInfo21IncludesTheRepository() throws Exception {
         mockMvc.perform(get("/nodeinfo/2.1").accept(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.software.repository").value("https://github.com/normikoto/elysium"));
@@ -283,6 +310,17 @@ class DiscoveryIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/login\"")))
                 .andExpect(content().string(not(containsString("href=\"/signup\""))));
+    }
+
+    private Status createStatus(UUID author, Visibility visibility, UUID inReplyToId) {
+        return statuses.create(author, new NewStatus("Hello", null, null, visibility, false, inReplyToId));
+    }
+
+    private void expectLocalPosts(int count) throws Exception {
+        for (var version : new String[]{"2.0", "2.1"}) {
+            mockMvc.perform(get("/nodeinfo/" + version).accept(MediaType.APPLICATION_JSON))
+                    .andExpect(jsonPath("$.usage.localPosts").value(count));
+        }
     }
 
     private String nodeInfo(String version) throws Exception {
