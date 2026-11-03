@@ -17,7 +17,9 @@ or receive activities. This file only describes what's implemented today.
 ### Actors
 
 Local users are `Person` actors at `/users/{username}`. These documents are served as `application/activity+json` or
-`application/ld+json; profile="https://www.w3.org/ns/activitystreams"`, and any origin can read them through CORS.
+`application/ld+json; profile="https://www.w3.org/ns/activitystreams"`, and any origin can read them through CORS. A
+request has to ask for one of these types in its `Accept` header. Anything else, including `*/*` or no header, gets the
+user's HTML profile page.
 
 Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`.
 
@@ -32,6 +34,7 @@ No activities are sent or received yet.
 - Actor documents advertise `inbox` and `outbox`, but those endpoints aren't implemented yet, so actors can't be
   followed.
 - Actor documents don't include `followers` or `following` collections.
+- Status URIs (`/users/{username}/statuses/{id}`) only serve an HTML page, not an ActivityPub object.
 - There's no shared inbox.
 - HTTP Signatures aren't implemented, so requests are neither signed nor verified.
 

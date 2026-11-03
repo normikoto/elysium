@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.web;
 
 import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.actor.ActorService;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +24,9 @@ public class ActivityPubController {
     @CrossOrigin
     @GetMapping(path = "/users/{username}", produces = {ACTIVITY_JSON, LD_JSON})
     ResponseEntity<Person> actor(@PathVariable String username) {
-        return ResponseEntity.of(actors.findLocalByUsername(username).map(Person::from));
+        // The same URL serves a web page to browsers, and a cache must not mix the two up.
+        return actors.findLocalByUsername(username)
+                .map(actor -> ResponseEntity.ok().varyBy(HttpHeaders.ACCEPT).body(Person.from(actor)))
+                .orElseGet(() -> ResponseEntity.notFound().varyBy(HttpHeaders.ACCEPT).build());
     }
 }

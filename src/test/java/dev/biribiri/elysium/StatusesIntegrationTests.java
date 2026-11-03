@@ -95,7 +95,7 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.language").value("en"))
                 .andExpect(jsonPath("$.visibility").value("unlisted"))
                 .andExpect(jsonPath("$.uri").value(containsString("https://elysium.example/users/alice/statuses/")))
-                .andExpect(jsonPath("$.url").value(nullValue()))
+                .andExpect(jsonPath("$.url").value(containsString("https://elysium.example/users/alice/statuses/")))
                 .andExpect(jsonPath("$.text").doesNotExist())
                 .andExpect(jsonPath("$.account.username").value("alice"))
                 .andExpect(jsonPath("$.account.statuses_count").value(1))

@@ -49,8 +49,8 @@ class SecurityConfig {
     private static final String APP_REGISTRATION_PATH = "/api/v1/apps";
 
     private static final String[] PUBLIC_PATHS = {
-            "/", "/.well-known/webfinger", "/users/*", "/actuator/health", "/actuator/health/**", "/images/*",
-            "/api-docs/**", "/api-docs.yaml"
+            "/", "/.well-known/webfinger", "/users/*", "/users/*/statuses/*", "/actuator/health", "/actuator/health/**",
+            "/images/*", "/api-docs/**", "/api-docs.yaml"
     };
 
     /**

@@ -64,7 +64,7 @@ record StatusResponse(
                 status.visibility().value(),
                 status.language(),
                 status.uri().toString(),
-                null,
+                status.uri().toString(),
                 status.repliesCount(),
                 0,
                 0,

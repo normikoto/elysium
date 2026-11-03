@@ -18,6 +18,7 @@ import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -194,6 +195,14 @@ class DiscoveryIntegrationTests {
     void permitsHealthProbes() throws Exception {
         mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
         mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk());
+    }
+
+    @Test
+    void frontPageLeavesOutSignUpWhenRegistrationIsDisabled() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/login\"")))
+                .andExpect(content().string(not(containsString("href=\"/signup\""))));
     }
 
     private String publicKey() {
