@@ -1,0 +1,29 @@
+package dev.biribiri.elysium.activitypub.vocab;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * A NodeInfo document, following version 2.1 of the schema.
+ */
+public record NodeInfo(
+        String version,
+        Software software,
+        List<String> protocols,
+        Services services,
+        boolean openRegistrations,
+        Usage usage,
+        Map<String, Object> metadata) {
+
+    public record Software(String name, String version) {
+    }
+
+    public record Services(List<String> inbound, List<String> outbound) {
+    }
+
+    public record Usage(Users users, long localPosts) {
+    }
+
+    public record Users(long total) {
+    }
+}

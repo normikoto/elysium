@@ -62,6 +62,13 @@ dependencyManagement {
     }
 }
 
+springBoot {
+    // NodeInfo reports the version from this. Leaving out the time keeps the task up to date between builds.
+    buildInfo {
+        excludes = setOf("time")
+    }
+}
+
 tasks.bootJar {
     // The install steps in the README use this name, so they don't need updating whenever the version changes.
     archiveFileName = "elysium.jar"

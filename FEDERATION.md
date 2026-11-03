@@ -7,6 +7,7 @@ or receive activities. This file only describes what's implemented today.
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): actor documents only
 - [WebFinger](https://webfinger.net/)
+- [NodeInfo](https://nodeinfo.diaspora.software/) 2.1
 
 ## Supported FEPs
 
@@ -45,6 +46,13 @@ No activities are sent or received yet.
 `/.well-known/webfinger` accepts `acct:{username}@{domain}` and actor URLs as the `resource`. Responses are served as
 `application/jrd+json` or `application/json`, include a `self` link to the actor document and a
 `http://webfinger.net/rel/profile-page` link to the user's profile page, and can be read from any origin through CORS.
+
+## NodeInfo
+
+`/.well-known/nodeinfo` links to a NodeInfo 2.1 document at `/nodeinfo/2.1`, and both can be read from any origin through
+CORS. The document reports `activitypub` as the protocol, even though federation isn't complete yet. Its usage statistics
+include the total number of local users and `localPosts`, which counts replies but not direct messages. Active user
+counts and `localComments` aren't reported.
 
 ## Additional documentation
 

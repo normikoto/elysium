@@ -18,6 +18,7 @@ import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
@@ -193,6 +194,48 @@ class DiscoveryIntegrationTests {
         mockMvc.perform(head("/users/admin").accept(ACTIVITY_JSON)).andExpect(status().isOk());
         mockMvc.perform(head("/.well-known/webfinger").param("resource", "acct:admin@elysium.example"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void nodeInfoWellKnownLinksToTheDocument() throws Exception {
+        mockMvc.perform(get("/.well-known/nodeinfo").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.links.length()").value(1))
+                .andExpect(jsonPath("$.links[0].rel").value("http://nodeinfo.diaspora.software/ns/schema/2.1"))
+                .andExpect(jsonPath("$.links[0].href").value("https://elysium.example/nodeinfo/2.1"));
+    }
+
+    @Test
+    void nodeInfoDescribesTheServer() throws Exception {
+        var users = jdbc.sql("SELECT count(*) FROM actor").query(Long.class).single();
+        mockMvc.perform(get("/nodeinfo/2.1").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        "Content-Type",
+                        containsString("application/json")))
+                .andExpect(header().string(
+                        "Content-Type",
+                        containsString("profile=\"http://nodeinfo.diaspora.software/ns/schema/2.1#\"")))
+                .andExpect(jsonPath("$.version").value("2.1"))
+                .andExpect(jsonPath("$.software.name").value("elysium"))
+                .andExpect(jsonPath("$.software.version").value(matchesPattern("\\d+\\.\\d+\\.\\d+.*")))
+                .andExpect(jsonPath("$.protocols[0]").value("activitypub"))
+                .andExpect(jsonPath("$.services.inbound").isEmpty())
+                .andExpect(jsonPath("$.services.outbound").isEmpty())
+                .andExpect(jsonPath("$.openRegistrations").value(false))
+                .andExpect(jsonPath("$.usage.users.total").value(users))
+                .andExpect(jsonPath("$.usage.localPosts").isNumber())
+                .andExpect(jsonPath("$.metadata").isMap());
+    }
+
+    @Test
+    void nodeInfoCanBeReadFromAnyOrigin() throws Exception {
+        for (var path : new String[]{"/.well-known/nodeinfo", "/nodeinfo/2.1"}) {
+            mockMvc.perform(get(path).header("Origin", "https://client.example"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+        }
     }
 
     @Test
