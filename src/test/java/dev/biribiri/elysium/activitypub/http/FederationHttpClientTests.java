@@ -7,9 +7,12 @@ import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.apache.hc.core5.net.URIAuthority;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.http.client.InetAddressFilter;
+import org.springframework.http.HttpHeaders;
 
 import java.io.IOException;
 import java.net.Inet6Address;
@@ -35,6 +38,7 @@ class FederationHttpClientTests {
     private static final Set<String> HTTP = Set.of("http");
     private static final Duration LONG_DEADLINE = Duration.ofSeconds(30);
     private static final int ONE_MEBIBYTE = 1024 * 1024;
+    private static final HttpHeaders NO_HEADERS = new HttpHeaders();
 
     private final List<String> requests = new CopyOnWriteArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
@@ -61,7 +65,7 @@ class FederationHttpClientTests {
 
     @Test
     void reachesAnAllowedServer() throws Exception {
-        var response = allowingLoopback().get(url("/doc"), "application/activity+json");
+        var response = allowingLoopback().get(url("/doc"), "application/activity+json", NO_HEADERS);
 
         assertThat(response.status()).isEqualTo(200);
         assertThat(response.contentType()).isEqualTo("application/activity+json");
@@ -80,14 +84,14 @@ class FederationHttpClientTests {
         var client = publicAddressesOnly();
         var target = URI.create("http://" + host + ":" + port() + "/doc");
 
-        assertThatThrownBy(() -> client.get(target, "*/*")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> client.get(target, "*/*", NO_HEADERS)).isInstanceOf(IOException.class);
 
         assertThat(requests).isEmpty();
     }
 
     @Test
     void reportsABlockedAddressAsBlocked() {
-        assertThatThrownBy(() -> publicAddressesOnly().get(url("/doc"), "*/*"))
+        assertThatThrownBy(() -> publicAddressesOnly().get(url("/doc"), "*/*", NO_HEADERS))
                 .isInstanceOf(BlockedTargetException.class);
 
         assertThat(requests).isEmpty();
@@ -100,7 +104,7 @@ class FederationHttpClientTests {
         var client = client(resolver, HTTP, LONG_DEADLINE);
         var target = URI.create("http://public.example:" + port() + "/doc");
 
-        assertThatThrownBy(() -> client.get(target, "*/*")).isInstanceOf(BlockedTargetException.class);
+        assertThatThrownBy(() -> client.get(target, "*/*", NO_HEADERS)).isInstanceOf(BlockedTargetException.class);
 
         assertThat(requests).isEmpty();
     }
@@ -116,7 +120,7 @@ class FederationHttpClientTests {
         var client = client(resolver, HTTP, LONG_DEADLINE);
         var target = URI.create("http://public.example:" + port() + "/doc");
 
-        assertThatThrownBy(() -> client.get(target, "*/*")).isInstanceOf(BlockedTargetException.class);
+        assertThatThrownBy(() -> client.get(target, "*/*", NO_HEADERS)).isInstanceOf(BlockedTargetException.class);
 
         assertThat(requests).isEmpty();
     }
@@ -125,7 +129,7 @@ class FederationHttpClientTests {
     void refusesOtherSchemes() {
         var client = client(allAddresses(), Set.of("https"), LONG_DEADLINE);
 
-        assertThatThrownBy(() -> client.get(url("/doc"), "*/*")).isInstanceOf(BlockedTargetException.class);
+        assertThatThrownBy(() -> client.get(url("/doc"), "*/*", NO_HEADERS)).isInstanceOf(BlockedTargetException.class);
 
         assertThat(requests).isEmpty();
     }
@@ -139,7 +143,7 @@ class FederationHttpClientTests {
             exchange.close();
         });
 
-        assertThat(allowingLoopback().get(url("/moved"), "*/*").status()).isEqualTo(status);
+        assertThat(allowingLoopback().get(url("/moved"), "*/*", NO_HEADERS).status()).isEqualTo(status);
 
         assertThat(requests).isEmpty();
     }
@@ -153,23 +157,90 @@ class FederationHttpClientTests {
             respond(exchange, 200, "{}");
         });
 
-        allowingLoopback().get(url("/headers"), "application/activity+json");
+        allowingLoopback().get(url("/headers"), "application/activity+json", NO_HEADERS);
 
         assertThat(received).containsExactly("application/activity+json", "Elysium/test");
+    }
+
+    @Test
+    void sendsExtraHeaders() throws Exception {
+        var received = new ArrayList<String>();
+        server.createContext("/extra", exchange -> {
+            received.add(exchange.getRequestHeaders().getFirst("Accept"));
+            received.add(exchange.getRequestHeaders().getFirst("X-Extra"));
+            respond(exchange, 200, "{}");
+        });
+        var extra = new HttpHeaders();
+        extra.set("X-Extra", "value");
+
+        allowingLoopback().get(url("/extra"), "application/activity+json", extra);
+
+        assertThat(received).containsExactly("application/activity+json", "value");
+    }
+
+    /**
+     * Signatures cover the target and the {@code Host} header, so neither can differ from what's in the URL.
+     */
+    @Test
+    void sendsThePathAndQueryAsTheyAreWritten() throws Exception {
+        var received = new ArrayList<String>();
+        server.createContext("/a", exchange -> {
+            received.add(exchange.getRequestURI().getRawPath() + "?" + exchange.getRequestURI().getRawQuery());
+            respond(exchange, 200, "{}");
+        });
+
+        allowingLoopback().get(url("/a%7Eb/%2F/./c?x=%7E&y=1"), "application/activity+json", NO_HEADERS);
+
+        assertThat(received).containsExactly("/a%7Eb/%2F/./c?x=%7E&y=1");
+    }
+
+    @Test
+    void sendsOtherCharactersInAPathPercentEncoded() throws Exception {
+        var received = new ArrayList<String>();
+        server.createContext("/users", exchange -> {
+            received.add(exchange.getRequestURI().getRawPath());
+            respond(exchange, 200, "{}");
+        });
+
+        allowingLoopback().get(url("/users/ü"), "application/activity+json", NO_HEADERS);
+
+        assertThat(received).containsExactly("/users/%C3%BC");
+    }
+
+    @Test
+    void sendsAHostHeaderInLowercaseWithAPortThatIsNotTheDefault() throws Exception {
+        var received = new ArrayList<String>();
+        server.createContext("/host", exchange -> {
+            received.add(exchange.getRequestHeaders().getFirst("Host"));
+            respond(exchange, 200, "{}");
+        });
+        var client = client(resolvingTo(InetAddress.getLoopbackAddress()), HTTP, LONG_DEADLINE);
+
+        client.get(URI.create("http://Remote.EXAMPLE:" + port() + "/host"), "application/activity+json", NO_HEADERS);
+
+        assertThat(received).containsExactly("remote.example:" + port());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"https,443", "http,80"})
+    void leavesADefaultPortOutOfTheHostHeader(String scheme, int port) {
+        var authority = FederationHttpClient.canonicalAuthority(scheme, new URIAuthority("remote.example", port));
+
+        assertThat(authority).hasToString("remote.example");
     }
 
     @Test
     void acceptsABodyAtTheLimit() throws Exception {
         server.createContext("/big", exchange -> respond(exchange, 200, "a".repeat(ONE_MEBIBYTE)));
 
-        assertThat(allowingLoopback().get(url("/big"), "*/*").body()).hasSize(ONE_MEBIBYTE);
+        assertThat(allowingLoopback().get(url("/big"), "*/*", NO_HEADERS).body()).hasSize(ONE_MEBIBYTE);
     }
 
     @Test
     void refusesALargeBodyThatDeclaresItsLength() {
         server.createContext("/big", exchange -> respond(exchange, 200, "a".repeat(ONE_MEBIBYTE + 1)));
 
-        assertThatThrownBy(() -> allowingLoopback().get(url("/big"), "*/*"))
+        assertThatThrownBy(() -> allowingLoopback().get(url("/big"), "*/*", NO_HEADERS))
                 .isInstanceOf(ResponseTooLargeException.class);
     }
 
@@ -182,7 +253,7 @@ class FederationHttpClientTests {
             }
         });
 
-        assertThatThrownBy(() -> allowingLoopback().get(url("/big"), "*/*"))
+        assertThatThrownBy(() -> allowingLoopback().get(url("/big"), "*/*", NO_HEADERS))
                 .isInstanceOf(ResponseTooLargeException.class);
     }
 
@@ -203,7 +274,7 @@ class FederationHttpClientTests {
         var client = client(allAddresses(), HTTP, Duration.ofMillis(300));
         var start = System.nanoTime();
 
-        assertThatThrownBy(() -> client.get(url("/slow"), "*/*")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> client.get(url("/slow"), "*/*", NO_HEADERS)).isInstanceOf(IOException.class);
 
         // Each byte arrives well within the read timeout, so only the deadline can have ended this.
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(5));
@@ -214,7 +285,7 @@ class FederationHttpClientTests {
         var target = url("/doc");
         server.stop(0);
 
-        assertThatThrownBy(() -> allowingLoopback().get(target, "*/*"))
+        assertThatThrownBy(() -> allowingLoopback().get(target, "*/*", NO_HEADERS))
                 .isInstanceOf(IOException.class)
                 .isNotInstanceOf(BlockedTargetException.class);
     }

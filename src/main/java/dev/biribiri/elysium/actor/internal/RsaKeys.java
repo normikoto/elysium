@@ -18,6 +18,14 @@ public record RsaKeys(String publicKeyPem, String privateKeyPem) {
     private static final String PRIVATE_KEY_BEGIN = "-----BEGIN PRIVATE KEY-----";
     private static final String PRIVATE_KEY_END = "-----END PRIVATE KEY-----";
 
+    /**
+     * Leaves out the private key, so that it can't end up in a log.
+     */
+    @Override
+    public String toString() {
+        return "RsaKeys[publicKeyPem=" + publicKeyPem + "]";
+    }
+
     public static RsaKeys generate() {
         try {
             var generator = KeyPairGenerator.getInstance("RSA");

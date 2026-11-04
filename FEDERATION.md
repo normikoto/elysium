@@ -28,6 +28,14 @@ Each actor document includes `publicKey` with an RSA 2048 key, identified as `{a
 
 Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively.
 
+### Instance actor
+
+The server itself is an `Application` actor at `/actor`, with the `preferredUsername` `instance.actor`. It's for signing
+requests that no user is behind, although this server doesn't make any such requests yet. Its document is served as
+`application/activity+json` or `application/ld+json` with any profile, and any origin can read it through CORS. It never
+requires a signature. There's no web page at this URL, so its `url` links to the front page. Its key is identified as
+`{actor-uri}#main-key`, and it isn't counted as a user.
+
 ### Objects
 
 Public and unlisted statuses are `Note` objects at `/users/{username}/statuses/{id}`, which is also the URL of their web
@@ -57,12 +65,14 @@ No activities are sent or received yet.
 - A reply's `inReplyTo` is left out if its parent is private, direct, or deleted, so it looks like it isn't a reply.
 - Deleted statuses get a 404, not a `Tombstone`.
 - There's no shared inbox.
+- The `inbox` and `outbox` that the instance actor advertises aren't implemented yet either.
 - HTTP Signatures aren't implemented, so requests are neither signed nor verified.
 
 ## WebFinger
 
-`/.well-known/webfinger` accepts `acct:{username}@{domain}` and actor URLs as the `resource`. Responses are served as
-`application/jrd+json` or `application/json`, include a `self` link to the actor document and a
+`/.well-known/webfinger` accepts `acct:{username}@{domain}` and actor URLs as the `resource`, including
+`acct:instance.actor@{domain}` and `/actor` for the instance actor, whose profile page link is the front page. Responses
+are served as `application/jrd+json` or `application/json`, include a `self` link to the actor document and a
 `http://webfinger.net/rel/profile-page` link to the user's profile page, and can be read from any origin through CORS.
 
 ## NodeInfo

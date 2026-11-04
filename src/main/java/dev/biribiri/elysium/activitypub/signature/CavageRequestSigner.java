@@ -2,6 +2,8 @@ package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 
@@ -15,8 +17,12 @@ import java.util.Locale;
 /**
  * Signs requests with draft-cavage-http-signatures-12, in the form Mastodon sends. The draft deprecates naming
  * {@code rsa-sha256} as the algorithm in favor of {@code hs2019}, but it's the most widely understood value.
+ *
+ * <p>Ordered first, so that a signer added later can't go ahead of this one by accident. The package documentation
+ * explains why.
  */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class CavageRequestSigner implements RequestSigner {
 
     private final Clock clock;

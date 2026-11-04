@@ -13,6 +13,7 @@ import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuil
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.HttpHeaders;
 import org.apache.hc.core5.http.config.Http1Config;
+import org.apache.hc.core5.net.URIAuthority;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -99,19 +100,23 @@ public class FederationHttpClient implements AutoCloseable {
      * Fetches a URL. Blocks until it's finished, so this mustn't be called inside a database transaction.
      *
      * @param accept the value of the {@code Accept} header
+     * @param extra  headers to send as well, such as a signature
      * @return the response, whatever its status
      * @throws BlockedTargetException if the URL isn't one this client will fetch
      * @throws ResponseTooLargeException if the response is over the limit
      * @throws IOException if the request fails or takes too long
      */
-    public Response get(URI uri, String accept) throws IOException {
+    public Response get(URI uri, String accept, org.springframework.http.HttpHeaders extra) throws IOException {
         var scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         if (!allowedSchemes.contains(scheme)) {
             throw new BlockedTargetException("Refusing to fetch a URL with this scheme: " + scheme);
         }
 
-        var request = new HttpGet(uri);
+        // In ASCII because that's what's signed. The client would otherwise write other characters as single bytes.
+        var request = new HttpGet(URI.create(uri.toASCIIString()));
+        request.setAuthority(canonicalAuthority(scheme, request.getAuthority()));
         request.setHeader(HttpHeaders.ACCEPT, accept);
+        extra.forEach((name, values) -> values.forEach(value -> request.addHeader(name, value)));
         var cancellation = CompletableFuture.runAsync(
                 request::cancel,
                 CompletableFuture.delayedExecutor(deadline.toMillis(), TimeUnit.MILLISECONDS));
@@ -125,6 +130,22 @@ public class FederationHttpClient implements AutoCloseable {
     @Override
     public void close() throws IOException {
         client.close();
+    }
+
+    /**
+     * What the {@code Host} header will say: a lowercase host, without the scheme's default port. The client would
+     * otherwise send a URL's host as it's written, but signatures cover this header, so it has to match what's signed.
+     *
+     * @return the authority to send, or null if the URL doesn't have one, which the client then refuses
+     */
+    static URIAuthority canonicalAuthority(String scheme, URIAuthority authority) {
+        if (authority == null) {
+            return null;
+        }
+        return new URIAuthority(
+                authority.getUserInfo(),
+                HostHeader.host(authority.getHostName()),
+                HostHeader.port(scheme, authority.getPort()));
     }
 
     private static Response read(ClassicHttpResponse response) throws IOException {

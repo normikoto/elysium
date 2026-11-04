@@ -1,7 +1,6 @@
 package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
-import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.Test;
@@ -20,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,9 +30,10 @@ class KeyDocumentsTests {
     private static final String ACTOR = "https://remote.example/users/bob";
     private static final String KEY_ID = ACTOR + "#main-key";
     private static final String KEY_DOCUMENT = "https://remote.example/keys/1";
+    private static final String STUB = ACTOR + "/main-key";
     private static final String PEM = jsonString(SignatureFixtures.PUBLIC_KEY_PEM);
 
-    private final FederationHttpClient http = mock();
+    private final SignedFetcher http = mock();
     private final KeyDocuments documents = new KeyDocuments(http, JsonMapper.builder().build());
 
     @Test
@@ -137,6 +138,107 @@ class KeyDocumentsTests {
                 .formatted(other, keyObject(KEY_ID, other)));
 
         assertPermanent(KEY_ID);
+        verify(http, never()).get(eq(URI.create(other)), any());
+    }
+
+    @Test
+    void followsAStubToItsActor() throws Exception {
+        serve(STUB, stubOf(ACTOR, keyObject(STUB, ACTOR)));
+        serve(ACTOR, actorWith(keyObject(STUB, ACTOR)));
+
+        assertThat(documents.fetch(keyId(STUB)))
+                .isEqualTo(new ResolvedKey(STUB, URI.create(ACTOR), SignatureFixtures.publicKey()));
+    }
+
+    @Test
+    void ignoresTheKeyInAStub() throws Exception {
+        var other = jsonString(SignatureFixtures.newPublicKeyPem(2048));
+        serve(STUB, stubOf(ACTOR, "{\"id\":\"%s\",\"owner\":\"%s\",\"publicKeyPem\":\"%s\"}".formatted(STUB, ACTOR, other)));
+        serve(ACTOR, actorWith(keyObject(STUB, ACTOR)));
+
+        assertThat(documents.fetch(keyId(STUB)).key()).isEqualTo(SignatureFixtures.publicKey());
+    }
+
+    /**
+     * This is what someone could try if they can serve documents on a shared host: claiming that their own key belongs
+     * to someone else there.
+     */
+    @Test
+    void rejectsAStubForAnActorThatDoesNotListTheKey() throws Exception {
+        serve(STUB, stubOf(ACTOR, keyObject(STUB, ACTOR)));
+        serve(ACTOR, actorWith(keyObject(KEY_ID, ACTOR)));
+
+        assertPermanent(STUB);
+    }
+
+    @Test
+    void doesNotAcceptAStubBecauseItsActorHasOneKey() throws Exception {
+        serve(STUB, stubOf(ACTOR, keyObject(STUB, ACTOR)));
+        serve(ACTOR, "{\"id\":\"%s\",\"type\":\"Person\",\"publicKey\":{\"id\":\"%s\",\"publicKeyPem\":\"%s\"}}"
+                .formatted(ACTOR, ACTOR, PEM));
+
+        assertPermanent(STUB);
+    }
+
+    @Test
+    void followsOnlyOneStep() throws Exception {
+        var third = "https://remote.example/users/carol";
+        serve(STUB, stubOf(ACTOR, keyObject(STUB, ACTOR)));
+        serve(ACTOR, stubOf(third, keyObject(STUB, third)));
+        serve(third, "{\"id\":\"%s\",\"type\":\"Person\",\"publicKey\":%s}".formatted(third, keyObject(STUB, third)));
+
+        assertPermanent(STUB);
+        verify(http, never()).get(eq(URI.create(third)), any());
+    }
+
+    @Test
+    void doesNotFollowAStubToADocumentThatIsNotAnActor() throws Exception {
+        serve(STUB, stubOf(KEY_DOCUMENT, keyObject(STUB, ACTOR)));
+        serve(KEY_DOCUMENT, "{\"id\":\"%s\",\"owner\":\"%s\",\"publicKeyPem\":\"%s\"}".formatted(KEY_DOCUMENT, ACTOR, PEM));
+
+        assertPermanent(STUB);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "http://remote.example/users/bob",
+            "https://remote.example:8443/users/bob",
+            "https://sub.remote.example/users/bob",
+            "https://user@remote.example/users/bob",
+            "https://remote.example/users/bob#fragment",
+            "not a uri",
+            "/users/bob"
+    })
+    void neverFollowsAStubToAnUnsuitableUrl(String id) throws Exception {
+        serve(STUB, stubOf(id, keyObject(STUB, ACTOR)));
+
+        assertPermanent(STUB);
+        verify(http, times(1)).get(any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "\"id\":null,", "\"id\":1,"})
+    void rejectsADocumentWithoutAUsableId(String id) throws Exception {
+        serve(STUB, "{%s\"type\":\"Person\",\"publicKey\":%s}".formatted(id, keyObject(STUB, ACTOR)));
+
+        assertPermanent(STUB);
+        verify(http, times(1)).get(any(), any());
+    }
+
+    @Test
+    void rejectsAStubWithTheWrongContentType() throws Exception {
+        serve(STUB, "application/json", stubOf(ACTOR, keyObject(STUB, ACTOR)));
+
+        assertPermanent(STUB);
+        verify(http, never()).get(eq(URI.create(ACTOR)), any());
+    }
+
+    @Test
+    void treatsAStubsActorBeingDownAsTemporary() throws Exception {
+        serve(STUB, stubOf(ACTOR, keyObject(STUB, ACTOR)));
+        when(http.get(eq(URI.create(ACTOR)), any())).thenThrow(new IOException("down"));
+
+        assertTemporary(STUB);
     }
 
     @Test
@@ -329,11 +431,11 @@ class KeyDocumentsTests {
                 .isInstanceOfSatisfying(KeyFetchException.class, e -> assertThat(e.isTemporary()).isTrue());
     }
 
-    private void serve(String url, String body) throws IOException {
+    private void serve(String url, String body) throws Exception {
         serve(url, ACTIVITY_JSON, body);
     }
 
-    private void serve(String url, String contentType, String body) throws IOException {
+    private void serve(String url, String contentType, String body) throws Exception {
         when(http.get(eq(URI.create(url)), any()))
                 .thenReturn(new Response(200, contentType, body.getBytes(StandardCharsets.UTF_8)));
     }
@@ -344,6 +446,10 @@ class KeyDocumentsTests {
 
     private static String actorWith(String publicKey) {
         return "{\"id\":\"%s\",\"type\":\"Person\",\"publicKey\":%s}".formatted(ACTOR, publicKey);
+    }
+
+    private static String stubOf(String id, String publicKey) {
+        return "{\"id\":\"%s\",\"type\":\"Person\",\"publicKey\":%s}".formatted(id, publicKey);
     }
 
     private static String keyObject(String id, String owner) {
