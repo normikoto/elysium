@@ -1,20 +1,21 @@
 package dev.biribiri.elysium.activitypub.web;
 
 import dev.biribiri.elysium.activitypub.vocab.Application;
+import dev.biribiri.elysium.activitypub.outbound.Notes;
 import dev.biribiri.elysium.activitypub.vocab.Note;
+import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
 import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
-import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.net.URI;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,15 +38,30 @@ public class ActivityPubController {
 
     private final ActorService actors;
     private final StatusService statuses;
+    private final FollowService follows;
+    private final Notes notes;
 
-    ActivityPubController(ActorService actors, StatusService statuses) {
+    ActivityPubController(ActorService actors, StatusService statuses, FollowService follows, Notes notes) {
         this.actors = actors;
         this.statuses = statuses;
+        this.follows = follows;
+        this.notes = notes;
     }
 
     @GetMapping(path = "/users/{username}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     ResponseEntity<Person> actor(@PathVariable String username) {
         return ResponseEntity.of(actors.findLocalByUsername(username).map(Person::from));
+    }
+
+    /**
+     * Only says how many followers there are, because whether people can hide who follows them is still undecided. There's
+     * no web page at this URL.
+     */
+    @CrossOrigin
+    @GetMapping(path = "/users/{username}/followers", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    ResponseEntity<OrderedCollection> followers(@PathVariable String username) {
+        return ResponseEntity.of(actors.findLocalByUsername(username).map(actor ->
+                OrderedCollection.ofSize(Person.followersOf(actor), follows.countFollowers(actor.id()))));
     }
 
     /**
@@ -64,13 +80,6 @@ public class ActivityPubController {
                 .flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
                 // Otherwise any account's URL could serve this status.
                 .filter(status -> status.actorId().equals(author.id()))
-                .map(status -> Note.from(status, author, visibleParent(status)))));
-    }
-
-    private URI visibleParent(Status status) {
-        return Optional.ofNullable(status.inReplyToId())
-                .flatMap(parentId -> statuses.findVisible(parentId, ANONYMOUS))
-                .map(Status::uri)
-                .orElse(null);
+                .map(status -> notes.of(status, author))));
     }
 }

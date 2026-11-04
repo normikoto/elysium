@@ -17,12 +17,20 @@ public record Person(
         URI url,
         URI inbox,
         URI outbox,
+        URI followers,
         PublicKey publicKey
 ) {
 
     private static final List<String> CONTEXT = List.of(
             "https://www.w3.org/ns/activitystreams",
             "https://w3id.org/security/v1");
+
+    /**
+     * @return the followers collection of a local actor
+     */
+    public static URI followersOf(Actor actor) {
+        return URI.create(actor.uri() + "/followers");
+    }
 
     public static Person from(Actor actor) {
         return new Person(
@@ -34,6 +42,7 @@ public record Person(
                 actor.uri(),
                 actor.inboxUri(),
                 actor.outboxUri(),
+                followersOf(actor),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()));
     }
 }

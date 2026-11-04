@@ -6,6 +6,7 @@ import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRenderer;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusUrls;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -36,18 +37,21 @@ public class StatusService {
     private final InstanceProperties instance;
     private final StatusProperties properties;
     private final TransactionTemplate transaction;
+    private final ApplicationEventPublisher events;
 
     StatusService(
             StatusRepository statuses,
             ActorService actors,
             InstanceProperties instance,
             StatusProperties properties,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            ApplicationEventPublisher events) {
         this.statuses = statuses;
         this.actors = actors;
         this.instance = instance;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
+        this.events = events;
     }
 
     /**
@@ -100,6 +104,7 @@ public class StatusService {
                     publishedAt,
                     0);
             statuses.insert(status);
+            events.publishEvent(new StatusPublished(id, authorId));
             return status;
         });
     }

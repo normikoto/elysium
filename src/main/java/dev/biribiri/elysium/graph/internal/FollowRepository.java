@@ -4,9 +4,11 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+import java.net.URI;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -70,6 +72,29 @@ public class FollowRepository {
                 .param("activityUri", activityUri)
                 .param("activityAt", time(activityAt))
                 .update();
+    }
+
+    /**
+     * @return one inbox for each server or actor to deliver to, using a server's shared inbox for the followers that have one
+     */
+    public List<URI> findFollowerInboxes(UUID followedId) {
+        return jdbc.sql("""
+                        SELECT DISTINCT COALESCE(a.shared_inbox_uri, a.inbox_uri)
+                        FROM follow f JOIN actor a ON a.id = f.follower_id
+                        WHERE f.followed_id = :followedId AND f.state = 'accepted' AND NOT a.is_local
+                        """)
+                .param("followedId", followedId)
+                .query(String.class)
+                .stream()
+                .map(URI::create)
+                .toList();
+    }
+
+    public long countFollowers(UUID followedId) {
+        return jdbc.sql("SELECT count(*) FROM follow WHERE followed_id = :followedId AND state = 'accepted'")
+                .param("followedId", followedId)
+                .query(Long.class)
+                .single();
     }
 
     /**

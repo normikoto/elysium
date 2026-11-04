@@ -37,7 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An instance actor at `/actor`, which can be found through WebFinger as `instance.actor`. It's for signing requests that
   no user is behind.
 - Other servers' users can follow local users and unfollow them. Every request is accepted automatically, and an `Accept`
-  is sent back. Local users can't follow anyone yet, and their statuses aren't sent to followers. See `FEDERATION.md`.
+  is sent back. Local users can't follow anyone yet. See `FEDERATION.md`.
+- New public, unlisted, and followers-only statuses are sent to followers on other servers, as a `Create`. Direct statuses
+  aren't sent, statuses from before this aren't sent, and deleting a status doesn't reach other servers yet. See
+  `FEDERATION.md`.
+- Actor documents link to a `followers` collection at `/users/:username/followers`, which only gives the number of followers.
 - A background job queue stored in PostgreSQL, for sending and receiving activities. It adds tables through a migration,
   and needs no new services. Admins can see, retry, and delete jobs at `/admin/db-scheduler`. See `docs/accounts.md`.
 - Inboxes at `/users/:username/inbox`, `/actor/inbox`, and `/inbox`, which check HTTP Signatures and queue activities from

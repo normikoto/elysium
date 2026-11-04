@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, and
-# follow and unfollow it.
+# Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
+# and unfollow it, and receive its statuses.
 # Usage: federation/smoke.sh gotosocial|mastodon
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -165,6 +165,103 @@ follow_from_gotosocial() {
     gotosocial_follow
 }
 
+# Leaves the URIs of a public and a followers-only status in public_uri and private_uri, for the other server to look for.
+post_from_elysium() {
+    local actor followers status elysium_token
+    actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
+    [[ $(jq -r .followers <<<"$actor") == "$expected_actor/followers" ]] || fail "The actor has no followers collection: $actor"
+    followers=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/followers")
+    [[ $(jq -r .totalItems <<<"$followers") == 1 ]] || fail "Unexpected followers collection: $followers"
+
+    elysium_token=$(driver sh /federation/elysium-token.sh alice "$password")
+    [[ -n $elysium_token ]] || fail "Couldn't get an Elysium access token"
+    public_uri=$(post_status "$elysium_token" public)
+    private_uri=$(post_status "$elysium_token" private)
+    expect_queued "$public_uri"
+    expect_queued "$private_uri"
+
+    status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$private_uri")
+    [[ $status == 404 ]] || fail "Fetching a followers-only status got a $status, not a 404"
+}
+
+post_status() {
+    driver curl -fsS https://elysium.test/api/v1/statuses \
+        -H "Authorization: Bearer $1" \
+        --data-urlencode "status=A $2 status from the lab" \
+        --data-urlencode "visibility=$2" | jq -r .uri
+}
+
+# Passing means that the listener ran, so a failure after this is about the delivery or the other server.
+expect_queued() {
+    local found
+    echo "Waiting for Elysium to queue $1"
+    for _ in $(seq 1 30); do
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM outbound_activity WHERE activity_id = '$1#create'")
+        if [[ $found -eq 1 ]]; then
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium never queued a Create for $1. Check its logs"
+}
+
+mastodon_expect_statuses() {
+    local output
+    # Not the home feed, because Mastodon doesn't fill those for users who haven't signed in lately.
+    output=$(docker compose exec -T -e PUBLIC_URI="$public_uri" -e PRIVATE_URI="$private_uri" mastodon-web bin/rails runner '
+        find = lambda do |uri|
+            status = nil
+            60.times do
+                status = Status.uncached { Status.find_by(uri: uri) }
+                break if status
+                sleep 2
+            end
+            status
+        end
+        [ENV["PUBLIC_URI"], ENV["PRIVATE_URI"]].each do |uri|
+            status = find.call(uri)
+            puts "STATUS #{status&.visibility} #{status&.account&.uri}"
+        end')
+    echo "$output"
+    grep -qxF "STATUS public $expected_actor" <<<"$output" || fail "Mastodon never stored the public status"
+    grep -qxF "STATUS private $expected_actor" <<<"$output" || fail "Mastodon never stored the followers-only status"
+    echo 'Mastodon stored both statuses, with the right visibility'
+}
+
+gotosocial_visibility_of() {
+    driver curl -fsS -G "https://gts.test/api/v1/accounts/$alice_id/statuses" -H "Authorization: Bearer $token" \
+        | jq -r --arg uri "$1" '.[] | select(.uri == $uri) | .visibility'
+}
+
+gotosocial_expect_status() {
+    local uri=$1 expected=$2 found
+    echo "Waiting for GoToSocial to receive $uri"
+    # What it has stored, and not a search, which could fetch a public status itself, and pass with no delivery.
+    for _ in $(seq 1 60); do
+        found=$(gotosocial_visibility_of "$uri")
+        [[ -n $found ]] && break
+        sleep 2
+    done
+    [[ $found == "$expected" ]] || fail "GoToSocial shows $uri as '$found', not '$expected'"
+}
+
+gotosocial_expect_statuses() {
+    gotosocial_expect_status "$public_uri" public
+    gotosocial_expect_status "$private_uri" private
+    echo 'GoToSocial received both statuses, with the right visibility'
+
+    # Only after they're stored. In GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating
+    # until a restart, even for its own user's posts, and the lab user's mention of alice would be that one status.
+    local home
+    home=$(driver curl -fsS https://gts.test/api/v1/timelines/home -H "Authorization: Bearer $token")
+    for uri in "$public_uri" "$private_uri"; do
+        jq -e --arg uri "$uri" 'any(.[]; .uri == $uri)' <<<"$home" >/dev/null \
+            || fail "$uri isn't in the home timeline of GoToSocial's lab user: $home"
+    done
+    echo "Both statuses are in the home timeline of GoToSocial's lab user"
+}
+
 deliver_from_mastodon() {
     # Mastodon answers a 404 for the actor of an account that isn't approved, which Elysium would remember for a while.
     docker compose exec -T mastodon-web bin/tootctl accounts create lab --email lab@mastodon.test --confirmed --approve
@@ -229,12 +326,16 @@ case "$target" in
         resolve_from_gotosocial
         deliver_from_gotosocial
         follow_from_gotosocial
+        post_from_elysium
+        gotosocial_expect_statuses
         ;;
     mastodon)
         resolve_from_mastodon
         deliver_from_mastodon
         follow_from_mastodon
+        post_from_elysium
+        mastodon_expect_statuses
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, and follow and unfollow it"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, and receive its statuses"
