@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.concurrent.Callable;
@@ -26,6 +29,9 @@ class InstanceActorKeysTests {
     @Autowired
     private JdbcClient jdbc;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void clear() {
         jdbc.sql("DELETE FROM instance_actor").update();
@@ -33,9 +39,9 @@ class InstanceActorKeysTests {
 
     @Test
     void createsAKeyThatLastsAcrossRestarts() {
-        var first = new InstanceActorKeys(jdbc).get();
+        var first = newKeys().get();
 
-        var second = new InstanceActorKeys(jdbc).get();
+        var second = newKeys().get();
 
         assertThat(second).isEqualTo(first);
         assertThat(RsaKeys.parsePrivateKey(first.privateKeyPem())).isNotNull();
@@ -43,7 +49,7 @@ class InstanceActorKeysTests {
 
     @Test
     void remembersTheKeyOnceItHasOne() {
-        var keys = new InstanceActorKeys(jdbc);
+        var keys = newKeys();
         var first = keys.get();
 
         jdbc.sql("DELETE FROM instance_actor").update();
@@ -57,7 +63,7 @@ class InstanceActorKeysTests {
         var ready = new CountDownLatch(count);
         var tasks = new ArrayList<Callable<RsaKeys>>();
         for (var i = 0; i < count; i++) {
-            var keys = new InstanceActorKeys(jdbc);
+            var keys = newKeys();
             tasks.add(() -> {
                 ready.countDown();
                 ready.await();
@@ -72,12 +78,46 @@ class InstanceActorKeysTests {
             }
             assertThat(results).hasSize(count).containsOnly(results.getFirst());
         }
-        assertThat(jdbc.sql("SELECT count(*) FROM instance_actor").query(Long.class).single()).isEqualTo(1);
+        assertThat(rows()).isEqualTo(1);
+    }
+
+    @Test
+    void keepsAKeyCreatedInATransactionThatRollsBack() {
+        var keys = newKeys();
+        var transaction = new TransactionTemplate(transactionManager);
+
+        var created = transaction.execute(status -> {
+            status.setRollbackOnly();
+            return keys.get();
+        });
+
+        assertThat(rows()).isEqualTo(1);
+        assertThat(newKeys().get()).isEqualTo(created);
+    }
+
+    /**
+     * The caller's view of the database is from before the other instance's key, so it wouldn't be able to find it.
+     */
+    @Test
+    void findsAKeyThatACallersOlderViewOfTheDatabaseCannotSee() {
+        var transaction = new TransactionTemplate(transactionManager);
+        transaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+
+        var found = transaction.execute(status -> {
+            assertThat(rows()).isZero();
+            var other = newKeys().get();
+            assertThat(rows()).isZero();
+            assertThat(newKeys().get()).isEqualTo(other);
+            return other;
+        });
+
+        assertThat(rows()).isEqualTo(1);
+        assertThat(found).isNotNull();
     }
 
     @Test
     void theTableOnlyAllowsOneRow() {
-        var keys = new InstanceActorKeys(jdbc).get();
+        var keys = newKeys().get();
 
         var inserted = jdbc.sql("""
                         INSERT INTO instance_actor (public_key_pem, private_key_pem) VALUES (:pub, :priv)
@@ -88,5 +128,13 @@ class InstanceActorKeysTests {
                 .update();
 
         assertThat(inserted).isZero();
+    }
+
+    private InstanceActorKeys newKeys() {
+        return new InstanceActorKeys(jdbc, transactionManager);
+    }
+
+    private long rows() {
+        return jdbc.sql("SELECT count(*) FROM instance_actor").query(Long.class).single();
     }
 }

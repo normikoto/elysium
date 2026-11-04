@@ -2,6 +2,9 @@ package dev.biribiri.elysium.actor.internal;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
 
@@ -13,14 +16,21 @@ import java.util.Optional;
 public class InstanceActorKeys {
 
     private final JdbcClient jdbc;
+    private final TransactionTemplate ownTransaction;
     private volatile RsaKeys keys;
 
-    InstanceActorKeys(JdbcClient jdbc) {
+    InstanceActorKeys(JdbcClient jdbc, PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
+        this.ownTransaction = new TransactionTemplate(transactionManager);
+        // Separate from any transaction the caller is in. If that one rolled back, this server would keep using a key
+        // that was never stored. It could also have an older view of the database, which wouldn't show a key that another
+        // instance of this server has just inserted.
+        this.ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.ownTransaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
     /**
-     * @return the keypair. This includes the private key, so it shouldn't be logged.
+     * @return the keypair
      */
     public RsaKeys get() {
         var loaded = keys;
@@ -36,8 +46,13 @@ public class InstanceActorKeys {
     }
 
     private RsaKeys load() {
-        return read().orElseGet(() -> {
-            var generated = RsaKeys.generate();
+        var existing = ownTransaction.execute(status -> read());
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        // Generating keys is slow, so it happens before the transaction takes a database connection.
+        var generated = RsaKeys.generate();
+        return ownTransaction.execute(status -> {
             jdbc.sql("""
                             INSERT INTO instance_actor (public_key_pem, private_key_pem)
                             VALUES (:publicKeyPem, :privateKeyPem)

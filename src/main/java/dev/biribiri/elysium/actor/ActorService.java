@@ -40,8 +40,8 @@ public class ActorService {
     }
 
     /**
-     * Gets the actor for the server itself, creating its key if this is the first time it's been needed. Generating a
-     * key is slow, so this shouldn't first be called inside a database transaction.
+     * Gets the actor for the server itself, creating its key if this is the first time it's been needed. The key is
+     * stored straight away, whatever happens to any transaction the caller is in.
      */
     public InstanceActor instanceActor() {
         return new InstanceActor(

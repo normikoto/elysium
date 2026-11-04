@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.signature;
 
+import dev.biribiri.elysium.activitypub.http.HostHeader;
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
 import dev.biribiri.elysium.actor.InstanceProperties;
 
@@ -72,9 +73,7 @@ record KeyId(String value, URI document, String authority, String host, boolean 
      * @return the host in lowercase, plus the port if it isn't the scheme's default
      */
     static String authority(String scheme, String host, int port) {
-        var defaultPort = scheme.equalsIgnoreCase("https") ? 443 : 80;
-        var lowerHost = host.toLowerCase(Locale.ROOT);
-        return port == -1 || port == defaultPort ? lowerHost : lowerHost + ":" + port;
+        return HostHeader.value(scheme, host, port);
     }
 
     private static SignatureVerificationException rejected(String message) {

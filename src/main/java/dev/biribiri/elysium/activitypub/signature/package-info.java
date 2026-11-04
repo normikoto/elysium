@@ -10,7 +10,7 @@
  *
  * <p>The two orders are separate choices. Schemes are chosen by what a request was signed with, so RFC 9421's can go
  * first. Signers are tried until a server stops refusing, so a signer should only go first if servers that don't
- * understand its format refuse it, because some are reported to answer with a 200 instead. That's why cavage should stay
- * first for now, which is also the order Mastodon sends in.
+ * understand its format refuse it, because some are reported to answer with a 200 instead. That's why requests are signed
+ * with cavage first, which is also the order Mastodon sends in.
  */
 package dev.biribiri.elysium.activitypub.signature;

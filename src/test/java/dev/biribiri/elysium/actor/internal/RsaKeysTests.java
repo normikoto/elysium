@@ -26,6 +26,13 @@ class RsaKeysTests {
         assertThat(keys.publicKeyPem().replaceAll("-----[A-Z ]+-----|\\s", "")).isEqualTo(der);
     }
 
+    @Test
+    void leavesThePrivateKeyOutOfItsStringForm() {
+        var keys = RsaKeys.generate();
+
+        assertThat(keys.toString()).doesNotContain("PRIVATE KEY", keys.privateKeyPem());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "",

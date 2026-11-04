@@ -17,6 +17,7 @@ import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,6 +41,9 @@ class HttpSignatureIntegrationTests {
 
     @Autowired
     private CavageRequestSigner signer;
+
+    @Autowired
+    private List<RequestSigner> signers;
 
     @Autowired
     private SignatureVerifier verifier;
@@ -113,6 +117,11 @@ class HttpSignatureIntegrationTests {
                 null, "unused", Instant.EPOCH);
 
         assertThat(signingKeys.forActor(remote)).isEmpty();
+    }
+
+    @Test
+    void injectsTheCavageSignerFirst() {
+        assertThat(signers.getFirst()).isSameAs(signer);
     }
 
     @Test

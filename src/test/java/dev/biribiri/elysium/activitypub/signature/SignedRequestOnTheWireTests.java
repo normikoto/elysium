@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
@@ -60,9 +61,18 @@ class SignedRequestOnTheWireTests {
         server.stop(0);
     }
 
+    @Test
+    void aServerCanCheckAPathWithOtherCharacters() throws Exception {
+        assertCanBeChecked("/users/ü?name=ü", "/users/%C3%BC?name=%C3%BC");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"/users/bob", "/users/bob/main-key", "/a%7Eb/%2F/c", "/users/bob?page=1&x=%7E"})
     void aServerCanCheckWhatItReceives(String pathAndQuery) throws Exception {
+        assertCanBeChecked(pathAndQuery, pathAndQuery);
+    }
+
+    private void assertCanBeChecked(String pathAndQuery, String expectedTarget) throws Exception {
         var keys = mock(ActorSigningKeys.class);
         when(keys.forInstance()).thenReturn(KEY);
         var fetcher = new SignedFetcher(client, List.of(new CavageRequestSigner()), keys);
@@ -72,7 +82,7 @@ class SignedRequestOnTheWireTests {
                 "application/activity+json");
 
         var request = received.get();
-        assertThat(request.rawTarget()).isEqualTo(pathAndQuery);
+        assertThat(request.rawTarget()).isEqualTo(expectedTarget);
         // This server's own scheme signs with its own name rather than reading this header, but other servers read it.
         assertThat(request.headers().getFirst("Host")).isEqualTo(authority);
         var claim = new CavageSignatureScheme(new InstanceProperties(URI.create("http://" + authority)))

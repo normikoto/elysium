@@ -22,7 +22,7 @@ import java.util.Set;
  * Fetches a key from the server that a key ID points to, and confirms which actor it belongs to. Documents are read as
  * plain JSON, without a JSON-LD processor, and no {@code @context} is ever fetched.
  *
- * <p>A key ID can point to one of two things:
+ * <p>A key ID can point to one of three things:
  *
  * <ul>
  * <li>An actor document that has the key in {@code publicKey}, usually as {@code {actor}#main-key}. Nothing further is

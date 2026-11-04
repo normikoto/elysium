@@ -100,21 +100,7 @@ public class FederationHttpClient implements AutoCloseable {
      * Fetches a URL. Blocks until it's finished, so this mustn't be called inside a database transaction.
      *
      * @param accept the value of the {@code Accept} header
-     * @return the response, whatever its status
-     * @throws BlockedTargetException if the URL isn't one this client will fetch
-     * @throws ResponseTooLargeException if the response is over the limit
-     * @throws IOException if the request fails or takes too long
-     */
-    public Response get(URI uri, String accept) throws IOException {
-        return get(uri, accept, new org.springframework.http.HttpHeaders());
-    }
-
-    /**
-     * Fetches a URL with extra headers, such as a signature. Blocks until it's finished, so this mustn't be called inside
-     * a database transaction.
-     *
-     * @param accept the value of the {@code Accept} header
-     * @param extra  headers to send as well
+     * @param extra  headers to send as well, such as a signature
      * @return the response, whatever its status
      * @throws BlockedTargetException if the URL isn't one this client will fetch
      * @throws ResponseTooLargeException if the response is over the limit
@@ -126,7 +112,8 @@ public class FederationHttpClient implements AutoCloseable {
             throw new BlockedTargetException("Refusing to fetch a URL with this scheme: " + scheme);
         }
 
-        var request = new HttpGet(uri);
+        // In ASCII because that's what's signed. The client would otherwise write other characters as single bytes.
+        var request = new HttpGet(URI.create(uri.toASCIIString()));
         request.setAuthority(canonicalAuthority(scheme, request.getAuthority()));
         request.setHeader(HttpHeaders.ACCEPT, accept);
         extra.forEach((name, values) -> values.forEach(value -> request.addHeader(name, value)));
@@ -155,11 +142,10 @@ public class FederationHttpClient implements AutoCloseable {
         if (authority == null) {
             return null;
         }
-        var defaultPort = scheme.equals("https") ? 443 : 80;
         return new URIAuthority(
                 authority.getUserInfo(),
-                authority.getHostName().toLowerCase(Locale.ROOT),
-                authority.getPort() == defaultPort ? -1 : authority.getPort());
+                HostHeader.host(authority.getHostName()),
+                HostHeader.port(scheme, authority.getPort()));
     }
 
     private static Response read(ClassicHttpResponse response) throws IOException {

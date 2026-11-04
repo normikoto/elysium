@@ -5,6 +5,8 @@ import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.core.annotation.AnnotationAwareOrderComparator;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 
 import java.net.URI;
@@ -12,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +33,18 @@ class CavageRequestSignerTests {
     private static final URI INBOX = URI.create("https://example.test/users/alice/inbox");
 
     private final CavageRequestSigner signer = new CavageRequestSigner(Clock.fixed(NOW, ZoneOffset.UTC));
+
+    /**
+     * Spring sorts injected signers with this comparator, so these stand in for signers that are added later.
+     */
+    @Test
+    void comesBeforeSignersAddedLaterHoweverTheyAreOrdered() {
+        var signers = new ArrayList<RequestSigner>(List.of(new UnorderedSigner(), new OrderedSigner(), signer));
+
+        AnnotationAwareOrderComparator.sort(signers);
+
+        assertThat(signers.getFirst()).isSameAs(signer);
+    }
 
     @Test
     void producesTheSameSignatureAsOpenSslForAPost() {
@@ -150,6 +165,18 @@ class CavageRequestSignerTests {
         var headers = new HttpHeaders();
         headers.addAll(signed);
         return new HttpRequestData(method, target, headers, body);
+    }
+
+    private static class UnorderedSigner implements RequestSigner {
+
+        @Override
+        public HttpHeaders sign(String method, URI target, byte[] body, SigningKey key) {
+            return new HttpHeaders();
+        }
+    }
+
+    @Order(0)
+    private static class OrderedSigner extends UnorderedSigner {
     }
 
     private static SignatureVerifier verifier() {
