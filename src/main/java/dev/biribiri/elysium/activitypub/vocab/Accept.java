@@ -29,10 +29,17 @@ public record Accept(
     public static Accept of(URI followed, String followId, URI follower) {
         return new Accept(
                 CONTEXT,
-                URI.create(followed + "#accepts/follows/" + Digests.sha256Hex(followId)),
+                URI.create(idFor(followed, followId)),
                 "Accept",
                 followed,
                 new Follow(followId, "Follow", follower, followed));
+    }
+
+    /**
+     * @return the {@code id} of the answer to a {@code Follow}
+     */
+    public static String idFor(URI followed, String followId) {
+        return followed + "#accepts/follows/" + Digests.sha256Hex(followId);
     }
 
     public record Follow(String id, String type, URI actor, URI object) {

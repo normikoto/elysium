@@ -46,7 +46,7 @@ class RemoteActors {
             throw new PermanentJobFailure("An actor's URI is too long to store");
         }
         if (RemoteActorDocument.domainOf(uri).equals(instance.domain())) {
-            // A remote row claiming this domain could take a username from a local account that doesn't exist yet.
+            // A remote row claiming this domain could take the URI of a local account that doesn't exist yet.
             throw new PermanentJobFailure("The actor " + uri + " claims to be on this server");
         }
         var existing = actors.findByUri(uri);
@@ -54,9 +54,7 @@ class RemoteActors {
             return existing.get();
         }
         var profile = RemoteActorDocument.read(uri, fetch(uri));
-        return actors.upsertRemote(profile).orElseThrow(() -> new PermanentJobFailure(
-                "Another actor on " + profile.domain() + " already has the username of " + uri
-                        + ", which can happen if it was renamed"));
+        return actors.upsertRemote(profile);
     }
 
     private JsonNode fetch(URI uri) {

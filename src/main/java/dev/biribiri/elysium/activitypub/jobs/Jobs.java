@@ -47,6 +47,23 @@ public final class Jobs {
     }
 
     /**
+     * Queues a job to run now, for when something has changed since it was last queued. A job that's already queued runs now
+     * instead of when it was going to, including one that's been set aside after failing. One that's running at the moment
+     * isn't touched, so it has to look for a change itself when it finishes.
+     *
+     * @param idParts what identifies the job
+     */
+    public static <T extends QueuedJob> void scheduleAgain(SchedulerClient scheduler, TaskDescriptor<T> task, T job, String... idParts) {
+        var id = task.instanceId(instanceId(idParts));
+        var existing = scheduler.getScheduledExecution(id);
+        if (existing.isEmpty()) {
+            schedule(scheduler, task, job, idParts);
+        } else if (!existing.get().isPicked()) {
+            scheduler.reschedule(id, job.queuedAt());
+        }
+    }
+
+    /**
      * Makes a job's ID. It's a hash because these values can come from other servers, and PostgreSQL can't index very long
      * ones.
      */

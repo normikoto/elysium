@@ -1,12 +1,22 @@
 package dev.biribiri.elysium.graph.internal;
 
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public class FollowRepository {
+
+    private static final RowMapper<Row> ROW_MAPPER = (rs, rowNum) -> new Row(
+            rs.getObject("followed_id", UUID.class),
+            rs.getString("activity_uri"),
+            rs.getObject("activity_at", OffsetDateTime.class).toInstant());
 
     private final JdbcClient jdbc;
 
@@ -15,59 +25,143 @@ public class FollowRepository {
     }
 
     /**
-     * Makes others working on the same activity wait until this transaction ends.
+     * Makes others using the same key wait until this transaction ends.
      */
-    public void lockActivity(String activityUri) {
-        jdbc.sql("SELECT pg_advisory_xact_lock(hashtextextended(:uri, 0))")
-                .param("uri", activityUri)
+    public void lock(String key) {
+        jdbc.sql("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+                .param("key", key)
                 .query(rs -> {
                 });
     }
 
-    public void saveAccepted(UUID followerId, UUID followedId, String activityUri) {
+    public Optional<Row> findByPair(UUID followerId, UUID followedId) {
+        return jdbc.sql("""
+                        SELECT followed_id, activity_uri, activity_at FROM follow
+                        WHERE follower_id = :followerId AND followed_id = :followedId
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .query(ROW_MAPPER)
+                .optional();
+    }
+
+    public Optional<Row> findByActivity(UUID followerId, String activityUri) {
+        return jdbc.sql("""
+                        SELECT followed_id, activity_uri, activity_at FROM follow
+                        WHERE follower_id = :followerId AND activity_uri = :activityUri
+                        """)
+                .param("followerId", followerId)
+                .param("activityUri", activityUri)
+                .query(ROW_MAPPER)
+                .stream()
+                .findFirst();
+    }
+
+    public void saveAccepted(UUID followerId, UUID followedId, String activityUri, Instant activityAt) {
         jdbc.sql("""
-                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
-                        VALUES (:id, :followerId, :followedId, 'accepted', :activityUri)
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri, activity_at)
+                        VALUES (:id, :followerId, :followedId, 'accepted', :activityUri, :activityAt)
                         ON CONFLICT (follower_id, followed_id)
-                        DO UPDATE SET state = 'accepted', activity_uri = EXCLUDED.activity_uri
+                        DO UPDATE SET state = 'accepted', activity_uri = EXCLUDED.activity_uri, activity_at = EXCLUDED.activity_at
                         """)
                 .param("id", UUID.randomUUID())
                 .param("followerId", followerId)
                 .param("followedId", followedId)
                 .param("activityUri", activityUri)
+                .param("activityAt", time(activityAt))
                 .update();
     }
 
-    public void deleteByActivity(UUID followerId, String activityUri) {
-        jdbc.sql("DELETE FROM follow WHERE follower_id = :followerId AND activity_uri = :activityUri")
+    /**
+     * @return who the removed follow was of, if one was removed
+     */
+    public Optional<UUID> deleteByActivity(UUID followerId, String activityUri) {
+        return jdbc.sql("DELETE FROM follow WHERE follower_id = :followerId AND activity_uri = :activityUri RETURNING followed_id")
                 .param("followerId", followerId)
                 .param("activityUri", activityUri)
-                .update();
+                .query(UUID.class)
+                .stream()
+                .findFirst();
     }
 
-    public void deleteByPair(UUID followerId, UUID followedId) {
-        jdbc.sql("DELETE FROM follow WHERE follower_id = :followerId AND followed_id = :followedId")
+    /**
+     * @return the activity behind the removed follow, if one was removed
+     */
+    public Optional<String> deleteByPair(UUID followerId, UUID followedId, Instant arrivedBy) {
+        return jdbc.sql("""
+                        DELETE FROM follow
+                        WHERE follower_id = :followerId AND followed_id = :followedId AND activity_at <= :arrivedBy
+                        RETURNING activity_uri
+                        """)
                 .param("followerId", followerId)
                 .param("followedId", followedId)
-                .update();
+                .param("arrivedBy", time(arrivedBy))
+                .query(String.class)
+                .optional();
     }
 
-    public boolean isUndone(String activityUri) {
-        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM undone_follow WHERE activity_uri = :activityUri)")
+    public boolean isUndone(String activityUri, String followerUri) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM undone_follow
+                            WHERE md5(activity_uri) = md5(:activityUri) AND md5(follower_uri) = md5(:followerUri)
+                              AND activity_uri = :activityUri AND follower_uri = :followerUri
+                        )
+                        """)
                 .param("activityUri", activityUri)
+                .param("followerUri", followerUri)
                 .query(Boolean.class)
                 .single();
     }
 
-    public void unmarkUndone(String activityUri) {
-        jdbc.sql("DELETE FROM undone_follow WHERE activity_uri = :activityUri")
+    public void markUndone(String activityUri, String followerUri, Instant undoneAt) {
+        jdbc.sql("""
+                        INSERT INTO undone_follow (activity_uri, follower_uri, undone_at)
+                        VALUES (:activityUri, :followerUri, :undoneAt)
+                        ON CONFLICT (md5(activity_uri), md5(follower_uri))
+                        DO UPDATE SET undone_at = GREATEST(undone_follow.undone_at, EXCLUDED.undone_at)
+                        """)
                 .param("activityUri", activityUri)
+                .param("followerUri", followerUri)
+                .param("undoneAt", time(undoneAt))
                 .update();
     }
 
-    public void markUndone(String activityUri) {
-        jdbc.sql("INSERT INTO undone_follow (activity_uri) VALUES (:activityUri) ON CONFLICT DO NOTHING")
-                .param("activityUri", activityUri)
+    /**
+     * @return whether an {@code Undo} covers an activity for these two actors that arrived at this time
+     */
+    public boolean isPairUndone(String followerUri, UUID followedId, Instant activityAt) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM undone_follow_pair
+                            WHERE md5(follower_uri) = md5(:followerUri) AND followed_id = :followedId
+                              AND follower_uri = :followerUri AND undone_at >= :activityAt
+                        )
+                        """)
+                .param("followerUri", followerUri)
+                .param("followedId", followedId)
+                .param("activityAt", time(activityAt))
+                .query(Boolean.class)
+                .single();
+    }
+
+    public void markPairUndone(String followerUri, UUID followedId, Instant undoneAt) {
+        jdbc.sql("""
+                        INSERT INTO undone_follow_pair (follower_uri, followed_id, undone_at)
+                        VALUES (:followerUri, :followedId, :undoneAt)
+                        ON CONFLICT (md5(follower_uri), followed_id)
+                        DO UPDATE SET undone_at = GREATEST(undone_follow_pair.undone_at, EXCLUDED.undone_at)
+                        """)
+                .param("followerUri", followerUri)
+                .param("followedId", followedId)
+                .param("undoneAt", time(undoneAt))
                 .update();
+    }
+
+    private static OffsetDateTime time(Instant instant) {
+        return instant.atOffset(ZoneOffset.UTC);
+    }
+
+    public record Row(UUID followedId, String activityUri, Instant activityAt) {
     }
 }

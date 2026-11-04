@@ -49,6 +49,8 @@ class JobCleanupIntegrationTests {
                 .containsExactly("cleanup-recent");
         assertThat(ids("SELECT activity_uri FROM undone_follow WHERE activity_uri LIKE 'cleanup-%'"))
                 .containsExactly("cleanup-recent");
+        assertThat(ids("SELECT follower_uri FROM undone_follow_pair WHERE follower_uri LIKE 'cleanup-%'"))
+                .containsExactly("cleanup-recent");
         assertThat(ids("SELECT host FROM federation_host WHERE host IN ('old.test', 'recent.test')"))
                 .containsExactly("recent.test");
     }
@@ -88,8 +90,24 @@ class JobCleanupIntegrationTests {
     }
 
     private void undoneFollow(String uri, String age) {
-        jdbc.sql("INSERT INTO undone_follow (activity_uri, undone_at) VALUES (:uri, now() - CAST(:age AS INTERVAL))")
+        jdbc.sql("INSERT INTO undone_follow (activity_uri, follower_uri, undone_at) VALUES (:uri, 'https://a.test', now() - CAST(:age AS INTERVAL))")
                 .param("uri", uri)
+                .param("age", age)
+                .update();
+        var actor = UUID.randomUUID();
+        jdbc.sql("""
+                        INSERT INTO actor (id, uri, username, domain, inbox_uri)
+                        VALUES (:id, :uri, 'cleanup', :uri, :uri)
+                        """)
+                .param("id", actor)
+                .param("uri", "https://cleanup.test/" + actor)
+                .update();
+        jdbc.sql("""
+                        INSERT INTO undone_follow_pair (follower_uri, followed_id, undone_at)
+                        VALUES (:uri, :actor, now() - CAST(:age AS INTERVAL))
+                        """)
+                .param("uri", uri)
+                .param("actor", actor)
                 .param("age", age)
                 .update();
     }

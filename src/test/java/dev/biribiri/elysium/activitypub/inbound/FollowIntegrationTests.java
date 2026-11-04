@@ -16,6 +16,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,6 +47,8 @@ class FollowIntegrationTests {
     private UndoHandler undoHandler;
     @Autowired
     private InboundActivities inbound;
+    @Autowired
+    private StoredActivities stored;
     @Autowired
     private ActorService actors;
     @Autowired
@@ -147,19 +151,6 @@ class FollowIntegrationTests {
     }
 
     @Test
-    void aNewFollowGetsAnAcceptNamingIt() {
-        var first = newId();
-        var second = newId();
-
-        followHandler.handle(follow(first));
-        followHandler.handle(follow(second));
-
-        assertThat(follows()).containsExactly(second);
-        assertThat(accepts()).hasSize(2).anySatisfy(body -> assertThat(body).contains(second))
-                .anySatisfy(body -> assertThat(body).contains(first));
-    }
-
-    @Test
     void ignoresAFollowOfSomeoneWhoIsNotLocal() throws Exception {
         for (var target : List.of(BASE + "/users/nobody", "https://other.test/users/alice", "not a uri")) {
             followHandler.handle(followOf(newId(), target));
@@ -208,7 +199,7 @@ class FollowIntegrationTests {
 
         var follower = actors.findByUri(URI.create(followerUri)).orElseThrow();
         assertThat(follower.username()).isEqualTo("robert");
-        assertThat(follower.updatedAt()).isAfter(java.time.Instant.now().minusSeconds(3600));
+        assertThat(follower.updatedAt()).isAfter(Instant.now().minusSeconds(3600));
         assertThat(follows()).hasSize(1);
     }
 
@@ -250,18 +241,27 @@ class FollowIntegrationTests {
     }
 
     /**
-     * A remote server can give a username to a new actor after renaming the old one.
+     * A remote server can give a username to a new actor after renaming the old one, and this server's copy of the old one
+     * only changes when it's refreshed.
      */
     @Test
-    void parksWhenAnotherActorOnTheServerHasTheUsername() throws Exception {
+    void anotherActorOnTheServerCanHaveTheSameUsername() throws Exception {
         followHandler.handle(follow(newId()));
-        var renamed = "https://" + host + "/ap/users/2";
-        serve(renamed, "BOB");
+        var other = "https://" + host + "/ap/users/2";
+        serve(other, "BOB");
 
-        assertThatThrownBy(() -> followHandler.handle(new InboundActivity(newId(), renamed, "Follow",
-                "{\"object\":\"%s\"}".formatted(followed.uri()))))
-                .isInstanceOf(PermanentJobFailure.class)
-                .hasMessageContaining("username");
+        followHandler.handle(new InboundActivity(newId(), other, "Follow", "{\"object\":\"%s\"}".formatted(followed.uri())));
+
+        assertThat(follows()).hasSize(2);
+        assertThat(actors.findByUri(URI.create(other)).orElseThrow().username()).isEqualTo("BOB");
+    }
+
+    @Test
+    void localUsernamesAreStillUniqueIgnoringCase() {
+        var created = actors.createLocalIfAbsent(followed.username().toUpperCase(), actor -> {
+        });
+
+        assertThat(created).isEmpty();
     }
 
     @Test
@@ -462,52 +462,319 @@ class FollowIntegrationTests {
         assertThat(undone(id)).isFalse();
     }
 
+    // The order that activities arrived in
+
+    @Test
+    void aFollowThatArrivedEarlierDoesNotReplaceANewerOne() {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var older = arrivedAt(follow(newId()), now.minusSeconds(60));
+        var newer = arrivedAt(follow(newId()), now);
+
+        followHandler.handle(newer);
+        followHandler.handle(older);
+
+        assertThat(follows()).containsExactly(newer.id());
+
+        undoHandler.handle(undo(followerUri, embeddedFollow(newer.id(), followerUri)));
+
+        assertThat(follows()).isEmpty();
+    }
+
+    // An Undo with no ID for its Follow
+
+    @Test
+    void anUndoWithNoIdThatRunsBeforeItsFollowLeavesNoFollow() {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var activity = arrivedAt(follow(newId()), now.minusSeconds(60));
+
+        undoHandler.handle(arrivedAt(undoOfPair(), now));
+        followHandler.handle(activity);
+
+        assertThat(follows()).isEmpty();
+        assertThat(accepts()).isEmpty();
+    }
+
+    @Test
+    void aFollowRunningAgainAfterAnUndoWithNoIdDoesNotAddTheFollowerBack() {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var activity = arrivedAt(follow(newId()), now.minusSeconds(60));
+        followHandler.handle(activity);
+        undoHandler.handle(arrivedAt(undoOfPair(), now));
+
+        followHandler.handle(activity);
+
+        assertThat(follows()).isEmpty();
+    }
+
+    @Test
+    void aFollowThatArrivesAfterAnUndoWithNoIdFollowsAgain() {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        undoHandler.handle(arrivedAt(undoOfPair(), now.minusSeconds(60)));
+        var activity = arrivedAt(follow(newId()), now);
+
+        followHandler.handle(activity);
+
+        assertThat(follows()).containsExactly(activity.id());
+    }
+
+    @Test
+    void anUndoWithNoIdRunningAgainDoesNotRemoveALaterFollow() {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var undo = arrivedAt(undoOfPair(), now.minusSeconds(60));
+        undoHandler.handle(undo);
+        var activity = arrivedAt(follow(newId()), now);
+        followHandler.handle(activity);
+
+        undoHandler.handle(undo);
+
+        assertThat(follows()).containsExactly(activity.id());
+    }
+
+    // An Undo and the Accept
+
+    @Test
+    void anUndoCancelsTheAcceptOfTheFollow() {
+        var followId = newId();
+        followHandler.handle(follow(followId));
+        assertThat(accepts()).hasSize(1);
+
+        undoHandler.handle(undo(followerUri, embeddedFollow(followId, followerUri)));
+
+        assertThat(accepts()).isEmpty();
+    }
+
+    @Test
+    void anUndoWithNoIdCancelsTheAcceptOfTheFollow() {
+        followHandler.handle(follow(newId()));
+
+        undoHandler.handle(undoOfPair());
+
+        assertThat(accepts()).isEmpty();
+    }
+
+    // One actor can't affect another's
+
+    @Test
+    void anotherActorOnTheSameServerCannotStopAFollow() {
+        var followId = newId();
+
+        undoHandler.handle(undo("https://" + host + "/ap/users/2", "\"" + followId + "\""));
+        followHandler.handle(follow(followId));
+
+        assertThat(follows()).containsExactly(followId);
+    }
+
+    @Test
+    void aNewFollowGetsAnAcceptNamingItAndReplacesTheOldOne() {
+        var first = newId();
+        var second = newId();
+
+        followHandler.handle(follow(first));
+        followHandler.handle(follow(second));
+
+        assertThat(follows()).containsExactly(second);
+        assertThat(accepts()).singleElement().satisfies(body -> assertThat(body).contains(second));
+    }
+
+    @Test
+    void aFollowThatArrivedBeforeTheOneStoredGetsNoAccept() {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var older = arrivedAt(follow(newId()), now.minusSeconds(60));
+        var newer = arrivedAt(follow(newId()), now);
+        followHandler.handle(newer);
+
+        followHandler.handle(older);
+
+        assertThat(accepts()).singleElement().satisfies(body -> assertThat(body).contains(newer.id()));
+    }
+
+    @Test
+    void anUndoOfAnOlderFollowLeavesTheAcceptOfTheNewerOne() {
+        var older = arrive(follow(newId()));
+        var newer = arrive(follow(newId()));
+        followHandler.handle(older);
+        followHandler.handle(newer);
+
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(older.id(), followerUri))));
+
+        assertThat(follows()).containsExactly(newer.id());
+        assertThat(accepts()).singleElement().satisfies(body -> assertThat(body).contains(newer.id()));
+    }
+
+    @Test
+    void anUndoAlsoCoversFollowsThatArrivedBeforeTheOneItNames() {
+        var older = arrive(follow(newId()));
+        var newer = arrive(follow(newId()));
+        var undo = arrive(undo(followerUri, embeddedFollow(newer.id(), followerUri)));
+
+        followHandler.handle(older);
+        undoHandler.handle(undo);
+        followHandler.handle(newer);
+        followHandler.handle(older);
+
+        assertThat(follows()).isEmpty();
+        assertThat(accepts()).isEmpty();
+    }
+
+    @Test
+    void anUndoWhoseFollowArrivedAfterItRemovesTheFollowWhicheverRunsFirst() {
+        var followId = newId();
+        var undo = arrive(undo(followerUri, embeddedFollow(followId, followerUri)));
+        var follow = arrive(follow(followId));
+
+        followHandler.handle(follow);
+        assertThat(follows()).containsExactly(followId);
+        undoHandler.handle(undo);
+        assertThat(follows()).isEmpty();
+
+        followHandler.handle(follow);
+        assertThat(follows()).isEmpty();
+    }
+
+    @Test
+    void anUndoNamingAFollowByIdWhoseJobHasNotRunStillCoversIt() {
+        var follow = arrive(follow(newId()));
+
+        undoHandler.handle(arrive(undo(followerUri, "\"" + follow.id() + "\"")));
+        followHandler.handle(follow);
+
+        assertThat(follows()).isEmpty();
+    }
+
+    @Test
+    void doesNotFetchTheActorOfAFollowThatIsCovered() throws Exception {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var activity = arrivedAt(follow(newId()), now.minusSeconds(60));
+        undoHandler.handle(arrivedAt(undoOfPair(), now));
+
+        followHandler.handle(activity);
+
+        verify(documents, never()).fetch(any());
+    }
+
+    @Test
+    void aRepeatedUndoKeepsItsMarkerForLonger() {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var followId = newId();
+        var undo = undo(followerUri, "\"" + followId + "\"");
+        undoHandler.handle(arrivedAt(undo, now.minus(java.time.Duration.ofDays(33))));
+
+        undoHandler.handle(arrivedAt(undo, now));
+
+        assertThat(jdbc.sql("SELECT undone_at FROM undone_follow WHERE activity_uri = :id").param("id", followId)
+                .query(java.time.OffsetDateTime.class).single().toInstant()).isEqualTo(now);
+    }
+
     // Servers that use the same IDs each time, as Misskey does
 
     @Test
     void aRepeatedFollowAfterAnUndoFollowsAgain() {
         var activity = follow(newId());
-        var undo = undo(followerUri, embeddedFollow(activity.id(), followerUri));
-        inbound.accept(activity);
-        followHandler.handle(activity);
-        inbound.accept(undo);
-        undoHandler.handle(undo);
+        followHandler.handle(arrive(activity));
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri))));
         assertThat(follows()).isEmpty();
 
-        assertThat(inbound.accept(activity)).isFalse();
-        followHandler.handle(activity);
+        assertThat(inbound.accept(again(activity))).isFalse();
+        followHandler.handle(stored(activity));
 
-        assertThat(undone(activity.id())).isFalse();
         assertThat(follows()).containsExactly(activity.id());
+        assertThat(accepts()).hasSize(1);
+    }
+
+    /**
+     * The Undo arrived before the repeat, but its job ran after the repeat had arrived.
+     */
+    @Test
+    void anUndoJobRunningLateDoesNotStopARepeatThatArrivedAfterIt() {
+        var activity = follow(newId());
+        followHandler.handle(arrive(activity));
+        var undo = arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
+        inbound.accept(again(activity));
+
+        undoHandler.handle(undo);
+        followHandler.handle(stored(activity));
+
+        assertThat(follows()).containsExactly(activity.id());
+        assertThat(accepts()).hasSize(1);
+    }
+
+    @Test
+    void anUndoJobRunningAfterARepeatWasStoredLeavesItInPlace() {
+        var activity = follow(newId());
+        followHandler.handle(arrive(activity));
+        var undo = arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
+        inbound.accept(again(activity));
+        followHandler.handle(stored(activity));
+
+        undoHandler.handle(undo);
+
+        assertThat(follows()).containsExactly(activity.id());
+    }
+
+    @Test
+    void aFollowRunningAgainAfterARepeatedIdWasUndoneDoesNotAddTheFollowerBack() {
+        var activity = follow(newId());
+        var first = arrive(activity);
+        followHandler.handle(first);
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri))));
+
+        followHandler.handle(first);
+
+        assertThat(follows()).isEmpty();
     }
 
     @Test
     void aRepeatedUndoUnfollowsAgain() {
         var activity = follow(newId());
         var undo = undo(followerUri, embeddedFollow(activity.id(), followerUri));
-        inbound.accept(activity);
-        followHandler.handle(activity);
-        inbound.accept(undo);
-        undoHandler.handle(undo);
-        inbound.accept(activity);
-        followHandler.handle(activity);
+        followHandler.handle(arrive(activity));
+        undoHandler.handle(arrive(undo));
+        inbound.accept(again(activity));
+        followHandler.handle(stored(activity));
         removeJobs(undo);
 
-        assertThat(inbound.accept(undo)).isFalse();
+        assertThat(inbound.accept(again(undo))).isFalse();
 
         assertThat(inboundJobs(undo)).isOne();
-        undoHandler.handle(undo);
+        undoHandler.handle(stored(undo));
         assertThat(follows()).isEmpty();
+    }
+
+    /**
+     * Stored activities are cleaned up after about 34 days, and following someone usually lasts longer.
+     */
+    @Test
+    void aFollowAfterAnUndoOfAFollowFromLongAgoFollowsAgain() {
+        var activity = follow(newId());
+        followHandler.handle(arrive(activity));
+        removeStored(activity);
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri))));
+        assertThat(follows()).isEmpty();
+
+        followHandler.handle(arrive(again(activity)));
+
+        assertThat(follows()).containsExactly(activity.id());
+    }
+
+    @Test
+    void aRepeatStandsEvenIfAnUndoGotHereBeforeTheFirstFollow() {
+        var activity = follow(newId());
+        undoHandler.handle(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
+        inbound.accept(activity);
+        inbound.accept(again(activity));
+
+        followHandler.handle(stored(activity));
+
+        assertThat(follows()).containsExactly(activity.id());
     }
 
     @Test
     void aRepeatedFollowIsProcessedAgain() {
         var activity = follow(newId());
-        inbound.accept(activity);
-        followHandler.handle(activity);
+        followHandler.handle(arrive(activity));
         removeJobs(activity);
 
-        inbound.accept(activity);
+        inbound.accept(again(activity));
 
         assertThat(inboundJobs(activity)).isOne();
     }
@@ -515,14 +782,23 @@ class FollowIntegrationTests {
     @Test
     void anotherActorRepeatingAFollowDoesNothing() {
         var activity = follow(newId());
-        inbound.accept(activity);
-        undoHandler.handle(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
+        var first = arrive(activity);
         removeJobs(activity);
 
         inbound.accept(new InboundActivity(activity.id(), "https://" + host + "/ap/users/2", "Follow", activity.body()));
 
-        assertThat(undone(activity.id())).isTrue();
+        assertThat(stored(activity)).isEqualTo(first);
         assertThat(inboundJobs(activity)).isZero();
+    }
+
+    @Test
+    void anotherActorUndoingAStoredFollowByItsIdDoesNotCoverIt() {
+        var activity = arrive(follow(newId()));
+        followHandler.handle(activity);
+
+        undoHandler.handle(arrive(undo("https://" + host + "/ap/users/2", "\"" + activity.id() + "\"")));
+
+        assertThat(follows()).containsExactly(activity.id());
     }
 
     // Cleanup
@@ -560,6 +836,37 @@ class FollowIntegrationTests {
 
     private String embeddedFollow(String id, String actor) {
         return "{\"id\":\"%s\",\"type\":\"Follow\",\"actor\":\"%s\",\"object\":\"%s\"}".formatted(id, actor, followed.uri());
+    }
+
+    /**
+     * Stores an activity the way an inbox does, and returns it the way its job would read it.
+     */
+    private InboundActivity arrive(InboundActivity activity) {
+        inbound.accept(activity);
+        return stored(activity);
+    }
+
+    /**
+     * The same activity arriving now, which is what an inbox would make of a repeat.
+     */
+    private static InboundActivity again(InboundActivity activity) {
+        return new InboundActivity(activity.id(), activity.actorUri(), activity.type(), activity.body());
+    }
+
+    private InboundActivity stored(InboundActivity activity) {
+        return stored.find(activity.id()).orElseThrow();
+    }
+
+    private void removeStored(InboundActivity activity) {
+        jdbc.sql("DELETE FROM inbound_activity WHERE activity_id = :id").param("id", activity.id()).update();
+    }
+
+    private InboundActivity undoOfPair() {
+        return undo(followerUri, "{\"type\":\"Follow\",\"actor\":\"%s\",\"object\":\"%s\"}".formatted(followerUri, followed.uri()));
+    }
+
+    private static InboundActivity arrivedAt(InboundActivity activity, Instant time) {
+        return new InboundActivity(activity.id(), activity.actorUri(), activity.type(), activity.body(), time);
     }
 
     private void serve(String uri, String username) throws Exception {

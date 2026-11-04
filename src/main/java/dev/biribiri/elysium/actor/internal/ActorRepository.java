@@ -52,7 +52,7 @@ public class ActorRepository {
     }
 
     public Optional<Actor> findLocal(String username, String domain) {
-        return jdbc.sql(SELECT_LOCAL + "WHERE lower(username) = lower(:username) AND domain = :domain")
+        return jdbc.sql(SELECT_LOCAL + "WHERE lower(username) = lower(:username) AND domain = :domain AND is_local")
                 .param("username", username)
                 .param("domain", domain)
                 .query(ACTOR_MAPPER)
@@ -74,10 +74,8 @@ public class ActorRepository {
     }
 
     /**
-     * Inserts an actor from another server, or replaces what's stored about it. Only the URI is looked at for this, so
-     * another actor with the same username is an error.
-     *
-     * @throws org.springframework.dao.DuplicateKeyException if another actor on that server has the username
+     * Inserts an actor from another server, or replaces what's stored about it. Only the URI identifies it, so another actor
+     * on that server can have the same username.
      */
     public Actor upsertRemote(RemoteActorProfile profile) {
         return jdbc.sql("""
@@ -148,9 +146,9 @@ public class ActorRepository {
     public boolean createLocalIfAbsent(Actor actor, String privateKeyPem) {
         var inserted = jdbc.sql("""
                         INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, shared_inbox_uri,
-                                           public_key_pem, created_at, updated_at)
+                                           public_key_pem, created_at, updated_at, is_local)
                         VALUES (:id, :uri, :username, :domain, :inboxUri, :outboxUri, :sharedInboxUri, :publicKeyPem,
-                                :createdAt, :updatedAt)
+                                :createdAt, :updatedAt, TRUE)
                         ON CONFLICT DO NOTHING
                         """)
                 .param("id", actor.id())

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -42,21 +43,23 @@ public class InboundActivities {
     @Transactional
     public boolean accept(InboundActivity activity) {
         var added = jdbc.sql("""
-                        INSERT INTO inbound_activity (activity_id, actor_uri, type, body)
-                        VALUES (:id, :actorUri, :type, :body)
+                        INSERT INTO inbound_activity (activity_id, actor_uri, type, body, first_received_at, received_at)
+                        VALUES (:id, :actorUri, :type, :body, :receivedAt, :receivedAt)
                         ON CONFLICT (activity_id) DO NOTHING
                         """)
                 .param("id", activity.id())
                 .param("actorUri", activity.actorUri())
                 .param("type", activity.type())
                 .param("body", activity.body())
+                .param("receivedAt", activity.receivedAt().atOffset(ZoneOffset.UTC))
                 .update();
         if (added == 0) {
             if (shouldProcessRepeat(activity)) {
-                jdbc.sql("UPDATE inbound_activity SET received_at = now() WHERE activity_id = :id")
+                jdbc.sql("UPDATE inbound_activity SET received_at = GREATEST(received_at, :receivedAt) WHERE activity_id = :id")
                         .param("id", activity.id())
+                        .param("receivedAt", activity.receivedAt().atOffset(ZoneOffset.UTC))
                         .update();
-                schedule(activity);
+                Jobs.scheduleAgain(scheduler, TASK, new InboundJob(activity.id(), Instant.now()), activity.id());
             }
             return false;
         }
@@ -70,10 +73,10 @@ public class InboundActivities {
      */
     private boolean shouldProcessRepeat(InboundActivity activity) {
         var handler = handlers.get(activity.type());
-        if (handler == null) {
+        if (handler == null || !handler.processesRepeats()) {
             return false;
         }
-        var sameSender = jdbc.sql("""
+        return jdbc.sql("""
                         SELECT EXISTS (
                             SELECT 1 FROM inbound_activity
                             WHERE activity_id = :id AND actor_uri = :actorUri AND type = :type
@@ -84,7 +87,6 @@ public class InboundActivities {
                 .param("type", activity.type())
                 .query(Boolean.class)
                 .single();
-        return sameSender && handler.onRepeat(activity);
     }
 
     private void schedule(InboundActivity activity) {

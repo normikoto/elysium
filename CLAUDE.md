@@ -63,13 +63,14 @@ feature is live.
   activity is for has to come from the activity, never from the inbox's URL. Checks on who's speaking for an `id` have to
   run before `InboundActivities.accept`, where the first activity stored under an ID wins. To act on a type of activity,
   add an `InboundActivityHandler`, or for another type of `Undo`, extend `UndoHandler`, since each type has one handler.
-  A repeated ID is dropped unless the handler's `onRepeat` says otherwise, since some servers reuse IDs for new requests.
+  A repeated ID is dropped unless the handler's `processesRepeats` says otherwise, since some servers reuse IDs for new requests.
   Anything a handler reads from a body that it then stores, such as an ID in an `Undo`, hasn't been through the inbox's
   checks. The inbox's only limit is on the key fetches an address can cause (`KeyFetchBudget`),
   and `SignatureVerifier.verify` needs one, so that every caller has to decide who pays for fetches. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and `ActivityObject` normalizes `object`. The other
   properties still need the handling described in issue #39.
 - **Remote actors:** `RemoteActors` fetches and stores them, and `RemoteActorDocument` decides what to believe. Remote rows
-  in `actor` have no `local_account`, and can have a null `outbox_uri` and `public_key_pem`.
+  in `actor` have no `local_account`, and can have a null `outbox_uri` and `public_key_pem`. Usernames are only unique for
+  local accounts, through `actor.is_local`, since a remote actor's identity is its URI.
 - **Signatures:** `SignatureVerifier`, `PublicKeyResolver`, and `SignedFetcher` are independent of the signature format.
   Each format supplies a `SignatureScheme` and a `RequestSigner`. Only draft-cavage is implemented. The reasoning for
   signer order is in `activitypub/signature/package-info.java`.
@@ -84,7 +85,8 @@ all share the same retry and parking behavior.
 
 - Handlers run with no transaction open and can run again after succeeding, so they have to be safe to repeat.
 - `ActivityDeliveries.enqueue` requires an existing transaction, so that a change and its activity are saved together.
-- Jobs have no order, so a handler can run before the job for an earlier activity. `undone_follow` exists for this.
+- Jobs have no order, so a handler can run before the job for an earlier activity. `InboundActivity`'s times say which
+  arrived first, and `FollowService` explains how `undone_follow` and `undone_follow_pair` use them.
 - Job data only holds IDs. The admin UI at `/admin/db-scheduler` shows it.
 
 ### Persistence

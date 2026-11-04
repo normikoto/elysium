@@ -1,85 +1,144 @@
 package dev.biribiri.elysium.graph;
 
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.internal.FollowRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
+import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Who follows whom. A follow can be identified by the activity that created it, which other servers refer to when they undo
- * it. An undone activity is remembered for a while, because jobs have no order, and the activity's job can run afterward.
+ * it.
+ *
+ * <p>Activities can be processed in any order, and some servers send the same IDs again for new requests, so what counts is
+ * when they arrived. An {@code Undo} covers its {@code Follow}, and any that arrived before it. It's remembered for a while,
+ * because a job for one of those can still run afterward. A {@code Follow} that arrives later isn't covered, so it stands.
  */
 @Service
 public class FollowService {
 
     private final FollowRepository follows;
+    private final ActorService actors;
 
-    FollowService(FollowRepository follows) {
+    FollowService(FollowRepository follows, ActorService actors) {
         this.follows = follows;
+        this.actors = actors;
     }
 
     /**
-     * Stores an accepted follow, or replaces the activity of one that already exists, unless that activity has been undone.
+     * Stores an accepted follow, unless it's been undone, or the follow already comes from an activity that arrived later.
      * This takes part in the caller's transaction, so that the caller can save its answer along with it.
      *
-     * @return whether the follow was stored
+     * @return what happened if this activity is now the one behind the follow, or empty if it should get no answer
      * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public boolean accept(UUID followerId, UUID followedId, String activityUri) {
+    public Optional<Accepted> accept(UUID followerId, URI followerUri, UUID followedId, String activityUri, Arrival arrival) {
+        var follower = followerUri.toString();
         // The caller checks wasUndone before fetching anything, but an Undo can run after that, or be running right now.
-        // Without the lock, neither transaction would see what the other one is doing.
-        follows.lockActivity(activityUri);
-        if (follows.isUndone(activityUri)) {
-            return false;
+        // Without the locks, neither transaction would see what the other one is doing. They're always taken in this order.
+        follows.lock(pairKey(follower, followedId));
+        follows.lock(activityUri);
+        if (wasUndone(activityUri, follower, followedId, arrival)) {
+            return Optional.empty();
         }
-        follows.saveAccepted(followerId, followedId, activityUri);
-        return true;
+        var existing = follows.findByPair(followerId, followedId);
+        if (existing.isPresent() && existing.get().activityAt().isAfter(arrival.last())) {
+            return Optional.empty();
+        }
+        follows.saveAccepted(followerId, followedId, activityUri, arrival.last());
+        return Optional.of(new Accepted(existing
+                .map(FollowRepository.Row::activityUri)
+                .filter(previous -> !previous.equals(activityUri))));
     }
 
     /**
      * Whether an activity has been undone. {@link #accept} checks too, so this is only for avoiding unnecessary work.
      */
-    public boolean wasUndone(String activityUri) {
-        return follows.isUndone(activityUri);
+    public boolean wasUndone(String activityUri, String followerUri, UUID followedId, Arrival arrival) {
+        // A repeat is a new request. Otherwise an Undo that got here first would stop every Follow with this ID.
+        return (!arrival.isRepeat() && follows.isUndone(activityUri, followerUri))
+                || follows.isPairUndone(followerUri, followedId, arrival.last());
     }
 
     /**
-     * Removes the follow that an activity created, if the follower has one, and stops the activity from creating one later.
-     * A follow for the same two actors that came from a different activity is left alone.
+     * Applies an {@code Undo} that names the activity behind a follow.
+     *
+     * @param followedId who the activity was a follow of, if that's known
+     * @param arrival    when the activity arrived, if that's known. It may not have arrived yet.
+     * @param undoAt     when the {@code Undo} arrived
+     * @return the follow that was removed, if any
      */
     @Transactional
-    public void undo(UUID followerId, String activityUri) {
-        follows.lockActivity(activityUri);
-        follows.deleteByActivity(followerId, activityUri);
-        follows.markUndone(activityUri);
+    public Optional<Removed> undo(
+            String followerUri, Optional<UUID> followedId, String activityUri, Optional<Arrival> arrival, Instant undoAt) {
+        var follower = actors.findByUri(URI.create(followerUri));
+        var stored = follower.flatMap(actor -> follows.findByActivity(actor.id(), activityUri));
+        var followed = stored.map(FollowRepository.Row::followedId).or(() -> followedId);
+        followed.ifPresent(id -> follows.lock(pairKey(followerUri, id)));
+        follows.lock(activityUri);
+
+        // Stored activities are eventually cleaned up, long before an account stops following someone.
+        var known = arrival.or(() -> stored.map(row -> new Arrival(row.activityAt(), row.activityAt())));
+        if (known.isEmpty() || known.get().first().isAfter(undoAt)) {
+            // The Undo got here first, so nothing else says what it covers. Only this activity can be stopped.
+            follows.markUndone(activityUri, followerUri, undoAt);
+            return follower.flatMap(actor -> follows.deleteByActivity(actor.id(), activityUri))
+                    .map(followedActor -> new Removed(followedActor, activityUri));
+        }
+        if (followed.isEmpty()) {
+            return Optional.empty();
+        }
+        // A repeat that arrived after the Undo is a new request, and one that arrived after the activity is a newer follow.
+        var covers = known.get().last().isBefore(undoAt) ? known.get().last() : undoAt;
+        return cover(followerUri, followed.get(), covers);
     }
 
     /**
-     * Stops an activity from creating a follow later, for when its actor isn't known yet.
+     * Applies an {@code Undo} that doesn't say which activity created a follow, which covers all that arrived before it.
+     * Nothing can tell one that arrives afterward from a new request to follow.
+     *
+     * @param undoAt when the {@code Undo} arrived
+     * @return the follow that was removed, if any
      */
     @Transactional
-    public void undo(String activityUri) {
-        follows.lockActivity(activityUri);
-        follows.markUndone(activityUri);
+    public Optional<Removed> undoPair(String followerUri, UUID followedId, Instant undoAt) {
+        follows.lock(pairKey(followerUri, followedId));
+        return cover(followerUri, followedId, undoAt);
+    }
+
+    private Optional<Removed> cover(String followerUri, UUID followedId, Instant arrivedBy) {
+        follows.markPairUndone(followerUri, followedId, arrivedBy);
+        return actors.findByUri(URI.create(followerUri))
+                .flatMap(follower -> follows.deleteByPair(follower.id(), followedId, arrivedBy))
+                .map(activityUri -> new Removed(followedId, activityUri));
+    }
+
+    private static String pairKey(String followerUri, UUID followedId) {
+        return followerUri + "\n" + followedId;
     }
 
     /**
-     * Lets an undone activity create a follow again, for when it's been sent again. This is for arrivals only: a job for the
-     * activity running again doesn't count, and mustn't call this.
+     * When an activity arrived. These differ if it was repeated.
      */
-    @Transactional
-    public void forgetUndone(String activityUri) {
-        follows.lockActivity(activityUri);
-        follows.unmarkUndone(activityUri);
+    public record Arrival(Instant first, Instant last) {
+
+        boolean isRepeat() {
+            return last.isAfter(first);
+        }
     }
 
     /**
-     * Removes a follow, for when an {@code Undo} doesn't say which activity created it.
+     * @param replacedActivity the activity that was behind the follow until now, if there was a different one
      */
-    public void removeByPair(UUID followerId, UUID followedId) {
-        follows.deleteByPair(followerId, followedId);
+    public record Accepted(Optional<String> replacedActivity) {
+    }
+
+    public record Removed(UUID followedId, String activityUri) {
     }
 }

@@ -22,9 +22,9 @@ public interface InboundActivityHandler {
     /**
      * Says whether a repeat of an activity from the same actor should be processed again, rather than dropped. This is for
      * activities that can mean something new when they're repeated, because some servers use the same ID each time. Misskey
-     * builds the IDs of its follows from the two actors, for example. It runs in the inbox's transaction, before the job.
+     * builds the IDs of its follows from the two actors, for example.
      */
-    default boolean onRepeat(InboundActivity activity) {
+    default boolean processesRepeats() {
         return false;
     }
 }

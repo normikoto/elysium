@@ -1,14 +1,19 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
+import dev.biribiri.elysium.activitypub.vocab.Accept;
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Optional;
 
 /**
  * Handles every {@code Undo}, because only one handler can have a type. Only undoing a {@code Follow} does anything so far.
@@ -21,11 +26,23 @@ class UndoHandler implements InboundActivityHandler {
 
     private final ActorService actors;
     private final FollowService follows;
+    private final StoredActivities stored;
+    private final ActivityDeliveries deliveries;
+    private final TransactionTemplate transaction;
     private final JsonMapper json;
 
-    UndoHandler(ActorService actors, FollowService follows, JsonMapper json) {
+    UndoHandler(
+            ActorService actors,
+            FollowService follows,
+            StoredActivities stored,
+            ActivityDeliveries deliveries,
+            TransactionTemplate transaction,
+            JsonMapper json) {
         this.actors = actors;
         this.follows = follows;
+        this.stored = stored;
+        this.deliveries = deliveries;
+        this.transaction = transaction;
         this.json = json;
     }
 
@@ -46,9 +63,9 @@ class UndoHandler implements InboundActivityHandler {
             return;
         }
         if (object.id() != null) {
-            undoById(activity.actorUri(), object.id());
+            undoById(activity, object);
         } else if (object.object() != null && "Follow".equals(object.type())) {
-            undoByPair(activity.actorUri(), object.object());
+            undoByPair(activity, object.object());
         }
     }
 
@@ -57,7 +74,7 @@ class UndoHandler implements InboundActivityHandler {
      * undoes can be a new one.
      */
     @Override
-    public boolean onRepeat(InboundActivity activity) {
+    public boolean processesRepeats() {
         return true;
     }
 
@@ -65,34 +82,48 @@ class UndoHandler implements InboundActivityHandler {
      * When an activity is sent as just an ID, it could be of any type. Remembering one that isn't a {@code Follow} has no
      * effect, and it's cleaned up with the rest.
      *
-     * <p>An ID in an {@code Undo} hasn't been through the checks that an inbox makes, so they're made here. Without them, a
-     * server could stop another server's {@code Follow} by undoing its ID first, and an ID too long to store would fail
-     * every time this job is tried.
+     * <p>An ID in an {@code Undo} hasn't been through the checks that an inbox makes, so they're made here. A {@code Follow}
+     * that was accepted always has an ID on its actor's server, and an ID too long to store would fail every time this job
+     * is tried.
      */
-    private void undoById(String actorUri, String followId) {
+    private void undoById(InboundActivity activity, ActivityObject object) {
+        var actorUri = activity.actorUri();
+        var followId = object.id();
         if (!InboundActivity.isStorableId(followId) || !canSpeakFor(actorUri, followId)) {
             log.debug("Ignoring an Undo from {} of an activity it can't speak for", actorUri);
             return;
         }
-        var follower = actors.findByUri(URI.create(actorUri));
-        if (follower.isPresent()) {
-            follows.undo(follower.get().id(), followId);
-        } else {
-            follows.undo(followId);
-        }
+        // Another actor on the same server can use this ID, which doesn't make it that actor's activity.
+        var follow = stored.find(followId).filter(found -> found.actorUri().equals(actorUri) && found.type().equals("Follow"));
+        var followedUri = follow.flatMap(found -> ActivityObject.of(found.body(), json))
+                .map(ActivityObject::id)
+                .or(() -> Optional.ofNullable(object.object()));
+        var followed = followedUri.flatMap(UndoHandler::parseUri).flatMap(actors::findLocalByUri).map(Actor::id);
+        transaction.executeWithoutResult(status ->
+                follows.undo(actorUri, followed, followId, follow.map(InboundActivity::arrival), activity.receivedAt())
+                        .ifPresent(this::cancelAccept));
     }
 
-    private void undoByPair(String actorUri, String followedUri) {
-        URI followedId;
+    private void undoByPair(InboundActivity activity, String followedUri) {
+        parseUri(followedUri).flatMap(actors::findLocalByUri).ifPresent(followed ->
+                transaction.executeWithoutResult(status ->
+                        follows.undoPair(activity.actorUri(), followed.id(), activity.receivedAt())
+                                .ifPresent(this::cancelAccept)));
+    }
+
+    /**
+     * The other server has withdrawn the request, so it shouldn't get an answer if one is still waiting to be sent.
+     */
+    private void cancelAccept(FollowService.Removed removed) {
+        actors.findLocalById(removed.followedId()).ifPresent(followed ->
+                deliveries.cancel(Accept.idFor(followed.uri(), removed.activityUri())));
+    }
+
+    private static Optional<URI> parseUri(String value) {
         try {
-            followedId = new URI(followedUri);
+            return Optional.of(new URI(value));
         } catch (URISyntaxException e) {
-            return;
-        }
-        var follower = actors.findByUri(URI.create(actorUri));
-        var followed = actors.findLocalByUri(followedId);
-        if (follower.isPresent() && followed.isPresent()) {
-            follows.removeByPair(follower.get().id(), followed.get().id());
+            return Optional.empty();
         }
     }
 

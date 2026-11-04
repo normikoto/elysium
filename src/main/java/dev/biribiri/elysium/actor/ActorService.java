@@ -3,7 +3,6 @@ package dev.biribiri.elysium.actor;
 import dev.biribiri.elysium.actor.internal.ActorRepository;
 import dev.biribiri.elysium.actor.internal.InstanceActorKeys;
 import dev.biribiri.elysium.actor.internal.RsaKeys;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -85,23 +84,17 @@ public class ActorService {
     }
 
     /**
-     * Stores an actor from another server, or replaces what's stored about it, which counts as refreshing it. This doesn't
-     * need a transaction, and shouldn't be given one, because a failure here would end it.
+     * Stores an actor from another server, or replaces what's stored about it, which counts as refreshing it.
      *
-     * @return the stored actor, or empty if another actor on that server already has the username. Usernames are unique
-     * for each server, and a server can give a username to a new actor after the old one was renamed.
-     * @throws IllegalArgumentException if the actor claims to be on this server, where it could take a username that a local
+     * @return the stored actor
+     * @throws IllegalArgumentException if the actor claims to be on this server, where it could take the URI that a local
      *                                  account would need
      */
-    public Optional<Actor> upsertRemote(RemoteActorProfile profile) {
+    public Actor upsertRemote(RemoteActorProfile profile) {
         if (profile.domain().equals(instance.domain())) {
             throw new IllegalArgumentException("A remote actor can't be on this server's domain");
         }
-        try {
-            return Optional.of(actors.upsertRemote(profile));
-        } catch (DuplicateKeyException e) {
-            return Optional.empty();
-        }
+        return actors.upsertRemote(profile);
     }
 
     public long countLocal() {

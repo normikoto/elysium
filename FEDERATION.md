@@ -98,7 +98,8 @@ The follower's document is fetched, signed as the [instance actor](#instance-act
 is stored. A `Follow` is refused, and not tried again, unless the document:
 
 - Has an `id` matching the signer, and an actor `type`: `Application`, `Group`, `Organization`, `Person`, or `Service`.
-- Has a `preferredUsername` of up to 255 characters, with no control characters, that no other actor on that server has.
+- Has a `preferredUsername` of up to 255 characters, with no control characters. Other actors on that server can have the
+  same one, because an actor's URI is what identifies it.
 - Has an `inbox` that's an HTTPS URL on the same host and port as the actor, with no user info. This stops a document from
   aiming this server's requests at another server. An `endpoints.sharedInbox` that isn't one is left out, without refusing
   the actor.
@@ -132,13 +133,23 @@ An `Undo` removes a follow if its `object` names the `Follow` that created it, b
 - The follow came from a different `Follow`, which would be a newer one.
 - The `Follow`'s `id` isn't an HTTPS URL on the same host and port as the actor, or is over 2048 bytes.
 
-An `Undo` that gives its `Follow`'s `id` still counts if it arrives before that `Follow`, for about 34 days, and the `Follow`
-is then ignored when it arrives. A later `Follow` with a new `id` isn't affected. An `Undo` of an embedded `Follow` with no
-`id` only affects a follow that's already stored.
+Activities are ordered by when they arrived here, whatever order they're processed in:
+
+- An `Undo` also removes any follow between the two actors from a `Follow` that arrived before the one it names, and stops
+  those from creating a follow if they're processed later.
+- An `Undo` that names a `Follow` isn't affected by another `Follow` that arrived after the named one, and an `Undo` of an
+  embedded `Follow` with no `id` covers every `Follow` that arrived before it.
+- A `Follow` that arrived before the one behind an existing follow doesn't replace it, and gets no `Accept`.
+- A newer `Follow` replaces an older one's `Accept` if that hasn't been sent yet, and an `Undo` cancels the `Accept` of the
+  follow it removes, if that hasn't been sent yet.
+
+An `Undo` that names a `Follow` before it arrives still counts, for about 34 days, and only stops that actor's `Follow` with
+that `id`. If an embedded `Follow` has no `id`, then a `Follow` that arrives after it can't be told apart from a new request,
+so it creates a follow.
 
 Some servers use the same `id` for each `Follow` between two actors, and for each `Undo` of it, so a `Follow` or `Undo` that
-repeats an `id` from the same actor is processed again, rather than dropped. A repeated `Follow` counts as following again,
-even if that `id` was undone.
+repeats an `id` from the same actor is processed again, rather than dropped. A repeated `Follow` is a new request, so it stands
+if it arrived after any `Undo` of it.
 
 ### Notable differences
 
