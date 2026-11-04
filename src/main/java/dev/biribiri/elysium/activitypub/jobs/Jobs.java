@@ -64,25 +64,14 @@ public final class Jobs {
      * @param idParts what identifies the job, so that a repeat can't queue a second one
      */
     public static <T extends QueuedJob> void schedule(SchedulerClient scheduler, TaskDescriptor<T> task, T job, String... idParts) {
-        schedule(scheduler, task, job, job.queuedAt(), idParts);
-    }
-
-    /**
-     * Queues a job to run at a given time, unless one with the same ID is already queued. Its age still counts from when it was
-     * queued, so that it's retried and given up on the same as any other.
-     *
-     * @param idParts what identifies the job, so that a repeat can't queue a second one
-     */
-    public static <T extends QueuedJob> void schedule(
-            SchedulerClient scheduler, TaskDescriptor<T> task, T job, Instant runAt, String... idParts) {
-        scheduler.scheduleIfNotExists(task.instance(instanceId(idParts)).data(job).scheduledTo(runAt));
+        scheduler.scheduleIfNotExists(task.instance(instanceId(idParts)).data(job).scheduledTo(job.queuedAt()));
     }
 
     /**
      * Makes a job's ID. It's a hash because these values can come from other servers, and PostgreSQL can't index very long
      * ones.
      */
-    public static String instanceId(String... parts) {
+    static String instanceId(String... parts) {
         return Digests.sha256Hex(String.join("\n", parts));
     }
 }

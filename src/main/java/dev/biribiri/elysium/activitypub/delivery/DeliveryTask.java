@@ -33,6 +33,7 @@ import java.util.concurrent.ThreadLocalRandom;
 class DeliveryTask {
 
     private static final Duration BACKOFF_SPREAD = Duration.ofSeconds(10);
+    private static final Duration BEHIND_DELAY = Duration.ofSeconds(5);
 
     private final JdbcClient jdbc;
     private final ActorService actors;
@@ -84,11 +85,32 @@ class DeliveryTask {
                 }
                 return later(backingOff.get());
             }
+            if (job.staysBehind() != null && isRunningFor(job.staysBehind(), host)) {
+                return at(now.plus(BEHIND_DELAY));
+            }
             send(activity.get(), inbox, host);
             return Jobs.done();
         } finally {
             gate.release(host);
         }
+    }
+
+    /**
+     * By host and not by inbox, because a server's followers can have moved to its shared inbox since. A job that's dead stays
+     * picked until another node notices, so this can wait for that.
+     */
+    private boolean isRunningFor(String activityId, String host) {
+        return jdbc.sql("""
+                        SELECT convert_from(task_data, 'UTF8')::json ->> 'inbox' FROM scheduled_tasks
+                        WHERE task_name = :task AND picked AND convert_from(task_data, 'UTF8')::json ->> 'activityId' = :id
+                        """)
+                .param("task", ActivityDeliveries.TASK.getTaskName())
+                .param("id", activityId)
+                .query(String.class)
+                .list()
+                .stream()
+                .map(inbox -> URI.create(inbox).getHost())
+                .anyMatch(host::equalsIgnoreCase);
     }
 
     private Optional<OutboundActivity> find(DeliveryJob job) {

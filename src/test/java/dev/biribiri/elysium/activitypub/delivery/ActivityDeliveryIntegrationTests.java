@@ -810,7 +810,7 @@ class ActivityDeliveryIntegrationTests {
                 .param("instance", instanceOf(activity))
                 .query(String.class)
                 .single();
-        var data = new Jackson3Serializer().serialize(new DeliveryJob(activity.id(), inbox, queuedAt));
+        var data = new Jackson3Serializer().serialize(new DeliveryJob(activity.id(), inbox, queuedAt, null));
         jdbc.sql("UPDATE scheduled_tasks SET task_data = :data WHERE task_instance = :instance")
                 .param("data", data)
                 .param("instance", instanceOf(activity))

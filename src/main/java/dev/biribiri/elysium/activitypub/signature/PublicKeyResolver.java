@@ -66,7 +66,7 @@ class PublicKeyResolver {
     private final Semaphore fetches = new Semaphore(MAX_CONCURRENT_FETCHES);
 
     /**
-     * Keeps slow hosts from taking every fetch, and also counts deliveries, since they use the same connections.
+     * Keeps slow hosts from taking every fetch, and holds deliveries back while fetches are running.
      */
     private final HostRequests hostRequests;
     private final AsyncCache<String, Lookup> cache;
@@ -228,7 +228,7 @@ class PublicKeyResolver {
     }
 
     private void release(String host) {
-        hostRequests.finish(host);
+        hostRequests.finishFetch(host);
         fetches.release();
     }
 

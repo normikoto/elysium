@@ -2,7 +2,6 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.boot.autoconfigure.Jackson3Serializer;
 import dev.biribiri.elysium.TestcontainersConfiguration;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -145,7 +144,7 @@ class InboundActivitiesIntegrationTests {
     @Test
     void retryingAJobOldEnoughToHaveLostItsActivityFailsWithTheReason() {
         var activity = parkedAndGone();
-        var instance = Jobs.instanceId(activity.id());
+        var instance = instanceOf(activity);
         jdbc.sql("UPDATE scheduled_tasks SET task_data = :data WHERE task_name = 'inbound-activity' AND task_instance = :instance")
                 .param("data", new Jackson3Serializer().serialize(
                         new InboundJob(activity.id(), Instant.now().minus(Duration.ofDays(34)))))
@@ -185,9 +184,19 @@ class InboundActivitiesIntegrationTests {
         return activity;
     }
 
+    private String instanceOf(InboundActivity activity) {
+        return jdbc.sql("""
+                        SELECT task_instance FROM scheduled_tasks
+                        WHERE task_name = 'inbound-activity' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activity.id() + "%")
+                .query(String.class)
+                .single();
+    }
+
     private void retryNow(InboundActivity activity) {
         jdbc.sql("UPDATE scheduled_tasks SET execution_time = now() WHERE task_name = 'inbound-activity' AND task_instance = :instance")
-                .param("instance", Jobs.instanceId(activity.id()))
+                .param("instance", instanceOf(activity))
                 .update();
     }
 

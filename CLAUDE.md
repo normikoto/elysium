@@ -96,8 +96,9 @@ all share the same retry and parking behavior.
   arrived first, and `FollowService` explains how `undone_follow` and `undone_follow_pair` use them.
 - Job data only holds IDs. The admin UI at `/admin/db-scheduler` shows it.
 - `HostGate` spaces out jobs waiting for a host to suit `db-scheduler.polling-interval`, since all the jobs due at a poll run
-  within moments. Changing one means changing the other, and rerunning `./gradlew loadTest`.
-- Key fetches and deliveries share `activitypub.http.HostRequests`, which leaves deliveries one connection short of the limit.
+  within moments. Rerun `./gradlew loadTest` after changing how jobs wait.
+- `activitypub.http.HostRequests` counts key fetches and deliveries per host. Deliveries count both and stop one short of the
+  client's connections, and fetches only count each other, so that a fan-out can't refuse a server's own key fetches.
 
 ### Persistence
 

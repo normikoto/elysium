@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.delivery;
 
 import dev.biribiri.elysium.activitypub.http.HostRequests;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -24,12 +25,6 @@ class HostGate {
 
     static final int MAX_REQUESTS_PER_HOST = HostRequests.MAX_DELIVERIES_PER_HOST;
 
-    /**
-     * Lets about as many waiting jobs come due between polls, set by {@code db-scheduler.polling-interval}, as can get a slot.
-     * All the jobs due at a poll run within moments, before any request has finished, so any more would only be refused, with
-     * each refusal writing to the database. For a host that answers slowly, this still limits how often its jobs run.
-     */
-    private static final Duration TURN_SPACING = Duration.ofSeconds(1).dividedBy(MAX_REQUESTS_PER_HOST);
 
     /**
      * One failure could just be one bad request, or a brief problem that a retry gets past.
@@ -43,13 +38,24 @@ class HostGate {
     private final HostRequests requests;
 
     /**
+     * Lets about as many waiting jobs come due between polls as can get a slot. All the jobs due at a poll run within moments,
+     * before any request has finished, so any more would only be refused, with each refusal writing to the database. For a
+     * host that answers slowly, this still limits how often its jobs run.
+     */
+    private final Duration turnSpacing;
+
+    /**
      * The last turn given out for each host. A host only stays here while that's in the future.
      */
     private final Map<String, Instant> lastTurns = new HashMap<>();
 
-    HostGate(JdbcClient jdbc, HostRequests requests) {
+    HostGate(
+            JdbcClient jdbc,
+            HostRequests requests,
+            @Value("${db-scheduler.polling-interval}") Duration pollingInterval) {
         this.jdbc = jdbc;
         this.requests = requests;
+        this.turnSpacing = pollingInterval.dividedBy(MAX_REQUESTS_PER_HOST);
     }
 
     /**
@@ -60,7 +66,7 @@ class HostGate {
     }
 
     void release(String host) {
-        requests.finish(host);
+        requests.finishDelivery(host);
     }
 
     /**
@@ -69,7 +75,7 @@ class HostGate {
     synchronized Instant nextTurn(String host, Instant now) {
         lastTurns.values().removeIf(now::isAfter);
         var last = lastTurns.getOrDefault(host, now);
-        var turn = (last.isAfter(now) ? last : now).plus(TURN_SPACING);
+        var turn = (last.isAfter(now) ? last : now).plus(turnSpacing);
         lastTurns.put(host, turn);
         return turn;
     }

@@ -6,44 +6,47 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class HostRequestsTests {
 
+    private static final int MAX_FETCHES = FederationHttpClient.MAX_CONNECTIONS_PER_HOST;
+
     private final HostRequests requests = new HostRequests();
 
     @Test
-    void deliveriesLeaveOneConnectionForAFetch() {
+    void limitsDeliveriesToOneHost() {
         for (var i = 0; i < HostRequests.MAX_DELIVERIES_PER_HOST; i++) {
             assertThat(requests.tryStartDelivery("busy.example")).isTrue();
         }
 
         assertThat(requests.tryStartDelivery("busy.example")).isFalse();
-        assertThat(requests.tryStartFetch("busy.example")).isTrue();
+        requests.finishDelivery("busy.example");
+        assertThat(requests.tryStartDelivery("busy.example")).isTrue();
     }
 
     @Test
-    void fetchesAndDeliveriesTogetherStayWithinTheClientsConnections() {
+    void deliveriesDoNotStopFetches() {
         for (var i = 0; i < HostRequests.MAX_DELIVERIES_PER_HOST; i++) {
-            assertThat(requests.tryStartDelivery("busy.example")).isTrue();
+            requests.tryStartDelivery("busy.example");
         }
-        assertThat(requests.tryStartFetch("busy.example")).isTrue();
 
+        for (var i = 0; i < MAX_FETCHES; i++) {
+            assertThat(requests.tryStartFetch("busy.example")).isTrue();
+        }
         assertThat(requests.tryStartFetch("busy.example")).isFalse();
     }
 
     @Test
-    void fetchesCanKeepDeliveriesOut() {
-        for (var i = 0; i < FederationHttpClient.MAX_CONNECTIONS_PER_HOST; i++) {
-            assertThat(requests.tryStartFetch("busy.example")).isTrue();
+    void fetchesHoldDeliveriesBack() {
+        for (var i = 0; i < HostRequests.MAX_DELIVERIES_PER_HOST; i++) {
+            requests.tryStartFetch("busy.example");
         }
 
         assertThat(requests.tryStartDelivery("busy.example")).isFalse();
-        requests.finish("busy.example");
-        assertThat(requests.tryStartDelivery("busy.example")).isFalse();
-        requests.finish("busy.example");
+        requests.finishFetch("busy.example");
         assertThat(requests.tryStartDelivery("busy.example")).isTrue();
     }
 
     @Test
     void hostsDoNotAffectEachOther() {
-        for (var i = 0; i < FederationHttpClient.MAX_CONNECTIONS_PER_HOST; i++) {
+        for (var i = 0; i < MAX_FETCHES; i++) {
             requests.tryStartFetch("busy.example");
         }
 

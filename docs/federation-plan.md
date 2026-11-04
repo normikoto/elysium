@@ -71,13 +71,15 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
 
   | Scenario | Before | After |
   | --- | --- | --- |
-  | 1000 inboxes on one host | 322 delivered in 10 minutes, about 31 minutes in all, at 101 runs per delivery | 336 seconds, at 2.00 runs per delivery |
+  | 1000 inboxes on one host | 322 delivered in 10 minutes, about 31 minutes in all, at 101 runs per delivery | 334 seconds, at 2.00 runs per delivery |
   | 2000 inboxes across 500 hosts | 17 seconds, at 1.00 runs per delivery | 8 seconds, at 1.24 runs per delivery |
 
-- **Other checks:** key fetches and deliveries now share one limit per host (`HostRequests`), and deliveries leave one connection for fetches. Retrying a job that's outlived its activity fails with the reason (#55). A `Delete` waits about 35 seconds while its `Create` still has a job, so that it can't overtake one being sent.
+- **Other checks:** deliveries now count key fetches against their limit per host, and leave a connection for them (`HostRequests`). Fetches only count each other, so a fan-out can't refuse them, which means one can still wait a moment for a connection. Retrying a job that's outlived its activity fails with the reason (#55). A `Delete` waits while its cancelled `Create` is running for the same host, so that it can't overtake one being sent.
 - **Left open:**
   - `followers` still only gives its size, and its items and pages stay in #43, along with the option to hide them
-  - a host that answers slowly gets fewer deliveries than turns, so its waiting jobs run more than twice each, though still only about 3 runs a second
+  - a host that answers slowly gets fewer deliveries than turns, so its waiting jobs keep running at about 3 a second. With a large backlog, that's about 259,000 runs a day, kept for 7 days as successful history rows. This comes from reading the code, not from measuring it
+  - jobs waiting for a slot have no limit on their age, so a large enough backlog on a slow host can send activities days late. The 3-day limit only applies while a host is backing off
+  - a `Delete` also waits for a `Create` job left running by a node that died, until another node notices
   - a backlog for one fast host drains at about 180 a minute, well below what its connections could carry
   - actor document fetches aren't counted in the per-host limit, so they can still wait for a connection
   - replies haven't reached a remote server, because parents are always local until milestone 4

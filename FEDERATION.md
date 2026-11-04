@@ -225,9 +225,9 @@ cancelled, and a `Delete` is sent to their followers on other servers, the same 
 a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
 that the status existed.
 
-So that a `Delete` doesn't overtake a `Create` that's already being sent, it waits about 35 seconds if any of those followers'
-deliveries of the `Create` hasn't finished, including one that's failing and being tried again. This server can only control
-when each is sent, so a server that handles activities out of order could still process them the other way around.
+A `Delete` doesn't overtake a `Create` that's already being sent: it waits until that request to the same server has ended,
+which takes at most 30 seconds. This server can only control when each is sent, so a server that handles activities out of order
+could still process them the other way around.
 
 ```json
 {
