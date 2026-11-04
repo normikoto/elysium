@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -119,6 +120,17 @@ public class FollowService {
     public Optional<Removed> undoPair(String followerUri, UUID followedId, Instant undoAt) {
         follows.lock(pairKey(followerUri, followedId));
         return cover(followerUri, followedId, undoAt);
+    }
+
+    /**
+     * Where to deliver something to an actor's remote followers, with one inbox for followers that share one.
+     */
+    public List<URI> followerInboxes(UUID followedId) {
+        return follows.findFollowerInboxes(followedId);
+    }
+
+    public long countFollowers(UUID followedId) {
+        return follows.countFollowers(followedId);
     }
 
     private Optional<Removed> cover(String followerUri, UUID followedId, Instant arrivedBy) {

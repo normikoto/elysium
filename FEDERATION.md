@@ -1,13 +1,13 @@
 # Federation
 
 Elysium is an early work in progress and can't fully federate yet. Other servers can discover its users, deliver activities
-to them, and follow them, but its users can't follow anyone, and their statuses aren't sent to followers. This file only
-describes what's implemented today.
+to them, follow them, and receive their new statuses, but its users can't follow anyone, and deleting a status doesn't reach
+other servers. This file only describes what's implemented today.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
-  activities at an inbox, and receiving `Follow` and `Undo` of a `Follow`
+  activities at an inbox, receiving `Follow` and `Undo` of a `Follow`, and sending `Create` of a `Note`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -27,6 +27,10 @@ Requests that accept HTML instead, including `*/*` or no header, get the user's 
 document's `url` links to that page, which is at the same URL.
 
 Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`.
+
+An actor's `followers` is an `OrderedCollection` at `/users/{username}/followers`, with its `totalItems` and no items. It's
+served as `application/activity+json` or `application/ld+json` with any profile, including for `*/*` or no `Accept` header,
+and any origin can read it through CORS. There's no web page at this URL, so a request that only accepts HTML gets a 406.
 
 Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively.
 
@@ -52,7 +56,18 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 - `inReplyTo`: the parent status.
 - `contentMap`: the `content` under its language, if one is set.
 
-Public statuses have the public collection in `to`, and unlisted statuses have it in `cc`.
+Statuses are addressed like this, where `followers` is the author's followers collection:
+
+| Visibility     | `to`      | `cc`      |
+|----------------|-----------|-----------|
+| Public         | public    | followers |
+| Unlisted       | followers | public    |
+| Followers-only | followers |           |
+
+A reply also has the parent's author in `cc`, if its `inReplyTo` is shown and that's someone else. There's no `Mention` tag.
+
+A reply's `inReplyTo` is shown if the parent is public or unlisted, or if a followers-only status replies to its author's own
+followers-only status.
 
 ### Inboxes
 
@@ -155,6 +170,40 @@ A `Follow` or `Undo` that repeats an `id` from the same actor is processed again
 `id` for each `Undo` between two actors, so a repeated `Undo` can undo a new follow. A repeated `Follow` gets another `Accept`,
 unless an `Undo` covers it. It's then treated as a retry, so a new request to follow needs a new `id`.
 
+### Statuses
+
+When a local user posts a public, unlisted, or followers-only status, it's sent to their followers on other servers, signed as
+the user. Each server's shared inbox is used for its followers that have one, so that they share one delivery, and other
+followers' `inbox` is used otherwise. Direct statuses aren't sent, since they have no audience without mentions. Followers are
+worked out shortly after posting, and statuses from before this feature, or from before someone followed, aren't sent.
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive"}],
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000#create",
+  "type": "Create",
+  "actor": "https://elysium.example/users/alice",
+  "published": "2026-01-01T00:00:00Z",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://elysium.example/users/alice/followers"],
+  "object": {
+    "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000",
+    "type": "Note",
+    "attributedTo": "https://elysium.example/users/alice",
+    "url": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000",
+    "published": "2026-01-01T00:00:00Z",
+    "to": ["https://www.w3.org/ns/activitystreams#Public"],
+    "cc": ["https://elysium.example/users/alice/followers"],
+    "content": "<p>Hello</p>",
+    "sensitive": false
+  }
+}
+```
+
+The `object` is the same `Note` that's described in [Objects](#objects). The `id` can't be fetched as an activity, and gives
+the `Note` instead, if the `Note` can be fetched. In rare cases, such as after a failure, a `Create` can be sent again with the
+same `id`.
+
 ### Notable differences
 
 - Local users can't follow other actors, or approve followers by hand. Actor documents don't include
@@ -162,10 +211,12 @@ unless an `Undo` covers it. It's then treated as a retry, so a new request to fo
 - `Reject` is never sent.
 - A follower stays stored when its actor is deleted, because `Delete` isn't acted on.
 - Actor documents advertise an `outbox`, but it isn't implemented yet.
-- Actor documents don't include `followers` or `following` collections.
-- `Note` objects aren't addressed to followers, because actors don't have a followers collection yet.
-- `Note` objects for replies don't address the parent's author or include a `Mention` tag.
-- A reply's `inReplyTo` is left out if its parent is private, direct, or deleted, so it looks like it isn't a reply.
+- Actor documents don't include a `following` collection, and `followers` doesn't list its items.
+- `Note` objects for replies don't include a `Mention` tag.
+- A reply's `inReplyTo` is left out if its parent is deleted or can't be shown, so it looks like it isn't a reply.
+- Followers-only statuses are only sent, and can't be fetched, even by a follower.
+- `Delete` isn't sent, so a status stays on other servers after it's deleted here. A status that's deleted just after it's
+  posted can still be sent.
 - Deleted statuses get a 404, not a `Tombstone`.
 - Inboxes can't be read, so a `GET` gets a 403.
 - The `outbox` that the instance actor advertises isn't implemented yet.
@@ -175,7 +226,7 @@ unless an `Undo` covers it. It's then treated as a retry, so a new request to fo
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures. The only requests this
-server makes are fetches of keys and actor documents, and deliveries of `Accept`.
+server makes are fetches of keys and actor documents, and deliveries of `Accept` and `Create`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

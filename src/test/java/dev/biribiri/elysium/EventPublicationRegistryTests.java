@@ -43,15 +43,12 @@ class EventPublicationRegistryTests {
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             assertThat(listener.received()).contains(event);
-            assertThat(completedPublications(event)).isOne();
+            assertThat(publications(event)).isZero();
         });
     }
 
-    private long completedPublications(SampleEvent event) {
-        return jdbc.sql("""
-                        SELECT count(*) FROM event_publication
-                        WHERE completion_date IS NOT NULL AND serialized_event LIKE :id
-                        """)
+    private long publications(SampleEvent event) {
+        return jdbc.sql("SELECT count(*) FROM event_publication WHERE serialized_event LIKE :id")
                 .param("id", "%" + event.id() + "%")
                 .query(Long.class)
                 .single();

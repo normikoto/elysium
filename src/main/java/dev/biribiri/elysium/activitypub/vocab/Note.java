@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * An ActivityPub object for a status.
@@ -36,24 +37,28 @@ public record Note(
         Map<String, String> contentMap
 ) {
 
-    private static final List<Object> CONTEXT = List.of(
+    static final List<Object> CONTEXT = List.of(
             "https://www.w3.org/ns/activitystreams",
             Map.of("sensitive", "as:sensitive"));
 
     private static final List<String> PUBLIC = List.of("https://www.w3.org/ns/activitystreams#Public");
 
     /**
-     * @param inReplyTo the parent status, or null if there's none to show
-     * @throws IllegalArgumentException if this status can't be shown to everyone, because there's no way yet to tell who
-     *                                  is asking for it or to address it to them
+     * @param inReplyTo    the parent status, or null if there's none to show
+     * @param parentAuthor who wrote the parent status, or null if there's none to show
+     * @throws IllegalArgumentException if this status is direct, because there's no way yet to address it to anyone
      */
-    public static Note from(Status status, Actor author, URI inReplyTo) {
-        // Actors have no followers collection to address yet. Other servers tell public and unlisted statuses apart by
-        // whether the public collection is in "to" or "cc".
+    public static Note from(Status status, Actor author, URI inReplyTo, URI parentAuthor) {
+        var followers = List.of(Person.followersOf(author).toString());
+        var parent = parentAuthor == null || parentAuthor.equals(author.uri())
+                ? List.<String>of()
+                : List.of(parentAuthor.toString());
+        // Other servers tell these apart by whether the public collection is in "to", in "cc", or in neither.
         var audience = switch (status.visibility()) {
-            case PUBLIC -> new Audience(PUBLIC, List.of());
-            case UNLISTED -> new Audience(List.of(), PUBLIC);
-            case PRIVATE, DIRECT -> throw new IllegalArgumentException("The status isn't public or unlisted");
+            case PUBLIC -> new Audience(PUBLIC, concat(followers, parent));
+            case UNLISTED -> new Audience(followers, concat(PUBLIC, parent));
+            case PRIVATE -> new Audience(followers, parent);
+            case DIRECT -> throw new IllegalArgumentException("The status is direct");
         };
 
         return new Note(
@@ -71,6 +76,17 @@ public record Note(
                 status.spoilerText().isEmpty() ? null : status.spoilerText(),
                 inReplyTo,
                 status.language() == null ? null : Map.of(status.language(), status.content()));
+    }
+
+    /**
+     * @return this object as part of an activity, which has the {@code @context} for both
+     */
+    public Note withoutContext() {
+        return new Note(null, id, type, attributedTo, url, published, to, cc, content, sensitive, summary, inReplyTo, contentMap);
+    }
+
+    private static List<String> concat(List<String> first, List<String> second) {
+        return Stream.concat(first.stream(), second.stream()).toList();
     }
 
     private record Audience(List<String> to, List<String> cc) {

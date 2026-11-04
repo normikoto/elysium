@@ -138,7 +138,7 @@ class ActivityDeliveryIntegrationTests {
         transactions.executeWithoutResult(status -> events.publishEvent(new SampleEvent(activity, inboxOn(host))));
 
         await().atMost(WAIT).until(() -> receivedBy(host).size() == 1);
-        assertThat(completedPublications(activity)).isOne();
+        await().atMost(WAIT).until(() -> publications(activity) == 0);
     }
 
     // Sending
@@ -729,11 +729,8 @@ class ActivityDeliveryIntegrationTests {
                 .update();
     }
 
-    private long completedPublications(OutboundActivity activity) {
-        return jdbc.sql("""
-                        SELECT count(*) FROM event_publication
-                        WHERE completion_date IS NOT NULL AND serialized_event LIKE :id
-                        """)
+    private long publications(OutboundActivity activity) {
+        return jdbc.sql("SELECT count(*) FROM event_publication WHERE serialized_event LIKE :id")
                 .param("id", "%" + activity.id() + "%")
                 .query(Long.class)
                 .single();
@@ -760,7 +757,7 @@ class ActivityDeliveryIntegrationTests {
     }
 
     /**
-     * The route the issue describes for statuses, which will be built with the first real event.
+     * The same route that {@code StatusDeliveries} uses, for an activity that this test controls.
      */
     public static class SampleListener {
         private final ActivityDeliveries deliveries;

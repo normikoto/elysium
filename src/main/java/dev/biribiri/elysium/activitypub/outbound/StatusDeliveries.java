@@ -1,0 +1,66 @@
+package dev.biribiri.elysium.activitypub.outbound;
+
+import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
+import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
+import dev.biribiri.elysium.activitypub.vocab.Create;
+import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.StatusPublished;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.FollowService;
+import org.springframework.modulith.events.ApplicationModuleListener;
+import org.springframework.stereotype.Service;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.util.Optional;
+
+/**
+ * Sends new statuses to the author's followers on other servers. This can run again for the same status, which only sends
+ * it again if its jobs have finished, and other servers ignore an {@code id} they've already seen.
+ */
+@Service
+public class StatusDeliveries {
+
+    private final StatusService statuses;
+    private final ActorService actors;
+    private final FollowService follows;
+    private final Notes notes;
+    private final ActivityDeliveries deliveries;
+    private final JsonMapper json;
+
+    StatusDeliveries(
+            StatusService statuses,
+            ActorService actors,
+            FollowService follows,
+            Notes notes,
+            ActivityDeliveries deliveries,
+            JsonMapper json) {
+        this.statuses = statuses;
+        this.actors = actors;
+        this.follows = follows;
+        this.notes = notes;
+        this.deliveries = deliveries;
+        this.json = json;
+    }
+
+    /**
+     * What's gone by now has nothing left to send. Failing for that would only make this be tried again forever.
+     */
+    @ApplicationModuleListener
+    public void on(StatusPublished event) {
+        var status = statuses.findVisible(event.statusId(), Optional.of(event.authorId()))
+                // Direct statuses have no audience until there are mentions.
+                .filter(found -> found.visibility() != Visibility.DIRECT);
+        var author = actors.findLocalById(event.authorId());
+        if (status.isEmpty() || author.isEmpty()) {
+            return;
+        }
+        var inboxes = follows.followerInboxes(author.get().id());
+        if (inboxes.isEmpty()) {
+            return;
+        }
+        var create = Create.of(notes.of(status.get(), author.get()));
+        deliveries.enqueue(
+                new OutboundActivity(create.id().toString(), author.get().id(), json.writeValueAsString(create)), inboxes);
+    }
+}

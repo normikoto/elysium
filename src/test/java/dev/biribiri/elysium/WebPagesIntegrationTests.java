@@ -301,6 +301,47 @@ class WebPagesIntegrationTests {
                 .andExpect(content().string(not(containsString(parent.id().toString()))));
     }
 
+    // Followers
+
+    @Test
+    void actorDocumentLinksToItsFollowers() throws Exception {
+        mockMvc.perform(get("/users/wanda").accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.followers").value(wanda.uri() + "/followers"));
+    }
+
+    @Test
+    void followersCollectionOnlySaysHowManyThereAre() throws Exception {
+        mockMvc.perform(get("/users/wanda/followers").accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.id").value(wanda.uri() + "/followers"))
+                .andExpect(jsonPath("$.type").value("OrderedCollection"))
+                .andExpect(jsonPath("$.totalItems").value(0))
+                .andExpect(jsonPath("$.first").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.orderedItems").doesNotHaveJsonPath());
+    }
+
+    @Test
+    void followersCollectionCanBeReadFromAnyOrigin() throws Exception {
+        mockMvc.perform(get("/users/wanda/followers").accept(ACTIVITY_JSON).header("Origin", "https://other.example"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+    }
+
+    @Test
+    void followersCollectionHasNoWebPage() throws Exception {
+        mockMvc.perform(get("/users/wanda/followers").accept(MediaType.ALL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("OrderedCollection"));
+        mockMvc.perform(get("/users/wanda/followers").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isNotAcceptable());
+    }
+
+    @Test
+    void followersCollectionOfAnUnknownUserIsNotFound() throws Exception {
+        mockMvc.perform(get("/users/nobody/followers").accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
+    }
+
     // Status objects
 
     @Test
@@ -320,7 +361,8 @@ class WebPagesIntegrationTests {
                         .value(status.publishedAt().truncatedTo(ChronoUnit.SECONDS).toString()))
                 .andExpect(jsonPath("$.to.length()").value(1))
                 .andExpect(jsonPath("$.to[0]").value(PUBLIC_COLLECTION))
-                .andExpect(jsonPath("$.cc").isEmpty())
+                .andExpect(jsonPath("$.cc.length()").value(1))
+                .andExpect(jsonPath("$.cc[0]").value(wanda.uri() + "/followers"))
                 .andExpect(jsonPath("$.content").value(status.content()))
                 .andExpect(jsonPath("$.content").value(containsString("<a href=\"https://example.com/page\"")))
                 .andExpect(jsonPath("$.sensitive").value(false))
@@ -335,7 +377,8 @@ class WebPagesIntegrationTests {
 
         mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.to").isEmpty())
+                .andExpect(jsonPath("$.to.length()").value(1))
+                .andExpect(jsonPath("$.to[0]").value(wanda.uri() + "/followers"))
                 .andExpect(jsonPath("$.cc.length()").value(1))
                 .andExpect(jsonPath("$.cc[0]").value(PUBLIC_COLLECTION));
     }
@@ -389,6 +432,26 @@ class WebPagesIntegrationTests {
 
         mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
                 .andExpect(jsonPath("$.inReplyTo").value(parent.uri().toString()));
+    }
+
+    @Test
+    void noteAddressesTheParentsAuthor() throws Exception {
+        var parent = post(walt, "text from walt", Visibility.PUBLIC);
+        var reply = reply(wanda, "reply to walt", parent);
+
+        mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.cc", hasItem(walt.uri().toString())));
+    }
+
+    @Test
+    void noteDoesNotAddressItsOwnAuthor() throws Exception {
+        var parent = post(wanda, "first", Visibility.PUBLIC);
+        var reply = reply(wanda, "second", parent);
+
+        mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.inReplyTo").value(parent.uri().toString()))
+                .andExpect(jsonPath("$.cc.length()").value(1))
+                .andExpect(jsonPath("$.cc[0]").value(wanda.uri() + "/followers"));
     }
 
     @Test
