@@ -34,6 +34,6 @@ public record Person(
                 actor.uri(),
                 actor.inboxUri(),
                 actor.outboxUri(),
-                new PublicKey(actor.uri() + "#main-key", actor.uri(), actor.publicKeyPem()));
+                new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()));
     }
 }

@@ -32,6 +32,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("com.github.ben-manes.caffeine:caffeine")
     implementation("info.picocli:picocli:4.7.7")
+    // Unlike the JDK's client, this lets each client choose how hosts resolve, which is what keeps fetches from reaching
+    // private addresses.
+    implementation("org.apache.httpcomponents.client5:httpclient5")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0")
     implementation("org.springframework.modulith:spring-modulith-observability-api")
     implementation("org.springframework.modulith:spring-modulith-starter-core")
