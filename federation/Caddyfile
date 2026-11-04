@@ -22,3 +22,8 @@ mastodon.test:443 {
 	import lab_tls
 	reverse_proxy mastodon-web:3000
 }
+
+misskey.test:443 {
+	import lab_tls
+	reverse_proxy misskey:3000
+}

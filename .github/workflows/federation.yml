@@ -3,7 +3,7 @@ name: Federation
 
 on:
   pull_request:
-    # labeled is here so that adding the federation label runs the Mastodon job. These paths apply to it too.
+    # labeled is here so that adding the federation label runs the Mastodon and Misskey jobs. These paths apply to it too.
     types: [opened, synchronize, reopened, labeled]
     paths:
       - 'src/main/**'
@@ -42,6 +42,14 @@ jobs:
     with:
       target: mastodon
 
+  misskey:
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'federation'))
+    uses: ./.github/workflows/federation-smoke.yml
+    with:
+      target: misskey
+
   # Warns about upcoming changes in other servers, without tying pull requests to them. Failures here don't mean that a
   # recent change to Elysium is at fault.
   latest:
@@ -49,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [gotosocial, mastodon]
+        target: [gotosocial, mastodon, misskey]
     uses: ./.github/workflows/federation-smoke.yml
     with:
       target: ${{ matrix.target }}

@@ -28,6 +28,7 @@ services:
           - elysium.test
           - gts.test
           - mastodon.test
+          - misskey.test
 
   elysium:
     image: 'elysium:latest'
@@ -59,7 +60,7 @@ services:
       POSTGRES_DB: elysium
       POSTGRES_USER: elysium
       POSTGRES_PASSWORD: lab-only
-    healthcheck:
+    healthcheck: &postgres-healthcheck
       # Over TCP, because the image's temporary server during first-time setup only answers on the Unix socket.
       test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 5s
@@ -143,6 +144,46 @@ services:
   mastodon-redis:
     image: 'redis:7-alpine'
     profiles: ['mastodon']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - lab
+
+  misskey:
+    image: '${MISSKEY_IMAGE:-docker.io/misskey/misskey:2026.10.1}'
+    profiles: ['misskey']
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+      misskey-db:
+        condition: service_healthy
+      misskey-redis:
+        condition: service_healthy
+    environment:
+      NODE_EXTRA_CA_CERTS: /certs/ca.crt
+    volumes:
+      - './federation/misskey.yml:/misskey/.config/default.yml:ro'
+      - 'certs:/certs:ro'
+    networks:
+      - lab
+
+  misskey-db:
+    image: 'postgres:18-alpine'
+    profiles: ['misskey']
+    environment:
+      POSTGRES_DB: misskey
+      POSTGRES_USER: misskey
+      POSTGRES_PASSWORD: lab-only
+    healthcheck: *postgres-healthcheck
+    networks:
+      - lab
+
+  misskey-redis:
+    image: 'redis:7-alpine'
+    profiles: ['misskey']
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
