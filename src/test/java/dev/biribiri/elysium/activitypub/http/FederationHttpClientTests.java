@@ -12,6 +12,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.http.client.InetAddressFilter;
 
 import java.io.IOException;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -96,6 +97,22 @@ class FederationHttpClientTests {
     void blocksAHostnameThatResolvesToLoopback() {
         var resolver = new PublicAddressDnsResolver(
                 resolvingTo(InetAddress.getLoopbackAddress()), PublicAddressDnsResolver.PUBLIC_ADDRESSES);
+        var client = client(resolver, HTTP, LONG_DEADLINE);
+        var target = URI.create("http://public.example:" + port() + "/doc");
+
+        assertThatThrownBy(() -> client.get(target, "*/*")).isInstanceOf(BlockedTargetException.class);
+
+        assertThat(requests).isEmpty();
+    }
+
+    @Test
+    void blocksAHostnameWhoseDnsAnswerMapsToLoopback() throws Exception {
+        var bytes = new byte[16];
+        bytes[10] = (byte) 0xff;
+        bytes[11] = (byte) 0xff;
+        System.arraycopy(InetAddress.getLoopbackAddress().getAddress(), 0, bytes, 12, 4);
+        var resolver = new PublicAddressDnsResolver(
+                resolvingTo(Inet6Address.getByAddress(null, bytes, -1)), PublicAddressDnsResolver.PUBLIC_ADDRESSES);
         var client = client(resolver, HTTP, LONG_DEADLINE);
         var target = URI.create("http://public.example:" + port() + "/doc");
 

@@ -5,7 +5,7 @@ import org.springframework.boot.http.client.InetAddressFilter;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.Arrays;
+import java.util.ArrayList;
 
 /**
  * Stops requests from reaching private or internal addresses, since other servers choose the URLs this server fetches.
@@ -34,15 +34,25 @@ final class PublicAddressDnsResolver implements DnsResolver {
     /**
      * Drops the addresses that aren't allowed, so a host with both kinds is only reached on the allowed ones.
      *
+     * <p>Addresses are normalized first, and the normalized ones are what's returned. A DNS answer like
+     * {@code ::ffff:127.0.0.1} arrives as an IPv6 address, which none of the filter's IPv4 rules apply to, but connecting
+     * to it reaches the IPv4 address inside.
+     *
      * @throws BlockedTargetException if that leaves none
      */
     @Override
     public InetAddress[] resolve(String host) throws UnknownHostException {
-        var allowed = Arrays.stream(delegate.resolve(host)).filter(filter::matches).toArray(InetAddress[]::new);
-        if (allowed.length == 0) {
+        var allowed = new ArrayList<InetAddress>();
+        for (var address : delegate.resolve(host)) {
+            var normalized = InetAddress.getByAddress(host, address.getAddress());
+            if (filter.matches(normalized)) {
+                allowed.add(normalized);
+            }
+        }
+        if (allowed.isEmpty()) {
             throw new BlockedTargetException("No public address for " + host);
         }
-        return allowed;
+        return allowed.toArray(InetAddress[]::new);
     }
 
     @Override
