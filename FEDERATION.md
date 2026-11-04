@@ -151,9 +151,9 @@ An `Undo` that names a `Follow` before it arrives still counts, for about 34 day
 that `id`. If an embedded `Follow` has no `id`, then a `Follow` that arrives after it can't be told apart from a new request,
 so it creates a follow.
 
-Some servers use the same `id` for each `Follow` between two actors, and for each `Undo` of it, so a `Follow` or `Undo` that
-repeats an `id` from the same actor is processed again, rather than dropped. A repeated `Follow` is a new request, so it stands
-if it arrived after any `Undo` of it.
+A `Follow` or `Undo` that repeats an `id` from the same actor is processed again, rather than dropped. Misskey uses the same
+`id` for each `Undo` between two actors, so a repeated `Undo` can undo a new follow. A repeated `Follow` gets another `Accept`,
+unless an `Undo` covers it. It's then treated as a retry, so a new request to follow needs a new `id`.
 
 ### Notable differences
 

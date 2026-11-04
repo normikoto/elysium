@@ -70,7 +70,8 @@ class FollowHandler implements InboundActivityHandler {
     }
 
     /**
-     * A repeat is a new request to follow, from a server that uses the same ID each time, or that's lost track of this one.
+     * A repeat is a retry, or a server that's lost track of this one and is asking again, so it can get another answer. It's
+     * still stopped if the {@code Follow} was undone, because a new request has a new ID.
      */
     @Override
     public boolean processesRepeats() {
