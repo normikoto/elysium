@@ -7,9 +7,12 @@ import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.apache.hc.core5.net.URIAuthority;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.http.client.InetAddressFilter;
+import org.springframework.http.HttpHeaders;
 
 import java.io.IOException;
 import java.net.Inet6Address;
@@ -156,6 +159,60 @@ class FederationHttpClientTests {
         allowingLoopback().get(url("/headers"), "application/activity+json");
 
         assertThat(received).containsExactly("application/activity+json", "Elysium/test");
+    }
+
+    @Test
+    void sendsExtraHeaders() throws Exception {
+        var received = new ArrayList<String>();
+        server.createContext("/extra", exchange -> {
+            received.add(exchange.getRequestHeaders().getFirst("Accept"));
+            received.add(exchange.getRequestHeaders().getFirst("X-Extra"));
+            respond(exchange, 200, "{}");
+        });
+        var extra = new HttpHeaders();
+        extra.set("X-Extra", "value");
+
+        allowingLoopback().get(url("/extra"), "application/activity+json", extra);
+
+        assertThat(received).containsExactly("application/activity+json", "value");
+    }
+
+    /**
+     * Signatures cover the target and the {@code Host} header, so neither can differ from what's in the URL.
+     */
+    @Test
+    void sendsThePathAndQueryAsTheyAreWritten() throws Exception {
+        var received = new ArrayList<String>();
+        server.createContext("/a", exchange -> {
+            received.add(exchange.getRequestURI().getRawPath() + "?" + exchange.getRequestURI().getRawQuery());
+            respond(exchange, 200, "{}");
+        });
+
+        allowingLoopback().get(url("/a%7Eb/%2F/./c?x=%7E&y=1"), "application/activity+json");
+
+        assertThat(received).containsExactly("/a%7Eb/%2F/./c?x=%7E&y=1");
+    }
+
+    @Test
+    void sendsAHostHeaderInLowercaseWithAPortThatIsNotTheDefault() throws Exception {
+        var received = new ArrayList<String>();
+        server.createContext("/host", exchange -> {
+            received.add(exchange.getRequestHeaders().getFirst("Host"));
+            respond(exchange, 200, "{}");
+        });
+        var client = client(resolvingTo(InetAddress.getLoopbackAddress()), HTTP, LONG_DEADLINE);
+
+        client.get(URI.create("http://Remote.EXAMPLE:" + port() + "/host"), "application/activity+json");
+
+        assertThat(received).containsExactly("remote.example:" + port());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"https,443", "http,80"})
+    void leavesADefaultPortOutOfTheHostHeader(String scheme, int port) {
+        var authority = FederationHttpClient.canonicalAuthority(scheme, new URIAuthority("remote.example", port));
+
+        assertThat(authority).hasToString("remote.example");
     }
 
     @Test

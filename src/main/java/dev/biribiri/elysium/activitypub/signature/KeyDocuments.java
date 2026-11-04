@@ -29,7 +29,12 @@ import java.util.Set;
  * needed, because the actor is speaking for itself.
  * <li>A separate key document with an {@code owner}. Anyone could claim to own a key, so the owner's actor document also
  * has to list it.
+ * <li>A stub of an actor, whose {@code id} is the actor's own URL rather than the one it was fetched from. GoToSocial
+ * serves these. Anyone who can serve a document on a shared host could write a stub, so nothing in it is used except
+ * where to look next, and the actor's real document has to list the key.
  * </ul>
+ *
+ * <p>Requests are signed as the instance actor, because some servers won't serve even an actor document without that.
  */
 @Component
 class KeyDocuments {
@@ -42,10 +47,10 @@ class KeyDocuments {
 
     private static final Set<String> ACTOR_TYPES = Set.of("Application", "Group", "Organization", "Person", "Service");
 
-    private final FederationHttpClient http;
+    private final SignedFetcher http;
     private final JsonMapper json;
 
-    KeyDocuments(FederationHttpClient http, JsonMapper json) {
+    KeyDocuments(SignedFetcher http, JsonMapper json) {
         this.http = http;
         this.json = json;
     }
@@ -56,7 +61,10 @@ class KeyDocuments {
      * @throws KeyFetchException if the key can't be fetched or confirmed
      */
     ResolvedKey fetch(KeyId keyId) throws KeyFetchException {
-        var document = fetchDocument(keyId.document());
+        var document = fetchJson(keyId.document());
+        if (!hasId(document, keyId.document())) {
+            return fromStub(keyId, document);
+        }
         if (!document.path("publicKey").isMissingNode()) {
             return fromActor(keyId, document);
         }
@@ -64,6 +72,17 @@ class KeyDocuments {
             return fromKeyDocument(keyId, document);
         }
         throw permanent("Document for " + keyId.value() + " doesn't have a public key");
+    }
+
+    /**
+     * Only follows one step, so that a server can't send this on a long chain of fetches.
+     */
+    private ResolvedKey fromStub(KeyId keyId, JsonNode stub) throws KeyFetchException {
+        var id = stub.path("id").stringValue(null);
+        if (id == null) {
+            throw permanent("Document at " + keyId.document() + " doesn't have an id");
+        }
+        return fromActor(keyId, fetchDocument(sameServerUri("Actor", id, keyId)));
     }
 
     private static ResolvedKey fromActor(KeyId keyId, JsonNode actor) throws KeyFetchException {
@@ -95,7 +114,7 @@ class KeyDocuments {
         if (ownerId == null) {
             throw permanent("Key " + keyId.value() + " doesn't have an owner");
         }
-        var owner = sameServerUri(ownerId, keyId);
+        var owner = sameServerUri("Owner", ownerId, keyId);
 
         var actor = fetchDocument(owner);
         requireActor(actor);
@@ -112,6 +131,19 @@ class KeyDocuments {
     }
 
     private JsonNode fetchDocument(URI url) throws KeyFetchException {
+        var document = fetchJson(url);
+        // Otherwise a document could describe an actor somewhere other than where it was fetched from.
+        if (!hasId(document, url)) {
+            throw permanent("Document at " + url + " has a different id");
+        }
+        return document;
+    }
+
+    private static boolean hasId(JsonNode document, URI url) {
+        return url.toString().equals(document.path("id").stringValue(null));
+    }
+
+    private JsonNode fetchJson(URI url) throws KeyFetchException {
         FederationHttpClient.Response response;
         try {
             response = http.get(url, ACCEPT);
@@ -142,10 +174,6 @@ class KeyDocuments {
         }
         if (!document.isObject()) {
             throw permanent("Fetching " + url + " didn't return a JSON object");
-        }
-        // Otherwise a document could describe an actor somewhere other than where it was fetched from.
-        if (!url.toString().equals(document.path("id").stringValue(null))) {
-            throw permanent("Document at " + url + " has a different id");
         }
         return document;
     }
@@ -216,19 +244,25 @@ class KeyDocuments {
     }
 
     /**
-     * Owners have to be on the same server as their keys, so that one server can't claim the keys of another.
+     * Actors have to be on the same server as their keys, so that one server can't claim the keys of another.
+     *
+     * @param role what the URI is for, to explain a failure
      */
-    private static URI sameServerUri(String value, KeyId keyId) throws KeyFetchException {
+    private static URI sameServerUri(String role, String value, KeyId keyId) throws KeyFetchException {
         URI uri;
         try {
             uri = new URI(value);
         } catch (URISyntaxException e) {
-            throw KeyFetchException.permanent("Owner of " + keyId.value() + " isn't a valid URI", e);
+            throw KeyFetchException.permanent(role + " of " + keyId.value() + " isn't a valid URI", e);
         }
         if (!"https".equalsIgnoreCase(uri.getScheme())
                 || uri.getHost() == null
                 || !KeyId.authority(uri.getScheme(), uri.getHost(), uri.getPort()).equals(keyId.authority())) {
-            throw permanent("Owner of " + keyId.value() + " is on another server");
+            throw permanent(role + " of " + keyId.value() + " is on another server");
+        }
+        // The HTTP client refuses user info with an error that looks like a network failure, which could be tried again.
+        if (uri.getRawUserInfo() != null || uri.getRawFragment() != null) {
+            throw permanent(role + " of " + keyId.value() + " isn't the URL of a document");
         }
         return uri;
     }

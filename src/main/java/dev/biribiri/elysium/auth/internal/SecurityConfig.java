@@ -58,7 +58,7 @@ class SecurityConfig {
 
     private static final String[] PUBLIC_PATHS = {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
-            "/users/*/statuses/*", "/actuator/health", "/actuator/health/**", "/images/*", "/api-docs/**",
+            "/users/*/statuses/*", "/actor", "/actuator/health", "/actuator/health/**", "/images/*", "/api-docs/**",
             "/api-docs.yaml"
     };
 

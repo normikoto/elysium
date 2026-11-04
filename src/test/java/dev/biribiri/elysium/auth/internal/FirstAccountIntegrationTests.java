@@ -70,6 +70,15 @@ class FirstAccountIntegrationTests {
     }
 
     @Test
+    void theInstanceActorDoesNotCountAsTheFirstAccount() {
+        actors.instanceActor();
+
+        assertThat(actors.hasLocalAccounts()).isFalse();
+        assertThat(actors.countLocal()).isZero();
+        assertThat(accounts.createAccount("first", PASSWORD)).contains(AccountRole.ADMIN);
+    }
+
+    @Test
     void theFirstAccountIsAnAdminAndLaterOnesAreNot() {
         assertThat(accounts.createAccount("first", PASSWORD)).contains(AccountRole.ADMIN);
         assertThat(accounts.createAccount("second", PASSWORD)).contains(AccountRole.USER);

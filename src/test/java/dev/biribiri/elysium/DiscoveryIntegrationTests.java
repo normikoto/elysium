@@ -6,6 +6,7 @@ import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -48,6 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class DiscoveryIntegrationTests {
 
     private static final String ACTOR_URI = "https://elysium.example/users/admin";
+    private static final String INSTANCE_ACTOR_URI = "https://elysium.example/actor";
     private static final MediaType ACTIVITY_JSON = MediaType.parseMediaType("application/activity+json");
 
     @Autowired
@@ -128,6 +130,64 @@ class DiscoveryIntegrationTests {
                 .replace("-----END PUBLIC KEY-----", ""));
         var key = (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(der));
         assertThat(key.getModulus().bitLength()).isEqualTo(2048);
+    }
+
+    @Test
+    void servesTheInstanceActorWithoutASignatureOrLogin() throws Exception {
+        var body = mockMvc.perform(get("/actor").accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(ACTIVITY_JSON))
+                .andExpect(jsonPath("$['@context'][0]").value("https://www.w3.org/ns/activitystreams"))
+                .andExpect(jsonPath("$.id").value(INSTANCE_ACTOR_URI))
+                .andExpect(jsonPath("$.type").value("Application"))
+                .andExpect(jsonPath("$.preferredUsername").value("instance.actor"))
+                .andExpect(jsonPath("$.url").value("https://elysium.example/"))
+                .andExpect(jsonPath("$.inbox").value(INSTANCE_ACTOR_URI + "/inbox"))
+                .andExpect(jsonPath("$.outbox").value(INSTANCE_ACTOR_URI + "/outbox"))
+                .andExpect(jsonPath("$.manuallyApprovesFollowers").value(true))
+                .andExpect(jsonPath("$.publicKey.id").value(INSTANCE_ACTOR_URI + "#main-key"))
+                .andExpect(jsonPath("$.publicKey.owner").value(INSTANCE_ACTOR_URI))
+                .andExpect(jsonPath("$.publicKey.publicKeyPem").value(actors.instanceActor().publicKeyPem()))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("PRIVATE KEY");
+    }
+
+    @Test
+    void servesTheInstanceActorAsLdJsonAndToAnyOrigin() throws Exception {
+        mockMvc.perform(get("/actor")
+                        .accept(MediaType.parseMediaType("application/ld+json"))
+                        .header("Origin", "https://other.example"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+    }
+
+    @Test
+    void webFingerFindsTheInstanceActor() throws Exception {
+        for (var resource : new String[]{
+                "acct:instance.actor@elysium.example", "acct:INSTANCE.actor@ELYSIUM.example", INSTANCE_ACTOR_URI}) {
+            mockMvc.perform(get("/.well-known/webfinger").param("resource", resource))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.subject").value("acct:instance.actor@elysium.example"))
+                    .andExpect(jsonPath("$.links[0].rel").value("self"))
+                    .andExpect(jsonPath("$.links[0].type").value("application/activity+json"))
+                    .andExpect(jsonPath("$.links[0].href").value(INSTANCE_ACTOR_URI))
+                    .andExpect(jsonPath("$.links[1].href").value("https://elysium.example/"));
+        }
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:instance.actor@other.example"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void theInstanceActorIsNotAUser() throws Exception {
+        var users = actors.countLocal();
+
+        actors.instanceActor();
+
+        assertThat(actors.countLocal()).isEqualTo(users);
+        assertThat(actors.findLocalByUsername("instance.actor")).isEmpty();
+        assertThat(Actor.isValidLocalUsername(InstanceActor.USERNAME)).isFalse();
+        mockMvc.perform(get("/users/instance.actor").accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
     }
 
     @Test

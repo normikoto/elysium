@@ -39,7 +39,7 @@ class HttpSignatureIntegrationTests {
     private ActorSigningKeys signingKeys;
 
     @Autowired
-    private RequestSigner signer;
+    private CavageRequestSigner signer;
 
     @Autowired
     private SignatureVerifier verifier;
@@ -113,6 +113,17 @@ class HttpSignatureIntegrationTests {
                 null, "unused", Instant.EPOCH);
 
         assertThat(signingKeys.forActor(remote)).isEmpty();
+    }
+
+    @Test
+    void signsWithTheInstanceActorsPublishedKey() {
+        var instanceActor = actors.instanceActor();
+        var key = signingKeys.forInstance();
+        var signature = SignatureAlgorithm.RSA_SHA256.sign(key.privateKey(), BODY);
+
+        assertThat(key.keyId()).isEqualTo("https://signatures.example/actor#main-key");
+        assertThat(SignatureAlgorithm.RSA_SHA256.verify(PublicKeyPem.parse(instanceActor.publicKeyPem()), BODY, signature))
+                .isTrue();
     }
 
     private HttpRequestData signed(String path, byte[] body, SigningKey key) {

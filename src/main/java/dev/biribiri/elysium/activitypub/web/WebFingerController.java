@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.web;
 import dev.biribiri.elysium.activitypub.vocab.JsonResourceDescriptor;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -41,7 +42,7 @@ public class WebFingerController {
             return ResponseEntity.badRequest().build();
         }
 
-        Optional<Actor> actor;
+        Optional<JsonResourceDescriptor> descriptor;
         switch (uri.getScheme().toLowerCase(Locale.ROOT)) {
             case "acct" -> {
                 var account = uri.getSchemeSpecificPart();
@@ -50,23 +51,49 @@ public class WebFingerController {
                     return ResponseEntity.badRequest().build();
                 }
                 var domain = account.substring(separator + 1);
-                actor = domain.equalsIgnoreCase(instance.domain())
-                        ? actors.findLocalByUsername(account.substring(0, separator))
+                descriptor = domain.equalsIgnoreCase(instance.domain())
+                        ? findByUsername(account.substring(0, separator))
                         : Optional.empty();
             }
-            case "http", "https" -> actor = actors.findLocalByUri(uri);
-            default -> actor = Optional.empty();
+            case "http", "https" -> descriptor = findByUri(uri);
+            default -> descriptor = Optional.empty();
         }
-        return ResponseEntity.of(actor.map(WebFingerController::descriptor));
+        return ResponseEntity.of(descriptor);
+    }
+
+    /**
+     * Mastodon looks up {@code acct:{preferredUsername}@{domain}} before it accepts a new actor, so the instance actor
+     * has to be found here for Mastodon to accept its signatures.
+     */
+    private Optional<JsonResourceDescriptor> findByUsername(String username) {
+        if (username.equalsIgnoreCase(InstanceActor.USERNAME)) {
+            return Optional.of(descriptor(actors.instanceActor()));
+        }
+        return actors.findLocalByUsername(username).map(WebFingerController::descriptor);
+    }
+
+    private Optional<JsonResourceDescriptor> findByUri(URI uri) {
+        if (uri.equals(instance.resolve(InstanceActor.PATH))) {
+            return Optional.of(descriptor(actors.instanceActor()));
+        }
+        return actors.findLocalByUri(uri).map(WebFingerController::descriptor);
     }
 
     private static JsonResourceDescriptor descriptor(Actor actor) {
+        return descriptor(actor.username(), actor.domain(), actor.uri(), actor.uri());
+    }
+
+    private static JsonResourceDescriptor descriptor(InstanceActor actor) {
+        return descriptor(actor.username(), actor.domain(), actor.uri(), actor.url());
+    }
+
+    private static JsonResourceDescriptor descriptor(String username, String domain, URI uri, URI profilePage) {
         return new JsonResourceDescriptor(
-                "acct:" + actor.username() + "@" + actor.domain(),
-                List.of(actor.uri()),
+                "acct:" + username + "@" + domain,
+                List.of(uri),
                 List.of(
-                        new JsonResourceDescriptor.Link("self", "application/activity+json", actor.uri()),
+                        new JsonResourceDescriptor.Link("self", "application/activity+json", uri),
                         new JsonResourceDescriptor.Link(
-                                "http://webfinger.net/rel/profile-page", MediaType.TEXT_HTML_VALUE, actor.uri())));
+                                "http://webfinger.net/rel/profile-page", MediaType.TEXT_HTML_VALUE, profilePage)));
     }
 }

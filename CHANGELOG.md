@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Behind a reverse proxy, these need `server.forward-headers-strategy=native` and a proxy that adds the client's address
   to `X-Forwarded-For`. Otherwise all clients can share one limit, or clients can get around the limits by making up
   their addresses. nginx needs configuring to do this. See `docs/configuration.md`.
+- An instance actor at `/actor`, which can be found through WebFinger as `instance.actor`. It's for signing requests that
+  no user is behind, although this server doesn't make any such requests yet.
 
 ### Changed
 

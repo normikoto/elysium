@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.actor;
 
 import dev.biribiri.elysium.actor.internal.ActorRepository;
+import dev.biribiri.elysium.actor.internal.InstanceActorKeys;
 import dev.biribiri.elysium.actor.internal.RsaKeys;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -20,16 +21,37 @@ import java.util.function.Consumer;
 public class ActorService {
 
     private final ActorRepository actors;
+    private final InstanceActorKeys instanceActorKeys;
     private final InstanceProperties instance;
     private final TransactionTemplate transaction;
 
-    ActorService(ActorRepository actors, InstanceProperties instance, PlatformTransactionManager transactionManager) {
+    ActorService(
+            ActorRepository actors,
+            InstanceActorKeys instanceActorKeys,
+            InstanceProperties instance,
+            PlatformTransactionManager transactionManager) {
         this.actors = actors;
+        this.instanceActorKeys = instanceActorKeys;
         this.instance = instance;
         this.transaction = new TransactionTemplate(transactionManager);
         // Whatever the database's default is, each statement in onCreated has to see what's been committed so far. Taking
         // a lock and then counting accounts wouldn't otherwise see those committed while waiting for the lock.
         this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+    }
+
+    /**
+     * Gets the actor for the server itself, creating its key if this is the first time it's been needed. Generating a
+     * key is slow, so this shouldn't first be called inside a database transaction.
+     */
+    public InstanceActor instanceActor() {
+        return new InstanceActor(
+                instance.resolve(InstanceActor.PATH),
+                instance.resolve("/"),
+                InstanceActor.USERNAME,
+                instance.domain(),
+                instance.resolve(InstanceActor.PATH + "/inbox"),
+                instance.resolve(InstanceActor.PATH + "/outbox"),
+                instanceActorKeys.get().publicKeyPem());
     }
 
     /**
