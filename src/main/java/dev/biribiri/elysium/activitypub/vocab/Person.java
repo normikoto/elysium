@@ -21,10 +21,6 @@ public record Person(
         PublicKey publicKey
 ) {
 
-    private static final List<String> CONTEXT = List.of(
-            "https://www.w3.org/ns/activitystreams",
-            "https://w3id.org/security/v1");
-
     /**
      * @return the followers collection of a local actor
      */
@@ -34,7 +30,7 @@ public record Person(
 
     public static Person from(Actor actor) {
         return new Person(
-                CONTEXT,
+                ActivityStreams.ACTOR_CONTEXT,
                 actor.uri(),
                 "Person",
                 actor.username(),

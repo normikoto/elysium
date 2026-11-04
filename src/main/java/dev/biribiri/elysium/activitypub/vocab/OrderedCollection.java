@@ -14,9 +14,7 @@ public record OrderedCollection(
         long totalItems
 ) {
 
-    private static final String CONTEXT = "https://www.w3.org/ns/activitystreams";
-
     public static OrderedCollection ofSize(URI id, long totalItems) {
-        return new OrderedCollection(CONTEXT, id, "OrderedCollection", totalItems);
+        return new OrderedCollection(ActivityStreams.CONTEXT, id, "OrderedCollection", totalItems);
     }
 }

@@ -19,17 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Optional;
 import java.util.UUID;
 
+import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ACTIVITY_JSON;
+import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON;
+import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.LD_JSON;
+
 @RestController
 public class ActivityPubController {
-
-    private static final String ACTIVITY_JSON = "application/activity+json";
-    private static final String LD_JSON = "application/ld+json;profile=\"https://www.w3.org/ns/activitystreams\"";
-
-    /**
-     * Matches any profile, because a request for one this server doesn't list would otherwise get the web page. Servers
-     * send variations such as the {@code http} form of the ActivityStreams profile, or several profiles at once.
-     */
-    private static final String ANY_LD_JSON = "application/ld+json";
 
     /**
      * Requests aren't signed yet, so there's no way to tell who is asking. Everything is served as to an anonymous viewer.

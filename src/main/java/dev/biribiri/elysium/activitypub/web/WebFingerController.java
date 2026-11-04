@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.web;
 
+import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.activitypub.vocab.JsonResourceDescriptor;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -92,7 +93,7 @@ public class WebFingerController {
                 "acct:" + username + "@" + domain,
                 List.of(uri),
                 List.of(
-                        new JsonResourceDescriptor.Link("self", "application/activity+json", uri),
+                        new JsonResourceDescriptor.Link("self", ActivityStreams.ACTIVITY_JSON, uri),
                         new JsonResourceDescriptor.Link(
                                 "http://webfinger.net/rel/profile-page", MediaType.TEXT_HTML_VALUE, profilePage)));
     }
