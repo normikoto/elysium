@@ -153,7 +153,7 @@ class KeyDocuments {
             throw KeyFetchException.temporary("Couldn't fetch " + url + ": " + e.getMessage(), e);
         }
         var status = response.status();
-        if (status >= 500 || status == 429) {
+        if (status >= 500 || status == 408 || status == 429) {
             throw KeyFetchException.temporary("Fetching " + url + " returned " + status, null);
         }
         if (status == 404 || status == 410) {
