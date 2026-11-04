@@ -725,20 +725,81 @@ class FollowIntegrationTests {
         assertThat(follows()).containsExactly(followId);
     }
 
-    // Servers that use the same IDs each time, as Misskey does
+    // Repeated IDs. Servers make a new ID for each Follow, but they can retry a delivery, and Misskey reuses its Undo IDs.
 
+    /**
+     * The other server didn't see that the first delivery worked, so it tried again after the Undo was delivered.
+     */
     @Test
-    void aRepeatedFollowAfterAnUndoFollowsAgain() {
+    void aRetriedFollowAfterItsUndoDoesNotFollowAgain() {
         var activity = follow(newId());
         followHandler.handle(arrive(activity));
         undoHandler.handle(arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri))));
-        assertThat(follows()).isEmpty();
+        var deliveries = deliveryInboxes().size();
 
         assertThat(inbound.accept(again(activity))).isFalse();
         followHandler.handle(stored(activity));
 
-        assertThat(follows()).containsExactly(activity.id());
-        assertThat(accepts()).hasSize(1);
+        assertThat(follows()).isEmpty();
+        assertThat(deliveryInboxes()).hasSize(deliveries);
+    }
+
+    @Test
+    void aRetriedFollowAfterAnUndoOfTheTwoActorsDoesNotFollowAgain() {
+        var activity = follow(newId());
+        followHandler.handle(arrive(activity));
+        undoHandler.handle(arrive(undoOfPair()));
+
+        inbound.accept(again(activity));
+        followHandler.handle(stored(activity));
+
+        assertThat(follows()).isEmpty();
+    }
+
+    @Test
+    void aRetriedFollowDoesNotReplaceTheNewFollowAfterItsUndo() {
+        var old = follow(newId());
+        followHandler.handle(arrive(old));
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(old.id(), followerUri))));
+        var newer = arrive(follow(newId()));
+        followHandler.handle(newer);
+
+        inbound.accept(again(old));
+        followHandler.handle(stored(old));
+
+        assertThat(follows()).containsExactly(newer.id());
+    }
+
+    /**
+     * Misskey sends a new ID for each Follow. Its Undo has the same ID each time, and embeds a Follow with an ID that was never
+     * sent. See createFollowRequest and unfollow in its UserFollowingService.
+     */
+    @Test
+    void followsAndUndosFromAServerThatReusesItsUndoIds() {
+        var base = "https://" + host + "/follows/follower/followee";
+        var undoId = base + "/undo";
+        var body = "{\"id\":\"%s\",\"type\":\"Undo\",\"actor\":\"%s\",\"object\":%s}"
+                .formatted(undoId, followerUri, embeddedFollow(base, followerUri));
+        var undo = new InboundActivity(undoId, followerUri, "Undo", body);
+
+        var first = follow("https://" + host + "/follows/request1");
+        followHandler.handle(arrive(first));
+        assertThat(follows()).containsExactly(first.id());
+
+        undoHandler.handle(arrive(again(undo)));
+        assertThat(follows()).isEmpty();
+
+        inbound.accept(again(first));
+        followHandler.handle(stored(first));
+        assertThat(follows()).isEmpty();
+
+        var second = follow("https://" + host + "/follows/request2");
+        followHandler.handle(arrive(second));
+        assertThat(follows()).containsExactly(second.id());
+
+        assertThat(inbound.accept(again(undo))).isFalse();
+        undoHandler.handle(stored(undo));
+        assertThat(follows()).isEmpty();
     }
 
     /**
@@ -771,7 +832,7 @@ class FollowIntegrationTests {
      * The Undo arrived before the repeat, but its job ran after the repeat had arrived.
      */
     @Test
-    void anUndoJobRunningLateDoesNotStopARepeatThatArrivedAfterIt() {
+    void aRepeatStaysUndoneWhenTheUndoJobRunsLate() {
         var activity = follow(newId());
         followHandler.handle(arrive(activity));
         var undo = arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
@@ -780,12 +841,11 @@ class FollowIntegrationTests {
         undoHandler.handle(undo);
         followHandler.handle(stored(activity));
 
-        assertThat(follows()).containsExactly(activity.id());
-        assertThat(accepts()).hasSize(1);
+        assertThat(follows()).isEmpty();
     }
 
     @Test
-    void anUndoJobRunningAfterARepeatWasStoredLeavesItInPlace() {
+    void anUndoJobRunningAfterARepeatWasStoredRemovesTheFollow() {
         var activity = follow(newId());
         followHandler.handle(arrive(activity));
         var undo = arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
@@ -794,7 +854,20 @@ class FollowIntegrationTests {
 
         undoHandler.handle(undo);
 
-        assertThat(follows()).containsExactly(activity.id());
+        assertThat(follows()).isEmpty();
+    }
+
+    @Test
+    void anUndoOfTheTwoActorsJobRunningAfterARepeatWasStoredRemovesTheFollow() {
+        var activity = follow(newId());
+        followHandler.handle(arrive(activity));
+        var undo = arrive(undoOfPair());
+        inbound.accept(again(activity));
+        followHandler.handle(stored(activity));
+
+        undoHandler.handle(undo);
+
+        assertThat(follows()).isEmpty();
     }
 
     @Test
@@ -809,21 +882,35 @@ class FollowIntegrationTests {
         assertThat(follows()).isEmpty();
     }
 
+    /**
+     * A retry of the older one says nothing about whether the newer one still stands.
+     */
     @Test
-    void aRepeatedUndoUnfollowsAgain() {
-        var activity = follow(newId());
-        var undo = undo(followerUri, embeddedFollow(activity.id(), followerUri));
-        followHandler.handle(arrive(activity));
-        undoHandler.handle(arrive(undo));
-        inbound.accept(again(activity));
-        followHandler.handle(stored(activity));
-        removeJobs(undo);
+    void aRepeatOfAnOlderFollowDoesNotReplaceANewerOne() {
+        var older = follow(newId());
+        followHandler.handle(arrive(older));
+        var newer = arrive(follow(newId()));
+        followHandler.handle(newer);
+        var answers = deliveryInboxes().size();
 
-        assertThat(inbound.accept(again(undo))).isFalse();
+        inbound.accept(again(older));
+        followHandler.handle(stored(older));
 
-        assertThat(inboundJobs(undo)).isOne();
-        undoHandler.handle(stored(undo));
-        assertThat(follows()).isEmpty();
+        assertThat(follows()).containsExactly(newer.id());
+        assertThat(deliveryInboxes()).hasSize(answers);
+    }
+
+    @Test
+    void anUndoOfARepeatedFollowLeavesANewerOne() {
+        var older = follow(newId());
+        followHandler.handle(arrive(older));
+        var newer = arrive(follow(newId()));
+        followHandler.handle(newer);
+        inbound.accept(again(older));
+
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(older.id(), followerUri))));
+
+        assertThat(follows()).containsExactly(newer.id());
     }
 
     /**
@@ -843,7 +930,7 @@ class FollowIntegrationTests {
     }
 
     @Test
-    void aRepeatStandsEvenIfAnUndoGotHereBeforeTheFirstFollow() {
+    void aRepeatIsStoppedByAnUndoThatGotHereBeforeTheFirstFollow() {
         var activity = follow(newId());
         undoHandler.handle(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
         inbound.accept(activity);
@@ -851,7 +938,7 @@ class FollowIntegrationTests {
 
         followHandler.handle(stored(activity));
 
-        assertThat(follows()).containsExactly(activity.id());
+        assertThat(follows()).isEmpty();
     }
 
     @Test

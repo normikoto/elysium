@@ -70,8 +70,8 @@ class UndoHandler implements InboundActivityHandler {
     }
 
     /**
-     * A server that uses the same ID for each {@code Follow} can do the same for each {@code Undo}, and the follow it
-     * undoes can be a new one.
+     * Misskey uses the same ID for each {@code Undo} between two actors, with a new ID for each {@code Follow}, so a repeat
+     * can undo a new follow. The {@code Follow} it embeds has an ID that's never sent, so it matches on the two actors.
      */
     @Override
     public boolean processesRepeats() {

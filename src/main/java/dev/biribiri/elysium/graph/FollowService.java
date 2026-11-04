@@ -15,9 +15,10 @@ import java.util.UUID;
  * Who follows whom. A follow can be identified by the activity that created it, which other servers refer to when they undo
  * it.
  *
- * <p>Activities can be processed in any order, and some servers send the same IDs again for new requests, so what counts is
- * when they arrived. An {@code Undo} covers its {@code Follow}, and any that arrived before it. It's remembered for a while,
- * because a job for one of those can still run afterward. A {@code Follow} that arrives later isn't covered, so it stands.
+ * <p>Activities can be processed in any order, and a delivery can be retried, so what counts is when each activity first
+ * arrived. An {@code Undo} covers its {@code Follow}, and any that first arrived before it. It's remembered for a while,
+ * because a job or a retry of one of those can still come afterward. A {@code Follow} that first arrives later is a new
+ * request, so it stands.
  */
 @Service
 public class FollowService {
@@ -31,7 +32,8 @@ public class FollowService {
     }
 
     /**
-     * Stores an accepted follow, unless it's been undone, or the follow already comes from an activity that arrived later.
+     * Stores an accepted follow, unless it's been undone, or the follow already comes from an activity that first arrived
+     * later.
      * This takes part in the caller's transaction, so that the caller can save its answer along with it.
      *
      * @return what happened if this activity is now the one behind the follow, or empty if it should get no answer
@@ -48,10 +50,10 @@ public class FollowService {
             return Optional.empty();
         }
         var existing = follows.findByPair(followerId, followedId);
-        if (existing.isPresent() && existing.get().activityAt().isAfter(arrival.last())) {
+        if (existing.isPresent() && existing.get().activityAt().isAfter(arrival.first())) {
             return Optional.empty();
         }
-        follows.saveAccepted(followerId, followedId, activityUri, arrival.last());
+        follows.saveAccepted(followerId, followedId, activityUri, arrival.first());
         return Optional.of(new Accepted(existing
                 .map(FollowRepository.Row::activityUri)
                 .filter(previous -> !previous.equals(activityUri))));
@@ -61,16 +63,17 @@ public class FollowService {
      * Whether an activity has been undone. {@link #accept} checks too, so this is only for avoiding unnecessary work.
      */
     public boolean wasUndone(String activityUri, String followerUri, UUID followedId, Arrival arrival) {
-        // A repeat is a new request. Otherwise an Undo that got here first would stop every Follow with this ID.
-        return (!arrival.isRepeat() && follows.isUndone(activityUri, followerUri))
-                || follows.isPairUndone(followerUri, followedId, arrival.last());
+        // By first arrival, because a repeat of a Follow that was undone is a retry and not a new request. Servers make a new
+        // ID for a new request.
+        return follows.isUndone(activityUri, followerUri)
+                || follows.isPairUndone(followerUri, followedId, arrival.first());
     }
 
     /**
      * Applies an {@code Undo} that names the activity behind a follow.
      *
      * @param followedId who the activity was a follow of, if that's known. This removes any follow between the two actors
-     *                   that arrived before the {@code Undo}, if the activity itself isn't known.
+     *                   that first arrived before the {@code Undo}, if the activity itself isn't known.
      * @param arrival    when the activity arrived, if that's known. It may not have arrived yet.
      * @param undoAt     when the {@code Undo} arrived
      * @return the follow that was removed, if any
@@ -101,14 +104,13 @@ public class FollowService {
         if (followed.isEmpty()) {
             return Optional.empty();
         }
-        // A repeat that arrived after the Undo is a new request, and one that arrived after the activity is a newer follow.
-        var covers = known.get().last().isBefore(undoAt) ? known.get().last() : undoAt;
-        return cover(followerUri, followed.get(), covers);
+        // A Follow that first arrived after this one is a newer follow, even if this one was repeated after that.
+        return cover(followerUri, followed.get(), known.get().first());
     }
 
     /**
-     * Applies an {@code Undo} that doesn't say which activity created a follow, which covers all that arrived before it.
-     * Nothing can tell one that arrives afterward from a new request to follow.
+     * Applies an {@code Undo} that doesn't say which activity created a follow, which covers all that first arrived before
+     * it. Nothing can tell one that first arrives afterward from a new request to follow.
      *
      * @param undoAt when the {@code Undo} arrived
      * @return the follow that was removed, if any
@@ -134,10 +136,6 @@ public class FollowService {
      * When an activity arrived. These differ if it was repeated.
      */
     public record Arrival(Instant first, Instant last) {
-
-        boolean isRepeat() {
-            return last.isAfter(first);
-        }
     }
 
     /**
