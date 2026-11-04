@@ -2,30 +2,31 @@
 
 ## Where things stand
 
-Other servers can discover Elysium's users, deliver signed activities to them, and follow them, but Elysium can't send posts or follow anyone, so it can't fully federate yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
+Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new posts, but Elysium can't follow anyone or tell other servers when a post is deleted, so it can't fully federate yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
 
 | Area | State | Notes |
 | --- | --- | --- |
 | WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon and GoToSocial resolve users in the federation lab |
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
 | Inboxes | Live, partly | `Follow` and `Undo` of a `Follow` are acted on, and other types are stored and ignored. #39 stays open for forwarded activities, `sharedInbox` and normalizing |
-| Delivery and signed `POST` | Live, partly | Only `Accept` is sent so far, and Mastodon and GoToSocial accepted it in the lab |
+| Delivery and signed `POST` | Live, partly | `Accept` and `Create` are sent, and Mastodon and GoToSocial accepted both in the lab |
 | Job queue and backoff | Live | Delivery load is untested |
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on both lab servers. Merged in PR #70 |
-| Sending follows, followers collections | Missing | #44, #43 |
-| Posts between servers | Missing | #41, #40 |
+| Sending follows | Missing | #44 |
+| Followers and following collections | Live, partly | `followers` only gives its size. Its items and pages, and `following`, are in #43 |
+| Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Receiving is in #41, and the outbox is in #40 |
 | Likes, boosts, edits, deletes, polls | Missing | #59, #60, #61, #62, with polls only listed on #1 |
 | Moderation and server policy | Missing | #37 |
 
 ## Roadmap
 
-The next step is sending posts to followers, and the riskiest is storing other servers' posts, so that step waits on moderation.
+The next step is finishing milestone 3 by sending `Delete`, and the riskiest is storing other servers' posts, so that step waits on moderation.
 
 ```mermaid
 flowchart TD
     m1["<b>1. Inbox and signatures (done)</b><br/>Servers discover users and deliver signed activities.<br/>PR #57 and earlier"]
     m2["<b>2. Receive follows (done)</b><br/>A remote user follows a local user and gets an Accept.<br/>PR #70, #44 receiving half"]
-    m3["<b>3. Posts reach followers (next)</b><br/>Send Create and Delete, and serve followers collections.<br/>#41 sending, #43, #59 sending"]
+    m3["<b>3. Posts reach followers (in progress)</b><br/>Send Create and Delete, and serve followers collections.<br/>#41 sending, #43, #59 sending"]
     m4["<b>4. Follow out and remote posts</b><br/>Follow remote users, and store and show their posts.<br/>#44 sending, #41, #59 and #60 receiving, rest of #39"]
     m5["<b>5. Interactions</b><br/>Mentions, likes, boosts, edits and notifications.<br/>#28, #61, #62, #60 sending"]
     mod["<b>Basic moderation</b><br/>Domain and actor blocks, needed before remote posts.<br/>#64, #65, #66"]
@@ -56,15 +57,22 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
 - **Result:** `federation/smoke.sh` now follows, unfollows and follows again on both servers, and checks the `follow` table each time.
 - **Left open:** Misskey's reused Undo IDs are only covered by integration tests (#69).
 
-### 3. Posts reach followers (next)
+### 3. Posts reach followers (in progress)
 
-- **Issues:** the sending half of #41, #43, and #59 for sending `Delete`.
+- **Issues:** the sending half of #41, merged in PR #72, #43, and #59 for sending `Delete`.
 - **Delivers:**
   - a new status event from `content`, built into a `Create` by `activitypub`
   - followers collections, and `Note` addressing that includes them
   - using other servers' shared inboxes, and a `Delete` when a status is removed, which `ActivityDeliveries.cancel` was built to support
   - the parent's author addressed on replies, as #41 requires
 - **Done when:** a remote follower sees a new post and sees it disappear when deleted.
+- **Result so far:** PR #72 sends `Create`, uses other servers' shared inboxes, and addresses `Note` objects to followers and to the parent's author on replies, with no `Mention` tag. `followers` only gives its size. `federation/smoke.sh` now posts a public and a followers-only status, and both servers have to store each with the right visibility. GoToSocial also has to show them in a home timeline, but the Mastodon check doesn't cover the feed.
+- **Left to do:**
+  - send `Delete` (#59), including for a status deleted while its `Create` is being queued, when there's nothing to cancel yet
+  - the rest of the checks under [Work across milestones](#work-across-milestones)
+- **Left open:**
+  - replies haven't reached a remote server, because parents are always local until milestone 4
+  - three `Create`s weren't stored on GoToSocial within about 30 seconds during testing, for a reason that wasn't found, though four timed runs took 5-6 seconds (PR #72)
 
 ### 4. Follow out and remote posts
 
@@ -112,6 +120,7 @@ These don't belong to one milestone, but each has a point where it stops being o
 | Limit inbox requests that don't start a key fetch, or document relying on a proxy | Before any public server | PR #57 known limits |
 | Email verification, sign-up approval and session storage | Before any public server | #35, #17, #31, and the warning in `docs/accounts.md` |
 | Retries for `Create` and `Delete` arriving out of order | Milestones 3 and 4 | #53 left ordering to the callers |
+| Report GoToSocial's stuck home timeline upstream, after confirming the cause | When someone can look into it, since it doesn't block federation | PR #72 |
 
 ## Open questions
 
@@ -121,6 +130,6 @@ Basic moderation landing before milestone 4 is confirmed. The rest of the order 
 - [x] Should an actor's inbox have to be on the actor's own host? Answer: Yes, as merged in PR #70. A shared inbox on another host is only left out.
 - [ ] Should `Question` get an issue too? The activity types now have #59 to #63, but it's an object, so it's still only a checklist item on #1.
 - [ ] Should unlisted statuses be in the outbox? Open on #40.
-- [ ] Should people be able to hide their followers lists? Open on #43.
+- [ ] Should people be able to hide their followers lists? Open on #43. Until it's settled, `followers` only gives its size.
 - [ ] Should mentions of remote users show the domain? Open on #28.
 - [x] Can a follower left behind by a retried `Follow` receive followers-only statuses, or can the case be told apart from a re-follow? Answer: No. PR #71 ignores a repeat after an Undo as a retry, since Misskey, Sharkey and Mastodon make a new ID for each request.
