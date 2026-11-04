@@ -21,13 +21,9 @@ public record Application(
         PublicKey publicKey
 ) {
 
-    private static final List<String> CONTEXT = List.of(
-            "https://www.w3.org/ns/activitystreams",
-            "https://w3id.org/security/v1");
-
     public static Application from(InstanceActor actor) {
         return new Application(
-                CONTEXT,
+                ActivityStreams.ACTOR_CONTEXT,
                 actor.uri(),
                 "Application",
                 actor.username(),

@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
+import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.springframework.stereotype.Component;
 
@@ -14,8 +15,6 @@ import java.util.List;
  */
 @Component
 public class SignedSender {
-
-    private static final String ACTIVITY_JSON = "application/activity+json";
 
     private final FederationHttpClient http;
     private final SignerFallback signers;
@@ -33,6 +32,7 @@ public class SignedSender {
      * @throws IOException              as for {@link FederationHttpClient#post}
      */
     public Response post(URI inbox, byte[] body, SigningKey key) throws IOException {
-        return signers.firstNotRefused(signer -> http.post(inbox, ACTIVITY_JSON, body, signer.sign("POST", inbox, body, key)));
+        return signers.firstNotRefused(
+                signer -> http.post(inbox, ActivityStreams.ACTIVITY_JSON, body, signer.sign("POST", inbox, body, key)));
     }
 }

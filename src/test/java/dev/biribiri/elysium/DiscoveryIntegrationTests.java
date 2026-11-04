@@ -200,6 +200,16 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
+    void answersLdJsonWithTheActivityStreamsProfile() throws Exception {
+        var profiled = "application/ld+json;profile=\"https://www.w3.org/ns/activitystreams\"";
+        for (var accept : new String[]{"application/ld+json", profiled}) {
+            mockMvc.perform(get("/actor").header("Accept", accept))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Content-Type", profiled));
+        }
+    }
+
+    @Test
     void returnsNotFoundForUnknownActor() throws Exception {
         mockMvc.perform(get("/users/nobody").accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
     }

@@ -16,8 +16,6 @@ public record Accept(
         Follow object
 ) {
 
-    private static final String CONTEXT = "https://www.w3.org/ns/activitystreams";
-
     /**
      * The {@code id} comes from the {@code Follow}'s, rather than from the two actors. Queuing an activity ID again keeps
      * the body it already has, so an ID from the actors would answer a new {@code Follow} by naming the old one.
@@ -28,7 +26,7 @@ public record Accept(
      */
     public static Accept of(URI followed, String followId, URI follower) {
         return new Accept(
-                CONTEXT,
+                ActivityStreams.CONTEXT,
                 URI.create(idFor(followed, followId)),
                 "Accept",
                 followed,

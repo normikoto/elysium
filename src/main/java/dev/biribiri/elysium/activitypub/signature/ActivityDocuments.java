@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.signature;
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
+import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -21,11 +22,9 @@ import java.util.Set;
 @Component
 public class ActivityDocuments {
 
-    private static final String ACCEPT =
-            "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"";
-    private static final MediaType ACTIVITY_JSON = MediaType.parseMediaType("application/activity+json");
-    private static final MediaType LD_JSON = MediaType.parseMediaType("application/ld+json");
-    private static final String ACTIVITY_STREAMS_PROFILE = "https://www.w3.org/ns/activitystreams";
+    private static final String ACCEPT = ActivityStreams.ACTIVITY_JSON + ", " + ActivityStreams.LD_JSON;
+    private static final MediaType ACTIVITY_JSON = MediaType.parseMediaType(ActivityStreams.ACTIVITY_JSON);
+    private static final MediaType LD_JSON = MediaType.parseMediaType(ActivityStreams.ANY_LD_JSON);
 
     private static final Set<String> ACTOR_TYPES = Set.of("Application", "Group", "Organization", "Person", "Service");
 
@@ -104,6 +103,6 @@ public class ActivityDocuments {
             return true;
         }
         var profile = type.getParameter("profile");
-        return type.equalsTypeAndSubtype(LD_JSON) && profile != null && profile.contains(ACTIVITY_STREAMS_PROFILE);
+        return type.equalsTypeAndSubtype(LD_JSON) && profile != null && profile.contains(ActivityStreams.CONTEXT);
     }
 }

@@ -21,6 +21,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 
+import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ACTIVITY_JSON;
+import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON;
+
 /**
  * Receives activities from other servers. All inboxes do the same thing, because who an activity is for comes from the
  * activity rather than the URL it was sent to.
@@ -32,10 +35,6 @@ import java.io.IOException;
 class InboxController {
 
     private static final Logger log = LoggerFactory.getLogger(InboxController.class);
-
-    private static final String ACTIVITY_JSON = "application/activity+json";
-    /** Matches any profile, since servers send variations of it. */
-    private static final String LD_JSON = "application/ld+json";
 
     private static final int MAX_BODY_BYTES = 1024 * 1024;
 
@@ -58,7 +57,7 @@ class InboxController {
         this.budgets = budgets;
     }
 
-    @PostMapping(path = "/users/{username}/inbox", consumes = {ACTIVITY_JSON, LD_JSON})
+    @PostMapping(path = "/users/{username}/inbox", consumes = {ACTIVITY_JSON, ANY_LD_JSON})
     ResponseEntity<Void> personalInbox(@PathVariable String username, HttpServletRequest request) throws IOException {
         if (actors.findLocalByUsername(username).isEmpty()) {
             return ResponseEntity.notFound().build();
@@ -66,7 +65,7 @@ class InboxController {
         return receive(request);
     }
 
-    @PostMapping(path = {"/inbox", InstanceActor.PATH + "/inbox"}, consumes = {ACTIVITY_JSON, LD_JSON})
+    @PostMapping(path = {"/inbox", InstanceActor.PATH + "/inbox"}, consumes = {ACTIVITY_JSON, ANY_LD_JSON})
     ResponseEntity<Void> sharedOrInstanceActorInbox(HttpServletRequest request) throws IOException {
         return receive(request);
     }

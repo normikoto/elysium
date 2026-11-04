@@ -38,10 +38,10 @@ public record Note(
 ) {
 
     static final List<Object> CONTEXT = List.of(
-            "https://www.w3.org/ns/activitystreams",
+            ActivityStreams.CONTEXT,
             Map.of("sensitive", "as:sensitive"));
 
-    private static final List<String> PUBLIC = List.of("https://www.w3.org/ns/activitystreams#Public");
+    private static final List<String> PUBLIC = List.of(ActivityStreams.PUBLIC);
 
     /**
      * @param inReplyTo    the parent status, or null if there's none to show
