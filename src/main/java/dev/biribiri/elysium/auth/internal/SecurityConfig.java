@@ -142,6 +142,7 @@ class SecurityConfig {
         return http
                 .securityMatcher(new OrRequestMatcher(
                         pathPattern(HttpMethod.POST, "/inbox"),
+                        pathPattern(HttpMethod.POST, "/actor/inbox"),
                         pathPattern(HttpMethod.POST, "/users/*/inbox")))
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

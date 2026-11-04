@@ -38,8 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no user is behind.
 - A background job queue stored in PostgreSQL, for sending and receiving activities. It adds tables through a migration,
   and needs no new services. Admins can see, retry, and delete jobs at `/admin/db-scheduler`. See `docs/accounts.md`.
-- Inboxes at `/users/:username/inbox` and `/inbox`, which check HTTP Signatures and queue activities from other servers.
-  Nothing acts on those activities yet. Checking a signature makes this server fetch the sender's key, so it now makes
+- Inboxes at `/users/:username/inbox`, `/actor/inbox`, and `/inbox`, which check HTTP Signatures and queue activities from
+  other servers. Nothing acts on those activities yet. Checking a signature makes this server fetch the sender's key, so it now makes
   requests to other servers. Addresses that cause too many of these fetches get a `429`, which
   `elysium.rate-limit.enabled` doesn't turn off. Behind a reverse proxy, this limit needs the same setup as the others.
   See `FEDERATION.md` and `docs/configuration.md`.

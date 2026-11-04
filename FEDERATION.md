@@ -54,8 +54,9 @@ Public statuses have the public collection in `to`, and unlisted statuses have i
 
 ### Inboxes
 
-Each local user has an inbox at `/users/{username}/inbox`, and there's a shared inbox at `/inbox`. Both work the same way,
-and the shared inbox isn't advertised in actor documents yet. They accept a `POST` with a `Content-Type` of
+Each local user has an inbox at `/users/{username}/inbox`, the instance actor has one at `/actor/inbox`, and there's a
+shared inbox at `/inbox`. They all work the same way, and the shared inbox isn't advertised in actor documents yet. They
+accept a `POST` with a `Content-Type` of
 `application/activity+json`, or `application/ld+json` with any profile, and a body of up to 1 MiB. Activities are read as
 plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
 
@@ -93,7 +94,7 @@ actors. Linked Data Signatures aren't verified.
 - A reply's `inReplyTo` is left out if its parent is private, direct, or deleted, so it looks like it isn't a reply.
 - Deleted statuses get a 404, not a `Tombstone`.
 - Inboxes can't be read, so a `GET` gets a 403.
-- The `inbox` and `outbox` that the instance actor advertises aren't implemented yet.
+- The `outbox` that the instance actor advertises isn't implemented yet.
 - Fetching actors and objects from this server doesn't need a signature, and any signature on those requests is ignored.
 
 ### HTTP Signatures

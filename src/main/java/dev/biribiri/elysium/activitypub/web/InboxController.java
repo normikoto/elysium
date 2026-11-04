@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
 import dev.biribiri.elysium.activitypub.signature.SignatureVerifier;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.ratelimit.ClientAddresses;
 import dev.biribiri.elysium.ratelimit.RateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 
 /**
- * Receives activities from other servers. Both inboxes do the same thing, because who an activity is for comes from the
+ * Receives activities from other servers. All inboxes do the same thing, because who an activity is for comes from the
  * activity rather than the URL it was sent to.
  *
  * <p>The only thing limited here is the key fetches that an address can cause, through {@link AddressFetchBudgets}. Once a
@@ -65,8 +66,8 @@ class InboxController {
         return receive(request);
     }
 
-    @PostMapping(path = "/inbox", consumes = {ACTIVITY_JSON, LD_JSON})
-    ResponseEntity<Void> sharedInbox(HttpServletRequest request) throws IOException {
+    @PostMapping(path = {"/inbox", InstanceActor.PATH + "/inbox"}, consumes = {ACTIVITY_JSON, LD_JSON})
+    ResponseEntity<Void> sharedOrInstanceActorInbox(HttpServletRequest request) throws IOException {
         return receive(request);
     }
 

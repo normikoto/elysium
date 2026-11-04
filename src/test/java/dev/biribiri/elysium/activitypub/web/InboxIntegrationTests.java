@@ -61,7 +61,7 @@ class InboxIntegrationTests {
     private JdbcClient jdbc;
 
     @ParameterizedTest
-    @ValueSource(strings = {"/users/alice/inbox", "/users/ALICE/inbox", "/inbox"})
+    @ValueSource(strings = {"/users/alice/inbox", "/users/ALICE/inbox", "/inbox", "/actor/inbox"})
     void queuesASignedActivity(String path) throws Exception {
         var alice = alice();
         var id = newId(alice);
@@ -83,6 +83,11 @@ class InboxIntegrationTests {
                 .andExpect(status().isAccepted());
 
         assertThat(stored(id)).isEqualTo(1);
+    }
+
+    @Test
+    void refusesAnUnsignedRequestToTheInstanceActorsInbox() throws Exception {
+        send(post("/actor/inbox").contentType(ACTIVITY_JSON).content("{}")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -323,6 +328,7 @@ class InboxIntegrationTests {
     void stillDeniesReadingAnInbox() throws Exception {
         mockMvc.perform(get("/users/alice/inbox")).andExpect(status().isForbidden());
         mockMvc.perform(get("/inbox")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/actor/inbox")).andExpect(status().isForbidden());
     }
 
     private Actor alice() {
