@@ -34,13 +34,14 @@ final class CommandRunner {
     /**
      * These take priority over all other configuration, including options on the command line. A command can run
      * alongside the server, so it can't open the same ports. Without the quieter logging, a password prompt gets lost in
-     * startup messages.
+     * startup messages. A command would also exit in the middle of any job it picked up, so it doesn't run them.
      */
     private static final Map<String, Object> COMMAND_PROPERTIES = Map.of(
             "server.port", "-1",
             "management.server.port", "-1",
             "spring.main.banner-mode", "off",
-            "logging.level.root", "ERROR");
+            "logging.level.root", "ERROR",
+            "elysium.jobs.worker-enabled", "false");
 
     private CommandRunner() {
     }

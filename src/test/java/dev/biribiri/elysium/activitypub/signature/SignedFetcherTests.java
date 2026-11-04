@@ -65,8 +65,8 @@ class SignedFetcherTests {
     @ValueSource(ints = {401, 403})
     void triesTheNextSignerAfterARefusal(int status) throws Exception {
         when(http.get(eq(URL), eq(ACCEPT), any()))
-                .thenReturn(new Response(status, null, new byte[0]))
-                .thenReturn(new Response(200, null, new byte[0]));
+                .thenReturn(new Response(status, null, null, new byte[0]))
+                .thenReturn(new Response(200, null, null, new byte[0]));
 
         var response = fetcher(signer("X-First"), signer("X-Second")).get(URL, ACCEPT);
 
@@ -101,8 +101,8 @@ class SignedFetcherTests {
     @Test
     void returnsTheLastRefusalIfEverySignerIsRefused() throws Exception {
         when(http.get(eq(URL), eq(ACCEPT), any()))
-                .thenReturn(new Response(401, null, new byte[0]))
-                .thenReturn(new Response(403, null, new byte[0]));
+                .thenReturn(new Response(401, null, null, new byte[0]))
+                .thenReturn(new Response(403, null, null, new byte[0]));
 
         var response = fetcher(signer("X-First"), signer("X-Second")).get(URL, ACCEPT);
 
@@ -130,7 +130,7 @@ class SignedFetcherTests {
     }
 
     private void respond(int status) throws Exception {
-        when(http.get(eq(URL), eq(ACCEPT), any())).thenReturn(new Response(status, null, new byte[0]));
+        when(http.get(eq(URL), eq(ACCEPT), any())).thenReturn(new Response(status, null, null, new byte[0]));
     }
 
     private List<HttpHeaders> sentHeaders(int requests) throws Exception {

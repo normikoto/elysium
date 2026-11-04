@@ -5,7 +5,9 @@ import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -55,6 +57,11 @@ class SecurityConfig {
      * Pages for admins, which all go under this path so that they're covered by one rule.
      */
     private static final String ADMIN_PATHS = "/admin/**";
+
+    /**
+     * The job UI's own API, which it calls from the browser. See {@link #sameOriginJobApiRequests}.
+     */
+    private static final String JOB_API_PATHS = "/admin/db-scheduler-api/**";
 
     private static final String[] PUBLIC_PATHS = {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
@@ -131,11 +138,17 @@ class SecurityConfig {
      */
     @Bean
     @Order(3)
-    SecurityFilterChain defaultChain(HttpSecurity http, AuthRateLimits limits, AdminAccess adminAccess) throws Exception {
+    SecurityFilterChain defaultChain(
+            HttpSecurity http, AuthRateLimits limits, AdminAccess adminAccess, InstanceProperties instance)
+            throws Exception {
+        var adminPages = adminPageRequests();
+
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
-        // can't lose a pending authorization.
+        // can't lose a pending authorization. It only saves an admin page if nothing is waiting, so that logging in can
+        // return to that page.
         var requestCache = new HttpSessionRequestCache();
-        requestCache.setRequestMatcher(request -> false);
+        requestCache.setRequestMatcher(
+                request -> adminPages.matches(request) && requestCache.getRequest(request, null) == null);
 
         var loginFailure = new ExceptionMappingAuthenticationFailureHandler();
         loginFailure.setDefaultFailureUrl(LOGIN_PATH + "?error");
@@ -151,6 +164,7 @@ class SecurityConfig {
                 // Applies Spring MVC's CORS settings, including to preflight requests: @CrossOrigin on controllers, and
                 // the mappings in WebMvcConfigurer classes.
                 .cors(withDefaults())
+                .csrf(csrf -> csrf.ignoringRequestMatchers(sameOriginJobApiRequests(instance)))
                 .authorizeHttpRequests(requests -> requests
                         // Lets Spring's error handling keep its original status instead of turning it into a 403.
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
@@ -180,7 +194,11 @@ class SecurityConfig {
                         })
                         .permitAll())
                 .logout(withDefaults())
-                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(new Http403ForbiddenEntryPoint()))
+                // Sessions don't survive a restart, so an admin who reloads a page needs a way back in. Other requests get
+                // a bare 403. The job UI's API calls are among them, because they couldn't use a login page as a response.
+                .exceptionHandling(exceptions -> exceptions
+                        .defaultAuthenticationEntryPointFor(new LoginUrlAuthenticationEntryPoint(LOGIN_PATH), adminPages)
+                        .defaultAuthenticationEntryPointFor(new Http403ForbiddenEntryPoint(), request -> true))
                 .build();
     }
 
@@ -259,6 +277,37 @@ class SecurityConfig {
                 pathPattern(HttpMethod.OPTIONS, REVOKE_PATH),
                 pathPattern(HttpMethod.GET, METADATA_PATH),
                 pathPattern(HttpMethod.OPTIONS, METADATA_PATH));
+    }
+
+    /**
+     * Pages that a person opens, rather than the files they load and the API calls they make. The {@code Accept} header
+     * tells these apart because a browser asks for HTML when opening a page, and not otherwise.
+     */
+    private static RequestMatcher adminPageRequests() {
+        // The API and the files that pages load aren't pages to send someone back to.
+        var notPages = new OrRequestMatcher(
+                pathPattern(JOB_API_PATHS),
+                pathPattern("/admin/db-scheduler/assets/**"),
+                pathPattern("/admin/db-scheduler/js/**"));
+        var admin = pathPattern(HttpMethod.GET, ADMIN_PATHS);
+        return request -> {
+            var accept = request.getHeader(HttpHeaders.ACCEPT);
+            return admin.matches(request)
+                    && !notPages.matches(request)
+                    && accept != null
+                    && accept.contains(MediaType.TEXT_HTML_VALUE);
+        };
+    }
+
+    /**
+     * Requests from the job UI, which can't send a CSRF token, since it's a prebuilt page that doesn't know about them.
+     * Browsers always add {@code Origin} to these POST requests, and pages can't change it, so a page on another site can't
+     * pass this. A request without the header isn't let through, and still needs a token. This uses the configured URL
+     * and not the request's own, because a proxy or a client can change what the request says.
+     */
+    private static RequestMatcher sameOriginJobApiRequests(InstanceProperties instance) {
+        var api = pathPattern(HttpMethod.POST, JOB_API_PATHS);
+        return request -> api.matches(request) && instance.origin().equals(request.getHeader(HttpHeaders.ORIGIN));
     }
 
     /**

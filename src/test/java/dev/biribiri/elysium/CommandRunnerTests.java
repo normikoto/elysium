@@ -79,6 +79,7 @@ class CommandRunnerTests {
         assertThat(environment.getProperty("spring.application.name")).isEqualTo("from-option");
         assertThat(environment.getProperty("server.port")).isEqualTo("-1");
         assertThat(environment.getProperty("management.server.port")).isEqualTo("-1");
+        assertThat(environment.getProperty("elysium.jobs.worker-enabled")).isEqualTo("false");
         assertThat(started.get().isActive()).isFalse();
     }
 

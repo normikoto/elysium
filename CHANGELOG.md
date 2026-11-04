@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their addresses. nginx needs configuring to do this. See `docs/configuration.md`.
 - An instance actor at `/actor`, which can be found through WebFinger as `instance.actor`. It's for signing requests that
   no user is behind, although this server doesn't make any such requests yet.
+- A background job queue stored in PostgreSQL, ready for sending and receiving activities, although nothing uses it for
+  that yet. It adds tables through a migration, and needs no new services. Admins can see, retry, and delete jobs at
+  `/admin/db-scheduler`. See `docs/accounts.md`.
 
 ### Changed
 

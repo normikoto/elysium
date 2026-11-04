@@ -62,6 +62,25 @@ tokens, which don't belong to any user, even if the application registered with 
 revokes its applications that have admin scopes, along with the rest of their access to that account, so they'll need to
 be authorized again.
 
+## Job queue
+Admins can see the background job queue at `/admin/db-scheduler`. The server doesn't send or receive activities yet, so
+for now the queue only has its own daily cleanup job. Once federation work runs here, each job shows what it's for, when
+it'll next run, and its failures, and **History** shows why it failed. A job only holds IDs, so private posts aren't shown.
+
+- **Retries:** A job that fails for a temporary reason, like a server being down, is tried again with longer and longer
+  gaps, up to 6 hours apart, for 3 days.
+- **Giving up:** After 3 days, or straight away if trying again can't help, a job is set aside for 30 days. It stays in the
+  list as failed so that you can retry or delete it, and it's removed without running after that. If you retry one and it
+  fails again, it's set aside for another 30 days.
+- **Servers that keep failing:** After 3 failures in a row, the server waits before sending to that server again, starting
+  at 1 minute and going up to 6 hours, or longer if the other server asks with `Retry-After`, up to the same limit. Jobs
+  waiting for this aren't failing, so they show as scheduled. If you run several copies of the server, they share this.
+- **Limits:** Each copy of the server sends at most 4 requests at a time to another server, so the real limit is 4 times
+  the number of copies.
+- **History:** Successful runs are kept for 7 days, and failed ones for 30.
+
+Commands such as `create-user` never run jobs, so they're safe to use while the server is running.
+
 ## Rate limits
 Logins and sign-ups are limited, and requests over a limit get a `429` response with a `Retry-After` header:
 

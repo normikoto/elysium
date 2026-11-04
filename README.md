@@ -10,7 +10,7 @@ public server unless you really know what you're doing.** For example,
 ## Documentation
 - [Installation](docs/installation.md): building and running the server, with Docker Compose or as a systemd service
 - [Configuration](docs/configuration.md): settings, the database, and reverse proxies
-- [Accounts and sign-ups](docs/accounts.md): creating accounts, resetting passwords, and login sessions
+- [Accounts and sign-ups](docs/accounts.md): creating accounts, resetting passwords, login sessions, and the job queue
 - [Using the API](docs/api.md): OAuth, statuses, and how they differ from Mastodon
 - [Federation](FEDERATION.md): which federation protocols and standards are implemented so far
 
