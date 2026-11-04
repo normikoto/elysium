@@ -34,19 +34,19 @@ class SignedFetcher {
      * Blocks while fetching, so this mustn't be called inside a database transaction.
      *
      * @return the first response that wasn't a refusal, or else the last refusal
-     * @throws KeyFetchException if this URL can't be signed. URLs often come from other servers, so this can happen.
+     * @throws DocumentFetchException if this URL can't be signed. URLs often come from other servers, so this can happen.
      * @throws IOException       as for {@link FederationHttpClient#get}
      */
-    Response get(URI url, String accept) throws IOException, KeyFetchException {
+    Response get(URI url, String accept) throws IOException, DocumentFetchException {
         var key = keys.forInstance();
         return signers.firstNotRefused(signer -> http.get(url, accept, sign(signer, url, key)));
     }
 
-    private static HttpHeaders sign(RequestSigner signer, URI url, SigningKey key) throws KeyFetchException {
+    private static HttpHeaders sign(RequestSigner signer, URI url, SigningKey key) throws DocumentFetchException {
         try {
             return signer.sign("GET", url, NO_BODY, key);
         } catch (IllegalArgumentException e) {
-            throw KeyFetchException.permanent("Can't sign a request to " + url, e);
+            throw DocumentFetchException.permanent("Can't sign a request to " + url, e);
         }
     }
 }

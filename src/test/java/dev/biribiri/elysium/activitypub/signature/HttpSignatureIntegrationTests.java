@@ -114,7 +114,7 @@ class HttpSignatureIntegrationTests {
                 UUID.randomUUID(), URI.create("https://remote.example/users/bob"), "bob", "remote.example",
                 URI.create("https://remote.example/users/bob/inbox"),
                 URI.create("https://remote.example/users/bob/outbox"),
-                null, "unused", Instant.EPOCH);
+                null, "unused", Instant.EPOCH, Instant.EPOCH);
 
         assertThat(signingKeys.forActor(remote)).isEmpty();
     }

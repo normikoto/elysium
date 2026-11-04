@@ -30,6 +30,8 @@ class JobCleanupIntegrationTests {
         history(4, false, "29 days");
         activities("old", "35 days");
         activities("recent", "33 days");
+        undoneFollow("cleanup-old", "35 days");
+        undoneFollow("cleanup-recent", "33 days");
         host("old.test", "8 days");
         host("recent.test", "6 days");
 
@@ -44,6 +46,8 @@ class JobCleanupIntegrationTests {
         assertThat(ids("SELECT activity_id FROM outbound_activity WHERE activity_id LIKE 'cleanup-%'"))
                 .containsExactly("cleanup-recent");
         assertThat(ids("SELECT activity_id FROM inbound_activity WHERE activity_id LIKE 'cleanup-%'"))
+                .containsExactly("cleanup-recent");
+        assertThat(ids("SELECT activity_uri FROM undone_follow WHERE activity_uri LIKE 'cleanup-%'"))
                 .containsExactly("cleanup-recent");
         assertThat(ids("SELECT host FROM federation_host WHERE host IN ('old.test', 'recent.test')"))
                 .containsExactly("recent.test");
@@ -79,6 +83,13 @@ class JobCleanupIntegrationTests {
                         VALUES (:id, 'https://a.test', 'Test', '{}', now() - CAST(:age AS INTERVAL))
                         """)
                 .param("id", "cleanup-" + name)
+                .param("age", age)
+                .update();
+    }
+
+    private void undoneFollow(String uri, String age) {
+        jdbc.sql("INSERT INTO undone_follow (activity_uri, undone_at) VALUES (:uri, now() - CAST(:age AS INTERVAL))")
+                .param("uri", uri)
                 .param("age", age)
                 .update();
     }

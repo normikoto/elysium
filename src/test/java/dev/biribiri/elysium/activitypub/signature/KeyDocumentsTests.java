@@ -34,7 +34,7 @@ class KeyDocumentsTests {
     private static final String PEM = jsonString(SignatureFixtures.PUBLIC_KEY_PEM);
 
     private final SignedFetcher http = mock();
-    private final KeyDocuments documents = new KeyDocuments(http, JsonMapper.builder().build());
+    private final KeyDocuments documents = new KeyDocuments(new ActivityDocuments(http, JsonMapper.builder().build()));
 
     @Test
     void readsAKeyFromAnActor() throws Exception {
@@ -385,7 +385,7 @@ class KeyDocumentsTests {
         when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0]));
 
         assertThatThrownBy(() -> documents.fetch(keyId(KEY_ID)))
-                .isInstanceOfSatisfying(KeyFetchException.class, e -> assertThat(e.isGone()).isTrue());
+                .isInstanceOfSatisfying(DocumentFetchException.class, e -> assertThat(e.isGone()).isTrue());
     }
 
     @ParameterizedTest
@@ -420,7 +420,7 @@ class KeyDocumentsTests {
 
     private void assertPermanent(String id) {
         assertThatThrownBy(() -> documents.fetch(keyId(id)))
-                .isInstanceOfSatisfying(KeyFetchException.class, e -> {
+                .isInstanceOfSatisfying(DocumentFetchException.class, e -> {
                     assertThat(e.isTemporary()).isFalse();
                     assertThat(e.isGone()).isFalse();
                 });
@@ -428,7 +428,7 @@ class KeyDocumentsTests {
 
     private void assertTemporary(String id) {
         assertThatThrownBy(() -> documents.fetch(keyId(id)))
-                .isInstanceOfSatisfying(KeyFetchException.class, e -> assertThat(e.isTemporary()).isTrue());
+                .isInstanceOfSatisfying(DocumentFetchException.class, e -> assertThat(e.isTemporary()).isTrue());
     }
 
     private void serve(String url, String body) throws Exception {

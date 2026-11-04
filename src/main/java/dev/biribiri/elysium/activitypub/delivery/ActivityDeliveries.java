@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,7 +26,10 @@ public class ActivityDeliveries {
     private final JdbcClient jdbc;
     private final SchedulerClient scheduler;
 
-    ActivityDeliveries(JdbcClient jdbc, SchedulerClient scheduler) {
+    /**
+     * @param scheduler lazy because the scheduler needs every task, and tasks need handlers, which queue activities here
+     */
+    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler) {
         this.jdbc = jdbc;
         this.scheduler = scheduler;
     }

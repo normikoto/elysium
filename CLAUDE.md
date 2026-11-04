@@ -3,9 +3,9 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Elysium is an experimental ActivityPub server (Java 25, Spring Boot 4, Spring Modulith, PostgreSQL) aiming for
-compatibility with Mastodon and other common implementations. It can't federate yet: other servers can discover its users,
-fetch actors and `Note` objects, and deliver activities to its inboxes, but nothing acts on those activities and none are
-sent.
+compatibility with Mastodon and other common implementations. It can't fully federate yet: other servers can discover its
+users, fetch actors and `Note` objects, deliver activities to its inboxes, and follow and unfollow its users, which sends an
+`Accept`. Other activities are ignored, its users can't follow anyone, and statuses aren't sent.
 
 ## Commands
 
@@ -39,7 +39,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, OAuth, HTTP security configuration | `actor`, `ratelimit`                           |
 | `content`     | Posts and related records                  | `actor`                                        |
-| `graph`       | Follows, blocks, mutes (empty so far)      | `actor`                                        |
+| `graph`       | Follows (blocks and mutes to come)         | `actor`                                        |
 | `timeline`    | Home and public feeds                      | `actor`, `content`, `graph`                    |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `content`                             |
@@ -54,17 +54,22 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 
 ### Federation code
 
-Only part of this is live. `InboxController` receives activities and queues them, but no `InboundActivityHandler` exists,
-so they're stored and ignored. `activitypub.delivery` exists, but nothing calls it, and no module publishes or listens for
-application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
+Only part of this is live. `InboxController` receives activities and queues them, and only `Follow` and `Undo` have an
+`InboundActivityHandler`, so other types are stored and ignored. Only `FollowHandler` uses `activitypub.delivery`, and no
+module publishes or listens for application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
 feature is live.
 
 - **Inbound:** `InboxController` does the HTTP and signature steps, and `Inbox` decides whether to keep an activity. Who an
   activity is for has to come from the activity, never from the inbox's URL. Checks on who's speaking for an `id` have to
   run before `InboundActivities.accept`, where the first activity stored under an ID wins. To act on a type of activity,
-  add an `InboundActivityHandler`. The inbox's only limit is on the key fetches an address can cause (`KeyFetchBudget`),
-  and `SignatureVerifier.verify` needs one, so that every caller has to decide who pays for fetches. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and the other properties
-  still need the handling described in issue #39.
+  add an `InboundActivityHandler`, or for another type of `Undo`, extend `UndoHandler`, since each type has one handler.
+  A repeated ID is dropped unless the handler's `onRepeat` says otherwise, since some servers reuse IDs for new requests.
+  Anything a handler reads from a body that it then stores, such as an ID in an `Undo`, hasn't been through the inbox's
+  checks. The inbox's only limit is on the key fetches an address can cause (`KeyFetchBudget`),
+  and `SignatureVerifier.verify` needs one, so that every caller has to decide who pays for fetches. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and `ActivityObject` normalizes `object`. The other
+  properties still need the handling described in issue #39.
+- **Remote actors:** `RemoteActors` fetches and stores them, and `RemoteActorDocument` decides what to believe. Remote rows
+  in `actor` have no `local_account`, and can have a null `outbox_uri` and `public_key_pem`.
 - **Signatures:** `SignatureVerifier`, `PublicKeyResolver`, and `SignedFetcher` are independent of the signature format.
   Each format supplies a `SignatureScheme` and a `RequestSigner`. Only draft-cavage is implemented. The reasoning for
   signer order is in `activitypub/signature/package-info.java`.
@@ -79,6 +84,7 @@ all share the same retry and parking behavior.
 
 - Handlers run with no transaction open and can run again after succeeding, so they have to be safe to repeat.
 - `ActivityDeliveries.enqueue` requires an existing transaction, so that a change and its activity are saved together.
+- Jobs have no order, so a handler can run before the job for an earlier activity. `undone_follow` exists for this.
 - Job data only holds IDs. The admin UI at `/admin/db-scheduler` shows it.
 
 ### Persistence

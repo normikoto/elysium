@@ -238,7 +238,7 @@ class PublicKeyResolver {
     private Lookup lookUp(KeyId keyId) {
         try {
             return new Found(documents.fetch(keyId), ticker.read());
-        } catch (KeyFetchException e) {
+        } catch (DocumentFetchException e) {
             log.debug("Couldn't get key {}: {}", keyId.value(), e.getMessage());
             if (e.isGone()) {
                 return new Gone();

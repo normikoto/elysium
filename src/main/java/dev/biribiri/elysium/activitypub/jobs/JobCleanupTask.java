@@ -56,6 +56,9 @@ class JobCleanupTask {
         jdbc.sql("DELETE FROM inbound_activity WHERE received_at < :before")
                 .param("before", before(now, ACTIVITIES_KEPT))
                 .update();
+        jdbc.sql("DELETE FROM undone_follow WHERE undone_at < :before")
+                .param("before", before(now, ACTIVITIES_KEPT))
+                .update();
         jdbc.sql("DELETE FROM federation_host WHERE retry_after < :before")
                 .param("before", before(now, HOSTS_KEPT))
                 .update();

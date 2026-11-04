@@ -16,15 +16,18 @@ federation/smoke.sh gotosocial   # or mastodon
 The script deletes any lab left over from an earlier run, starts a new one, and exits with an error if a check fails.
 Rebuild the image to test a change to Elysium, because the lab doesn't build it for you.
 
-The script checks three things:
+The script checks four things:
 
 - **Discovery:** Elysium serves its documents through the proxy, and the other server can resolve `@alice@elysium.test`.
 - **Refusing deliveries:** An unsigned `POST` to Elysium's inbox gets a `401`.
 - **Accepting deliveries:** The other server posts a status mentioning alice, and it ends up in Elysium's
   `inbound_activity` table. This means that Elysium fetched the sender's key and verified the signature. Mastodon runs
   with `AUTHORIZED_FETCH` on, so it has to accept Elysium's signed fetch and its instance actor as well.
+- **Following:** The other server's `lab` user follows alice. The other server has to accept Elysium's signed `Accept`, which
+  it shows by counting the follow, and Elysium's `follow` table has to have the row. After an unfollow, the row has to go,
+  and following again has to work.
 
-Elysium doesn't act on activities or send any yet, so nothing can test that.
+Elysium's users can't follow anyone yet, and it doesn't send statuses, so nothing can test those.
 
 ## Looking into a failure
 
@@ -35,6 +38,10 @@ export COMPOSE_FILE=compose.federation.yaml COMPOSE_PROFILES=gotosocial   # or m
 docker compose logs elysium gotosocial
 docker compose run --rm -T driver curl -sS -H 'Accept: application/activity+json' https://elysium.test/users/alice
 docker compose exec -T postgres psql -U elysium -d elysium -c 'SELECT activity_id, actor_uri, type FROM inbound_activity'
+docker compose exec -T postgres psql -U elysium -d elysium -c 'SELECT state, activity_uri FROM follow'
+docker compose exec -T postgres psql -U elysium -d elysium -c 'SELECT activity_id, body FROM outbound_activity'
+docker compose exec -T postgres psql -U elysium -d elysium -c \
+    'SELECT task_name, consecutive_failures, execution_time FROM scheduled_tasks WHERE consecutive_failures > 0'
 docker compose --profile '*' down -v
 ```
 

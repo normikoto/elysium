@@ -49,21 +49,21 @@ record ActivityEnvelope(String id, String type, String actor, String body) {
         return Optional.of(new ActivityEnvelope(id, type, actor, body));
     }
 
-    private static String firstText(JsonNode node) {
+    static String firstText(JsonNode node) {
         if (!node.isArray()) {
             return text(node);
         }
         return node.valueStream().map(ActivityEnvelope::text).filter(value -> value != null).findFirst().orElse(null);
     }
 
-    private static String idOf(JsonNode node) {
+    static String idOf(JsonNode node) {
         return text(node.isObject() ? node.path("id") : node);
     }
 
     /**
      * @return the string, or null if the node isn't one that can be stored. A JSON string can spell out a NUL as an escape.
      */
-    private static String text(JsonNode node) {
+    static String text(JsonNode node) {
         var value = node.stringValue(null);
         return value == null || value.isEmpty() || value.indexOf('\0') != -1 ? null : value;
     }

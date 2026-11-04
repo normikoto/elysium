@@ -17,8 +17,15 @@ public record InboundActivity(String id, String actorUri, String type, String bo
     private static final int MAX_ID_BYTES = 2048;
 
     public InboundActivity {
-        if (id.getBytes(StandardCharsets.UTF_8).length > MAX_ID_BYTES) {
+        if (!isStorableId(id)) {
             throw new IllegalArgumentException("The activity's ID is too long");
         }
+    }
+
+    /**
+     * @return whether a URI from another server is short enough to store in an index
+     */
+    static boolean isStorableId(String id) {
+        return id.getBytes(StandardCharsets.UTF_8).length <= MAX_ID_BYTES;
     }
 }

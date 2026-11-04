@@ -7,6 +7,10 @@ import java.util.regex.Pattern;
 
 /**
  * A local or remote account. The URI is its global identity.
+ *
+ * @param outboxUri    its outbox. This can be null for a remote actor, whose document doesn't have to include one.
+ * @param publicKeyPem its public key. This can be null for a remote actor, whose document doesn't have to include one.
+ * @param updatedAt    when this was last written, which for a remote actor says how old the copy is
  */
 public record Actor(
         UUID id,
@@ -17,7 +21,8 @@ public record Actor(
         URI outboxUri,
         URI sharedInboxUri,
         String publicKeyPem,
-        Instant createdAt
+        Instant createdAt,
+        Instant updatedAt
 ) {
 
     private static final Pattern VALID_LOCAL_USERNAME = Pattern.compile("[A-Za-z0-9_]{1,30}");
