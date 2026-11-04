@@ -95,7 +95,8 @@ following comes from the signature, and not from the activity's body. The `objec
 `id`, or an array of one of those. A `Follow` of anything else is ignored.
 
 The follower's document is fetched, signed as the [instance actor](#instance-actor), unless a copy from the last 24 hours
-is stored. A `Follow` is refused, and not tried again, unless the document:
+is stored. If an older copy is stored, it's used when the fetch fails, unless the server answers with a `404` or `410`. A
+`Follow` is refused, and not tried again, unless the document:
 
 - Has an `id` matching the signer, and an actor `type`: `Application`, `Group`, `Organization`, `Person`, or `Service`.
 - Has a `preferredUsername` of up to 255 characters, with no control characters. Other actors on that server can have the
@@ -142,6 +143,9 @@ Activities are ordered by when they arrived here, whatever order they're process
 - A `Follow` that arrived before the one behind an existing follow doesn't replace it, and gets no `Accept`.
 - A newer `Follow` replaces an older one's `Accept` if that hasn't been sent yet, and an `Undo` cancels the `Accept` of the
   follow it removes, if that hasn't been sent yet.
+
+An `Undo` of an embedded `Follow` whose `id` isn't known here removes any follow between its actor and its `object` that arrived
+before it, because a server can make a new `id`. An `Undo` that only gives an `id` that isn't known has no other effect.
 
 An `Undo` that names a `Follow` before it arrives still counts, for about 34 days, and only stops that actor's `Follow` with
 that `id`. If an embedded `Follow` has no `id`, then a `Follow` that arrives after it can't be told apart from a new request,

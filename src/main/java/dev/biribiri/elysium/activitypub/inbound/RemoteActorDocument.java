@@ -45,12 +45,12 @@ final class RemoteActorDocument {
             throw refused(uri, "doesn't have a usable preferredUsername");
         }
         var domain = domainOf(uri);
-        var inbox = inboxOnSameHost(domain, document.path("inbox").stringValue(null));
+        var inbox = inboxOnSameHost(uri, document.path("inbox").stringValue(null));
         if (inbox == null) {
             throw refused(uri, "doesn't have an inbox that's an HTTPS URL on the actor's host");
         }
         // Nothing sends to this yet, so a bad one is a reason to leave it out rather than to lose the actor.
-        var sharedInbox = inboxOnSameHost(domain, document.path("endpoints").path("sharedInbox").stringValue(null));
+        var sharedInbox = inboxOnSameHost(uri, document.path("endpoints").path("sharedInbox").stringValue(null));
         return new RemoteActorProfile(
                 uri,
                 username,
@@ -67,24 +67,11 @@ final class RemoteActorDocument {
      *
      * @return the inbox, or null if there isn't one that can be used
      */
-    private static URI inboxOnSameHost(String domain, String value) {
-        if (value == null) {
+    private static URI inboxOnSameHost(URI actor, String value) {
+        if (value == null || !InboundActivity.isStorableId(value)) {
             return null;
         }
-        URI inbox;
-        try {
-            inbox = new URI(value);
-        } catch (URISyntaxException e) {
-            return null;
-        }
-        if (!"https".equalsIgnoreCase(inbox.getScheme())
-                || inbox.getHost() == null
-                || inbox.getRawUserInfo() != null
-                || !InboundActivity.isStorableId(value)
-                || !domainOf(inbox).equals(domain)) {
-            return null;
-        }
-        return inbox;
+        return ActivityObject.parseUri(value).filter(inbox -> Inbox.isOnActorsServer(inbox, actor)).orElse(null);
     }
 
     /**

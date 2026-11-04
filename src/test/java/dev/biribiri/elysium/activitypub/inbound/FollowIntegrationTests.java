@@ -204,6 +204,43 @@ class FollowIntegrationTests {
     }
 
     @Test
+    void usesAnOldCopyOfAnActorWhenItCannotBeRefreshed() throws Exception {
+        followHandler.handle(follow(newId()));
+        for (var failure : List.of(
+                DocumentFetchException.temporary("Down", null),
+                DocumentFetchException.permanent("A firewall's answer", null))) {
+            jdbc.sql("UPDATE actor SET updated_at = now() - INTERVAL '25 hours' WHERE uri = :uri").param("uri", followerUri).update();
+            when(documents.fetch(any())).thenThrow(failure);
+            var followId = newId();
+
+            followHandler.handle(follow(followId));
+
+            assertThat(follows()).containsExactly(followId);
+            org.mockito.Mockito.reset(documents);
+        }
+    }
+
+    @Test
+    void refusesAFollowFromAnActorWhoIsGoneEvenWithAnOldCopy() throws Exception {
+        followHandler.handle(follow(newId()));
+        jdbc.sql("UPDATE actor SET updated_at = now() - INTERVAL '25 hours' WHERE uri = :uri").param("uri", followerUri).update();
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.gone("Gone"));
+
+        assertThatThrownBy(() -> followHandler.handle(follow(newId()))).isInstanceOf(PermanentJobFailure.class);
+    }
+
+    @Test
+    void refusesANewDocumentThatCannotBeUsedEvenWithAnOldCopy() throws Exception {
+        followHandler.handle(follow(newId()));
+        jdbc.sql("UPDATE actor SET updated_at = now() - INTERVAL '25 hours' WHERE uri = :uri").param("uri", followerUri).update();
+        when(documents.fetch(eq(URI.create(followerUri)))).thenReturn(json.readTree(
+                "{\"id\":\"%s\",\"type\":\"Person\",\"preferredUsername\":\"bob\",\"inbox\":\"https://other.test/inbox\"}"
+                        .formatted(followerUri)));
+
+        assertThatThrownBy(() -> followHandler.handle(follow(newId()))).isInstanceOf(PermanentJobFailure.class);
+    }
+
+    @Test
     void refusesADocumentAndStoresNothing() throws Exception {
         when(documents.fetch(eq(URI.create(followerUri)))).thenReturn(json.readTree(
                 "{\"id\":\"%s\",\"type\":\"Person\",\"preferredUsername\":\"bob\",\"inbox\":\"https://other.test/inbox\"}"
@@ -350,14 +387,14 @@ class FollowIntegrationTests {
 
     @Test
     void undoOfAnOlderFollowLeavesTheNewerOne() {
-        var older = newId();
-        var newer = newId();
-        followHandler.handle(follow(older));
-        followHandler.handle(follow(newer));
+        var older = arrive(follow(newId()));
+        var newer = arrive(follow(newId()));
+        followHandler.handle(older);
+        followHandler.handle(newer);
 
-        undoHandler.handle(undo(followerUri, embeddedFollow(older, followerUri)));
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(older.id(), followerUri))));
 
-        assertThat(follows()).containsExactly(newer);
+        assertThat(follows()).containsExactly(newer.id());
     }
 
     @Test
@@ -665,6 +702,29 @@ class FollowIntegrationTests {
                 .query(java.time.OffsetDateTime.class).single().toInstant()).isEqualTo(now);
     }
 
+    /**
+     * A server can make a new ID, and nothing else here knows the one that it names.
+     */
+    @Test
+    void anUndoNamingAnUnknownIdStillRemovesTheFollowItDescribes() {
+        followHandler.handle(arrive(follow(newId())));
+
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(newId(), followerUri))));
+
+        assertThat(follows()).isEmpty();
+        assertThat(accepts()).isEmpty();
+    }
+
+    @Test
+    void anUndoNamingJustAnUnknownIdLeavesTheFollow() {
+        var followId = newId();
+        followHandler.handle(arrive(follow(followId)));
+
+        undoHandler.handle(arrive(undo(followerUri, "\"" + newId() + "\"")));
+
+        assertThat(follows()).containsExactly(followId);
+    }
+
     // Servers that use the same IDs each time, as Misskey does
 
     @Test
@@ -679,6 +739,32 @@ class FollowIntegrationTests {
 
         assertThat(follows()).containsExactly(activity.id());
         assertThat(accepts()).hasSize(1);
+    }
+
+    /**
+     * The answer to the first one may have failed and been set aside, and the same job wouldn't replace it.
+     */
+    @Test
+    void aRepeatedFollowQueuesAnotherAnswer() {
+        var activity = follow(newId());
+        followHandler.handle(arrive(activity));
+        assertThat(deliveryInboxes()).hasSize(1);
+
+        inbound.accept(again(activity));
+        followHandler.handle(stored(activity));
+
+        assertThat(deliveryInboxes()).hasSize(2);
+        assertThat(accepts()).hasSize(1);
+    }
+
+    @Test
+    void aRepeatGetsItsOwnJobWhileTheLastOneIsStillQueued() {
+        var activity = follow(newId());
+        inbound.accept(activity);
+
+        inbound.accept(again(activity));
+
+        assertThat(inboundJobs(activity)).isEqualTo(2);
     }
 
     /**

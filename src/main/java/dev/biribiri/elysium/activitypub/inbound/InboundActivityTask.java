@@ -6,7 +6,6 @@ import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -30,20 +29,12 @@ class InboundActivityTask {
     }
 
     private CompletionHandler<InboundJob> run(InboundJob job) {
-        var activity = stored.find(job.activityId());
-        if (activity.isEmpty()) {
-            return Jobs.done();
-        }
-        var handler = handlers.get(activity.get().type());
-        if (handler == null) {
-            return Jobs.done();
-        }
-        handler.handle(activity.get());
-
-        // A repeat that arrived during this can't queue another job while this one exists, and it wasn't what this just read.
-        var repeated = stored.find(job.activityId())
-                .filter(latest -> latest.receivedAt().isAfter(activity.get().receivedAt()))
-                .isPresent();
-        return repeated ? (complete, operations) -> operations.reschedule(complete, Instant.now()) : Jobs.done();
+        stored.find(job.activityId()).ifPresent(activity -> {
+            var handler = handlers.get(activity.type());
+            if (handler != null) {
+                handler.handle(activity);
+            }
+        });
+        return Jobs.done();
     }
 }

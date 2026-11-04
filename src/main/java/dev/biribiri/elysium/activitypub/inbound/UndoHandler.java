@@ -98,14 +98,14 @@ class UndoHandler implements InboundActivityHandler {
         var followedUri = follow.flatMap(found -> ActivityObject.of(found.body(), json))
                 .map(ActivityObject::id)
                 .or(() -> Optional.ofNullable(object.object()));
-        var followed = followedUri.flatMap(UndoHandler::parseUri).flatMap(actors::findLocalByUri).map(Actor::id);
+        var followed = followedUri.flatMap(ActivityObject::parseUri).flatMap(actors::findLocalByUri).map(Actor::id);
         transaction.executeWithoutResult(status ->
                 follows.undo(actorUri, followed, followId, follow.map(InboundActivity::arrival), activity.receivedAt())
                         .ifPresent(this::cancelAccept));
     }
 
     private void undoByPair(InboundActivity activity, String followedUri) {
-        parseUri(followedUri).flatMap(actors::findLocalByUri).ifPresent(followed ->
+        ActivityObject.parseUri(followedUri).flatMap(actors::findLocalByUri).ifPresent(followed ->
                 transaction.executeWithoutResult(status ->
                         follows.undoPair(activity.actorUri(), followed.id(), activity.receivedAt())
                                 .ifPresent(this::cancelAccept)));
@@ -117,14 +117,6 @@ class UndoHandler implements InboundActivityHandler {
     private void cancelAccept(FollowService.Removed removed) {
         actors.findLocalById(removed.followedId()).ifPresent(followed ->
                 deliveries.cancel(Accept.idFor(followed.uri(), removed.activityUri())));
-    }
-
-    private static Optional<URI> parseUri(String value) {
-        try {
-            return Optional.of(new URI(value));
-        } catch (URISyntaxException e) {
-            return Optional.empty();
-        }
     }
 
     private static boolean canSpeakFor(String actorUri, String id) {

@@ -69,7 +69,8 @@ public class FollowService {
     /**
      * Applies an {@code Undo} that names the activity behind a follow.
      *
-     * @param followedId who the activity was a follow of, if that's known
+     * @param followedId who the activity was a follow of, if that's known. This removes any follow between the two actors
+     *                   that arrived before the {@code Undo}, if the activity itself isn't known.
      * @param arrival    when the activity arrived, if that's known. It may not have arrived yet.
      * @param undoAt     when the {@code Undo} arrived
      * @return the follow that was removed, if any
@@ -85,6 +86,12 @@ public class FollowService {
 
         // Stored activities are eventually cleaned up, long before an account stops following someone.
         var known = arrival.or(() -> stored.map(row -> new Arrival(row.activityAt(), row.activityAt())));
+        if (known.isEmpty() && followed.isPresent()) {
+            // Either the Follow hasn't arrived, or this isn't the ID that it has here, since a server can make a new one. The
+            // actor has still stopped following, and staying a follower by mistake is worse than losing one.
+            follows.markUndone(activityUri, followerUri, undoAt);
+            return cover(followerUri, followed.get(), undoAt);
+        }
         if (known.isEmpty() || known.get().first().isAfter(undoAt)) {
             // The Undo got here first, so nothing else says what it covers. Only this activity can be stopped.
             follows.markUndone(activityUri, followerUri, undoAt);

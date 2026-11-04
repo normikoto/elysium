@@ -59,7 +59,14 @@ public class InboundActivities {
                         .param("id", activity.id())
                         .param("receivedAt", activity.receivedAt().atOffset(ZoneOffset.UTC))
                         .update();
-                Jobs.scheduleAgain(scheduler, TASK, new InboundJob(activity.id(), Instant.now()), activity.id());
+                // Its own job, saved along with the new time. One with the same ID would do nothing while the last job is
+                // still running or set aside after failing, and it would carry that job's age.
+                Jobs.schedule(
+                        scheduler,
+                        TASK,
+                        new InboundJob(activity.id(), Instant.now()),
+                        activity.id(),
+                        activity.receivedAt().toString());
             }
             return false;
         }

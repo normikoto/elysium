@@ -3,6 +3,8 @@ package dev.biribiri.elysium.activitypub.inbound;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Optional;
 
 /**
@@ -49,6 +51,17 @@ record ActivityObject(String id, String type, String actor, String object) {
                 ActivityEnvelope.firstText(node.path("type")),
                 actor,
                 singleId(node.path("object"))));
+    }
+
+    /**
+     * @return the URI, or empty if this isn't one
+     */
+    static Optional<URI> parseUri(String value) {
+        try {
+            return Optional.of(new URI(value));
+        } catch (URISyntaxException e) {
+            return Optional.empty();
+        }
     }
 
     /**

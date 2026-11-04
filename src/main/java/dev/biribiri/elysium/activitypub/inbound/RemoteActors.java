@@ -6,18 +6,23 @@ import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * Keeps a copy of actors from other servers, fetching their documents when there's no copy or the copy is old.
  */
 @Component
 class RemoteActors {
+
+    private static final Logger log = LoggerFactory.getLogger(RemoteActors.class);
 
     private static final Duration KEPT_FOR = Duration.ofHours(24);
 
@@ -53,14 +58,25 @@ class RemoteActors {
         if (existing.isPresent() && existing.get().updatedAt().isAfter(Instant.now().minus(KEPT_FOR))) {
             return existing.get();
         }
-        var profile = RemoteActorDocument.read(uri, fetch(uri));
-        return actors.upsertRemote(profile);
+        var document = fetch(uri, existing.isPresent());
+        return document.map(fetched -> actors.upsertRemote(RemoteActorDocument.read(uri, fetched)))
+                .or(() -> existing)
+                .orElseThrow();
     }
 
-    private JsonNode fetch(URI uri) {
+    /**
+     * @param hasCopy whether there's an older copy that can be used if this fails. One failed request, or a firewall's answer,
+     *                is no reason to lose an actor. A server saying that the actor is gone is.
+     * @return the document, or empty if the older copy should be used
+     */
+    private Optional<JsonNode> fetch(URI uri, boolean hasCopy) {
         try {
-            return documents.fetch(uri);
+            return Optional.of(documents.fetch(uri));
         } catch (DocumentFetchException e) {
+            if (hasCopy && !e.isGone()) {
+                log.debug("Using an older copy of {}: {}", uri, e.getMessage());
+                return Optional.empty();
+            }
             if (e.isTemporary()) {
                 throw new IllegalStateException(e.getMessage(), e);
             }

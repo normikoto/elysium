@@ -13,9 +13,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Accepts every request to follow a local account. The instance actor can't be followed: it isn't in the table that follows
@@ -57,7 +55,7 @@ class FollowHandler implements InboundActivityHandler {
     public void handle(InboundActivity activity) {
         var followed = ActivityObject.of(activity.body(), json)
                 .map(ActivityObject::id)
-                .flatMap(FollowHandler::parseUri)
+                .flatMap(ActivityObject::parseUri)
                 .flatMap(actors::findLocalByUri);
         if (followed.isEmpty()) {
             log.debug("Ignoring Follow {}, which isn't of a local account", activity.id());
@@ -94,17 +92,12 @@ class FollowHandler implements InboundActivityHandler {
             }
             accepted.get().replacedActivity()
                     .ifPresent(replaced -> deliveries.cancel(Accept.idFor(followed.uri(), replaced)));
+            // By arrival, so that a repeat gets an answer even if the answer to the last one failed and was set aside, while
+            // this job running again doesn't send another.
             deliveries.enqueue(
                     new OutboundActivity(accept.id().toString(), followed.id(), body),
-                    List.of(follower.inboxUri()));
+                    List.of(follower.inboxUri()),
+                    activity.receivedAt().toString());
         });
-    }
-
-    private static Optional<URI> parseUri(String value) {
-        try {
-            return Optional.of(new URI(value));
-        } catch (URISyntaxException e) {
-            return Optional.empty();
-        }
     }
 }

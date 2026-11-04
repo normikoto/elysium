@@ -117,7 +117,27 @@ class InboundActivitiesIntegrationTests {
 
         inbound.accept(again(activity));
 
-        await().atMost(WAIT).until(() -> repeating.handled(activity) == 2 && jobs(activity) == 0);
+        // The first job stays set aside, for an admin to look at.
+        await().atMost(WAIT).until(() -> repeating.handled(activity) == 2 && jobs(activity) == 1);
+    }
+
+    @Test
+    void aRepeatIsNotAffectedByTheAgeOfAJobThatWasSetAside() {
+        var activity = activity("Repeating");
+        repeating.onNext.put(activity.id(), ignored -> {
+            throw new PermanentJobFailure("This activity's actor doesn't make sense");
+        });
+        inbound.accept(activity);
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        repeating.onNext.put(activity.id(), ignored -> {
+            throw new IllegalStateException("A database was busy");
+        });
+
+        inbound.accept(again(activity));
+
+        // It's retried in about a minute, rather than being set aside like the first one.
+        await().atMost(WAIT).until(() -> soonestJob(activity).isBefore(Instant.now().plus(Duration.ofMinutes(5)))
+                && repeating.handled(activity) == 2);
     }
 
     @Test
@@ -150,6 +170,17 @@ class InboundActivitiesIntegrationTests {
 
     private static InboundActivity again(InboundActivity activity) {
         return new InboundActivity(activity.id(), activity.actorUri(), activity.type(), activity.body());
+    }
+
+    private Instant soonestJob(InboundActivity activity) {
+        return jdbc.sql("""
+                        SELECT min(execution_time) FROM scheduled_tasks
+                        WHERE task_name = 'inbound-activity' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activity.id() + "%")
+                .query(OffsetDateTime.class)
+                .single()
+                .toInstant();
     }
 
     private long jobs(InboundActivity activity) {
