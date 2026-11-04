@@ -10,8 +10,8 @@ import java.net.URI;
  * queued, because servers reject signatures that are too old.
  *
  * <p>There can be several of these, so a request that's signed for no particular server should go through
- * {@link SignedFetcher} rather than choosing a format. Signers that are preferred should have a lower
- * {@link org.springframework.core.annotation.Order}.
+ * {@link SignedFetcher} rather than choosing a format. Signers with a lower
+ * {@link org.springframework.core.annotation.Order} are tried first. The package documentation explains how to choose.
  */
 public interface RequestSigner {
 
