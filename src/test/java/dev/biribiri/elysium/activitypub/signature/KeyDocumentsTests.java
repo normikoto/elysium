@@ -389,7 +389,7 @@ class KeyDocumentsTests {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {429, 500, 502, 503, 504})
+    @ValueSource(ints = {408, 429, 500, 502, 503, 504})
     void treatsOverloadedServersAsTemporary(int status) throws Exception {
         when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0]));
 
