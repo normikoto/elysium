@@ -1,12 +1,14 @@
 package dev.biribiri.elysium.actor.internal;
 
 import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.actor.RemoteActorProfile;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
+import java.sql.Types;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
@@ -17,14 +19,18 @@ import java.util.UUID;
 @Repository
 public class ActorRepository {
 
-    private static final String SELECT_LOCAL = """
-            SELECT a.id, a.uri, a.username, a.domain, a.inbox_uri, a.outbox_uri, a.shared_inbox_uri,
-                   a.public_key_pem, a.created_at
-            FROM actor a
-            JOIN local_account l ON l.actor_id = a.id
+    private static final String COLUMNS = """
+            actor.id, actor.uri, actor.username, actor.domain, actor.inbox_uri, actor.outbox_uri, actor.shared_inbox_uri,
+            actor.public_key_pem, actor.created_at, actor.updated_at
+            """;
+
+    private static final String SELECT_LOCAL = "SELECT " + COLUMNS + """
+            FROM actor
+            JOIN local_account ON local_account.actor_id = actor.id
             """;
 
     private static final RowMapper<Actor> ACTOR_MAPPER = (rs, rowNum) -> {
+        var outbox = rs.getString("outbox_uri");
         var sharedInbox = rs.getString("shared_inbox_uri");
         return new Actor(
                 rs.getObject("id", UUID.class),
@@ -32,10 +38,11 @@ public class ActorRepository {
                 rs.getString("username"),
                 rs.getString("domain"),
                 URI.create(rs.getString("inbox_uri")),
-                URI.create(rs.getString("outbox_uri")),
+                outbox == null ? null : URI.create(outbox),
                 sharedInbox == null ? null : URI.create(sharedInbox),
                 rs.getString("public_key_pem"),
-                rs.getObject("created_at", OffsetDateTime.class).toInstant());
+                rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                rs.getObject("updated_at", OffsetDateTime.class).toInstant());
     };
 
     private final JdbcClient jdbc;
@@ -45,7 +52,7 @@ public class ActorRepository {
     }
 
     public Optional<Actor> findLocal(String username, String domain) {
-        return jdbc.sql(SELECT_LOCAL + "WHERE lower(a.username) = lower(:username) AND a.domain = :domain")
+        return jdbc.sql(SELECT_LOCAL + "WHERE lower(username) = lower(:username) AND domain = :domain AND is_local")
                 .param("username", username)
                 .param("domain", domain)
                 .query(ACTOR_MAPPER)
@@ -53,14 +60,53 @@ public class ActorRepository {
     }
 
     public Optional<Actor> findLocalByUri(URI uri) {
-        return jdbc.sql(SELECT_LOCAL + "WHERE a.uri = :uri")
+        return jdbc.sql(SELECT_LOCAL + "WHERE uri = :uri")
                 .param("uri", uri.toString())
                 .query(ACTOR_MAPPER)
                 .optional();
     }
 
+    public Optional<Actor> findByUri(URI uri) {
+        return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE uri = :uri")
+                .param("uri", uri.toString())
+                .query(ACTOR_MAPPER)
+                .optional();
+    }
+
+    /**
+     * Inserts an actor from another server, or replaces what's stored about it. Only the URI identifies it, so another actor
+     * on that server can have the same username.
+     */
+    public Actor upsertRemote(RemoteActorProfile profile) {
+        return jdbc.sql("""
+                        INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, shared_inbox_uri, public_key_pem)
+                        VALUES (:id, :uri, :username, :domain, :inboxUri, :outboxUri, :sharedInboxUri, :publicKeyPem)
+                        ON CONFLICT (uri) DO UPDATE SET
+                            username = EXCLUDED.username,
+                            inbox_uri = EXCLUDED.inbox_uri,
+                            outbox_uri = EXCLUDED.outbox_uri,
+                            shared_inbox_uri = EXCLUDED.shared_inbox_uri,
+                            public_key_pem = EXCLUDED.public_key_pem,
+                            updated_at = now()
+                        RETURNING\s""" + COLUMNS)
+                .param("id", UUID.randomUUID())
+                .param("uri", profile.uri().toString())
+                .param("username", profile.username())
+                .param("domain", profile.domain())
+                .param("inboxUri", profile.inboxUri().toString())
+                .param("outboxUri", text(profile.outboxUri()), Types.VARCHAR)
+                .param("sharedInboxUri", text(profile.sharedInboxUri()), Types.VARCHAR)
+                .param("publicKeyPem", profile.publicKeyPem(), Types.VARCHAR)
+                .query(ACTOR_MAPPER)
+                .single();
+    }
+
+    private static String text(URI uri) {
+        return uri == null ? null : uri.toString();
+    }
+
     public Optional<Actor> findLocalById(UUID id) {
-        return jdbc.sql(SELECT_LOCAL + "WHERE a.id = :id")
+        return jdbc.sql(SELECT_LOCAL + "WHERE id = :id")
                 .param("id", id)
                 .query(ACTOR_MAPPER)
                 .optional();
@@ -70,7 +116,7 @@ public class ActorRepository {
         if (ids.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql(SELECT_LOCAL + "WHERE a.id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
+        return jdbc.sql(SELECT_LOCAL + "WHERE id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
     }
 
     /**
@@ -100,9 +146,9 @@ public class ActorRepository {
     public boolean createLocalIfAbsent(Actor actor, String privateKeyPem) {
         var inserted = jdbc.sql("""
                         INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, shared_inbox_uri,
-                                           public_key_pem, created_at)
+                                           public_key_pem, created_at, updated_at, is_local)
                         VALUES (:id, :uri, :username, :domain, :inboxUri, :outboxUri, :sharedInboxUri, :publicKeyPem,
-                                :createdAt)
+                                :createdAt, :updatedAt, TRUE)
                         ON CONFLICT DO NOTHING
                         """)
                 .param("id", actor.id())
@@ -115,6 +161,7 @@ public class ActorRepository {
                         java.sql.Types.VARCHAR)
                 .param("publicKeyPem", actor.publicKeyPem())
                 .param("createdAt", actor.createdAt().atOffset(ZoneOffset.UTC))
+                .param("updatedAt", actor.updatedAt().atOffset(ZoneOffset.UTC))
                 .update();
         if (inserted == 0) {
             return false;

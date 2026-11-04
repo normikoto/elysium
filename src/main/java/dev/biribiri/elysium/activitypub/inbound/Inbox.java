@@ -62,7 +62,10 @@ public class Inbox {
         return Outcome.ACCEPTED;
     }
 
-    private static boolean isOnActorsServer(URI id, URI actor) {
+    /**
+     * @return whether the actor can speak for this ID, because the two are on the same server
+     */
+    static boolean isOnActorsServer(URI id, URI actor) {
         return "https".equalsIgnoreCase(id.getScheme())
                 && id.getHost() != null
                 && id.getRawUserInfo() == null

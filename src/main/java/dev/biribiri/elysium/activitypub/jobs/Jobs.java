@@ -5,12 +5,9 @@ import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import com.github.kagkarlsson.scheduler.task.helper.CustomTask;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
+import dev.biribiri.elysium.activitypub.signature.Digests;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.function.Function;
 
 /**
@@ -54,12 +51,6 @@ public final class Jobs {
      * ones.
      */
     static String instanceId(String... parts) {
-        try {
-            var digest = MessageDigest.getInstance("SHA-256")
-                    .digest(String.join("\n", parts).getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("Every JVM has SHA-256", e);
-        }
+        return Digests.sha256Hex(String.join("\n", parts));
     }
 }

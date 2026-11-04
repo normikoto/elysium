@@ -116,7 +116,7 @@ class SignedFetcherTests {
         };
 
         assertThatThrownBy(() -> fetcher(signer).get(URL, ACCEPT))
-                .isInstanceOfSatisfying(KeyFetchException.class, e -> assertThat(e.isTemporary()).isFalse());
+                .isInstanceOfSatisfying(DocumentFetchException.class, e -> assertThat(e.isTemporary()).isFalse());
         verifyNoInteractions(http);
     }
 

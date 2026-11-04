@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,7 +26,10 @@ public class ActivityDeliveries {
     private final JdbcClient jdbc;
     private final SchedulerClient scheduler;
 
-    ActivityDeliveries(JdbcClient jdbc, SchedulerClient scheduler) {
+    /**
+     * @param scheduler lazy because the scheduler needs every task, and tasks need handlers, which queue activities here
+     */
+    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler) {
         this.jdbc = jdbc;
         this.scheduler = scheduler;
     }
@@ -40,6 +44,15 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(OutboundActivity activity, Collection<URI> inboxes) {
+        store(activity);
+        var now = Instant.now();
+        for (var inbox : new LinkedHashSet<>(inboxes)) {
+            var job = new DeliveryJob(activity.id(), inbox.toString(), now);
+            Jobs.schedule(scheduler, TASK, job, job.activityId(), job.inbox());
+        }
+    }
+
+    private void store(OutboundActivity activity) {
         jdbc.sql("""
                         INSERT INTO outbound_activity (activity_id, actor_id, body)
                         VALUES (:id, :actorId, :body)
@@ -49,11 +62,23 @@ public class ActivityDeliveries {
                 .param("actorId", activity.actorId())
                 .param("body", activity.body())
                 .update();
+    }
 
+    /**
+     * Queues an activity to be sent again, as a new try for each inbox, for when something has asked for it again. A job from
+     * an earlier try may have given up and been set aside, and queuing the same job wouldn't replace it. Doing this again
+     * for the same try has no effect, so a listener that runs again after a crash is safe. Otherwise this is like
+     * {@link #enqueue(OutboundActivity, Collection)}.
+     *
+     * @param attempt what identifies this try
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueue(OutboundActivity activity, Collection<URI> inboxes, String attempt) {
+        store(activity);
         var now = Instant.now();
         for (var inbox : new LinkedHashSet<>(inboxes)) {
             var job = new DeliveryJob(activity.id(), inbox.toString(), now);
-            Jobs.schedule(scheduler, TASK, job, job.activityId(), job.inbox());
+            Jobs.schedule(scheduler, TASK, job, job.activityId(), job.inbox(), attempt);
         }
     }
 

@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their addresses. nginx needs configuring to do this. See `docs/configuration.md`.
 - An instance actor at `/actor`, which can be found through WebFinger as `instance.actor`. It's for signing requests that
   no user is behind.
+- Other servers' users can follow local users and unfollow them. Every request is accepted automatically, and an `Accept`
+  is sent back. Local users can't follow anyone yet, and their statuses aren't sent to followers. See `FEDERATION.md`.
 - A background job queue stored in PostgreSQL, for sending and receiving activities. It adds tables through a migration,
   and needs no new services. Admins can see, retry, and delete jobs at `/admin/db-scheduler`. See `docs/accounts.md`.
 - Inboxes at `/users/:username/inbox`, `/actor/inbox`, and `/inbox`, which check HTTP Signatures and queue activities from

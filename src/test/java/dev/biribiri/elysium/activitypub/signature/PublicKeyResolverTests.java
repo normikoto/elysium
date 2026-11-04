@@ -96,7 +96,7 @@ class PublicKeyResolverTests {
 
     @Test
     void remembersAPermanentFailureForTenMinutes() throws Exception {
-        when(documents.fetch(any())).thenThrow(KeyFetchException.permanent("gone", null));
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.permanent("gone", null));
 
         assertFails(KEY_ID, Failure.REJECTED);
         advance(Duration.ofMinutes(10).minusSeconds(1));
@@ -110,7 +110,7 @@ class PublicKeyResolverTests {
 
     @Test
     void remembersATemporaryFailureForAMinute() throws Exception {
-        when(documents.fetch(any())).thenThrow(KeyFetchException.temporary("down", null));
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.temporary("down", null));
 
         assertFails(KEY_ID, Failure.KEY_UNAVAILABLE);
         advance(Duration.ofMinutes(1).minusSeconds(1));
@@ -131,7 +131,7 @@ class PublicKeyResolverTests {
 
     @Test
     void limitsFetchesPerHost() throws Exception {
-        when(documents.fetch(any())).thenThrow(KeyFetchException.permanent("gone", null));
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.permanent("gone", null));
 
         for (var i = 0; i < 60; i++) {
             assertFails("https://remote.example/users/u" + i + "#main-key", Failure.REJECTED);
@@ -150,7 +150,7 @@ class PublicKeyResolverTests {
      */
     @Test
     void countsEveryPortOfAHostTowardItsLimit() throws Exception {
-        when(documents.fetch(any())).thenThrow(KeyFetchException.permanent("gone", null));
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.permanent("gone", null));
 
         for (var i = 0; i < 60; i++) {
             assertFails("https://remote.example:" + (1000 + i) + "/key", Failure.REJECTED);
@@ -447,7 +447,7 @@ class PublicKeyResolverTests {
     void doesNotTryAgainSoonAfterARefreshFailsForNow() throws Exception {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
-                .thenThrow(KeyFetchException.temporary("down", null))
+                .thenThrow(DocumentFetchException.temporary("down", null))
                 .thenReturn(NEW_KEY);
         var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
@@ -466,7 +466,7 @@ class PublicKeyResolverTests {
     void doesNotLetFailedRefreshesKeepAnOldKeyAlive() throws Exception {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
-                .thenThrow(KeyFetchException.temporary("down", null));
+                .thenThrow(DocumentFetchException.temporary("down", null));
         var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
 
         advance(Duration.ofHours(23));
@@ -480,7 +480,7 @@ class PublicKeyResolverTests {
     void keepsTheKeyIfARefreshGetsAnAnswerThatIsNotGone() throws Exception {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
-                .thenThrow(KeyFetchException.permanent("a firewall said 403", null))
+                .thenThrow(DocumentFetchException.permanent("a firewall said 403", null))
                 .thenReturn(NEW_KEY);
         var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
@@ -516,7 +516,7 @@ class PublicKeyResolverTests {
     void keepsTheOldKeyIfARefreshFailsForNow() throws Exception {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
-                .thenThrow(KeyFetchException.temporary("down", null));
+                .thenThrow(DocumentFetchException.temporary("down", null));
         var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
 
@@ -531,7 +531,7 @@ class PublicKeyResolverTests {
     void forgetsTheKeyIfItIsGoneOnRefresh() throws Exception {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
-                .thenThrow(KeyFetchException.gone("gone"));
+                .thenThrow(DocumentFetchException.gone("gone"));
         var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
 
@@ -590,7 +590,7 @@ class PublicKeyResolverTests {
         var uri = URI.create("https://example.test/users/alice");
         return new Actor(
                 UUID.randomUUID(), uri, "alice", "example.test", URI.create(uri + "/inbox"), URI.create(uri + "/outbox"),
-                null, SignatureFixtures.PUBLIC_KEY_PEM, Instant.EPOCH);
+                null, SignatureFixtures.PUBLIC_KEY_PEM, Instant.EPOCH, Instant.EPOCH);
     }
 
     private void assertRefreshFails(ResolvedKey stale, Failure failure) {

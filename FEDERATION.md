@@ -1,12 +1,13 @@
 # Federation
 
-Elysium is an early work in progress and can't federate yet. Other servers can discover its users and deliver activities
-to them, but it doesn't act on those activities or send any. This file only describes what's implemented today.
+Elysium is an early work in progress and can't fully federate yet. Other servers can discover its users, deliver activities
+to them, and follow them, but its users can't follow anyone, and their statuses aren't sent to followers. This file only
+describes what's implemented today.
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, and accepting
-  activities at an inbox without acting on them
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
+  activities at an inbox, and receiving `Follow` and `Undo` of a `Follow`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -32,10 +33,11 @@ Usernames are 1 to 30 letters, digits, or underscores, and are matched case-inse
 ### Instance actor
 
 The server itself is an `Application` actor at `/actor`, with the `preferredUsername` `instance.actor`. It's for signing
-requests that no user is behind, which so far means fetching keys. Its document is served as
+requests that no user is behind, which so far means fetching keys and actor documents. Its document is served as
 `application/activity+json` or `application/ld+json` with any profile, and any origin can read it through CORS. It never
 requires a signature. There's no web page at this URL, so its `url` links to the front page. Its key is identified as
-`{actor-uri}#main-key`, and it isn't counted as a user.
+`{actor-uri}#main-key`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is ignored, with no
+`Reject`.
 
 ### Objects
 
@@ -78,15 +80,87 @@ a fetch that's already running. IPv6 addresses are counted by their /64 network.
 
 ### Activities
 
-Activities that are accepted are stored, but nothing acts on them yet. No activities are sent.
+Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
+one worked. Activities are processed in no particular order. Only `Follow` and `Undo` of a `Follow` are acted on, and other
+types are ignored.
 
 An activity is only accepted if its `actor`, which can be an array of one, is the actor that signed the request. Otherwise
 it's answered with a `202` and dropped, which includes activities forwarded by another server and activities with several
 actors. Linked Data Signatures aren't verified.
 
+### Follows
+
+A `Follow` whose `object` is a local user is always accepted, because accounts can't approve followers by hand yet. Who's
+following comes from the signature, and not from the activity's body. The `object` can be an ID, an embedded object with an
+`id`, or an array of one of those. A `Follow` of anything else is ignored.
+
+The follower's document is fetched, signed as the [instance actor](#instance-actor), unless a copy from the last 24 hours
+is stored. If an older copy is stored, it's used when the fetch fails, unless the server answers with a `404` or `410`. A
+`Follow` is refused, and not tried again, unless the document:
+
+- Has an `id` matching the signer, and an actor `type`: `Application`, `Group`, `Organization`, `Person`, or `Service`.
+- Has a `preferredUsername` of up to 255 characters, with no control characters. Other actors on that server can have the
+  same one, because an actor's URI is what identifies it.
+- Has an `inbox` that's an HTTPS URL on the same host and port as the actor, with no user info. This stops a document from
+  aiming this server's requests at another server. An `endpoints.sharedInbox` that isn't one is left out, without refusing
+  the actor.
+- Is on a different domain from this server.
+
+Each `Follow` that's stored gets an `Accept`, signed as the user being followed, and sent to the follower's `inbox`. This
+includes another `Follow` from someone who's already following, since their server may have lost track, whether or not it
+has a new `id`. The `Accept`'s `id` is
+`{actor-uri}#accepts/follows/{hash}`, where the hash is the SHA-256 of the `Follow`'s `id`, and its `object` is the `Follow`
+with its `id`, `type`, `actor`, and `object`:
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice#accepts/follows/2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+  "type": "Accept",
+  "actor": "https://elysium.example/users/alice",
+  "object": {
+    "id": "https://remote.example/activities/1",
+    "type": "Follow",
+    "actor": "https://remote.example/users/bob",
+    "object": "https://elysium.example/users/alice"
+  }
+}
+```
+
+An `Undo` removes a follow if its `object` names the `Follow` that created it, by `id`, or as an embedded `Follow` with an
+`id`. An embedded `Follow` with no `id` removes the follow between its actor and its `object`. Nothing happens if:
+
+- The embedded `Follow`'s `actor` isn't the actor that signed the `Undo`.
+- The follow came from a different `Follow`, which would be a newer one.
+- The `Follow`'s `id` isn't an HTTPS URL on the same host and port as the actor, or is over 2048 bytes.
+
+Activities are ordered by when they arrived here, whatever order they're processed in:
+
+- An `Undo` also removes any follow between the two actors from a `Follow` that arrived before the one it names, and stops
+  those from creating a follow if they're processed later.
+- An `Undo` that names a `Follow` isn't affected by another `Follow` that arrived after the named one, and an `Undo` of an
+  embedded `Follow` with no `id` covers every `Follow` that arrived before it.
+- A `Follow` that arrived before the one behind an existing follow doesn't replace it, and gets no `Accept`.
+- A newer `Follow` replaces an older one's `Accept` if that hasn't been sent yet, and an `Undo` cancels the `Accept` of the
+  follow it removes, if that hasn't been sent yet.
+
+An `Undo` of an embedded `Follow` whose `id` isn't known here removes any follow between its actor and its `object` that arrived
+before it, because a server can make a new `id`. An `Undo` that only gives an `id` that isn't known has no other effect.
+
+An `Undo` that names a `Follow` before it arrives still counts, for about 34 days, and only stops that actor's `Follow` with
+that `id`. If an embedded `Follow` has no `id`, then a `Follow` that arrives after it can't be told apart from a new request,
+so it creates a follow.
+
+Some servers use the same `id` for each `Follow` between two actors, and for each `Undo` of it, so a `Follow` or `Undo` that
+repeats an `id` from the same actor is processed again, rather than dropped. A repeated `Follow` is a new request, so it stands
+if it arrived after any `Undo` of it.
+
 ### Notable differences
 
-- Actors can't be followed, because `Follow` activities aren't acted on.
+- Local users can't follow other actors, or approve followers by hand. Actor documents don't include
+  `manuallyApprovesFollowers`.
+- `Reject` is never sent.
+- A follower stays stored when its actor is deleted, because `Delete` isn't acted on.
 - Actor documents advertise an `outbox`, but it isn't implemented yet.
 - Actor documents don't include `followers` or `following` collections.
 - `Note` objects aren't addressed to followers, because actors don't have a followers collection yet.
@@ -100,8 +174,8 @@ actors. Linked Data Signatures aren't verified.
 ### HTTP Signatures
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
-[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures, and the only requests
-this server makes are fetches of keys.
+[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures. The only requests this
+server makes are fetches of keys and actor documents, and deliveries of `Accept`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

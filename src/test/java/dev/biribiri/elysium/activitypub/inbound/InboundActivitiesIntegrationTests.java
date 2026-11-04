@@ -37,6 +37,8 @@ class InboundActivitiesIntegrationTests {
     @Autowired
     private RecordingHandler handler;
     @Autowired
+    private RepeatingHandler repeating;
+    @Autowired
     private JdbcClient jdbc;
 
     @Test
@@ -95,6 +97,50 @@ class InboundActivitiesIntegrationTests {
     }
 
     @Test
+    void doesNotDropARepeatThatArrivesWhileItsJobIsRunning() {
+        var activity = activity("Repeating");
+        repeating.onNext.put(activity.id(), ignored -> inbound.accept(again(activity)));
+
+        inbound.accept(activity);
+
+        await().atMost(WAIT).until(() -> repeating.handled(activity) == 2 && jobs(activity) == 0);
+    }
+
+    @Test
+    void processesARepeatOfAnActivityThatWasSetAside() {
+        var activity = activity("Repeating");
+        repeating.onNext.put(activity.id(), ignored -> {
+            throw new PermanentJobFailure("This activity's actor doesn't make sense");
+        });
+        inbound.accept(activity);
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+        inbound.accept(again(activity));
+
+        // The first job stays set aside, for an admin to look at.
+        await().atMost(WAIT).until(() -> repeating.handled(activity) == 2 && jobs(activity) == 1);
+    }
+
+    @Test
+    void aRepeatIsNotAffectedByTheAgeOfAJobThatWasSetAside() {
+        var activity = activity("Repeating");
+        repeating.onNext.put(activity.id(), ignored -> {
+            throw new PermanentJobFailure("This activity's actor doesn't make sense");
+        });
+        inbound.accept(activity);
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        repeating.onNext.put(activity.id(), ignored -> {
+            throw new IllegalStateException("A database was busy");
+        });
+
+        inbound.accept(again(activity));
+
+        // It's retried in about a minute, rather than being set aside like the first one.
+        await().atMost(WAIT).until(() -> soonestJob(activity).isBefore(Instant.now().plus(Duration.ofMinutes(5)))
+                && repeating.handled(activity) == 2);
+    }
+
+    @Test
     void ignoresAnActivityWithNoHandler() {
         var activity = activity("SomethingElse");
 
@@ -120,6 +166,21 @@ class InboundActivitiesIntegrationTests {
     private static InboundActivity activity(String type) {
         var id = "https://remote.test/activities/" + UUID.randomUUID();
         return new InboundActivity(id, "https://remote.test/actor", type, "{\"id\":\"" + id + "\"}");
+    }
+
+    private static InboundActivity again(InboundActivity activity) {
+        return new InboundActivity(activity.id(), activity.actorUri(), activity.type(), activity.body());
+    }
+
+    private Instant soonestJob(InboundActivity activity) {
+        return jdbc.sql("""
+                        SELECT min(execution_time) FROM scheduled_tasks
+                        WHERE task_name = 'inbound-activity' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activity.id() + "%")
+                .query(OffsetDateTime.class)
+                .single()
+                .toInstant();
     }
 
     private long jobs(InboundActivity activity) {
@@ -179,11 +240,44 @@ class InboundActivitiesIntegrationTests {
         }
     }
 
+    static class RepeatingHandler implements InboundActivityHandler {
+        final List<String> calls = new CopyOnWriteArrayList<>();
+        final Map<String, Consumer<InboundActivity>> onNext = new ConcurrentHashMap<>();
+
+        @Override
+        public String type() {
+            return "Repeating";
+        }
+
+        @Override
+        public boolean processesRepeats() {
+            return true;
+        }
+
+        @Override
+        public void handle(InboundActivity activity) {
+            calls.add(activity.id());
+            var next = onNext.remove(activity.id());
+            if (next != null) {
+                next.accept(activity);
+            }
+        }
+
+        long handled(InboundActivity activity) {
+            return calls.stream().filter(activity.id()::equals).count();
+        }
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class Config {
         @Bean
         RecordingHandler recordingHandler() {
             return new RecordingHandler();
+        }
+
+        @Bean
+        RepeatingHandler repeatingHandler() {
+            return new RepeatingHandler();
         }
     }
 }

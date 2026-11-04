@@ -36,7 +36,7 @@ class StatusServiceTests {
     void setUp() {
         when(actors.findLocalById(AUTHOR)).thenReturn(Optional.of(new Actor(
                 AUTHOR, BASE_URL.resolve("/users/alice"), "alice", "elysium.example", BASE_URL.resolve("/users/alice/inbox"),
-                BASE_URL.resolve("/users/alice/outbox"), null, "key", Instant.now())));
+                BASE_URL.resolve("/users/alice/outbox"), null, "key", Instant.now(), Instant.now())));
         service = new StatusService(
                 repository,
                 actors,

@@ -64,7 +64,8 @@ be authorized again.
 
 ## Job queue
 Admins can see the background job queue at `/admin/db-scheduler`. It has a job for each activity received from another
-server, and its own daily cleanup job. The server doesn't send activities yet. Each job shows what it's for, when it'll
+server, a job for each activity being sent to another server's inbox, and its own daily cleanup job. So far the only
+activities it sends are answers to other servers' users following someone here. Each job shows what it's for, when it'll
 next run, and its failures, and **History** shows why it failed. A job only holds IDs, so private posts aren't shown.
 
 - **Retries:** A job that fails for a temporary reason, like a server being down, is tried again with longer and longer

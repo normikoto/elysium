@@ -76,6 +76,27 @@ public class ActorService {
         return actors.findLocalByIds(ids);
     }
 
+    /**
+     * Finds a local or remote actor.
+     */
+    public Optional<Actor> findByUri(URI uri) {
+        return actors.findByUri(uri);
+    }
+
+    /**
+     * Stores an actor from another server, or replaces what's stored about it, which counts as refreshing it.
+     *
+     * @return the stored actor
+     * @throws IllegalArgumentException if the actor claims to be on this server, where it could take the URI that a local
+     *                                  account would need
+     */
+    public Actor upsertRemote(RemoteActorProfile profile) {
+        if (profile.domain().equals(instance.domain())) {
+            throw new IllegalArgumentException("A remote actor can't be on this server's domain");
+        }
+        return actors.upsertRemote(profile);
+    }
+
     public long countLocal() {
         return actors.countLocal();
     }
@@ -103,6 +124,8 @@ public class ActorService {
         // Generating keys is slow, so it happens before the transaction takes a database connection.
         var keys = RsaKeys.generate();
         var actorPath = "/users/" + username;
+        // PostgreSQL stores microseconds, so this matches what a later read returns.
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         var actor = new Actor(
                 UUID.randomUUID(),
                 instance.resolve(actorPath),
@@ -112,8 +135,8 @@ public class ActorService {
                 instance.resolve(actorPath + "/outbox"),
                 null,
                 keys.publicKeyPem(),
-                // PostgreSQL stores microseconds, so this matches what a later read returns.
-                Instant.now().truncatedTo(ChronoUnit.MICROS));
+                now,
+                now);
         var created = transaction.execute(status -> {
             if (!actors.createLocalIfAbsent(actor, keys.privateKeyPem())) {
                 return false;
