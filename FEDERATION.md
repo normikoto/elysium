@@ -66,7 +66,22 @@ No activities are sent or received yet.
 - Deleted statuses get a 404, not a `Tombstone`.
 - There's no shared inbox.
 - The `inbox` and `outbox` that the instance actor advertises aren't implemented yet either.
-- HTTP Signatures aren't implemented, so requests are neither signed nor verified.
+- HTTP Signatures aren't in use yet, so requests are neither signed nor verified: see [HTTP Signatures](#http-signatures).
+
+### HTTP Signatures
+
+The server has code for [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12),
+but nothing uses it yet, because no activities are sent or received. No endpoint checks signatures, and the server doesn't
+make requests to other servers. [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented.
+
+Once it's in use, this is what the code does:
+
+- **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
+  method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.
+- **Verifying:** Signatures have to cover `(request-target)`, `host`, and either `date` or `(created)`, plus `digest` in
+  the same cases as above. `rsa-sha256` and `hs2019` are both accepted, and both are checked as RSA with SHA-256.
+  Signatures last 5 minutes unless they say otherwise, and at most 12 hours, with up to 1 hour of clock difference allowed.
+- **Fetching keys:** Fetches are signed as the [instance actor](#instance-actor).
 
 ## WebFinger
 

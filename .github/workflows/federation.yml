@@ -1,0 +1,56 @@
+# Checks that real servers can federate with Elysium, using the lab in compose.federation.yaml. See federation/README.md.
+name: Federation
+
+on:
+  pull_request:
+    # labeled is here so that adding the federation label runs the Mastodon job. These paths apply to it too.
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - 'src/main/**'
+      - 'federation/**'
+      - 'compose.federation.yaml'
+      - 'build.gradle.kts'
+      - '.github/workflows/federation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/main/**'
+      - 'federation/**'
+      - 'compose.federation.yaml'
+      - 'build.gradle.kts'
+      - '.github/workflows/federation.yml'
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gotosocial:
+    # Adding a label doesn't change anything that this tests.
+    if: github.event.action != 'labeled'
+    uses: ./.github/workflows/federation-smoke.yml
+    with:
+      target: gotosocial
+
+  mastodon:
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'federation'))
+    uses: ./.github/workflows/federation-smoke.yml
+    with:
+      target: mastodon
+
+  # Warns about upcoming changes in other servers, without tying pull requests to them. Failures here don't mean that a
+  # recent change to Elysium is at fault.
+  latest:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [gotosocial, mastodon]
+    uses: ./.github/workflows/federation-smoke.yml
+    with:
+      target: ${{ matrix.target }}
+      use-latest-images: true

@@ -1,0 +1,169 @@
+# Federation test lab: real servers talking to Elysium over HTTPS. Never use this for anything else: its secrets are public.
+# See federation/README.md. Build the image with ./gradlew bootBuildImage, then run federation/smoke.sh.
+name: elysium-federation
+
+services:
+  # A new CA and certificate for each lab, since these only need to last as long as it does.
+  certs:
+    image: 'alpine/openssl:3.5.4'
+    entrypoint: ['/bin/sh', '/federation/generate-certs.sh']
+    volumes:
+      - './federation:/federation:ro'
+      - 'certs:/certs'
+    networks:
+      - lab
+
+  caddy:
+    image: 'caddy:2.11-alpine'
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    volumes:
+      - './federation/Caddyfile:/etc/caddy/Caddyfile:ro'
+      - 'certs:/certs:ro'
+    networks:
+      lab:
+        # Everything reaches every server through here, like it would reach a public one.
+        aliases:
+          - elysium.test
+          - gts.test
+          - mastodon.test
+
+  elysium:
+    image: 'elysium:latest'
+    # This image only exists locally, so don't let a missing one pull something else with the same name from Docker Hub.
+    pull_policy: never
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: 'jdbc:postgresql://postgres:5432/elysium'
+      SPRING_DATASOURCE_USERNAME: elysium
+      SPRING_DATASOURCE_PASSWORD: lab-only
+      ELYSIUM_INSTANCE_BASE_URL: 'https://elysium.test'
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+    networks:
+      - lab
+
+  postgres:
+    image: 'postgres:18-alpine'
+    environment:
+      POSTGRES_DB: elysium
+      POSTGRES_USER: elysium
+      POSTGRES_PASSWORD: lab-only
+    healthcheck:
+      # Over TCP, because the image's temporary server during first-time setup only answers on the Unix socket.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - lab
+
+  gotosocial:
+    image: '${GOTOSOCIAL_IMAGE:-docker.io/superseriousbusiness/gotosocial:0.22.3}'
+    profiles: ['gotosocial']
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    environment:
+      GTS_HOST: gts.test
+      GTS_DB_TYPE: sqlite
+      GTS_DB_ADDRESS: /gotosocial/storage/sqlite.db
+      GTS_LETSENCRYPT_ENABLED: 'false'
+      GTS_TRUSTED_PROXIES: 172.30.0.0/24
+      GTS_HTTP_CLIENT_ALLOW_IPS: 172.30.0.0/24
+      SSL_CERT_FILE: /certs/ca.crt
+    volumes:
+      - 'certs:/certs:ro'
+      - 'gotosocial-data:/gotosocial/storage'
+    networks:
+      - lab
+
+  mastodon-setup:
+    image: &mastodon-image '${MASTODON_IMAGE:-ghcr.io/mastodon/mastodon:v4.7.5}'
+    profiles: ['mastodon']
+    command: ['bin/rails', 'db:prepare']
+    env_file: federation/mastodon.env
+    depends_on:
+      mastodon-db:
+        condition: service_healthy
+      mastodon-redis:
+        condition: service_healthy
+    networks:
+      - lab
+
+  mastodon-web:
+    image: *mastodon-image
+    profiles: ['mastodon']
+    command: ['bundle', 'exec', 'puma', '-C', 'config/puma.rb']
+    env_file: federation/mastodon.env
+    depends_on: &mastodon-depends-on
+      certs:
+        condition: service_completed_successfully
+      mastodon-setup:
+        condition: service_completed_successfully
+    volumes:
+      - 'certs:/certs:ro'
+    networks:
+      - lab
+
+  mastodon-sidekiq:
+    image: *mastodon-image
+    profiles: ['mastodon']
+    command: ['bundle', 'exec', 'sidekiq']
+    env_file: federation/mastodon.env
+    depends_on: *mastodon-depends-on
+    volumes:
+      - 'certs:/certs:ro'
+    networks:
+      - lab
+
+  mastodon-db:
+    image: 'postgres:14-alpine'
+    profiles: ['mastodon']
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - lab
+
+  mastodon-redis:
+    image: 'redis:7-alpine'
+    profiles: ['mastodon']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - lab
+
+  # Makes requests from inside the lab, which is the only place these domains exist.
+  driver:
+    image: 'curlimages/curl:8.17.0'
+    profiles: ['tools']
+    environment:
+      CURL_CA_BUNDLE: /certs/ca.crt
+    volumes:
+      - './federation:/federation:ro'
+      - 'certs:/certs:ro'
+    networks:
+      - lab
+
+networks:
+  lab:
+    # No route out, so that nothing here can federate with real servers.
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  certs:
+  gotosocial-data:
