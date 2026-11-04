@@ -94,7 +94,8 @@ class HostGate {
                 .query(Integer.class)
                 .single();
         var until = now.plus(longer(backoff(failures), retryAfter));
-        jdbc.sql("UPDATE federation_host SET retry_after = :until WHERE host = :host")
+        // Another request to this host can have failed meanwhile, and it might have been asked to wait for longer.
+        jdbc.sql("UPDATE federation_host SET retry_after = GREATEST(retry_after, :until) WHERE host = :host")
                 .param("host", host)
                 .param("until", until.atOffset(ZoneOffset.UTC))
                 .update();

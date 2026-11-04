@@ -4,11 +4,13 @@ import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
+import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.SignedSender;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
+import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -98,6 +100,13 @@ class DeliveryTask {
         } catch (BlockedTargetException e) {
             // This extends IOException, but it's about where the request was going and not about the server's health.
             throw new PermanentJobFailure("The inbox URL isn't allowed", e);
+        } catch (ResponseTooLargeException e) {
+            // The host answered, and would answer the same way again, having probably received the activity each time.
+            gate.succeeded(host);
+            throw new PermanentJobFailure("The inbox's answer was too large", e);
+        } catch (ConnectionRequestTimeoutException e) {
+            // This server's own connections were all busy, which says nothing about the host's health.
+            throw new UncheckedIOException(e);
         } catch (IOException e) {
             gate.failed(host, Instant.now(), Duration.ZERO);
             throw new UncheckedIOException(e);

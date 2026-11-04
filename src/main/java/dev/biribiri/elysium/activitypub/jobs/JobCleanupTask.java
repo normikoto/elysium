@@ -27,9 +27,10 @@ class JobCleanupTask {
     private static final Duration FAILED_HISTORY_KEPT = RetryPolicy.PARKED_FOR;
 
     /**
-     * A little longer than a parked job lasts, so that they're still there if it's retried at the last moment.
+     * A little longer than a job can last, which is failing until it's given up on and then being parked, so that they're
+     * still there if it's retried at the last moment.
      */
-    private static final Duration ACTIVITIES_KEPT = RetryPolicy.PARKED_FOR.plusDays(3);
+    private static final Duration ACTIVITIES_KEPT = RetryPolicy.GIVE_UP_AFTER.plus(RetryPolicy.PARKED_FOR).plusDays(1);
 
     @Bean
     Task<Void> jobCleanup(JdbcClient jdbc) {

@@ -28,8 +28,8 @@ class JobCleanupIntegrationTests {
         history(2, true, "6 days");
         history(3, false, "31 days");
         history(4, false, "29 days");
-        activities("old", "34 days");
-        activities("recent", "32 days");
+        activities("old", "35 days");
+        activities("recent", "33 days");
         host("old.test", "8 days");
         host("recent.test", "6 days");
 

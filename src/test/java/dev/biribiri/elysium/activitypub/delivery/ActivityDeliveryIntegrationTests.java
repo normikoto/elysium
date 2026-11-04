@@ -20,6 +20,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.transaction.IllegalTransactionStateException;
@@ -81,6 +82,10 @@ class ActivityDeliveryIntegrationTests {
     private DataSource dataSource;
     @Autowired
     private Task<DeliveryJob> task;
+    @Autowired
+    private HostGate gate;
+    @Autowired
+    private FederationHttpClient http;
 
     private final Queue<Received> received = new ConcurrentLinkedQueue<>();
     private final Map<String, Queue<Answer>> answers = new ConcurrentHashMap<>();
@@ -456,6 +461,71 @@ class ActivityDeliveryIntegrationTests {
         assertThat(receivedBy(host)).isEmpty();
     }
 
+    @Test
+    void aFailureDoesNotShortenABackoffThatAnotherRequestWasAskedFor() {
+        var host = newHost();
+        var now = Instant.now();
+
+        gate.failed(host, now, Duration.ofHours(1));
+        gate.failed(host, now, Duration.ZERO);
+
+        assertThat(retryAfter(host)).isCloseTo(now.plus(Duration.ofHours(1)), within(Duration.ofMinutes(1)));
+    }
+
+    @Test
+    void parksAJobWhoseInboxAnswersWithTooMuchAndCountsTheHostAsWorking() {
+        var host = newHost();
+        jdbc.sql("INSERT INTO federation_host (host, consecutive_failures, retry_after) VALUES (:host, 1, now())")
+                .param("host", host)
+                .update();
+        handlers.put(host, exchange -> {
+            exchange.sendResponseHeaders(200, 2 * 1024 * 1024);
+            // Closing the exchange wouldn't send what's buffered, and the client only needs the length.
+            exchange.getResponseBody().write(0);
+            exchange.getResponseBody().flush();
+            return null;
+        });
+        var activity = activity();
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        assertThat(failureMessages(activity)).anyMatch(message -> message.contains("too large"));
+        assertThat(executionTime(activity)).isAfter(Instant.now().plus(Duration.ofDays(29)));
+        assertThat(receivedBy(host)).hasSize(1);
+        assertThat(hostRows(host)).isZero();
+    }
+
+    @Test
+    void runningOutOfLocalConnectionsDoesNotCountAgainstTheHost() throws Exception {
+        var host = newHost();
+        var connections = FederationHttpClient.MAX_CONNECTIONS_PER_HOST;
+        var holding = new CountDownLatch(connections);
+        var release = new CountDownLatch(1);
+        handlers.put(host, exchange -> {
+            holding.countDown();
+            release.await();
+            return new Answer(200, null);
+        });
+        try (var holders = Executors.newVirtualThreadPerTaskExecutor()) {
+            try {
+                for (var i = 0; i < connections; i++) {
+                    holders.submit(() -> http.get(inboxOn(host), "application/json", new HttpHeaders()));
+                }
+                assertThat(holding.await(10, TimeUnit.SECONDS)).isTrue();
+                var activity = activity();
+
+                enqueue(activity, inboxOn(host));
+
+                await().atMost(WAIT).until(() -> failures(activity) == 1);
+                assertThat(hostRows(host)).isZero();
+                assertThat(receivedBy(host)).hasSize(connections);
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
     // More than one worker
 
     @Test
@@ -547,6 +617,10 @@ class ActivityDeliveryIntegrationTests {
             var next = queue == null ? null : queue.poll();
             answer = next == null ? answer : next;
         }
+        if (answer == null) {
+            exchange.close();
+            return;
+        }
         if (answer.retryAfter() != null) {
             exchange.getResponseHeaders().add("Retry-After", answer.retryAfter());
         }
@@ -615,6 +689,13 @@ class ActivityDeliveryIntegrationTests {
                 .list();
     }
 
+    private long hostRows(String host) {
+        return jdbc.sql("SELECT count(*) FROM federation_host WHERE host = :host")
+                .param("host", host)
+                .query(Long.class)
+                .single();
+    }
+
     private Instant retryAfter(String host) {
         return jdbc.sql("SELECT retry_after FROM federation_host WHERE host = :host")
                 .param("host", host)
@@ -669,7 +750,10 @@ class ActivityDeliveryIntegrationTests {
 
     @FunctionalInterface
     private interface Handler {
-        Answer handle(HttpExchange exchange) throws InterruptedException;
+        /**
+         * @return the answer to send, or null if this has already sent one
+         */
+        Answer handle(HttpExchange exchange) throws InterruptedException, IOException;
     }
 
     public record SampleEvent(OutboundActivity activity, URI inbox) {
