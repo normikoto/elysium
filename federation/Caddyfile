@@ -1,0 +1,24 @@
+{
+	admin off
+	# There's no route out for requesting certificates, or anyone to redirect from HTTP.
+	auto_https off
+}
+
+(lab_tls) {
+	tls /certs/server.crt /certs/server.key
+}
+
+elysium.test:443 {
+	import lab_tls
+	reverse_proxy elysium:8080
+}
+
+gts.test:443 {
+	import lab_tls
+	reverse_proxy gotosocial:8080
+}
+
+mastodon.test:443 {
+	import lab_tls
+	reverse_proxy mastodon-web:3000
+}
