@@ -18,7 +18,7 @@ openssl req -newkey rsa:2048 -nodes \
     -keyout server.key -out server.csr -subj '/CN=elysium.test'
 
 cat > server.ext <<'EOF'
-subjectAltName = DNS:elysium.test, DNS:gts.test, DNS:mastodon.test
+subjectAltName = DNS:elysium.test, DNS:gts.test, DNS:mastodon.test, DNS:misskey.test
 basicConstraints = CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth

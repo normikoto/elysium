@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
 # and unfollow it, and receive its statuses.
-# Usage: federation/smoke.sh gotosocial|mastodon
+# Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
 set -euo pipefail
 
 target=${1:-}
 case "$target" in
-    gotosocial | mastodon) ;;
+    gotosocial | mastodon | misskey) ;;
     *)
-        echo "Usage: $0 gotosocial|mastodon" >&2
+        echo "Usage: $0 gotosocial|mastodon|misskey" >&2
         exit 2
         ;;
 esac
@@ -312,7 +312,119 @@ resolve_from_gotosocial() {
     alice_id=$(jq -r '.accounts[0].id' <<<"$result")
 }
 
-# The '*' includes every profile, so that this also clears a lab left over from the other target.
+# Misskey's API only takes POSTs of JSON, with the token in the body.
+misskey_api() {
+    local endpoint=$1 body=${2:-'{}'}
+    driver curl -fsS "https://misskey.test/api/$endpoint" \
+        -H 'Content-Type: application/json' \
+        -d "$(jq -c --arg token "$token" '. + {i: $token}' <<<"$body")"
+}
+
+resolve_from_misskey() {
+    wait_for https://misskey.test/healthz
+
+    # The first account needs no token, and becomes an admin.
+    local account
+    account=$(driver curl -fsS https://misskey.test/api/admin/accounts/create \
+        -H 'Content-Type: application/json' \
+        -d "$(jq -cn --arg password "$password" '{username: "lab", password: $password}')")
+    # Not local, because the other Misskey steps use it too.
+    token=$(jq -r .token <<<"$account")
+    [[ -n $token && $token != null ]] || fail "Couldn't get a Misskey access token: $account"
+
+    # A new server refuses every other server until an admin changes this, and the config file has no setting for it.
+    misskey_api admin/update-meta '{"federation": "all"}'
+
+    local result
+    # By username and host, which goes through WebFinger.
+    result=$(misskey_api users/show '{"username": "alice", "host": "elysium.test"}')
+    [[ $(jq -r .uri <<<"$result") == "$expected_actor" ]] || fail "Misskey didn't resolve alice@elysium.test: $result"
+    echo 'Misskey resolved alice@elysium.test'
+    # Not local, because the other Misskey steps use it too.
+    alice_id=$(jq -r .id <<<"$result")
+}
+
+deliver_from_misskey() {
+    misskey_api notes/create '{"text": "@alice@elysium.test Hello from the lab", "visibility": "public"}' >/dev/null
+    expect_delivery misskey.test
+}
+
+misskey_user_body() {
+    jq -cn --arg id "$alice_id" '{userId: $id}'
+}
+
+misskey_follow() {
+    misskey_api following/create "$(misskey_user_body)" >/dev/null
+    echo 'Waiting for Misskey to receive an Accept'
+    local following=false
+    for _ in $(seq 1 60); do
+        following=$(misskey_api users/relation "$(misskey_user_body)" | jq -r '.[0].isFollowing')
+        [[ $following == true ]] && break
+        sleep 2
+    done
+    [[ $following == true ]] || fail "Misskey never received an Accept from Elysium"
+    echo 'Misskey accepted the signed Accept'
+    expect_followers misskey.test 1
+}
+
+misskey_unfollow() {
+    misskey_api following/delete "$(misskey_user_body)" >/dev/null
+    expect_followers misskey.test 0
+}
+
+# Twice, because each Undo between two actors has the same ID, with a new ID for each Follow. The Follow it embeds has an ID
+# that's never sent, so each one only works by matching the two actors.
+follow_from_misskey() {
+    misskey_follow
+    misskey_unfollow
+    echo 'Following again'
+    misskey_follow
+    echo 'Unfollowing again, with the same Undo ID'
+    misskey_unfollow
+    echo 'Following a third time'
+    misskey_follow
+
+    # Without this, the checks above would still pass if Misskey stopped reusing IDs, and test nothing new.
+    local counts expected='Follow 3 0
+Undo 1 1'
+    counts=$(docker compose exec -T postgres psql -U elysium -d elysium -tA -F ' ' -c \
+        "SELECT type, count(*), count(*) FILTER (WHERE activity_id LIKE '%/undo') FROM inbound_activity
+         WHERE actor_uri LIKE 'https://misskey.test/%' AND type IN ('Follow', 'Undo') GROUP BY type ORDER BY type")
+    [[ $counts == "$expected" ]] || fail "Expected 3 Follow IDs and 1 reused Undo ID from Misskey, but found: $counts"
+    echo 'Misskey used a new ID for each Follow, and the same ID for each Undo'
+}
+
+misskey_expect_status() {
+    local uri=$1 expected_visibility=$2 expected_text=$3 note=''
+    echo "Waiting for Misskey to receive $uri"
+    # What it has stored, and not ap/show, which could fetch a public status itself, and pass with no delivery.
+    for _ in $(seq 1 60); do
+        note=$(misskey_api users/notes "$(jq -cn --arg id "$alice_id" '{userId: $id, limit: 100}')" \
+            | jq -c --arg uri "$uri" '.[] | select(.uri == $uri)')
+        [[ -n $note ]] && break
+        sleep 2
+    done
+    [[ -n $note ]] || fail "Misskey never stored $uri"
+    [[ $(jq -r .visibility <<<"$note") == "$expected_visibility" ]] \
+        || fail "Misskey doesn't show $uri as $expected_visibility: $note"
+    [[ $(jq -r .text <<<"$note") == "$expected_text" ]] || fail "Misskey doesn't show $uri as '$expected_text': $note"
+}
+
+misskey_expect_statuses() {
+    misskey_expect_status "$public_uri" public 'A public status from the lab'
+    misskey_expect_status "$private_uri" followers 'A private status from the lab'
+    echo 'Misskey stored both statuses, with the right visibility and text'
+
+    local timeline
+    timeline=$(misskey_api notes/timeline '{"limit": 100}')
+    for uri in "$public_uri" "$private_uri"; do
+        jq -e --arg uri "$uri" 'any(.[]; .uri == $uri)' <<<"$timeline" >/dev/null \
+            || fail "$uri isn't in the home timeline of Misskey's lab user: $timeline"
+    done
+    echo "Both statuses are in the home timeline of Misskey's lab user"
+}
+
+# The '*' includes every profile, so that this also clears a lab left over from another target.
 docker compose --profile '*' down -v --remove-orphans
 
 docker compose up -d
@@ -335,6 +447,13 @@ case "$target" in
         follow_from_mastodon
         post_from_elysium
         mastodon_expect_statuses
+        ;;
+    misskey)
+        resolve_from_misskey
+        deliver_from_misskey
+        follow_from_misskey
+        post_from_elysium
+        misskey_expect_statuses
         ;;
 esac
 

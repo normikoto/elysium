@@ -19,7 +19,7 @@ a status isn't sent.
 ./gradlew test --tests '*ModularityTests'        # Module boundaries only, with no Docker needed
 ./gradlew bootJar                                # Builds build/libs/elysium.jar
 ./gradlew bootBuildImage                         # Builds elysium:latest. -PbindDockerHostToBuilder=false for Docker Desktop or Colima
-federation/smoke.sh gotosocial                   # Or mastodon. Needs Docker, jq, and a fresh bootBuildImage
+federation/smoke.sh gotosocial                   # Or mastodon, or misskey. Needs Docker, jq, and a fresh bootBuildImage
 ```
 
 No linter or formatter is configured. CI runs `./gradlew test`, and the federation smoke tests. See

@@ -1,0 +1,23 @@
+# Test-only config for compose.federation.yaml. These values are public, so never use them on a real server.
+url: https://misskey.test/
+port: 3000
+
+db:
+  host: misskey-db
+  port: 5432
+  db: misskey
+  user: misskey
+  pass: lab-only
+dbReplications: false
+
+redis:
+  host: misskey-redis
+  port: 6379
+
+fulltextSearch:
+  provider: sqlLike
+
+id: aidx
+
+allowedPrivateNetworks:
+  - 172.30.0.0/24

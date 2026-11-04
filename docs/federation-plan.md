@@ -6,12 +6,12 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 
 | Area | State | Notes |
 | --- | --- | --- |
-| WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon and GoToSocial resolve users in the federation lab |
+| WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon, GoToSocial and Misskey resolve users in the federation lab |
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
 | Inboxes | Live, partly | `Follow` and `Undo` of a `Follow` are acted on, and other types are stored and ignored. #39 stays open for forwarded activities, `sharedInbox` and normalizing |
-| Delivery and signed `POST` | Live, partly | `Accept` and `Create` are sent, and Mastodon and GoToSocial accepted both in the lab |
+| Delivery and signed `POST` | Live, partly | `Accept` and `Create` are sent, and Mastodon, GoToSocial and Misskey accepted both in the lab |
 | Job queue and backoff | Live | Delivery load is untested |
-| Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on both lab servers. Merged in PR #70 |
+| Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
 | Sending follows | Missing | #44 |
 | Followers and following collections | Live, partly | `followers` only gives its size. Its items and pages, and `following`, are in #43 |
 | Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Receiving is in #41, and the outbox is in #40 |
@@ -54,8 +54,7 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
 - **Issues:** the receiving half of #44, merged in PRs #70 and #71.
 - **Delivers:** remote actors stored, the first code in `graph`, the first handler, and the first real signed delivery. Every `Follow` is accepted automatically, and manual approval is in #58.
 - **Done when:** a Mastodon or GoToSocial user can follow and unfollow a local user in the lab.
-- **Result:** `federation/smoke.sh` now follows, unfollows and follows again on both servers, and checks the `follow` table each time.
-- **Left open:** Misskey's reused Undo IDs are only covered by integration tests (#69).
+- **Result:** `federation/smoke.sh` now follows, unfollows and follows again on all three servers, and checks the `follow` table each time. On Misskey it unfollows a second time, which reuses the `Undo` ID (#69).
 
 ### 3. Posts reach followers (in progress)
 
@@ -66,7 +65,7 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
   - using other servers' shared inboxes, and a `Delete` when a status is removed, which `ActivityDeliveries.cancel` was built to support
   - the parent's author addressed on replies, as #41 requires
 - **Done when:** a remote follower sees a new post and sees it disappear when deleted.
-- **Result so far:** PR #72 sends `Create`, uses other servers' shared inboxes, and addresses `Note` objects to followers and to the parent's author on replies, with no `Mention` tag. `followers` only gives its size. `federation/smoke.sh` now posts a public and a followers-only status, and both servers have to store each with the right visibility. GoToSocial also has to show them in a home timeline, but the Mastodon check doesn't cover the feed.
+- **Result so far:** PR #72 sends `Create`, uses other servers' shared inboxes, and addresses `Note` objects to followers and to the parent's author on replies, with no `Mention` tag. `followers` only gives its size. `federation/smoke.sh` now posts a public and a followers-only status, and all three servers have to store each with the right visibility. GoToSocial and Misskey also have to show them in a home timeline, but the Mastodon check doesn't cover the feed.
 - **Left to do:**
   - send `Delete` (#59), including for a status deleted while its `Create` is being queued, when there's nothing to cancel yet
   - the rest of the checks under [Work across milestones](#work-across-milestones)
@@ -109,10 +108,9 @@ These don't belong to one milestone, but each has a point where it stops being o
 
 | Work | When it matters | Source |
 | --- | --- | --- |
-| Extend `federation/smoke.sh` with each milestone's check, on both servers | Every milestone | The lab found problems that unit tests couldn't on PR #57 |
+| Extend `federation/smoke.sh` with each milestone's check, on all three servers | Every milestone | The lab found problems that unit tests couldn't on PR #57 |
 | Keep `FEDERATION.md` and `CHANGELOG.md` accurate in the same PR | Every milestone | `CLAUDE.md` |
 | Fix parked jobs that outlive their activities | Now, since milestone 2 made jobs real | #55 |
-| Add Misskey to the federation lab | Now for its reused Undo IDs, and again in milestone 3 for how it shows statuses | #69 |
 | Remove a follower when its actor is deleted | Milestone 4, with receiving #59 | Left out of PR #70 |
 | Share one per-host limit between `HostGate` and `RunningLimit` | Milestone 3, when delivery has real volume | PR #57 review, PR #70 known limits |
 | Test worker count and repeat runs of waiting jobs under load | Milestone 3 | Comment on #41 |

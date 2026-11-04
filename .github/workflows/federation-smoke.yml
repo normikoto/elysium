@@ -21,6 +21,7 @@ jobs:
     env:
       GOTOSOCIAL_IMAGE: ${{ inputs.use-latest-images && 'docker.io/superseriousbusiness/gotosocial:latest' || '' }}
       MASTODON_IMAGE: ${{ inputs.use-latest-images && 'ghcr.io/mastodon/mastodon:latest' || '' }}
+      MISSKEY_IMAGE: ${{ inputs.use-latest-images && 'docker.io/misskey/misskey:latest' || '' }}
       COMPOSE_FILE: compose.federation.yaml
       COMPOSE_PROFILES: ${{ inputs.target }}
     steps:
