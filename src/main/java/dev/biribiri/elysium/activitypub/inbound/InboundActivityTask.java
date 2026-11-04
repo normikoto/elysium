@@ -29,12 +29,14 @@ class InboundActivityTask {
     }
 
     private CompletionHandler<InboundJob> run(InboundJob job) {
-        stored.find(job.activityId()).ifPresent(activity -> {
-            var handler = handlers.get(activity.type());
-            if (handler != null) {
-                handler.handle(activity);
-            }
-        });
+        var activity = stored.find(job.activityId());
+        if (activity.isEmpty()) {
+            return Jobs.activityGone(job);
+        }
+        var handler = handlers.get(activity.get().type());
+        if (handler != null) {
+            handler.handle(activity.get());
+        }
         return Jobs.done();
     }
 }

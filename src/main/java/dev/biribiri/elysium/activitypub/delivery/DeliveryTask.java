@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -31,7 +32,7 @@ import java.util.concurrent.ThreadLocalRandom;
 @Configuration(proxyBeanMethods = false)
 class DeliveryTask {
 
-    private static final Duration BUSY_DELAY = Duration.ofSeconds(5);
+    private static final Duration BACKOFF_SPREAD = Duration.ofSeconds(10);
 
     private final JdbcClient jdbc;
     private final ActorService actors;
@@ -52,40 +53,50 @@ class DeliveryTask {
         return Jobs.task(ActivityDeliveries.TASK, this::run);
     }
 
+    /**
+     * Takes a slot first, because a large fan-out to one host means many runs of jobs that can't send yet, and those shouldn't
+     * read the database. The activity is loaded before anything else can fail, so that a cancelled job always finishes rather
+     * than being parked, however long it has waited.
+     */
     private CompletionHandler<DeliveryJob> run(DeliveryJob job) {
-        var activity = jdbc.sql("SELECT actor_id, body FROM outbound_activity WHERE activity_id = :id")
-                .param("id", job.activityId())
-                .query((rs, row) -> new OutboundActivity(
-                        job.activityId(), rs.getObject("actor_id", UUID.class), rs.getString("body")))
-                .optional();
-        if (activity.isEmpty()) {
-            // It was cancelled, or this is a retry from after it was cleaned up.
-            return Jobs.done();
-        }
-
         var inbox = URI.create(job.inbox());
         if (inbox.getHost() == null) {
+            if (find(job).isEmpty()) {
+                return Jobs.activityGone(job);
+            }
             throw new PermanentJobFailure("The inbox URL doesn't have a host");
         }
         var host = inbox.getHost().toLowerCase(Locale.ROOT);
 
         var now = Instant.now();
-        var backingOff = gate.backingOffUntil(host, now);
-        if (backingOff.isPresent()) {
-            if (job.isOverdue(now)) {
-                throw new PermanentJobFailure("Gave up because " + host + " has been failing for too long");
-            }
-            return later(backingOff.get());
-        }
         if (!gate.tryAcquire(host)) {
-            return later(now.plus(BUSY_DELAY));
+            return at(gate.nextTurn(host, now));
         }
         try {
+            var activity = find(job);
+            if (activity.isEmpty()) {
+                return Jobs.activityGone(job);
+            }
+            var backingOff = gate.backingOffUntil(host, now);
+            if (backingOff.isPresent()) {
+                if (job.isOverdue(now)) {
+                    throw new PermanentJobFailure("Gave up because " + host + " has been failing for too long");
+                }
+                return later(backingOff.get());
+            }
             send(activity.get(), inbox, host);
             return Jobs.done();
         } finally {
             gate.release(host);
         }
+    }
+
+    private Optional<OutboundActivity> find(DeliveryJob job) {
+        return jdbc.sql("SELECT actor_id, body FROM outbound_activity WHERE activity_id = :id")
+                .param("id", job.activityId())
+                .query((rs, row) -> new OutboundActivity(
+                        job.activityId(), rs.getObject("actor_id", UUID.class), rs.getString("body")))
+                .optional();
     }
 
     private void send(OutboundActivity activity, URI inbox, String host) {
@@ -125,12 +136,17 @@ class DeliveryTask {
     }
 
     /**
-     * Waits without counting as a failure, because nothing about this job has gone wrong. The time is spread out, so that
-     * all of a host's jobs don't arrive at once.
+     * Waits for a host's backoff to end. The time is spread out, so that all of the host's jobs don't arrive at once.
      */
     private static CompletionHandler<DeliveryJob> later(Instant time) {
-        var spread = ThreadLocalRandom.current().nextLong(BUSY_DELAY.toMillis() * 2);
-        return (complete, operations) -> operations.reschedule(complete, time.plusMillis(spread));
+        return at(time.plusMillis(ThreadLocalRandom.current().nextLong(BACKOFF_SPREAD.toMillis())));
+    }
+
+    /**
+     * Waits without counting as a failure, because nothing about this job has gone wrong.
+     */
+    private static CompletionHandler<DeliveryJob> at(Instant time) {
+        return (complete, operations) -> operations.reschedule(complete, time);
     }
 
     private static final class TemporaryDeliveryFailure extends RuntimeException {

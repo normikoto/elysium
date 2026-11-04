@@ -1,8 +1,8 @@
 # Federation
 
 Elysium is an early work in progress and can't fully federate yet. Other servers can discover its users, deliver activities
-to them, follow them, and receive their new statuses, but its users can't follow anyone, and deleting a status doesn't reach
-other servers. This file only describes what's implemented today.
+to them, follow them, and receive their new and deleted statuses, but its users can't follow anyone. This file only describes
+what's implemented today.
 
 ## Supported federation protocols and standards
 
@@ -225,6 +225,10 @@ cancelled, and a `Delete` is sent to their followers on other servers, the same 
 a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
 that the status existed.
 
+So that a `Delete` doesn't overtake a `Create` that's already being sent, it waits about 35 seconds if any of those followers'
+deliveries of the `Create` hasn't finished, including one that's failing and being tried again. This server can only control
+when each is sent, so a server that handles activities out of order could still process them the other way around.
+
 ```json
 {
   "@context": "https://www.w3.org/ns/activitystreams",
@@ -255,7 +259,6 @@ again with the same `id`.
 - `Note` objects for replies don't include a `Mention` tag.
 - A reply's `inReplyTo` is left out if its parent is deleted or can't be shown, so it looks like it isn't a reply.
 - Followers-only statuses are only sent, and can't be fetched, even by a follower.
-- A `Create` that's already being sent when its status is deleted can't be stopped, so it can arrive after the `Delete`.
 - A `Delete` goes to whoever follows the author when it's deleted, so a server whose only follower has since unfollowed keeps
   its copy. For a followers-only status, that includes a follower who unfollowed and then followed again after it was posted.
 - Inboxes can't be read, so a `GET` gets a 403.

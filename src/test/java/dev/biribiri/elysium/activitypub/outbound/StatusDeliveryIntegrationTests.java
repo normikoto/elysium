@@ -35,11 +35,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -81,6 +84,7 @@ class StatusDeliveryIntegrationTests {
     private EventRetries retries;
 
     private final Queue<Received> received = new ConcurrentLinkedQueue<>();
+    private final Map<String, CountDownLatch> holdCreates = new ConcurrentHashMap<>();
     private HttpServer server;
     private Actor author;
 
@@ -90,11 +94,20 @@ class StatusDeliveryIntegrationTests {
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/", exchange -> {
             var host = exchange.getRequestHeaders().getFirst("Host").split(":")[0];
+            var body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             received.add(new Received(
                     host,
                     exchange.getRequestURI().getPath(),
                     exchange.getRequestHeaders().getFirst("Signature"),
-                    new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
+                    body));
+            var hold = holdCreates.get(host);
+            if (hold != null && body.contains("#create")) {
+                try {
+                    hold.await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             exchange.sendResponseHeaders(202, -1);
             exchange.close();
         });
@@ -307,7 +320,7 @@ class StatusDeliveryIntegrationTests {
         var host = newHost();
         follow(host, "bob", false);
         var status = post(Visibility.PUBLIC, null);
-        awaitCreate(host, status);
+        awaitCreateFinished(host, status);
 
         statuses.delete(status.id(), author.id());
 
@@ -333,6 +346,7 @@ class StatusDeliveryIntegrationTests {
         var host = newHost();
         follow(host, "bob", false);
         var status = post(Visibility.UNLISTED, null);
+        awaitCreateFinished(host, status);
 
         statuses.delete(status.id(), author.id());
 
@@ -346,6 +360,7 @@ class StatusDeliveryIntegrationTests {
         var host = newHost();
         follow(host, "bob", false);
         var status = post(Visibility.PRIVATE, null);
+        awaitCreateFinished(host, status);
 
         statuses.delete(status.id(), author.id());
 
@@ -360,6 +375,7 @@ class StatusDeliveryIntegrationTests {
         follow(host, "bob", true);
         follow(host, "carol", true);
         var status = post(Visibility.PUBLIC, null);
+        awaitCreateFinished(host, status);
 
         statuses.delete(status.id(), author.id());
 
@@ -372,7 +388,7 @@ class StatusDeliveryIntegrationTests {
         var earlier = newHost();
         follow(earlier, "bob", false);
         var status = post(Visibility.PRIVATE, null);
-        awaitCreate(earlier, status);
+        awaitCreateFinished(earlier, status);
         awaitNothingLeftFor(status);
         var later = newHost();
         follow(later, "carol", false);
@@ -417,7 +433,7 @@ class StatusDeliveryIntegrationTests {
         var host = newHost();
         follow(host, "bob", false);
         var status = post(Visibility.PRIVATE, null);
-        awaitCreate(host, status);
+        awaitCreateFinished(host, status);
 
         statuses.delete(status.id(), author.id());
 
@@ -477,7 +493,7 @@ class StatusDeliveryIntegrationTests {
         var host = newHost();
         follow(host, "bob", false);
         var status = post(Visibility.PUBLIC, null);
-        awaitCreate(host, status);
+        awaitCreateFinished(host, status);
         awaitNothingLeftFor(status);
         doThrow(new IllegalStateException("Expected by this test"))
                 .doCallRealMethod()
@@ -518,8 +534,46 @@ class StatusDeliveryIntegrationTests {
 
         await().atMost(WAIT).until(() -> deleting.isDone() && deleting.join().isDone());
         assertThat(deleteWaited).isTrue();
-        awaitDelete(host, status);
         await().atMost(WAIT).until(() -> stored(status) == 0);
+        // The Create's job is still there when the Delete is queued, so that's held back for a while.
+        await().atMost(WAIT).until(() -> storedDelete(status) == 1);
+        runJobsNow(status.uri() + "#delete");
+        awaitDelete(host, status);
+    }
+
+    @Test
+    void aDeleteStaysBehindACreateBeingSent() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var hold = new CountDownLatch(1);
+        holdCreates.put(host, hold);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+
+        try {
+            statuses.delete(status.id(), author.id());
+
+            await().atMost(WAIT).until(() -> jobTimes(status.uri() + "#delete").size() == 1);
+            assertThat(jobTimes(status.uri() + "#delete").getFirst())
+                    .isAfter(Instant.now().plus(Duration.ofSeconds(20)));
+            assertThat(deletesFor(host, status)).isEmpty();
+        } finally {
+            hold.countDown();
+        }
+        runJobsNow(status.uri() + "#delete");
+        awaitDelete(host, status);
+    }
+
+    @Test
+    void aDeleteIsNotHeldBackOnceItsCreateHasFinished() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreateFinished(host, status);
+
+        statuses.delete(status.id(), author.id());
+
+        await().atMost(WAIT).until(() -> !deletesFor(host, status).isEmpty());
     }
 
     // Helpers
@@ -555,6 +609,36 @@ class StatusDeliveryIntegrationTests {
 
     private Delivered awaitCreate(String host, Status status) {
         return awaitActivity(host, status.uri() + "#create");
+    }
+
+    /**
+     * Past when a job's row goes, so that a {@code Delete} queued after this isn't held back.
+     */
+    private void awaitCreateFinished(String host, Status status) {
+        awaitCreate(host, status);
+        await().atMost(WAIT).until(() -> jobTimes(status.uri() + "#create").isEmpty());
+    }
+
+    private List<Instant> jobTimes(String activityId) {
+        return jdbc.sql("""
+                        SELECT execution_time FROM scheduled_tasks
+                        WHERE task_name = 'activity-delivery' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activityId + "%")
+                .query(java.time.OffsetDateTime.class)
+                .list()
+                .stream()
+                .map(java.time.OffsetDateTime::toInstant)
+                .toList();
+    }
+
+    private void runJobsNow(String activityId) {
+        jdbc.sql("""
+                        UPDATE scheduled_tasks SET execution_time = now()
+                        WHERE task_name = 'activity-delivery' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activityId + "%")
+                .update();
     }
 
     private Delivered awaitDelete(String host, Status status) {

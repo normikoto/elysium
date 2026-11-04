@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
+import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -22,6 +24,12 @@ import java.util.LinkedHashSet;
 public class ActivityDeliveries {
 
     static final TaskDescriptor<DeliveryJob> TASK = TaskDescriptor.of("activity-delivery", DeliveryJob.class);
+
+    /**
+     * Past when a request can still be running, with some time for a job that had already read its activity to send it.
+     */
+    private static final Duration OVERTAKING_DELAY = FederationHttpClient.DEADLINE.plusSeconds(5);
+    private static final int JOB_LOOKUP_SIZE = 1000;
 
     private final JdbcClient jdbc;
     private final SchedulerClient scheduler;
@@ -52,11 +60,52 @@ public class ActivityDeliveries {
         }
     }
 
+    /**
+     * Queues an activity that shouldn't overtake an earlier one to the same inboxes, as a {@code Delete} shouldn't overtake
+     * its {@code Create}. {@link #cancel} stops jobs that haven't started, so call that first. What it can't stop is a request
+     * in progress, which a job's row outlives, so while the earlier activity has any job, this waits until a request started
+     * by then has ended. Otherwise this is like {@link #enqueue(OutboundActivity, Collection)}.
+     *
+     * @param earlierActivityId the activity to stay behind
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueueAfter(OutboundActivity activity, Collection<URI> inboxes, String earlierActivityId) {
+        store(activity);
+        var now = Instant.now();
+        var runAt = hasJobs(earlierActivityId, inboxes) ? now.plus(OVERTAKING_DELAY) : now;
+        for (var inbox : new LinkedHashSet<>(inboxes)) {
+            var job = new DeliveryJob(activity.id(), inbox.toString(), now);
+            Jobs.schedule(scheduler, TASK, job, runAt, job.activityId(), job.inbox());
+        }
+    }
+
+    /**
+     * In chunks, because a large list of followers could otherwise pass PostgreSQL's limit on parameters.
+     */
+    private boolean hasJobs(String activityId, Collection<URI> inboxes) {
+        var instances = inboxes.stream().map(inbox -> Jobs.instanceId(activityId, inbox.toString())).distinct().toList();
+        for (var start = 0; start < instances.size(); start += JOB_LOOKUP_SIZE) {
+            var found = jdbc.sql("""
+                            SELECT EXISTS (
+                                SELECT 1 FROM scheduled_tasks WHERE task_name = :task AND task_instance IN (:instances)
+                            )
+                            """)
+                    .param("task", TASK.getTaskName())
+                    .param("instances", instances.subList(start, Math.min(start + JOB_LOOKUP_SIZE, instances.size())))
+                    .query(Boolean.class)
+                    .single();
+            if (found) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void store(OutboundActivity activity) {
         jdbc.sql("""
                         INSERT INTO outbound_activity (activity_id, actor_id, body)
                         VALUES (:id, :actorId, :body)
-                        ON CONFLICT (activity_id) DO NOTHING
+                        ON CONFLICT (activity_id) DO UPDATE SET created_at = now()
                         """)
                 .param("id", activity.id())
                 .param("actorId", activity.actorId())
@@ -84,7 +133,7 @@ public class ActivityDeliveries {
 
     /**
      * Stops any further sending of an activity, so that a status deleted soon after it was posted isn't then delivered.
-     * Its jobs finish without sending the next time they run.
+     * Its jobs finish without sending the next time they run and get a slot for their host.
      */
     public void cancel(String activityId) {
         jdbc.sql("DELETE FROM outbound_activity WHERE activity_id = :id").param("id", activityId).update();

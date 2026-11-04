@@ -1,6 +1,8 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import com.github.kagkarlsson.scheduler.boot.autoconfigure.Jackson3Serializer;
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -138,6 +140,55 @@ class InboundActivitiesIntegrationTests {
         // It's retried in about a minute, rather than being set aside like the first one.
         await().atMost(WAIT).until(() -> soonestJob(activity).isBefore(Instant.now().plus(Duration.ofMinutes(5)))
                 && repeating.handled(activity) == 2);
+    }
+
+    @Test
+    void retryingAJobOldEnoughToHaveLostItsActivityFailsWithTheReason() {
+        var activity = parkedAndGone();
+        var instance = Jobs.instanceId(activity.id());
+        jdbc.sql("UPDATE scheduled_tasks SET task_data = :data WHERE task_name = 'inbound-activity' AND task_instance = :instance")
+                .param("data", new Jackson3Serializer().serialize(
+                        new InboundJob(activity.id(), Instant.now().minus(Duration.ofDays(34)))))
+                .param("instance", instance)
+                .update();
+
+        retryNow(activity);
+
+        await().atMost(WAIT).until(() -> failures(activity) == 2);
+        assertThat(jdbc.sql("""
+                        SELECT exception_message FROM scheduled_execution_logs
+                        WHERE task_name = 'inbound-activity' AND task_instance = :instance AND NOT succeeded
+                        """)
+                .param("instance", instance)
+                .query(String.class)
+                .list()).anyMatch(message -> message.contains("Its activity is gone"));
+        assertThat(executionTime(activity)).isAfter(Instant.now().plus(Duration.ofDays(29)));
+    }
+
+    @Test
+    void retryingAYoungerJobWithNoActivityFinishesIt() {
+        var activity = parkedAndGone();
+
+        retryNow(activity);
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+    }
+
+    private InboundActivity parkedAndGone() {
+        var activity = activity("Test");
+        handler.onNext.put(activity.id(), ignored -> {
+            throw new PermanentJobFailure("This can never work");
+        });
+        inbound.accept(activity);
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        jdbc.sql("DELETE FROM inbound_activity WHERE activity_id = :id").param("id", activity.id()).update();
+        return activity;
+    }
+
+    private void retryNow(InboundActivity activity) {
+        jdbc.sql("UPDATE scheduled_tasks SET execution_time = now() WHERE task_name = 'inbound-activity' AND task_instance = :instance")
+                .param("instance", Jobs.instanceId(activity.id()))
+                .update();
     }
 
     @Test

@@ -42,13 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   aren't sent, and statuses from before this aren't sent. Followers-only statuses only go to those already following when
   they're posted. See `FEDERATION.md`.
 - Deleting a public, unlisted, or followers-only status stops any `Create` that hasn't started sending, and sends a `Delete` to
-  followers on other servers. For a followers-only status, this only goes to those already following when it was posted. See
+  followers on other servers. For a followers-only status, this only goes to those already following when it was posted. If a
+  delivery of the `Create` hasn't finished, the `Delete` waits about 35 seconds, so that it doesn't overtake one being sent. See
   `FEDERATION.md`.
 - A deleted public or unlisted status now answers ActivityPub requests with a `410` and a `Tombstone`, rather than a 404. This
   adds a table through a migration. Its web page and the client API still answer with a 404.
 - Actor documents link to a `followers` collection at `/users/:username/followers`, which only gives the number of followers.
 - A background job queue stored in PostgreSQL, for sending and receiving activities. It adds tables through a migration,
-  and needs no new services. Admins can see, retry, and delete jobs at `/admin/db-scheduler`. See `docs/accounts.md`.
+  and needs no new services. Admins can see, retry, and delete jobs at `/admin/db-scheduler`. Retrying a job that's outlived
+  its activity fails with the reason, rather than looking like it worked. See `docs/accounts.md`.
 - Inboxes at `/users/:username/inbox`, `/actor/inbox`, and `/inbox`, which check HTTP Signatures and queue activities from
   other servers. Nothing acts on those activities yet. Checking a signature makes this server fetch the sender's key, so it now makes
   requests to other servers. Addresses that cause too many of these fetches get a `429`, which

@@ -10,7 +10,7 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
 | Inboxes | Live, partly | `Follow` and `Undo` of a `Follow` are acted on, and other types are stored and ignored. #39 stays open for forwarded activities, `sharedInbox` and normalizing |
 | Delivery and signed `POST` | Live, partly | `Accept`, `Create` and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
-| Job queue and backoff | Live | Delivery load is untested |
+| Job queue and backoff | Live | Load tested on one node with `./gradlew loadTest`, and not with several nodes or a real server |
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
 | Sending follows | Missing | #44 |
 | Followers and following collections | Live, partly | `followers` only gives its size. Its items and pages, and `following`, are in #43 |
@@ -20,13 +20,13 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 
 ## Roadmap
 
-The next step is finishing milestone 3's remaining checks, and the riskiest is storing other servers' posts, so that step waits on moderation.
+Milestone 3 is done, so the next step is milestone 4. It's the riskiest, because it stores other servers' posts, so it waits on moderation.
 
 ```mermaid
 flowchart TD
     m1["<b>1. Inbox and signatures (done)</b><br/>Servers discover users and deliver signed activities.<br/>PR #57 and earlier"]
     m2["<b>2. Receive follows (done)</b><br/>A remote user follows a local user and gets an Accept.<br/>PR #70, #44 receiving half"]
-    m3["<b>3. Posts reach followers (in progress)</b><br/>Send Create and Delete, and serve followers collections.<br/>#41 sending, #43, #59 sending"]
+    m3["<b>3. Posts reach followers (done)</b><br/>Send Create and Delete, and serve followers collections.<br/>#41 sending, #43, #59 sending"]
     m4["<b>4. Follow out and remote posts</b><br/>Follow remote users, and store and show their posts.<br/>#44 sending, #41, #59 and #60 receiving, rest of #39"]
     m5["<b>5. Interactions</b><br/>Mentions, likes, boosts, edits and notifications.<br/>#28, #61, #62, #60 sending"]
     mod["<b>Basic moderation</b><br/>Domain and actor blocks, needed before remote posts.<br/>#64, #65, #66"]
@@ -36,7 +36,7 @@ flowchart TD
     mod -- lands first --> m4
     m4 --> m6
 
-    style m3 stroke-width:3px
+    style m4 stroke-width:3px
 ```
 
 Milestones 3 to 5 run in order because each uses what the last one built. Moderation can start at any time, and milestone 6 can be picked up in any order alongside milestone 5.
@@ -56,7 +56,7 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
 - **Done when:** a Mastodon or GoToSocial user can follow and unfollow a local user in the lab.
 - **Result:** `federation/smoke.sh` now follows, unfollows and follows again on all three servers, and checks the `follow` table each time. On Misskey it unfollows a second time, which reuses the `Undo` ID (#69).
 
-### 3. Posts reach followers (in progress)
+### 3. Posts reach followers (done)
 
 - **Issues:** the sending half of #41, merged in PR #72, #43, and #59 for sending `Delete`.
 - **Delivers:**
@@ -65,12 +65,21 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
   - using other servers' shared inboxes, and a `Delete` when a status is removed, which `ActivityDeliveries.cancel` was built to support
   - the parent's author addressed on replies, as #41 requires
 - **Done when:** a remote follower sees a new post and sees it disappear when deleted.
-- **Result so far:** PR #72 sends `Create`, uses other servers' shared inboxes, and addresses `Note` objects to followers and to the parent's author on replies, with no `Mention` tag. `followers` only gives its size. `federation/smoke.sh` now posts a public and a followers-only status, and all three servers have to store each with the right visibility. GoToSocial and Misskey also have to show them in a home timeline, but the Mastodon check doesn't cover the feed.
+- **Result:** PR #72 sends `Create`, uses other servers' shared inboxes, and addresses `Note` objects to followers and to the parent's author on replies, with no `Mention` tag. `followers` only gives its size. `federation/smoke.sh` now posts a public and a followers-only status, and all three servers have to store each with the right visibility. All three also have to show them in the lab user's home timeline or feed.
 - **Sending `Delete` (#59):** deleting a status cancels any `Create` that hasn't started sending, and sends a `Delete` to followers. Someone who follows after a followers-only status was posted gets neither its `Create` nor its `Delete`. A status being queued holds off its deletion until its `Create` can be cancelled. A deleted public or unlisted status answers with a `Tombstone` and a `410`. `federation/smoke.sh` checks that each server removes both statuses.
-- **Left to do:**
-  - the rest of the checks under [Work across milestones](#work-across-milestones)
+- **Load:** `./gradlew loadTest` sends one activity through the real scheduler with production settings, to a loopback server that takes 200 ms to answer. Waiting jobs were refused almost all at once at each poll, so a host only got a few deliveries every 10 seconds. Jobs that can't get a slot now take turns, about 3 a second, polls are every second instead of every 10, and those jobs don't read the database. 10 connections are enough: threads did wait for one at peak, but no run failed.
+
+  | Scenario | Before | After |
+  | --- | --- | --- |
+  | 1000 inboxes on one host | 322 delivered in 10 minutes, about 31 minutes in all, at 101 runs per delivery | 336 seconds, at 2.00 runs per delivery |
+  | 2000 inboxes across 500 hosts | 17 seconds, at 1.00 runs per delivery | 8 seconds, at 1.24 runs per delivery |
+
+- **Other checks:** key fetches and deliveries now share one limit per host (`HostRequests`), and deliveries leave one connection for fetches. Retrying a job that's outlived its activity fails with the reason (#55). A `Delete` waits about 35 seconds while its `Create` still has a job, so that it can't overtake one being sent.
 - **Left open:**
-  - a `Create` already being sent when its status is deleted can arrive after the `Delete`
+  - `followers` still only gives its size, and its items and pages stay in #43 until hiding followers is decided
+  - a host that answers slowly gets fewer deliveries than turns, so its waiting jobs run more than twice each, though still only about 3 runs a second
+  - a backlog for one fast host drains at about 180 a minute, well below what its connections could carry
+  - actor document fetches aren't counted in the per-host limit, so they can still wait for a connection
   - replies haven't reached a remote server, because parents are always local until milestone 4
   - three `Create`s weren't stored on GoToSocial within about 30 seconds during testing, for a reason that wasn't found, though four timed runs took 5-6 seconds (PR #72)
 
@@ -111,14 +120,11 @@ These don't belong to one milestone, but each has a point where it stops being o
 | --- | --- | --- |
 | Extend `federation/smoke.sh` with each milestone's check, on all three servers | Every milestone | The lab found problems that unit tests couldn't on PR #57 |
 | Keep `FEDERATION.md` and `CHANGELOG.md` accurate in the same PR | Every milestone | `CLAUDE.md` |
-| Fix parked jobs that outlive their activities | Now, since milestone 2 made jobs real | #55 |
 | Remove a follower when its actor is deleted | Milestone 4, with receiving #59 | Left out of PR #70 |
-| Share one per-host limit between `HostGate` and `RunningLimit` | Milestone 3, when delivery has real volume | PR #57 review, PR #70 known limits |
-| Test worker count and repeat runs of waiting jobs under load | Milestone 3 | Comment on #41 |
-| Check real delivery on a public deployment, not only the lab | Before calling milestone 3 done | Comment on #39 |
+| Check real delivery on a public deployment, not only the lab | Before any public server | Comment on #39 |
 | Limit inbox requests that don't start a key fetch, or document relying on a proxy | Before any public server | PR #57 known limits |
 | Email verification, sign-up approval and session storage | Before any public server | #35, #17, #31, and the warning in `docs/accounts.md` |
-| Retries for `Create` and `Delete` arriving out of order | Milestones 3 and 4 | #53 left ordering to the callers |
+| Handling a `Delete` that arrives before its `Create` | Milestone 4 | #53 left ordering to the callers |
 | Report GoToSocial's stuck home timeline upstream, after confirming the cause | When someone can look into it, since it doesn't block federation | PR #72 |
 
 ## Open questions

@@ -26,12 +26,6 @@ class JobCleanupTask {
      */
     private static final Duration FAILED_HISTORY_KEPT = RetryPolicy.PARKED_FOR;
 
-    /**
-     * A little longer than a job can last, which is failing until it's given up on and then being parked, so that they're
-     * still there if it's retried at the last moment.
-     */
-    private static final Duration ACTIVITIES_KEPT = RetryPolicy.GIVE_UP_AFTER.plus(RetryPolicy.PARKED_FOR).plusDays(1);
-
     @Bean
     Task<Void> jobCleanup(JdbcClient jdbc) {
         return Tasks.recurring("job-cleanup", FixedDelay.of(Duration.ofDays(1)))
@@ -51,16 +45,16 @@ class JobCleanupTask {
                 .param("failedBefore", before(now, FAILED_HISTORY_KEPT))
                 .update();
         jdbc.sql("DELETE FROM outbound_activity WHERE created_at < :before")
-                .param("before", before(now, ACTIVITIES_KEPT))
+                .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();
         jdbc.sql("DELETE FROM inbound_activity WHERE received_at < :before")
-                .param("before", before(now, ACTIVITIES_KEPT))
+                .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();
         jdbc.sql("DELETE FROM undone_follow WHERE undone_at < :before")
-                .param("before", before(now, ACTIVITIES_KEPT))
+                .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();
         jdbc.sql("DELETE FROM undone_follow_pair WHERE undone_at < :before")
-                .param("before", before(now, ACTIVITIES_KEPT))
+                .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();
         jdbc.sql("DELETE FROM federation_host WHERE retry_after < :before")
                 .param("before", before(now, HOSTS_KEPT))

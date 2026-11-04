@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.signature;
 
+import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -43,7 +44,7 @@ class PublicKeyResolverTests {
     private final AtomicLong nanos = new AtomicLong();
     private final ActorService actors = mock();
     private final KeyDocuments documents = mock();
-    private final PublicKeyResolver resolver = new PublicKeyResolver(actors, documents, nanos::get, Runnable::run);
+    private final PublicKeyResolver resolver = new PublicKeyResolver(actors, documents, nanos::get, Runnable::run, new HostRequests());
 
     @Test
     void remembersAFetchedKey() throws Exception {
@@ -79,7 +80,7 @@ class PublicKeyResolverTests {
             return KEY;
         });
         var concurrent = new PublicKeyResolver(
-                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor(), new HostRequests());
 
         var requests = new ArrayList<CompletableFuture<ResolvedKey>>();
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -183,7 +184,7 @@ class PublicKeyResolverTests {
             return KEY;
         });
         var concurrent = new PublicKeyResolver(
-                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor(), new HostRequests());
 
         var requests = new ArrayList<CompletableFuture<ResolvedKey>>();
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -219,7 +220,7 @@ class PublicKeyResolverTests {
             return KEY;
         });
         var concurrent = new PublicKeyResolver(
-                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor(), new HostRequests());
 
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var i = 0; i < 4; i++) {
@@ -275,7 +276,7 @@ class PublicKeyResolverTests {
             return KEY;
         });
         var concurrent = new PublicKeyResolver(
-                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor(), new HostRequests());
         var budget = new CountingBudget(1);
 
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -303,7 +304,7 @@ class PublicKeyResolverTests {
             return KEY;
         });
         var concurrent = new PublicKeyResolver(
-                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor(), new HostRequests());
         var first = new CountingBudget(1);
         var second = new CountingBudget(0);
 
@@ -376,7 +377,7 @@ class PublicKeyResolverTests {
             return KEY;
         });
         var concurrent = new PublicKeyResolver(
-                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor(), new HostRequests());
 
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var i = 0; i < 32; i++) {

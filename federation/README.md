@@ -32,7 +32,8 @@ The script checks six things:
   for each and store it with the right visibility, though it can't fetch the followers-only one, which gets a `404`.
   GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in
   GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating until a restart. Misskey has to show
-  both in the `lab` user's home timeline too, with the text that was posted.
+  both in the `lab` user's home timeline too, with the text that was posted. Mastodon has to have both in the `lab` user's home
+  feed, which it only fills for users who signed in lately, so the script marks that user as signed in.
 - **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
   for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
   a `404`.

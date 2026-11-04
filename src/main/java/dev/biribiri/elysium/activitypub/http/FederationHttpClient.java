@@ -53,7 +53,7 @@ public class FederationHttpClient implements AutoCloseable {
      * The read timeout only limits the gap between packets, so a server could otherwise keep a request open forever by
      * sending a byte at a time.
      */
-    private static final Duration DEADLINE = Duration.ofSeconds(30);
+    public static final Duration DEADLINE = Duration.ofSeconds(30);
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
     private final CloseableHttpClient client;

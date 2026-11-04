@@ -18,6 +18,16 @@ public final class RunningLimit {
      * @return whether there was room. If so, this needs a call to {@link #finish} afterward.
      */
     public boolean tryStart(String key) {
+        return tryStart(key, limit);
+    }
+
+    /**
+     * Starts something that has a lower limit than others counted under the same key, so that it leaves them some room.
+     *
+     * @param limit how many can be running, of any kind, for this to start
+     * @return whether there was room. If so, this needs a call to {@link #finish} afterward.
+     */
+    public boolean tryStart(String key, int limit) {
         var started = new boolean[1];
         running.compute(key, (ignored, current) -> {
             var count = current == null ? 0 : current;

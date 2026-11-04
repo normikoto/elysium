@@ -5,10 +5,9 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.Ticker;
-import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
+import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.ratelimit.RunningLimit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,10 +50,6 @@ class PublicKeyResolver {
     private static final long MAX_CACHED_KEYS = 10_000;
     private static final int MAX_CONCURRENT_FETCHES = 32;
 
-    /**
-     * Keeps slow hosts from taking every fetch. A fetch beyond this would only wait for one of the client's connections.
-     */
-    private static final int MAX_CONCURRENT_FETCHES_PER_HOST = FederationHttpClient.MAX_CONNECTIONS_PER_HOST;
     private static final int MAX_FETCHES_PER_HOST_PER_MINUTE = 60;
     private static final long MAX_TRACKED_HOSTS = 10_000;
 
@@ -71,9 +66,9 @@ class PublicKeyResolver {
     private final Semaphore fetches = new Semaphore(MAX_CONCURRENT_FETCHES);
 
     /**
-     * A host only has an entry while a fetch holds one of {@link #fetches}, which bounds its size.
+     * Keeps slow hosts from taking every fetch, and also counts deliveries, since they use the same connections.
      */
-    private final RunningLimit fetchesByHost = new RunningLimit(MAX_CONCURRENT_FETCHES_PER_HOST);
+    private final HostRequests hostRequests;
     private final AsyncCache<String, Lookup> cache;
     private final ConcurrentHashMap<String, CompletableFuture<Lookup>> refreshes = new ConcurrentHashMap<>();
 
@@ -84,11 +79,13 @@ class PublicKeyResolver {
     private final Cache<String, Lookup> failedRefreshes;
 
     @Autowired
-    PublicKeyResolver(ActorService actors, KeyDocuments documents) {
-        this(actors, documents, Ticker.systemTicker(), Executors.newVirtualThreadPerTaskExecutor());
+    PublicKeyResolver(ActorService actors, KeyDocuments documents, HostRequests hostRequests) {
+        this(actors, documents, Ticker.systemTicker(), Executors.newVirtualThreadPerTaskExecutor(), hostRequests);
     }
 
-    PublicKeyResolver(ActorService actors, KeyDocuments documents, Ticker ticker, Executor executor) {
+    PublicKeyResolver(
+            ActorService actors, KeyDocuments documents, Ticker ticker, Executor executor, HostRequests hostRequests) {
+        this.hostRequests = hostRequests;
         this.actors = actors;
         this.documents = documents;
         this.ticker = ticker;
@@ -199,7 +196,7 @@ class PublicKeyResolver {
         if (!fetches.tryAcquire()) {
             return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches at once"));
         }
-        if (!fetchesByHost.tryStart(host)) {
+        if (!hostRequests.tryStartFetch(host)) {
             fetches.release();
             return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches running for " + host));
         }
@@ -231,7 +228,7 @@ class PublicKeyResolver {
     }
 
     private void release(String host) {
-        fetchesByHost.finish(host);
+        hostRequests.finish(host);
         fetches.release();
     }
 

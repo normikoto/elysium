@@ -20,6 +20,14 @@ class RunningLimitTests {
     }
 
     @Test
+    void aLowerLimitCountsWhatsRunningUnderTheSameKey() {
+        limit.tryStart("key");
+
+        assertThat(limit.tryStart("key", 1)).isFalse();
+        assertThat(limit.tryStart("key")).isTrue();
+    }
+
+    @Test
     void countsEachKeySeparately() {
         limit.tryStart("key");
         limit.tryStart("key");
