@@ -3,6 +3,7 @@ package dev.biribiri.elysium;
 import com.jayway.jsonpath.JsonPath;
 import org.hamcrest.Matcher;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.StatusDeleted;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +15,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockPart;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -53,6 +56,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "elysium.registration.enabled=true"
 })
 @AutoConfigureMockMvc
+@RecordApplicationEvents
 class StatusesIntegrationTests {
 
     private static final String PASSWORD = "correct horse battery staple";
@@ -71,6 +75,9 @@ class StatusesIntegrationTests {
 
     @Autowired
     private JdbcClient jdbc;
+
+    @Autowired
+    private ApplicationEvents events;
 
     @Autowired
     private ActorService actors;
@@ -365,6 +372,31 @@ class StatusesIntegrationTests {
         var id = create(alice(), "Hello");
         mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), bob())).andExpect(status().isNotFound());
         mockMvc.perform(get("/api/v1/statuses/" + id)).andExpect(status().isOk());
+        assertThat(tombstones(id)).isZero();
+        assertThat(deletedEvents(id)).isZero();
+    }
+
+    @Test
+    void deletingTwiceOnlyHappensOnce() throws Exception {
+        var id = create(alice(), "Hello");
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice())).andExpect(status().isOk());
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice())).andExpect(status().isNotFound());
+        assertThat(tombstones(id)).isEqualTo(1);
+        assertThat(deletedEvents(id)).isEqualTo(1);
+    }
+
+    private long tombstones(String id) {
+        return jdbc.sql("SELECT count(*) FROM status_tombstone WHERE status_id = :id::uuid")
+                .param("id", id)
+                .query(Long.class)
+                .single();
+    }
+
+    /**
+     * Counts what was published rather than what's stored, because an event's row is gone once its listeners finish.
+     */
+    private long deletedEvents(String id) {
+        return events.stream(StatusDeleted.class).filter(event -> event.statusId().toString().equals(id)).count();
     }
 
     // Authorization

@@ -395,11 +395,47 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void doesNotServeADeletedStatusAsANote() throws Exception {
+    void servesATombstoneForADeletedStatusThatAnyoneCouldSee() throws Exception {
+        for (var visibility : new Visibility[]{Visibility.PUBLIC, Visibility.UNLISTED}) {
+            var status = post(wanda, "deleted text", visibility);
+            statuses.delete(status.id(), wanda.id());
+
+            mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+                    .andExpect(status().isGone())
+                    .andExpect(content().contentTypeCompatibleWith(ACTIVITY_JSON))
+                    .andExpect(jsonPath("$['@context']").value("https://www.w3.org/ns/activitystreams"))
+                    .andExpect(jsonPath("$.id").value(status.uri().toString()))
+                    .andExpect(jsonPath("$.type").value("Tombstone"))
+                    .andExpect(jsonPath("$.formerType").value("Note"))
+                    .andExpect(jsonPath("$.deleted").isString())
+                    .andExpect(content().string(not(containsString("deleted text"))));
+        }
+    }
+
+    @Test
+    void aDeletedFollowersOnlyOrDirectStatusLooksLikeItNeverExisted() throws Exception {
+        for (var visibility : new Visibility[]{Visibility.PRIVATE, Visibility.DIRECT}) {
+            var status = post(wanda, "deleted text", visibility);
+            statuses.delete(status.id(), wanda.id());
+
+            mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
+    void aTombstoneIsOnlyServedUnderItsAuthor() throws Exception {
         var status = post(wanda, "deleted text", Visibility.PUBLIC);
         statuses.delete(status.id(), wanda.id());
 
-        mockMvc.perform(get(path(wanda, status)).accept(ACTIVITY_JSON))
+        mockMvc.perform(get(path(walt, status)).accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aDeletedStatusHasNoPage() throws Exception {
+        var status = post(wanda, "deleted text", Visibility.PUBLIC);
+        statuses.delete(status.id(), wanda.id());
+
+        mockMvc.perform(get(path(wanda, status)).accept(MediaType.TEXT_HTML))
                 .andExpect(status().isNotFound())
                 .andExpect(content().string(not(containsString("deleted text"))));
     }

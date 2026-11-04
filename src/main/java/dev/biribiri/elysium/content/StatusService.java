@@ -9,6 +9,8 @@ import dev.biribiri.elysium.content.internal.StatusUrls;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
@@ -117,12 +119,42 @@ public class StatusService {
     }
 
     /**
-     * Deletes one of the author's own statuses.
+     * Finds one of the author's own statuses, and stops it from being deleted until the transaction ends. Whatever is queued
+     * for the status in this transaction is then there to be found by the listeners for {@link StatusDeleted}.
+     *
+     * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<Status> findAndHold(UUID id, UUID authorId) {
+        return statuses.findByIdAndLock(id).filter(status -> status.actorId().equals(authorId));
+    }
+
+    /**
+     * Deletes one of the author's own statuses. A tombstone is only kept for a status that anyone could see, because
+     * others get the same answer for a followers-only or direct status as for one that never existed, and a tombstone would
+     * reveal that it had.
      *
      * @return the deleted status, or empty if the author has no status with this ID
      */
     public Optional<Status> delete(UUID id, UUID authorId) {
-        return statuses.delete(id, authorId);
+        return transaction.execute(tx -> {
+            var deleted = statuses.delete(id, authorId);
+            deleted.ifPresent(status -> {
+                if (status.isVisibleTo(Optional.empty())) {
+                    statuses.insertTombstone(status, Instant.now().truncatedTo(ChronoUnit.MICROS));
+                }
+                events.publishEvent(new StatusDeleted(
+                        status.id(), status.uri(), authorId, status.visibility(), status.publishedAt()));
+            });
+            return deleted;
+        });
+    }
+
+    /**
+     * Finds what's left of a deleted status of this author's, if it's one that anyone could see.
+     */
+    public Optional<DeletedStatus> findTombstone(UUID id, UUID authorId) {
+        return statuses.findTombstone(id, authorId);
     }
 
     /**

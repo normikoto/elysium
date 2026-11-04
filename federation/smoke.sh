@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, and receive its statuses.
+# and unfollow it, and receive its statuses and their deletion.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -167,18 +167,19 @@ follow_from_gotosocial() {
 
 # Leaves the URIs of a public and a followers-only status in public_uri and private_uri, for the other server to look for.
 post_from_elysium() {
-    local actor followers status elysium_token
+    local actor followers status
     actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
     [[ $(jq -r .followers <<<"$actor") == "$expected_actor/followers" ]] || fail "The actor has no followers collection: $actor"
     followers=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/followers")
     [[ $(jq -r .totalItems <<<"$followers") == 1 ]] || fail "Unexpected followers collection: $followers"
 
+    # Not local, because delete_from_elysium uses it too.
     elysium_token=$(driver sh /federation/elysium-token.sh alice "$password")
     [[ -n $elysium_token ]] || fail "Couldn't get an Elysium access token"
     public_uri=$(post_status "$elysium_token" public)
     private_uri=$(post_status "$elysium_token" private)
-    expect_queued "$public_uri"
-    expect_queued "$private_uri"
+    expect_queued "$public_uri#create"
+    expect_queued "$private_uri#create"
 
     status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$private_uri")
     [[ $status == 404 ]] || fail "Fetching a followers-only status got a $status, not a 404"
@@ -197,13 +198,35 @@ expect_queued() {
     echo "Waiting for Elysium to queue $1"
     for _ in $(seq 1 30); do
         found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
-            "SELECT count(*) FROM outbound_activity WHERE activity_id = '$1#create'")
+            "SELECT count(*) FROM outbound_activity WHERE activity_id = '$1'")
         if [[ $found -eq 1 ]]; then
             return
         fi
         sleep 2
     done
-    fail "Elysium never queued a Create for $1. Check its logs"
+    fail "Elysium never queued $1. Check its logs"
+}
+
+delete_status() {
+    driver curl -fsS -o /dev/null -X DELETE "https://elysium.test/api/v1/statuses/${1##*/}" \
+        -H "Authorization: Bearer $elysium_token"
+}
+
+# Deletes the statuses from post_from_elysium, for the other server to remove.
+delete_from_elysium() {
+    delete_status "$public_uri"
+    delete_status "$private_uri"
+    expect_queued "$public_uri#delete"
+    expect_queued "$private_uri#delete"
+
+    local status tombstone
+    status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$public_uri")
+    [[ $status == 410 ]] || fail "Fetching a deleted public status got a $status, not a 410"
+    tombstone=$(driver curl -sS -H 'Accept: application/activity+json' "$public_uri")
+    [[ $(jq -r .type <<<"$tombstone") == Tombstone ]] || fail "A deleted public status isn't a Tombstone: $tombstone"
+
+    status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$private_uri")
+    [[ $status == 404 ]] || fail "Fetching a deleted followers-only status got a $status, not a 404"
 }
 
 mastodon_expect_statuses() {
@@ -227,6 +250,23 @@ mastodon_expect_statuses() {
     grep -qxF "STATUS public $expected_actor" <<<"$output" || fail "Mastodon never stored the public status"
     grep -qxF "STATUS private $expected_actor" <<<"$output" || fail "Mastodon never stored the followers-only status"
     echo 'Mastodon stored both statuses, with the right visibility'
+}
+
+mastodon_expect_deleted() {
+    local output
+    output=$(docker compose exec -T -e PUBLIC_URI="$public_uri" -e PRIVATE_URI="$private_uri" mastodon-web bin/rails runner '
+        [ENV["PUBLIC_URI"], ENV["PRIVATE_URI"]].each do |uri|
+            gone = false
+            60.times do
+                gone = Status.uncached { Status.find_by(uri: uri) }.nil?
+                break if gone
+                sleep 2
+            end
+            puts "GONE #{gone}"
+        end')
+    echo "$output"
+    [[ $(grep -cxF 'GONE true' <<<"$output") == 2 ]] || fail "Mastodon still has a deleted status"
+    echo 'Mastodon removed both statuses'
 }
 
 gotosocial_visibility_of() {
@@ -260,6 +300,20 @@ gotosocial_expect_statuses() {
             || fail "$uri isn't in the home timeline of GoToSocial's lab user: $home"
     done
     echo "Both statuses are in the home timeline of GoToSocial's lab user"
+}
+
+gotosocial_expect_deleted() {
+    local uri found
+    for uri in "$public_uri" "$private_uri"; do
+        echo "Waiting for GoToSocial to remove $uri"
+        for _ in $(seq 1 60); do
+            found=$(gotosocial_visibility_of "$uri")
+            [[ -z $found ]] && break
+            sleep 2
+        done
+        [[ -z $found ]] || fail "GoToSocial still has $uri"
+    done
+    echo 'GoToSocial removed both statuses'
 }
 
 deliver_from_mastodon() {
@@ -424,6 +478,21 @@ misskey_expect_statuses() {
     echo "Both statuses are in the home timeline of Misskey's lab user"
 }
 
+misskey_expect_deleted() {
+    local uri note
+    for uri in "$public_uri" "$private_uri"; do
+        echo "Waiting for Misskey to remove $uri"
+        for _ in $(seq 1 60); do
+            note=$(misskey_api users/notes "$(jq -cn --arg id "$alice_id" '{userId: $id, limit: 100}')" \
+                | jq -c --arg uri "$uri" '.[] | select(.uri == $uri)')
+            [[ -z $note ]] && break
+            sleep 2
+        done
+        [[ -z $note ]] || fail "Misskey still has $uri: $note"
+    done
+    echo 'Misskey removed both statuses'
+}
+
 # The '*' includes every profile, so that this also clears a lab left over from another target.
 docker compose --profile '*' down -v --remove-orphans
 
@@ -440,6 +509,8 @@ case "$target" in
         follow_from_gotosocial
         post_from_elysium
         gotosocial_expect_statuses
+        delete_from_elysium
+        gotosocial_expect_deleted
         ;;
     mastodon)
         resolve_from_mastodon
@@ -447,6 +518,8 @@ case "$target" in
         follow_from_mastodon
         post_from_elysium
         mastodon_expect_statuses
+        delete_from_elysium
+        mastodon_expect_deleted
         ;;
     misskey)
         resolve_from_misskey
@@ -454,6 +527,8 @@ case "$target" in
         follow_from_misskey
         post_from_elysium
         misskey_expect_statuses
+        delete_from_elysium
+        misskey_expect_deleted
         ;;
 esac
 

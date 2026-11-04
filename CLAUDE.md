@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Elysium is an experimental ActivityPub server (Java 25, Spring Boot 4, Spring Modulith, PostgreSQL) aiming for
 compatibility with Mastodon and other common implementations. It can't fully federate yet: other servers can discover its
 users, fetch actors and `Note` objects, deliver activities to its inboxes, follow and unfollow its users, which sends an
-`Accept`, and receive its new statuses as `Create`. Other activities are ignored, its users can't follow anyone, and deleting
-a status isn't sent.
+`Accept`, and receive its new and deleted statuses as `Create` and `Delete`. Other activities are ignored, and its users can't
+follow anyone.
 
 ## Commands
 
@@ -57,7 +57,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 
 Only part of this is live. `InboxController` receives activities and queues them, and only `Follow` and `Undo` have an
 `InboundActivityHandler`, so other types are stored and ignored. `FollowHandler` and `StatusDeliveries` use
-`activitypub.delivery`, and `StatusPublished` is the only application event. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
+`activitypub.delivery`, and `StatusPublished` and `StatusDeleted` are the only application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
 feature is live.
 
 - **Inbound:** `InboxController` does the HTTP and signature steps, and `Inbox` decides whether to keep an activity. Who an
@@ -76,7 +76,8 @@ feature is live.
   Each format supplies a `SignatureScheme` and a `RequestSigner`. Only draft-cavage is implemented. The reasoning for
   signer order is in `activitypub/signature/package-info.java`.
 - **Outbound:** A module publishes an event inside its transaction, with only IDs in it, and a listener in
-  `activitypub.outbound` builds the activity, as `StatusDeliveries` does. Listeners have to be safe to repeat and shouldn't
+  `activitypub.outbound` builds the activity, as `StatusDeliveries` does. `StatusDeleted` also has the URI, visibility, and time of publishing,
+  which can't be looked up once the row is gone, and never has a status's text, because events are stored. Listeners have to be safe to repeat and shouldn't
   fail for what's since been deleted, because `EventRetries` runs a failed one again every 5 minutes, and an event only stays
   stored until its listeners finish. `Notes` builds `Note` objects, so that fetched and delivered ones match.
 - **Outbound HTTP:** Use `activitypub.http.FederationHttpClient`, which refuses private addresses, including through its

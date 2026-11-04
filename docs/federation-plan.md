@@ -2,25 +2,25 @@
 
 ## Where things stand
 
-Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new posts, but Elysium can't follow anyone or tell other servers when a post is deleted, so it can't fully federate yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
+Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new and deleted posts, but Elysium can't follow anyone, so it can't fully federate yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
 
 | Area | State | Notes |
 | --- | --- | --- |
 | WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon, GoToSocial and Misskey resolve users in the federation lab |
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
 | Inboxes | Live, partly | `Follow` and `Undo` of a `Follow` are acted on, and other types are stored and ignored. #39 stays open for forwarded activities, `sharedInbox` and normalizing |
-| Delivery and signed `POST` | Live, partly | `Accept` and `Create` are sent, and Mastodon, GoToSocial and Misskey accepted both in the lab |
+| Delivery and signed `POST` | Live, partly | `Accept`, `Create` and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
 | Job queue and backoff | Live | Delivery load is untested |
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
 | Sending follows | Missing | #44 |
 | Followers and following collections | Live, partly | `followers` only gives its size. Its items and pages, and `following`, are in #43 |
 | Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Receiving is in #41, and the outbox is in #40 |
-| Likes, boosts, edits, deletes, polls | Missing | #59, #60, #61, #62, with polls only listed on #1 |
+| Likes, boosts, edits, polls, receiving deletes | Missing | #60, #61, #62, #59, with polls only listed on #1 |
 | Moderation and server policy | Missing | #37 |
 
 ## Roadmap
 
-The next step is finishing milestone 3 by sending `Delete`, and the riskiest is storing other servers' posts, so that step waits on moderation.
+The next step is finishing milestone 3's remaining checks, and the riskiest is storing other servers' posts, so that step waits on moderation.
 
 ```mermaid
 flowchart TD
@@ -66,10 +66,11 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
   - the parent's author addressed on replies, as #41 requires
 - **Done when:** a remote follower sees a new post and sees it disappear when deleted.
 - **Result so far:** PR #72 sends `Create`, uses other servers' shared inboxes, and addresses `Note` objects to followers and to the parent's author on replies, with no `Mention` tag. `followers` only gives its size. `federation/smoke.sh` now posts a public and a followers-only status, and all three servers have to store each with the right visibility. GoToSocial and Misskey also have to show them in a home timeline, but the Mastodon check doesn't cover the feed.
+- **Sending `Delete` (#59):** deleting a status cancels any `Create` that hasn't started sending, and sends a `Delete` to followers. Someone who follows after a followers-only status was posted gets neither its `Create` nor its `Delete`. A status being queued holds off its deletion until its `Create` can be cancelled. A deleted public or unlisted status answers with a `Tombstone` and a `410`. `federation/smoke.sh` checks that each server removes both statuses.
 - **Left to do:**
-  - send `Delete` (#59), including for a status deleted while its `Create` is being queued, when there's nothing to cancel yet
   - the rest of the checks under [Work across milestones](#work-across-milestones)
 - **Left open:**
+  - a `Create` already being sent when its status is deleted can arrive after the `Delete`
   - replies haven't reached a remote server, because parents are always local until milestone 4
   - three `Create`s weren't stored on GoToSocial within about 30 seconds during testing, for a reason that wasn't found, though four timed runs took 5-6 seconds (PR #72)
 

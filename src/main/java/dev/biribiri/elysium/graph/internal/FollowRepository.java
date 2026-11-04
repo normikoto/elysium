@@ -90,6 +90,25 @@ public class FollowRepository {
                 .toList();
     }
 
+    /**
+     * Like {@link #findFollowerInboxes}, leaving out followers who started following after this time. A newer {@code Follow}
+     * from a follower updates the same row and keeps {@code created_at}, so that's when they started following.
+     */
+    public List<URI> findFollowerInboxesAsOf(UUID followedId, Instant time) {
+        return jdbc.sql("""
+                        SELECT DISTINCT COALESCE(a.shared_inbox_uri, a.inbox_uri)
+                        FROM follow f JOIN actor a ON a.id = f.follower_id
+                        WHERE f.followed_id = :followedId AND f.state = 'accepted' AND NOT a.is_local
+                          AND f.created_at <= :time
+                        """)
+                .param("followedId", followedId)
+                .param("time", time(time))
+                .query(String.class)
+                .stream()
+                .map(URI::create)
+                .toList();
+    }
+
     public long countFollowers(UUID followedId) {
         return jdbc.sql("SELECT count(*) FROM follow WHERE followed_id = :followedId AND state = 'accepted'")
                 .param("followedId", followedId)

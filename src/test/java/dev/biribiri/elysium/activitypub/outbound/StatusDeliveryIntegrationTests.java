@@ -35,14 +35,22 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
 /**
@@ -292,6 +300,228 @@ class StatusDeliveryIntegrationTests {
         awaitCreate(host, status);
     }
 
+    // Deleting
+
+    @Test
+    void sendsADeleteToAFollower() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+
+        statuses.delete(status.id(), author.id());
+
+        var delete = awaitDelete(host, status);
+        assertThat(delete.request().path()).isEqualTo("/users/bob/inbox");
+        assertThat(delete.request().signature()).contains("keyId=\"" + author.uri() + "#main-key\"");
+        var body = delete.body();
+        assertThat(body.path("@context").stringValue()).isEqualTo("https://www.w3.org/ns/activitystreams");
+        assertThat(body.path("id").stringValue()).isEqualTo(status.uri() + "#delete");
+        assertThat(body.path("type").stringValue()).isEqualTo("Delete");
+        assertThat(body.path("actor").stringValue()).isEqualTo(author.uri().toString());
+        assertThat(strings(body.path("to"))).containsExactly(PUBLIC);
+        assertThat(strings(body.path("cc"))).containsExactly(followers());
+        var tombstone = body.path("object");
+        assertThat(tombstone.has("@context")).isFalse();
+        assertThat(tombstone.path("id").stringValue()).isEqualTo(status.uri().toString());
+        assertThat(tombstone.path("type").stringValue()).isEqualTo("Tombstone");
+        assertThat(tombstone.path("formerType").stringValue()).isEqualTo("Note");
+    }
+
+    @Test
+    void addressesTheDeleteOfAnUnlistedStatus() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.UNLISTED, null);
+
+        statuses.delete(status.id(), author.id());
+
+        var body = awaitDelete(host, status).body();
+        assertThat(strings(body.path("to"))).containsExactly(followers());
+        assertThat(strings(body.path("cc"))).containsExactly(PUBLIC);
+    }
+
+    @Test
+    void addressesTheDeleteOfAFollowersOnlyStatus() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+
+        statuses.delete(status.id(), author.id());
+
+        var body = awaitDelete(host, status).body();
+        assertThat(strings(body.path("to"))).containsExactly(followers());
+        assertThat(strings(body.path("cc"))).isEmpty();
+    }
+
+    @Test
+    void followersOnAServerShareOneDelete() {
+        var host = newHost();
+        follow(host, "bob", true);
+        follow(host, "carol", true);
+        var status = post(Visibility.PUBLIC, null);
+
+        statuses.delete(status.id(), author.id());
+
+        assertThat(awaitDelete(host, status).request().path()).isEqualTo("/inbox");
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> deletesFor(host, status).size() == 1);
+    }
+
+    @Test
+    void aLaterFollowerIsNotToldAboutADeletedFollowersOnlyStatus() {
+        var earlier = newHost();
+        follow(earlier, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        awaitCreate(earlier, status);
+        awaitNothingLeftFor(status);
+        var later = newHost();
+        follow(later, "carol", false);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(earlier, status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
+    }
+
+    @Test
+    void aLaterFollowerIsToldAboutADeletedPublicStatus() {
+        var status = post(Visibility.PUBLIC, null);
+        awaitNothingLeftFor(status);
+        var later = newHost();
+        follow(later, "carol", false);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(later, status);
+    }
+
+    @Test
+    void aFollowersOnlyStatusIsNotSentToSomeoneWhoFollowedAfterItWasPosted() {
+        var earlier = newHost();
+        follow(earlier, "bob", false);
+        var later = newHost();
+        // Runs in the listener, so this follow is after the status was posted, and before its audience is worked out.
+        doAnswer(call -> {
+            follow(later, "carol", false);
+            return call.callRealMethod();
+        }).doCallRealMethod().when(follows).followerInboxesAsOf(eq(author.id()), any());
+
+        var status = post(Visibility.PRIVATE, null);
+
+        awaitCreate(earlier, status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
+    }
+
+    @Test
+    void aFollowerSentAFollowersOnlyStatusIsAlsoSentItsDelete() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        awaitCreate(host, status);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(host, status);
+    }
+
+    @Test
+    void sendsNothingForADeletedDirectStatus() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.DIRECT, null);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitNothingLeftFor(status);
+        assertThat(receivedBy(host)).isEmpty();
+        assertThat(storedDelete(status)).isZero();
+    }
+
+    @Test
+    void cancelsAnUnsentCreateEvenWithNoFollowersLeft() {
+        var status = post(Visibility.PUBLIC, null);
+        awaitNothingLeftFor(status);
+        jdbc.sql("INSERT INTO outbound_activity (activity_id, actor_id, body) VALUES (:id, :actorId, '{}')")
+                .param("id", status.uri() + "#create")
+                .param("actorId", author.id())
+                .update();
+
+        statuses.delete(status.id(), author.id());
+
+        awaitNothingLeftFor(status);
+        assertThat(stored(status)).isZero();
+        assertThat(storedDelete(status)).isZero();
+    }
+
+    @Test
+    void sendsNothingForARolledBackDelete() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+        awaitNothingLeftFor(status);
+
+        transactions.executeWithoutResult(transaction -> {
+            statuses.delete(status.id(), author.id());
+            transaction.setRollbackOnly();
+        });
+
+        assertThat(statuses.findVisible(status.id(), Optional.empty())).isPresent();
+        assertThat(statuses.findTombstone(status.id(), author.id())).isEmpty();
+        assertThat(publications(status)).isZero();
+        assertThat(storedDelete(status)).isZero();
+    }
+
+    @Test
+    void retriesAFailedDeleteListener() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+        awaitNothingLeftFor(status);
+        doThrow(new IllegalStateException("Expected by this test"))
+                .doCallRealMethod()
+                .when(follows).followerInboxes(author.id());
+
+        statuses.delete(status.id(), author.id());
+        await().atMost(WAIT).until(() -> "FAILED".equals(publicationStatus(status)));
+
+        backdatePublication(status);
+        retries.retry();
+
+        awaitDelete(host, status);
+        awaitNothingLeftFor(status);
+    }
+
+    @Test
+    void aDeleteWaitsForItsCreateToBeQueuedAndThenCancelsIt() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var posted = new CompletableFuture<Status>();
+        var deleting = new CompletableFuture<CompletableFuture<?>>();
+        var deleteWaited = new AtomicBoolean();
+        // Only the Create's listener gets this. By then, the status is held until that listener commits.
+        doAnswer(call -> {
+            var status = posted.get(30, TimeUnit.SECONDS);
+            var delete = CompletableFuture.runAsync(() -> statuses.delete(status.id(), author.id()));
+            deleting.complete(delete);
+            try {
+                delete.get(2, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                deleteWaited.set(true);
+            }
+            return call.callRealMethod();
+        }).doCallRealMethod().when(follows).followerInboxes(author.id());
+
+        var status = post(Visibility.PUBLIC, null);
+        posted.complete(status);
+
+        await().atMost(WAIT).until(() -> deleting.isDone() && deleting.join().isDone());
+        assertThat(deleteWaited).isTrue();
+        awaitDelete(host, status);
+        await().atMost(WAIT).until(() -> stored(status) == 0);
+    }
+
     // Helpers
 
     private String newHost() {
@@ -323,14 +553,26 @@ class StatusDeliveryIntegrationTests {
         return author.uri() + "/followers";
     }
 
-    private Create awaitCreate(String host, Status status) {
+    private Delivered awaitCreate(String host, Status status) {
+        return awaitActivity(host, status.uri() + "#create");
+    }
+
+    private Delivered awaitDelete(String host, Status status) {
+        return awaitActivity(host, status.uri() + "#delete");
+    }
+
+    private Delivered awaitActivity(String host, String activityId) {
         await().atMost(WAIT).until(() -> receivedBy(host).stream()
-                .anyMatch(request -> request.body().contains(status.uri() + "#create")));
+                .anyMatch(request -> request.body().contains(activityId)));
         var request = receivedBy(host).stream()
-                .filter(candidate -> candidate.body().contains(status.uri() + "#create"))
+                .filter(candidate -> candidate.body().contains(activityId))
                 .findFirst()
                 .orElseThrow();
-        return new Create(request, json.readTree(request.body()));
+        return new Delivered(request, json.readTree(request.body()));
+    }
+
+    private List<Received> deletesFor(String host, Status status) {
+        return receivedBy(host).stream().filter(request -> request.body().contains(status.uri() + "#delete")).toList();
     }
 
     private void awaitNothingLeftFor(Status status) {
@@ -348,6 +590,13 @@ class StatusDeliveryIntegrationTests {
     private long stored(Status status) {
         return jdbc.sql("SELECT count(*) FROM outbound_activity WHERE activity_id = :id")
                 .param("id", status.uri() + "#create")
+                .query(Long.class)
+                .single();
+    }
+
+    private long storedDelete(Status status) {
+        return jdbc.sql("SELECT count(*) FROM outbound_activity WHERE activity_id = :id")
+                .param("id", status.uri() + "#delete")
                 .query(Long.class)
                 .single();
     }
@@ -376,7 +625,7 @@ class StatusDeliveryIntegrationTests {
     private record Received(String host, String path, String signature, String body) {
     }
 
-    private record Create(Received request, JsonNode body) {
+    private record Delivered(Received request, JsonNode body) {
     }
 
     @TestConfiguration(proxyBeanMethods = false)

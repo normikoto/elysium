@@ -39,8 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Other servers' users can follow local users and unfollow them. Every request is accepted automatically, and an `Accept`
   is sent back. Local users can't follow anyone yet. See `FEDERATION.md`.
 - New public, unlisted, and followers-only statuses are sent to followers on other servers, as a `Create`. Direct statuses
-  aren't sent, statuses from before this aren't sent, and deleting a status doesn't reach other servers yet. See
+  aren't sent, and statuses from before this aren't sent. Followers-only statuses only go to those already following when
+  they're posted. See `FEDERATION.md`.
+- Deleting a public, unlisted, or followers-only status stops any `Create` that hasn't started sending, and sends a `Delete` to
+  followers on other servers. For a followers-only status, this only goes to those already following when it was posted. See
   `FEDERATION.md`.
+- A deleted public or unlisted status now answers ActivityPub requests with a `410` and a `Tombstone`, rather than a 404. This
+  adds a table through a migration. Its web page and the client API still answer with a 404.
 - Actor documents link to a `followers` collection at `/users/:username/followers`, which only gives the number of followers.
 - A background job queue stored in PostgreSQL, for sending and receiving activities. It adds tables through a migration,
   and needs no new services. Admins can see, retry, and delete jobs at `/admin/db-scheduler`. See `docs/accounts.md`.

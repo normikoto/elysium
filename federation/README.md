@@ -16,7 +16,7 @@ federation/smoke.sh gotosocial   # or mastodon, or misskey
 The script deletes any lab left over from an earlier run, starts a new one, and exits with an error if a check fails.
 Rebuild the image to test a change to Elysium, because the lab doesn't build it for you.
 
-The script checks five things:
+The script checks six things:
 
 - **Discovery:** Elysium serves its documents through the proxy, and the other server can resolve `@alice@elysium.test`.
 - **Refusing deliveries:** An unsigned `POST` to Elysium's inbox gets a `401`.
@@ -33,6 +33,9 @@ The script checks five things:
   GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in
   GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating until a restart. Misskey has to show
   both in the `lab` user's home timeline too, with the text that was posted.
+- **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
+  for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
+  a `404`.
 
 Elysium's users can't follow anyone yet, so nothing can test that.
 

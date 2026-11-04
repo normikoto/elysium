@@ -10,7 +10,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 /**
  * An ActivityPub object for a status.
@@ -41,25 +40,16 @@ public record Note(
             ActivityStreams.CONTEXT,
             Map.of("sensitive", "as:sensitive"));
 
-    private static final List<String> PUBLIC = List.of(ActivityStreams.PUBLIC);
-
     /**
      * @param inReplyTo    the parent status, or null if there's none to show
      * @param parentAuthor who wrote the parent status, or null if there's none to show
      * @throws IllegalArgumentException if this status is direct, because there's no way yet to address it to anyone
      */
     public static Note from(Status status, Actor author, URI inReplyTo, URI parentAuthor) {
-        var followers = List.of(Person.followersOf(author).toString());
         var parent = parentAuthor == null || parentAuthor.equals(author.uri())
                 ? List.<String>of()
                 : List.of(parentAuthor.toString());
-        // Other servers tell these apart by whether the public collection is in "to", in "cc", or in neither.
-        var audience = switch (status.visibility()) {
-            case PUBLIC -> new Audience(PUBLIC, concat(followers, parent));
-            case UNLISTED -> new Audience(followers, concat(PUBLIC, parent));
-            case PRIVATE -> new Audience(followers, parent);
-            case DIRECT -> throw new IllegalArgumentException("The status is direct");
-        };
+        var audience = Audience.of(status.visibility(), author, parent);
 
         return new Note(
                 CONTEXT,
@@ -83,12 +73,5 @@ public record Note(
      */
     public Note withoutContext() {
         return new Note(null, id, type, attributedTo, url, published, to, cc, content, sensitive, summary, inReplyTo, contentMap);
-    }
-
-    private static List<String> concat(List<String> first, List<String> second) {
-        return Stream.concat(first.stream(), second.stream()).toList();
-    }
-
-    private record Audience(List<String> to, List<String> cc) {
     }
 }

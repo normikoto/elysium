@@ -2,14 +2,15 @@ package dev.biribiri.elysium.activitypub.web;
 
 import dev.biribiri.elysium.activitypub.vocab.Application;
 import dev.biribiri.elysium.activitypub.outbound.Notes;
-import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
 import dev.biribiri.elysium.activitypub.vocab.Person;
+import dev.biribiri.elysium.activitypub.vocab.Tombstone;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -70,11 +71,20 @@ public class ActivityPubController {
     }
 
     @GetMapping(path = "/users/{username}/statuses/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
-    ResponseEntity<Note> note(@PathVariable String username, @PathVariable String id) {
-        return ResponseEntity.of(actors.findLocalByUsername(username).flatMap(author -> Ids.parse(id)
-                .flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
+    ResponseEntity<?> note(@PathVariable String username, @PathVariable String id) {
+        var author = actors.findLocalByUsername(username);
+        var statusId = Ids.parse(id);
+        if (author.isEmpty() || statusId.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        var status = statuses.findVisible(statusId.get(), ANONYMOUS)
                 // Otherwise any account's URL could serve this status.
-                .filter(status -> status.actorId().equals(author.id()))
-                .map(status -> notes.of(status, author))));
+                .filter(found -> found.actorId().equals(author.get().id()));
+        if (status.isPresent()) {
+            return ResponseEntity.ok(notes.of(status.get(), author.get()));
+        }
+        return statuses.findTombstone(statusId.get(), author.get().id())
+                .<ResponseEntity<?>>map(deleted -> ResponseEntity.status(HttpStatus.GONE).body(Tombstone.from(deleted)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 }
