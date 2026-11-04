@@ -29,6 +29,8 @@ The script checks five things:
 
 - **Sending statuses:** alice posts a public and a followers-only status. The other server has to accept the signed `Create`
   for each and store it with the right visibility, though it can't fetch the followers-only one, which gets a `404`.
+  GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in
+  GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating until a restart.
 
 Elysium's users can't follow anyone yet, so nothing can test that.
 

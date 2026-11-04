@@ -250,6 +250,16 @@ gotosocial_expect_statuses() {
     gotosocial_expect_status "$public_uri" public
     gotosocial_expect_status "$private_uri" private
     echo 'GoToSocial received both statuses, with the right visibility'
+
+    # Only after they're stored. In GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating
+    # until a restart, even for its own user's posts, and the lab user's mention of alice would be that one status.
+    local home
+    home=$(driver curl -fsS https://gts.test/api/v1/timelines/home -H "Authorization: Bearer $token")
+    for uri in "$public_uri" "$private_uri"; do
+        jq -e --arg uri "$uri" 'any(.[]; .uri == $uri)' <<<"$home" >/dev/null \
+            || fail "$uri isn't in the home timeline of GoToSocial's lab user: $home"
+    done
+    echo "Both statuses are in the home timeline of GoToSocial's lab user"
 }
 
 deliver_from_mastodon() {
