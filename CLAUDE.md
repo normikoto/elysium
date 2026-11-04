@@ -3,8 +3,9 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Elysium is an experimental ActivityPub server (Java 25, Spring Boot 4, Spring Modulith, PostgreSQL) aiming for
-compatibility with Mastodon and other common implementations. It can't federate yet: other servers can discover its users
-and fetch actors and `Note` objects, but no activities are sent or received.
+compatibility with Mastodon and other common implementations. It can't federate yet: other servers can discover its users,
+fetch actors and `Note` objects, and deliver activities to its inboxes, but nothing acts on those activities and none are
+sent.
 
 ## Commands
 
@@ -35,13 +36,14 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | Module        | Purpose                                    | May depend on                                  |
 |---------------|--------------------------------------------|------------------------------------------------|
 | `actor`       | Local and remote actors, profiles, keys    | nothing                                        |
-| `auth`        | Logins, OAuth, HTTP security configuration | `actor`                                        |
+| `ratelimit`   | Counting attempts per client               | `actor`                                        |
+| `auth`        | Logins, OAuth, HTTP security configuration | `actor`, `ratelimit`                           |
 | `content`     | Posts and related records                  | `actor`                                        |
 | `graph`       | Follows, blocks, mutes (empty so far)      | `actor`                                        |
 | `timeline`    | Home and public feeds                      | `actor`, `content`, `graph`                    |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `content`                             |
-| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`  |
+| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `ratelimit` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
 - `actor.signing` exposes private keys as a named interface, so a module has to ask for it explicitly. Only `activitypub`
@@ -50,18 +52,24 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
   activities call into the core modules, and outbound activities are built from events those modules publish.
 - A new module also has to be added to the list in `ModularityTests.detectsEveryModule`.
 
-### Federation code that isn't wired up yet
+### Federation code
 
-`activitypub.signature` (HTTP Signatures), `activitypub.delivery`, and `activitypub.inbound` exist, but nothing outside
-them calls them yet, and no module publishes or listens for application events. Check `FEDERATION.md`, which only
-describes what's implemented today, before assuming a federation feature is live.
+Only part of this is live. `InboxController` receives activities and queues them, but no `InboundActivityHandler` exists,
+so they're stored and ignored. `activitypub.delivery` exists, but nothing calls it, and no module publishes or listens for
+application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
+feature is live.
 
+- **Inbound:** `InboxController` does the HTTP and signature steps, and `Inbox` decides whether to keep an activity. Who an
+  activity is for has to come from the activity, never from the inbox's URL. Checks on who's speaking for an `id` have to
+  run before `InboundActivities.accept`, where the first activity stored under an ID wins. To act on a type of activity,
+  add an `InboundActivityHandler`. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and the other properties
+  still need the handling described in issue #39.
 - **Signatures:** `SignatureVerifier`, `PublicKeyResolver`, and `SignedFetcher` are independent of the signature format.
   Each format supplies a `SignatureScheme` and a `RequestSigner`. Only draft-cavage is implemented. The reasoning for
   signer order is in `activitypub/signature/package-info.java`.
 - **Outbound HTTP:** Use `activitypub.http.FederationHttpClient`, which refuses private addresses, including through its
-  own DNS resolver. `federation/README.md` says how the lab should get around this when delivery is first tested. It rules
-  out an on/off switch or plain HTTP.
+  own DNS resolver. The lab gets around this with `elysium.federation.allowed-private-networks`, and `federation/README.md`
+  rules out an on/off switch or plain HTTP.
 
 ### Jobs
 
@@ -96,8 +104,9 @@ change. New settings an operator would use also belong in `application.propertie
 ## Testing
 
 - Integration tests are `@SpringBootTest` with `@Import(TestcontainersConfiguration.class)`, which runs a real PostgreSQL.
-- `src/test/resources/config/application.properties` turns rate limits off, because test classes share contexts and one
-  address. `RateLimitIntegrationTests` turns them back on.
+- `src/test/resources/config/application.properties` turns the login and sign-up rate limits off, because test classes
+  share contexts and one address. `RateLimitIntegrationTests` turns them back on. The inbox's limit is always on, so tests
+  that send bad signatures to an inbox should set their own address, as `InboxIntegrationTests` does.
 - The sign-up page refuses to create the first account, and a test class's database can start empty. Call
   `TestAccounts.makeSureAnAccountExists` before a test signs up.
 

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.ratelimit.RateLimiter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,7 +39,7 @@ class LoginRateLimitFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         var wait = limits.beginLogin(request);
         if (wait.isPresent()) {
-            response.setHeader(HttpHeaders.RETRY_AFTER, AuthRateLimits.retryAfterSeconds(wait.get()));
+            response.setHeader(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(wait.get()));
             response.sendError(HttpStatus.TOO_MANY_REQUESTS.value());
             return;
         }

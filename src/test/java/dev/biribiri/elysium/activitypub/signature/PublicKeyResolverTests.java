@@ -201,6 +201,71 @@ class PublicKeyResolverTests {
         assertThat(concurrent.resolve(keyId("https://over.example/k"))).isEqualTo(KEY);
     }
 
+    /**
+     * Otherwise, a few slow hosts could take every fetch, and senders on other hosts would be turned away.
+     */
+    @Test
+    void limitsFetchesRunningAtOnceForAHost() throws Exception {
+        var release = new CountDownLatch(1);
+        var running = new CountDownLatch(4);
+        when(documents.fetch(any())).thenAnswer(invocation -> {
+            KeyId id = invocation.getArgument(0);
+            if (id.host().equals("slow.example")) {
+                running.countDown();
+                release.await(10, TimeUnit.SECONDS);
+            }
+            return KEY;
+        });
+        var concurrent = new PublicKeyResolver(
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+
+        try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (var i = 0; i < 4; i++) {
+                var id = keyId("https://slow.example/k" + i);
+                CompletableFuture.supplyAsync(() -> concurrent.resolve(id), callers);
+            }
+            assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> concurrent.resolve(keyId("https://slow.example/over")))
+                    .isInstanceOfSatisfying(SignatureVerificationException.class,
+                            e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
+            assertThat(concurrent.resolve(keyId("https://other.example/k"))).isEqualTo(KEY);
+            release.countDown();
+        }
+
+        assertThat(concurrent.resolve(keyId("https://slow.example/over"))).isEqualTo(KEY);
+    }
+
+    @Test
+    void doesNotSpendAHostsBudgetOnAFetchThatCannotRun() throws Exception {
+        var release = new CountDownLatch(1);
+        var running = new CountDownLatch(32);
+        when(documents.fetch(any())).thenAnswer(invocation -> {
+            running.countDown();
+            release.await(10, TimeUnit.SECONDS);
+            return KEY;
+        });
+        var concurrent = new PublicKeyResolver(
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+
+        try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (var i = 0; i < 32; i++) {
+                var id = keyId("https://host" + i + ".example/k");
+                CompletableFuture.supplyAsync(() -> concurrent.resolve(id), callers);
+            }
+            assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+
+            for (var i = 0; i < 61; i++) {
+                var id = keyId("https://victim.example/k" + i);
+                assertThatThrownBy(() -> concurrent.resolve(id))
+                        .isInstanceOf(SignatureVerificationException.class);
+            }
+            release.countDown();
+        }
+
+        assertThat(concurrent.resolve(keyId("https://victim.example/k"))).isEqualTo(KEY);
+    }
+
     @Test
     void refreshesAKeyThatIsOldEnough() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY, NEW_KEY);

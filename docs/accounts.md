@@ -63,9 +63,9 @@ revokes its applications that have admin scopes, along with the rest of their ac
 be authorized again.
 
 ## Job queue
-Admins can see the background job queue at `/admin/db-scheduler`. The server doesn't send or receive activities yet, so
-for now the queue only has its own daily cleanup job. Once federation work runs here, each job shows what it's for, when
-it'll next run, and its failures, and **History** shows why it failed. A job only holds IDs, so private posts aren't shown.
+Admins can see the background job queue at `/admin/db-scheduler`. It has a job for each activity received from another
+server, and its own daily cleanup job. The server doesn't send activities yet. Each job shows what it's for, when it'll
+next run, and its failures, and **History** shows why it failed. A job only holds IDs, so private posts aren't shown.
 
 - **Retries:** A job that fails for a temporary reason, like a server being down, is tried again with longer and longer
   gaps, up to 6 hours apart, for 3 days.
@@ -101,7 +101,9 @@ reach twice the limit. Counts are kept in memory, so restarting resets them, and
 If the server is behind a reverse proxy, it has to be [set up correctly](configuration.md#reverse-proxies). Otherwise
 all clients can share one limit, or clients can get around the limits by making up their addresses.
 
-To turn the limits off, because you enforce your own elsewhere, set `elysium.rate-limit.enabled=false`.
+To turn the limits off, because you enforce your own elsewhere, set `elysium.rate-limit.enabled=false`. This doesn't turn
+off the [limit on inboxes](../FEDERATION.md#inboxes), which is always on. A limit elsewhere can't replace it, because it
+only counts requests with bad signatures.
 
 **Warning:** These limits only slow down abuse from a small number of addresses. An attacker with many addresses can
 spread out their attempts, and there's still no email confirmation, approval queue, or invite system for sign-ups. For

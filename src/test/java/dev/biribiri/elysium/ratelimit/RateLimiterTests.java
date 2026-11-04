@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.auth.internal;
+package dev.biribiri.elysium.ratelimit;
 
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +14,13 @@ class RateLimiterTests {
 
     private final AtomicLong now = new AtomicLong();
     private final RateLimiter limiter = new RateLimiter(2, WINDOW, 100, now::get);
+
+    @Test
+    void roundsRetryAfterUp() {
+        assertThat(RateLimiter.retryAfterSeconds(Duration.ofSeconds(90))).isEqualTo("90");
+        assertThat(RateLimiter.retryAfterSeconds(Duration.ofMillis(90_001))).isEqualTo("91");
+        assertThat(RateLimiter.retryAfterSeconds(Duration.ZERO)).isEqualTo("1");
+    }
 
     @Test
     void turnsAwayAttemptsOverTheLimit() {

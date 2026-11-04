@@ -12,7 +12,7 @@ jar=$(mktemp)
 app=$(curl -fsS "$base/api/v1/apps" \
     --data-urlencode 'client_name=federation-lab' \
     --data-urlencode "redirect_uris=$oob" \
-    --data-urlencode 'scopes=read')
+    --data-urlencode 'scopes=read write')
 client_id=$(printf '%s' "$app" | sed -n 's/.*"client_id":"\([^"]*\)".*/\1/p')
 client_secret=$(printf '%s' "$app" | sed -n 's/.*"client_secret":"\([^"]*\)".*/\1/p')
 
@@ -21,7 +21,7 @@ curl -fsS -o /dev/null -b "$jar" -c "$jar" -G "$base/oauth/authorize" \
     --data-urlencode "client_id=$client_id" \
     --data-urlencode "redirect_uri=$oob" \
     --data-urlencode 'response_type=code' \
-    --data-urlencode 'scope=read'
+    --data-urlencode 'scope=read write'
 
 curl -fsS -o /dev/null -b "$jar" -c "$jar" "$base/auth/sign_in" \
     --data-urlencode "username=$email" \

@@ -1,11 +1,12 @@
 # Federation
 
-Elysium is an early work in progress and can't federate yet. Other servers can discover its users, but it doesn't send
-or receive activities. This file only describes what's implemented today.
+Elysium is an early work in progress and can't federate yet. Other servers can discover its users and deliver activities
+to them, but it doesn't act on those activities or send any. This file only describes what's implemented today.
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects only
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, and accepting
+  activities at an inbox without acting on them
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -31,7 +32,7 @@ Usernames are 1 to 30 letters, digits, or underscores, and are matched case-inse
 ### Instance actor
 
 The server itself is an `Application` actor at `/actor`, with the `preferredUsername` `instance.actor`. It's for signing
-requests that no user is behind, although this server doesn't make any such requests yet. Its document is served as
+requests that no user is behind, which so far means fetching keys. Its document is served as
 `application/activity+json` or `application/ld+json` with any profile, and any origin can read it through CORS. It never
 requires a signature. There's no web page at this URL, so its `url` links to the front page. Its key is identified as
 `{actor-uri}#main-key`, and it isn't counted as a user.
@@ -51,30 +52,53 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 
 Public statuses have the public collection in `to`, and unlisted statuses have it in `cc`.
 
+### Inboxes
+
+Each local user has an inbox at `/users/{username}/inbox`, and there's a shared inbox at `/inbox`. Both work the same way,
+and the shared inbox isn't advertised in actor documents yet. They accept a `POST` with a `Content-Type` of
+`application/activity+json`, or `application/ld+json` with any profile, and a body of up to 1 MiB. Activities are read as
+plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
+
+| Status | Meaning                                                                                                      |
+|--------|--------------------------------------------------------------------------------------------------------------|
+| `202`  | The activity is queued, it's a repeat of one with the same `id`, or it was dropped because of who signed it  |
+| `400`  | The signature header can't be read, or the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor` |
+| `401`  | There's no signature in a supported format, or it isn't valid                                                |
+| `403`  | The activity's `id` isn't an HTTPS URL on the same host and port as its `actor`                              |
+| `404`  | The user doesn't exist                                                                                       |
+| `413`  | The body is too large                                                                                        |
+| `415`  | The `Content-Type` isn't one of those above                                                                  |
+| `429`  | This address sent too many requests with bad signatures, and `Retry-After` says when to try again            |
+| `503`  | The sender's key can't be fetched right now                                                                  |
+
+An address can have 30 requests a minute fail signature checks, and those that pass aren't counted. IPv6 addresses are
+counted by their /64 network.
+
 ### Activities
 
-No activities are sent or received yet.
+Activities that are accepted are stored, but nothing acts on them yet. No activities are sent.
+
+An activity is only accepted if its `actor` is the actor that signed the request. Otherwise it's answered with a `202` and
+dropped, which includes activities forwarded by another server. Linked Data Signatures aren't verified.
 
 ### Notable differences
 
-- Actor documents advertise `inbox` and `outbox`, but those endpoints aren't implemented yet, so actors can't be
-  followed.
+- Actors can't be followed, because `Follow` activities aren't acted on.
+- Actor documents advertise an `outbox`, but it isn't implemented yet.
 - Actor documents don't include `followers` or `following` collections.
 - `Note` objects aren't addressed to followers, because actors don't have a followers collection yet.
 - `Note` objects for replies don't address the parent's author or include a `Mention` tag.
 - A reply's `inReplyTo` is left out if its parent is private, direct, or deleted, so it looks like it isn't a reply.
 - Deleted statuses get a 404, not a `Tombstone`.
-- There's no shared inbox.
-- The `inbox` and `outbox` that the instance actor advertises aren't implemented yet either.
-- HTTP Signatures aren't in use yet, so requests are neither signed nor verified: see [HTTP Signatures](#http-signatures).
+- Inboxes can't be read, so a `GET` gets a 403.
+- The `inbox` and `outbox` that the instance actor advertises aren't implemented yet.
+- Fetching actors and objects from this server doesn't need a signature, and any signature on those requests is ignored.
 
 ### HTTP Signatures
 
-The server has code for [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12),
-but nothing uses it yet, because no activities are sent or received. No endpoint checks signatures, and the server doesn't
-make requests to other servers. [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented.
-
-Once it's in use, this is what the code does:
+The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
+[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures, and the only requests
+this server makes are fetches of keys.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the federation lab from nothing and checks that a real server can discover a user on Elysium.
+# Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium and deliver to it.
 # Usage: federation/smoke.sh gotosocial|mastodon
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -59,6 +59,45 @@ check_elysium() {
     instance=$(driver curl -fsS -H 'Accept: application/activity+json' https://elysium.test/actor)
     [[ $(jq -r .id <<<"$instance") == https://elysium.test/actor ]] || fail "Unexpected instance actor: $instance"
     echo 'Elysium serves its documents over HTTPS, through the proxy'
+
+    local status
+    status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/activity+json' -d '{}' \
+        https://elysium.test/inbox)
+    [[ $status == 401 ]] || fail "An unsigned delivery got a $status, not a 401"
+    echo 'Elysium refuses an unsigned delivery'
+}
+
+# Passing means that Elysium verified the signature, which needs a fetch of the sender's key from its server.
+expect_delivery() {
+    local server=$1 found
+    echo "Waiting for a delivery from $server"
+    for _ in $(seq 1 60); do
+        # By server, because Mastodon's actor URIs have an ID in them.
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM inbound_activity WHERE type = 'Create' AND actor_uri LIKE 'https://$server/%'")
+        if [[ $found -gt 0 ]]; then
+            echo "Elysium accepted a Create from $server"
+            return
+        fi
+        sleep 2
+    done
+    fail "Nothing was delivered from $server. Elysium only logs why it refused one at debug level"
+}
+
+deliver_from_mastodon() {
+    # Mastodon answers a 404 for the actor of an account that isn't approved, which Elysium would remember for a while.
+    docker compose exec -T mastodon-web bin/tootctl accounts create lab --email lab@mastodon.test --confirmed --approve
+    docker compose exec -T mastodon-web bin/rails runner '
+        PostStatusService.new.call(Account.find_local("lab"), text: "@alice@elysium.test Hello from the lab")'
+    expect_delivery mastodon.test
+}
+
+deliver_from_gotosocial() {
+    driver curl -fsS -o /dev/null https://gts.test/api/v1/statuses \
+        -H "Authorization: Bearer $token" \
+        --data-urlencode 'status=@alice@elysium.test Hello from the lab' \
+        --data-urlencode 'visibility=public'
+    expect_delivery gts.test
 }
 
 resolve_from_mastodon() {
@@ -78,7 +117,8 @@ resolve_from_gotosocial() {
     gts_admin account create --username lab --email lab@gts.test --password "$password"
     gts_admin account confirm --username lab
 
-    local token result
+    local result
+    # Not local, because deliver_from_gotosocial uses it too.
     token=$(driver sh /federation/gotosocial-token.sh lab@gts.test "$password")
     [[ -n $token ]] || fail "Couldn't get a GoToSocial access token"
 
@@ -102,8 +142,14 @@ printf '%s\n' "$password" | docker compose run --rm -T elysium create-user alice
 check_elysium
 
 case "$target" in
-    gotosocial) resolve_from_gotosocial ;;
-    mastodon) resolve_from_mastodon ;;
+    gotosocial)
+        resolve_from_gotosocial
+        deliver_from_gotosocial
+        ;;
+    mastodon)
+        resolve_from_mastodon
+        deliver_from_mastodon
+        ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test"
+echo "PASSED: $target can discover alice@elysium.test and deliver to it"

@@ -117,6 +117,27 @@ class PublicAddressDnsResolverTests {
                 .isNotInstanceOf(BlockedTargetException.class);
     }
 
+    @Test
+    void allowsListedPrivateNetworksOnly() throws Exception {
+        var filter = PublicAddressDnsResolver.publicAddressesAnd(List.of("172.30.0.0/24"));
+
+        assertThat(new PublicAddressDnsResolver(new Fixed(() -> new String[]{"172.30.0.9"}), filter).resolve("lab.test"))
+                .hasSize(1);
+        assertThat(new PublicAddressDnsResolver(new Fixed(() -> new String[]{"8.8.8.8"}), filter).resolve("lab.test"))
+                .hasSize(1);
+        for (var other : new String[]{"172.30.1.9", "127.0.0.1", "10.0.0.1", "169.254.169.254"}) {
+            assertThatThrownBy(() -> new PublicAddressDnsResolver(new Fixed(() -> new String[]{other}), filter)
+                    .resolve("lab.test"))
+                    .isInstanceOf(BlockedTargetException.class);
+        }
+    }
+
+    @Test
+    void allowsOnlyPublicAddressesWithNoNetworksListed() {
+        assertThat(PublicAddressDnsResolver.publicAddressesAnd(List.of()))
+                .isSameAs(PublicAddressDnsResolver.PUBLIC_ADDRESSES);
+    }
+
     private static PublicAddressDnsResolver resolverReturning(String... addresses) {
         return new PublicAddressDnsResolver(new Fixed(() -> addresses), PublicAddressDnsResolver.PUBLIC_ADDRESSES);
     }

@@ -133,11 +133,28 @@ class SecurityConfig {
     }
 
     /**
+     * Handles deliveries from other servers, which the {@code activitypub} module checks the signatures of. They're never
+     * logged in, so there's no session to create, or for CSRF to protect.
+     */
+    @Bean
+    @Order(3)
+    SecurityFilterChain inboxChain(HttpSecurity http) throws Exception {
+        return http
+                .securityMatcher(new OrRequestMatcher(
+                        pathPattern(HttpMethod.POST, "/inbox"),
+                        pathPattern(HttpMethod.POST, "/users/*/inbox")))
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(requests -> requests.anyRequest().permitAll())
+                .build();
+    }
+
+    /**
      * Handles everything else: public documents, and the HTML login, sign-up and consent pages. Anything not listed
      * here is denied. Allowing any authenticated user instead would let anyone who signs up read internal endpoints.
      */
     @Bean
-    @Order(3)
+    @Order(4)
     SecurityFilterChain defaultChain(
             HttpSecurity http, AuthRateLimits limits, AdminAccess adminAccess, InstanceProperties instance)
             throws Exception {

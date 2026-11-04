@@ -2,6 +2,7 @@ package dev.biribiri.elysium.auth.internal;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.RegistrationProperties;
+import dev.biribiri.elysium.ratelimit.RateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
@@ -78,7 +79,7 @@ class AccountPagesController {
             // This comes after validating, so that a mistyped password doesn't use up an attempt.
             var wait = limits.beginSignUp(request);
             if (wait.isPresent()) {
-                response.setHeader(HttpHeaders.RETRY_AFTER, AuthRateLimits.retryAfterSeconds(wait.get()));
+                response.setHeader(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(wait.get()));
                 status = HttpStatus.TOO_MANY_REQUESTS;
                 error = "Too many sign-ups from your network. Try again later.";
             } else {

@@ -16,8 +16,15 @@ federation/smoke.sh gotosocial   # or mastodon
 The script deletes any lab left over from an earlier run, starts a new one, and exits with an error if a check fails.
 Rebuild the image to test a change to Elysium, because the lab doesn't build it for you.
 
-Today, the only check is discovery: Elysium serves its documents through the proxy, and the other server can resolve
-`@alice@elysium.test`. Inboxes and activities don't exist yet, so nothing can test them.
+The script checks three things:
+
+- **Discovery:** Elysium serves its documents through the proxy, and the other server can resolve `@alice@elysium.test`.
+- **Refusing deliveries:** An unsigned `POST` to Elysium's inbox gets a `401`.
+- **Accepting deliveries:** The other server posts a status mentioning alice, and it ends up in Elysium's
+  `inbound_activity` table. This means that Elysium fetched the sender's key and verified the signature. Mastodon runs
+  with `AUTHORIZED_FETCH` on, so it has to accept Elysium's signed fetch and its instance actor as well.
+
+Elysium doesn't act on activities or send any yet, so nothing can test that.
 
 ## Looking into a failure
 
@@ -27,10 +34,27 @@ The lab keeps running after the script finishes:
 export COMPOSE_FILE=compose.federation.yaml COMPOSE_PROFILES=gotosocial   # or mastodon
 docker compose logs elysium gotosocial
 docker compose run --rm -T driver curl -sS -H 'Accept: application/activity+json' https://elysium.test/users/alice
+docker compose exec -T postgres psql -U elysium -d elysium -c 'SELECT activity_id, actor_uri, type FROM inbound_activity'
 docker compose --profile '*' down -v
 ```
 
 The domains only exist on the lab's network, so requests have to come from the `driver` service. No ports are published.
+
+Elysium only logs why it refused a delivery at debug level. To see it, add this to the `elysium` service's `environment`
+in `compose.federation.yaml`:
+
+```yaml
+LOGGING_LEVEL_DEV_BIRIBIRI_ELYSIUM_ACTIVITYPUB: debug
+```
+
+## How the lab differs from production
+
+Two settings on the `elysium` service let it reach the other servers, and the rest of the path is the same as production:
+
+- **Reaching private addresses:** `elysium.federation.allowed-private-networks` lets `FederationHttpClient` reach
+  `172.30.0.0/24`. Don't add an on/off switch or allow plain HTTP.
+- **Trusting the lab's CA:** `generate-certs.sh` writes the CA to a service binding, which the image's buildpack adds to the
+  JVM's trust store at startup.
 
 ## In CI
 
@@ -44,14 +68,3 @@ The domains only exist on the lab's network, so requests have to come from the `
 
 If a job fails, its workflow run has every container's logs as an artifact. A failure that's only in the latest versions
 usually means another server changed, not Elysium.
-
-## Before testing inboxes and delivery
-
-Elysium doesn't make any requests that the lab can trigger yet, so two things it'll need were left out until they can be
-tested. Add them in the first pull request where Elysium sends requests to the other servers:
-
-- **Reaching private addresses:** `FederationHttpClient` refuses them, and the lab's addresses are all private. Add a
-  setting listing the networks to allow, empty by default, and set it to `172.30.0.0/24` here. Don't add an on/off switch
-  or allow plain HTTP, so that the lab keeps testing the same path as production.
-- **Trusting the lab's CA:** Mount `/certs/ca.crt` into the `elysium` service, and make the JVM trust it. GoToSocial and
-  Mastodon already do through `SSL_CERT_FILE`, which Java doesn't read.

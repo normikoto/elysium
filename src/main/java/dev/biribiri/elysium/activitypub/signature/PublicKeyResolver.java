@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.Ticker;
+import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
 import dev.biribiri.elysium.actor.ActorService;
 import org.slf4j.Logger;
@@ -30,7 +31,7 @@ import java.util.concurrent.TimeoutException;
  * <p>Key IDs are chosen by whoever sends a request, so anyone can make this server look one up. Local checks stop
  * careless requests, but a sender can always make a request that passes them, so the limits here are what really bound
  * the requests this server makes: failures are remembered, each host has a limit, and only so many fetches can run at
- * once.
+ * once, both overall and for each host.
  */
 @Component
 class PublicKeyResolver {
@@ -48,6 +49,11 @@ class PublicKeyResolver {
     private static final Duration MIN_AGE_TO_REFRESH = Duration.ofMinutes(5);
     private static final long MAX_CACHED_KEYS = 10_000;
     private static final int MAX_CONCURRENT_FETCHES = 32;
+
+    /**
+     * Keeps slow hosts from taking every fetch. A fetch beyond this would only wait for one of the client's connections.
+     */
+    private static final int MAX_CONCURRENT_FETCHES_PER_HOST = FederationHttpClient.MAX_CONNECTIONS_PER_HOST;
     private static final int MAX_FETCHES_PER_HOST_PER_MINUTE = 60;
     private static final long MAX_TRACKED_HOSTS = 10_000;
 
@@ -62,6 +68,11 @@ class PublicKeyResolver {
     private final Executor executor;
     private final FetchThrottle throttle;
     private final Semaphore fetches = new Semaphore(MAX_CONCURRENT_FETCHES);
+
+    /**
+     * Fetches running for each host. An entry only exists while a fetch holds one of {@link #fetches}, which bounds its size.
+     */
+    private final ConcurrentHashMap<String, Integer> fetchesByHost = new ConcurrentHashMap<>();
     private final AsyncCache<String, Lookup> cache;
     private final ConcurrentHashMap<String, CompletableFuture<Lookup>> refreshes = new ConcurrentHashMap<>();
 
@@ -181,24 +192,49 @@ class PublicKeyResolver {
      * remembered, and the next request can try again.
      */
     private CompletableFuture<Lookup> fetch(KeyId keyId) {
-        if (!throttle.tryAcquire(keyId.host())) {
-            return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches from " + keyId.host()));
-        }
+        var host = keyId.host();
+        // In this order so that a fetch that can't run doesn't spend its host's budget.
         if (!fetches.tryAcquire()) {
             return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches at once"));
+        }
+        if (!tryTakeHostShare(host)) {
+            fetches.release();
+            return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches running for " + host));
+        }
+        if (!throttle.tryAcquire(host)) {
+            release(host);
+            return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches from " + host));
         }
         try {
             return CompletableFuture.supplyAsync(() -> {
                 try {
                     return lookUp(keyId);
                 } finally {
-                    fetches.release();
+                    release(host);
                 }
             }, executor);
         } catch (RuntimeException e) {
-            fetches.release();
+            release(host);
             throw e;
         }
+    }
+
+    private boolean tryTakeHostShare(String host) {
+        var taken = new boolean[1];
+        fetchesByHost.compute(host, (ignored, running) -> {
+            var current = running == null ? 0 : running;
+            taken[0] = current < MAX_CONCURRENT_FETCHES_PER_HOST;
+            if (taken[0]) {
+                return current + 1;
+            }
+            return running;
+        });
+        return taken[0];
+    }
+
+    private void release(String host) {
+        fetchesByHost.computeIfPresent(host, (ignored, running) -> running == 1 ? null : running - 1);
+        fetches.release();
     }
 
     private Lookup lookUp(KeyId keyId) {
