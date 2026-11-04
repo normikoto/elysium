@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.content.internal;
 
 import dev.biribiri.elysium.content.AccountStats;
+import dev.biribiri.elysium.content.DeletedStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.Visibility;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.net.URI;
 import java.sql.Types;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
@@ -125,6 +127,28 @@ public class StatusRepository {
                 .param("id", id)
                 .param("actorId", actorId)
                 .query(STATUS_MAPPER)
+                .optional();
+    }
+
+    public void insertTombstone(Status status, Instant deletedAt) {
+        jdbc.sql("""
+                        INSERT INTO status_tombstone (status_id, uri, actor_id, deleted_at)
+                        VALUES (:id, :uri, :actorId, :deletedAt)
+                        """)
+                .param("id", status.id())
+                .param("uri", status.uri().toString())
+                .param("actorId", status.actorId())
+                .param("deletedAt", deletedAt.atOffset(ZoneOffset.UTC))
+                .update();
+    }
+
+    public Optional<DeletedStatus> findTombstone(UUID id, UUID actorId) {
+        return jdbc.sql("SELECT uri, deleted_at FROM status_tombstone WHERE status_id = :id AND actor_id = :actorId")
+                .param("id", id)
+                .param("actorId", actorId)
+                .query((rs, rowNum) -> new DeletedStatus(
+                        URI.create(rs.getString("uri")),
+                        rs.getObject("deleted_at", OffsetDateTime.class).toInstant()))
                 .optional();
     }
 

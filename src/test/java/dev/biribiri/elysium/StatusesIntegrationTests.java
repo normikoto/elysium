@@ -365,6 +365,33 @@ class StatusesIntegrationTests {
         var id = create(alice(), "Hello");
         mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), bob())).andExpect(status().isNotFound());
         mockMvc.perform(get("/api/v1/statuses/" + id)).andExpect(status().isOk());
+        assertThat(tombstones(id)).isZero();
+        assertThat(deletedEvents(id)).isZero();
+    }
+
+    @Test
+    void deletingTwiceOnlyHappensOnce() throws Exception {
+        var id = create(alice(), "Hello");
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice())).andExpect(status().isOk());
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice())).andExpect(status().isNotFound());
+        assertThat(tombstones(id)).isEqualTo(1);
+    }
+
+    private long tombstones(String id) {
+        return jdbc.sql("SELECT count(*) FROM status_tombstone WHERE status_id = :id::uuid")
+                .param("id", id)
+                .query(Long.class)
+                .single();
+    }
+
+    private long deletedEvents(String id) {
+        return jdbc.sql("""
+                        SELECT count(*) FROM event_publication
+                        WHERE event_type LIKE '%StatusDeleted' AND serialized_event LIKE :id
+                        """)
+                .param("id", "%" + id + "%")
+                .query(Long.class)
+                .single();
     }
 
     // Authorization

@@ -47,7 +47,21 @@ requires a signature. There's no web page at this URL, so its `url` links to the
 
 Public and unlisted statuses are `Note` objects at `/users/{username}/statuses/{id}`, which is also the URL of their web
 page. These are served the same way as actor documents: the same `Accept` types get the object, requests that accept HTML
-get the page, and any origin can read both through CORS. Private and direct statuses, and deleted statuses, get a 404.
+get the page, and any origin can read both through CORS. Private and direct statuses get a 404.
+
+Once a public or unlisted status is deleted, a request for the object gets a `410` with a `Tombstone`, and a request for the
+page gets a 404. A deleted private or direct status still gets a 404, the same as one that never existed. So does a status
+that was deleted before tombstones were added.
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000",
+  "type": "Tombstone",
+  "formerType": "Note",
+  "deleted": "2026-01-02T00:00:00Z"
+}
+```
 
 A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, and `sensitive`, which is defined in its
 `@context` as `as:sensitive`. It can also have:
@@ -204,6 +218,29 @@ The `object` is the same `Note` that's described in [Objects](#objects). The `id
 the `Note` instead, if the `Note` can be fetched. In rare cases, such as after a failure, a `Create` can be sent again with the
 same `id`.
 
+When a local user deletes a public, unlisted, or followers-only status, any delivery of its `Create` that hasn't started is
+cancelled, and a `Delete` is sent to their followers on other servers, the same way as a `Create`. It's addressed like the
+`Create`, except that it doesn't address the author of a parent status. Deleting a direct status sends nothing.
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000#delete",
+  "type": "Delete",
+  "actor": "https://elysium.example/users/alice",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://elysium.example/users/alice/followers"],
+  "object": {
+    "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000",
+    "type": "Tombstone",
+    "formerType": "Note"
+  }
+}
+```
+
+A `Delete` can be sent for a status that a server never received, and in rare cases, such as after a failure, it can be sent
+again with the same `id`.
+
 ### Notable differences
 
 - Local users can't follow other actors, or approve followers by hand. Actor documents don't include
@@ -215,9 +252,9 @@ same `id`.
 - `Note` objects for replies don't include a `Mention` tag.
 - A reply's `inReplyTo` is left out if its parent is deleted or can't be shown, so it looks like it isn't a reply.
 - Followers-only statuses are only sent, and can't be fetched, even by a follower.
-- `Delete` isn't sent, so a status stays on other servers after it's deleted here. A status that's deleted just after it's
-  posted can still be sent.
-- Deleted statuses get a 404, not a `Tombstone`.
+- A `Create` that's already being sent when its status is deleted can't be stopped, so it can arrive after the `Delete`.
+- A `Delete` goes to whoever follows the author when it's deleted, so a server whose only follower has since unfollowed keeps
+  its copy.
 - Inboxes can't be read, so a `GET` gets a 403.
 - The `outbox` that the instance actor advertises isn't implemented yet.
 - Fetching actors and objects from this server doesn't need a signature, and any signature on those requests is ignored.
@@ -226,7 +263,7 @@ same `id`.
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures. The only requests this
-server makes are fetches of keys and actor documents, and deliveries of `Accept` and `Create`.
+server makes are fetches of keys and actor documents, and deliveries of `Accept`, `Create`, and `Delete`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

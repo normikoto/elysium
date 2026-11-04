@@ -33,6 +33,9 @@ The script checks five things:
   GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in
   GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating until a restart. Misskey has to show
   both in the `lab` user's home timeline too, with the text that was posted.
+- **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
+  for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
+  a `404`.
 
 Elysium's users can't follow anyone yet, so nothing can test that.
 
