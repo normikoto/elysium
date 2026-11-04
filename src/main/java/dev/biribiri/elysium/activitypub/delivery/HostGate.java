@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.delivery;
 
+import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -7,9 +8,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Keeps this server from overloading others: it limits how many requests run at once for each host, and backs off from
@@ -24,7 +25,7 @@ class HostGate {
     /**
      * Matches the connections the HTTP client allows to one host. Any more would only wait for a connection.
      */
-    static final int MAX_REQUESTS_PER_HOST = 4;
+    static final int MAX_REQUESTS_PER_HOST = FederationHttpClient.MAX_CONNECTIONS_PER_HOST;
 
     /**
      * One failure could just be one bad request, or a brief problem that a retry gets past.
@@ -35,7 +36,7 @@ class HostGate {
     private static final Duration MAX_BACKOFF = Duration.ofHours(6);
 
     private final JdbcClient jdbc;
-    private final Map<String, Integer> running = new ConcurrentHashMap<>();
+    private final Map<String, Integer> running = new HashMap<>();
 
     HostGate(JdbcClient jdbc) {
         this.jdbc = jdbc;
@@ -44,17 +45,16 @@ class HostGate {
     /**
      * Takes a slot for a request, if there's one free. Every successful call needs a call to {@link #release}.
      */
-    boolean tryAcquire(String host) {
-        var acquired = new boolean[1];
-        running.compute(host, (ignored, count) -> {
-            var current = count == null ? 0 : count;
-            acquired[0] = current < MAX_REQUESTS_PER_HOST;
-            return acquired[0] ? current + 1 : current;
-        });
-        return acquired[0];
+    synchronized boolean tryAcquire(String host) {
+        var current = running.getOrDefault(host, 0);
+        if (current >= MAX_REQUESTS_PER_HOST) {
+            return false;
+        }
+        running.put(host, current + 1);
+        return true;
     }
 
-    void release(String host) {
+    synchronized void release(String host) {
         running.computeIfPresent(host, (ignored, count) -> count == 1 ? null : count - 1);
     }
 
@@ -80,7 +80,7 @@ class HostGate {
     /**
      * Records that a host is having trouble.
      *
-     * @param retryAfter how long the host asked this server to wait, or null if it didn't say
+     * @param retryAfter how long the host asked this server to wait, which is zero if it didn't say
      */
     void failed(String host, Instant now, Duration retryAfter) {
         var failures = jdbc.sql("""
@@ -101,9 +101,6 @@ class HostGate {
     }
 
     private static Duration longer(Duration backoff, Duration retryAfter) {
-        if (retryAfter == null) {
-            return backoff;
-        }
         var limited = retryAfter.compareTo(MAX_BACKOFF) > 0 ? MAX_BACKOFF : retryAfter;
         return limited.compareTo(backoff) > 0 ? limited : backoff;
     }

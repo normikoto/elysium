@@ -32,26 +32,18 @@ final class RetryPolicy<T extends QueuedJob> implements FailureHandler<T> {
     private static final Duration MAX_DELAY = Duration.ofHours(6);
 
     @Override
-    @SuppressWarnings("unchecked")
     public void onFailure(ExecutionComplete complete, ExecutionOperations<T> operations) {
         var execution = complete.getExecution();
-        var job = (T) execution.taskInstance.getData();
+        var job = (QueuedJob) execution.taskInstance.getData();
         var now = complete.getTimeDone();
         var permanent = complete.getCause().filter(PermanentJobFailure.class::isInstance).isPresent();
-        if (permanent || isOverdue(job, now)) {
+        if (permanent || job.isOverdue(now)) {
             log.warn("Giving up on job {}: it stays in the queue for {} days so that an admin can look at it",
                     execution.taskInstance.getTaskAndInstance(), PARKED_FOR.toDays());
             operations.reschedule(complete, now.plus(PARKED_FOR));
         } else {
             operations.reschedule(complete, now.plus(jitter(delayFor(job, now))));
         }
-    }
-
-    /**
-     * Whether a job has been failing for so long that it shouldn't be tried again.
-     */
-    static boolean isOverdue(QueuedJob job, Instant now) {
-        return !job.queuedAt().plus(GIVE_UP_AFTER).isAfter(now);
     }
 
     /**

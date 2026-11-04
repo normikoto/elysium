@@ -12,6 +12,7 @@ import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.ManagedHttpClientConnectionFactory;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.apache.hc.client5.http.utils.DateUtils;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.HttpHeaders;
 import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -40,6 +42,8 @@ import java.util.concurrent.TimeUnit;
  */
 @Component
 public class FederationHttpClient implements AutoCloseable {
+
+    public static final int MAX_CONNECTIONS_PER_HOST = 4;
 
     private static final Set<String> HTTPS_ONLY = Set.of("https");
     private static final Timeout CONNECT_TIMEOUT = Timeout.ofSeconds(5);
@@ -87,7 +91,7 @@ public class FederationHttpClient implements AutoCloseable {
                                 .setTimeToLive(TimeValue.ofMinutes(1))
                                 .build())
                         .setMaxConnTotal(64)
-                        .setMaxConnPerRoute(4)
+                        .setMaxConnPerRoute(MAX_CONNECTIONS_PER_HOST)
                         .build())
                 .disableRedirectHandling()
                 // Otherwise a small compressed response could expand past the limit on reading it.
@@ -139,26 +143,27 @@ public class FederationHttpClient implements AutoCloseable {
      * bytes.
      */
     private URI checked(URI uri) throws BlockedTargetException {
-        if (!allowedSchemes.contains(scheme(uri))) {
-            throw new BlockedTargetException("Refusing to fetch a URL with this scheme: " + scheme(uri));
+        var scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if (!allowedSchemes.contains(scheme)) {
+            throw new BlockedTargetException("Refusing to fetch a URL with this scheme: " + scheme);
         }
         return URI.create(uri.toASCIIString());
     }
 
-    private static String scheme(URI uri) {
-        return uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-    }
-
     private Response execute(HttpUriRequestBase request, org.springframework.http.HttpHeaders extra) throws IOException {
-        request.setAuthority(canonicalAuthority(request.getScheme().toLowerCase(Locale.ROOT), request.getAuthority()));
+        request.setAuthority(canonicalAuthority(request.getScheme(), request.getAuthority()));
         extra.forEach((name, values) -> values.forEach(value -> request.addHeader(name, value)));
-        var cancellation = CompletableFuture.runAsync(
-                request::cancel,
-                CompletableFuture.delayedExecutor(deadline.toMillis(), TimeUnit.MILLISECONDS));
+        // Finishing this removes its timer. Cancelling a task on a delayedExecutor wouldn't, so that would keep the request and
+        // its body in memory until the deadline, however quickly the request finished.
+        var timer = new CompletableFuture<Void>().orTimeout(deadline.toMillis(), TimeUnit.MILLISECONDS);
+        timer.exceptionallyAsync(timedOut -> {
+            request.cancel();
+            return null;
+        });
         try {
             return client.execute(request, FederationHttpClient::read);
         } finally {
-            cancellation.cancel(false);
+            timer.complete(null);
         }
     }
 
@@ -211,5 +216,22 @@ public class FederationHttpClient implements AutoCloseable {
      * @param retryAfter  the {@code Retry-After} header, or null if it was missing
      */
     public record Response(int status, String contentType, String retryAfter, byte[] body) {
+
+        /**
+         * @return how long the {@code Retry-After} header asks this server to wait, in either of its forms. This is zero if
+         * it doesn't say, and can be negative if it gives a time in the past.
+         */
+        public Duration retryAfterDelay(Instant now) {
+            if (retryAfter == null) {
+                return Duration.ZERO;
+            }
+            var value = retryAfter.strip();
+            try {
+                return Duration.ofSeconds(Long.parseLong(value));
+            } catch (NumberFormatException notSeconds) {
+                var date = DateUtils.parseStandardDate(value);
+                return date == null ? Duration.ZERO : Duration.between(now, date);
+            }
+        }
     }
 }

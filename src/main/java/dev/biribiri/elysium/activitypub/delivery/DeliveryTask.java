@@ -19,9 +19,6 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -50,13 +47,14 @@ class DeliveryTask {
 
     @Bean
     Task<DeliveryJob> activityDelivery() {
-        return Jobs.task(ActivityDeliveries.TASK, (instance, context) -> run(instance.getData()));
+        return Jobs.task(ActivityDeliveries.TASK, this::run);
     }
 
     private CompletionHandler<DeliveryJob> run(DeliveryJob job) {
         var activity = jdbc.sql("SELECT actor_id, body FROM outbound_activity WHERE activity_id = :id")
                 .param("id", job.activityId())
-                .query((rs, row) -> new StoredActivity(rs.getObject("actor_id", UUID.class), rs.getString("body")))
+                .query((rs, row) -> new OutboundActivity(
+                        job.activityId(), rs.getObject("actor_id", UUID.class), rs.getString("body")))
                 .optional();
         if (activity.isEmpty()) {
             // It was cancelled, or this is a retry from after it was cleaned up.
@@ -72,7 +70,7 @@ class DeliveryTask {
         var now = Instant.now();
         var backingOff = gate.backingOffUntil(host, now);
         if (backingOff.isPresent()) {
-            if (Jobs.isOverdue(job, now)) {
+            if (job.isOverdue(now)) {
                 throw new PermanentJobFailure("Gave up because " + host + " has been failing for too long");
             }
             return later(backingOff.get());
@@ -88,7 +86,7 @@ class DeliveryTask {
         }
     }
 
-    private void send(StoredActivity activity, URI inbox, String host) {
+    private void send(OutboundActivity activity, URI inbox, String host) {
         var key = actors.findLocalById(activity.actorId())
                 .flatMap(keys::forActor)
                 .orElseThrow(() -> new PermanentJobFailure("The activity's actor no longer has a local key"));
@@ -101,19 +99,18 @@ class DeliveryTask {
             // This extends IOException, but it's about where the request was going and not about the server's health.
             throw new PermanentJobFailure("The inbox URL isn't allowed", e);
         } catch (IOException e) {
-            gate.failed(host, Instant.now(), null);
+            gate.failed(host, Instant.now(), Duration.ZERO);
             throw new UncheckedIOException(e);
         }
 
         var status = response.status();
-        if (status >= 200 && status < 300) {
-            gate.succeeded(host);
-        } else if (status >= 500 || status == 408 || status == 429) {
+        if (status >= 500 || status == 408 || status == 429) {
             var now = Instant.now();
-            gate.failed(host, now, retryAfter(response, now));
+            gate.failed(host, now, response.retryAfterDelay(now));
             throw new TemporaryDeliveryFailure("The inbox answered with a " + status);
-        } else {
-            gate.succeeded(host);
+        }
+        gate.succeeded(host);
+        if (status < 200 || status >= 300) {
             throw new PermanentJobFailure("The inbox answered with a " + status);
         }
     }
@@ -125,29 +122,6 @@ class DeliveryTask {
     private static CompletionHandler<DeliveryJob> later(Instant time) {
         var spread = ThreadLocalRandom.current().nextLong(BUSY_DELAY.toMillis() * 2);
         return (complete, operations) -> operations.reschedule(complete, time.plusMillis(spread));
-    }
-
-    /**
-     * @return how long the header asks this server to wait, in either of its forms, or null if it doesn't say
-     */
-    private static Duration retryAfter(Response response, Instant now) {
-        var value = response.retryAfter();
-        if (value == null) {
-            return null;
-        }
-        try {
-            return Duration.ofSeconds(Long.parseLong(value.strip()));
-        } catch (NumberFormatException | ArithmeticException notSeconds) {
-            try {
-                var date = ZonedDateTime.parse(value.strip(), DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
-                return Duration.between(now, date);
-            } catch (DateTimeParseException notADate) {
-                return null;
-            }
-        }
-    }
-
-    private record StoredActivity(UUID actorId, String body) {
     }
 
     private static final class TemporaryDeliveryFailure extends RuntimeException {

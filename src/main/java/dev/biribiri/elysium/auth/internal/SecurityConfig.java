@@ -32,7 +32,6 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,11 +62,6 @@ class SecurityConfig {
      * The job UI's own API, which it calls from the browser. See {@link #sameOriginJobApiRequests}.
      */
     private static final String JOB_API_PATHS = "/admin/db-scheduler-api/**";
-
-    /**
-     * Files that pages load. These go with {@link #JOB_API_PATHS} as things that aren't pages to send someone back to.
-     */
-    private static final String[] JOB_UI_FILE_PATHS = {"/admin/db-scheduler/assets/**", "/admin/db-scheduler/js/**"};
 
     private static final String[] PUBLIC_PATHS = {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
@@ -290,15 +284,16 @@ class SecurityConfig {
      * tells these apart because a browser asks for HTML when opening a page, and not otherwise.
      */
     private static RequestMatcher adminPageRequests() {
-        var api = pathPattern(JOB_API_PATHS);
-        var files = new OrRequestMatcher(
-                Arrays.stream(JOB_UI_FILE_PATHS).<RequestMatcher>map(path -> pathPattern(path)).toList());
+        // The API and the files that pages load aren't pages to send someone back to.
+        var notPages = new OrRequestMatcher(
+                pathPattern(JOB_API_PATHS),
+                pathPattern("/admin/db-scheduler/assets/**"),
+                pathPattern("/admin/db-scheduler/js/**"));
         var admin = pathPattern(HttpMethod.GET, ADMIN_PATHS);
         return request -> {
             var accept = request.getHeader(HttpHeaders.ACCEPT);
             return admin.matches(request)
-                    && !api.matches(request)
-                    && !files.matches(request)
+                    && !notPages.matches(request)
                     && accept != null
                     && accept.contains(MediaType.TEXT_HTML_VALUE);
         };

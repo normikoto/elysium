@@ -21,8 +21,8 @@ class RetryPolicyTests {
 
     @Test
     void givesUpAfterThreeDays() {
-        assertThat(RetryPolicy.isOverdue(jobAged(Duration.ofDays(3).minusSeconds(1)), NOW)).isFalse();
-        assertThat(RetryPolicy.isOverdue(jobAged(Duration.ofDays(3)), NOW)).isTrue();
+        assertThat(jobAged(Duration.ofDays(3).minusSeconds(1)).isOverdue(NOW)).isFalse();
+        assertThat(jobAged(Duration.ofDays(3)).isOverdue(NOW)).isTrue();
     }
 
     @Test
@@ -30,7 +30,7 @@ class RetryPolicyTests {
         // Doubling gaps, capped at the longest delay, take about a day to reach it, and then keep trying.
         var tries = 0;
         var age = Duration.ZERO;
-        while (!RetryPolicy.isOverdue(jobAged(age), NOW)) {
+        while (!jobAged(age).isOverdue(NOW)) {
             age = age.plus(RetryPolicy.delayFor(jobAged(age), NOW));
             tries++;
         }

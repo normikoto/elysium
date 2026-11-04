@@ -12,4 +12,11 @@ public interface QueuedJob {
      * When the job was first queued, which retries are timed from.
      */
     Instant queuedAt();
+
+    /**
+     * Whether this job has been failing for so long that it shouldn't be tried again.
+     */
+    default boolean isOverdue(Instant now) {
+        return !queuedAt().plus(RetryPolicy.GIVE_UP_AFTER).isAfter(now);
+    }
 }

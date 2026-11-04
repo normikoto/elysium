@@ -57,7 +57,7 @@ class JobCleanupIntegrationTests {
         jdbc.sql("""
                         INSERT INTO scheduled_execution_logs
                             (id, task_name, task_instance, time_started, time_finished, succeeded, duration_ms)
-                        VALUES (:id, 'test', 'test', now(), now() - CAST(:age AS INTERVAL), :succeeded, 0)
+                        VALUES (:id, 'test', 'test', now() - CAST(:age AS INTERVAL), now() - CAST(:age AS INTERVAL), :succeeded, 0)
                         """)
                 .param("id", id)
                 .param("age", age)

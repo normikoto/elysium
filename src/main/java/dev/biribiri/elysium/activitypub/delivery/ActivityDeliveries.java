@@ -53,7 +53,7 @@ public class ActivityDeliveries {
         var now = Instant.now();
         for (var inbox : new LinkedHashSet<>(inboxes)) {
             var job = new DeliveryJob(activity.id(), inbox.toString(), now);
-            scheduler.scheduleIfNotExists(TASK.instance(Jobs.instanceId(job.activityId(), job.inbox())).data(job).scheduledTo(now));
+            Jobs.schedule(scheduler, TASK, job, job.activityId(), job.inbox());
         }
     }
 

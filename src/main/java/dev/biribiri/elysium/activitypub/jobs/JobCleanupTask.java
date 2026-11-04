@@ -8,6 +8,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 /**
  * Removes what jobs leave behind. It's a recurring job, so only one node runs it at a time.
@@ -15,25 +18,49 @@ import java.time.Duration;
 @Configuration(proxyBeanMethods = false)
 class JobCleanupTask {
 
+    private static final Duration SUCCESSFUL_HISTORY_KEPT = Duration.ofDays(7);
+    private static final Duration HOSTS_KEPT = Duration.ofDays(7);
+
     /**
-     * Failed history lasts as long as a parked job, so an admin looking at one can still see why it failed. Activities last
-     * a little longer than that, so that they're still there if it's retried at the last moment.
+     * Failed history lasts as long as a parked job, so an admin looking at one can still see why it failed.
      */
-    private static final String REMOVE_OLD_ROWS = """
-            WITH history AS (
-                DELETE FROM scheduled_execution_logs
-                WHERE time_finished < now() - CASE WHEN succeeded THEN INTERVAL '7 days' ELSE INTERVAL '30 days' END
-            ), outbound AS (
-                DELETE FROM outbound_activity WHERE created_at < now() - INTERVAL '33 days'
-            ), inbound AS (
-                DELETE FROM inbound_activity WHERE received_at < now() - INTERVAL '33 days'
-            )
-            DELETE FROM federation_host WHERE retry_after < now() - INTERVAL '7 days'
-            """;
+    private static final Duration FAILED_HISTORY_KEPT = RetryPolicy.PARKED_FOR;
+
+    /**
+     * A little longer than a parked job lasts, so that they're still there if it's retried at the last moment.
+     */
+    private static final Duration ACTIVITIES_KEPT = RetryPolicy.PARKED_FOR.plusDays(3);
 
     @Bean
     Task<Void> jobCleanup(JdbcClient jdbc) {
         return Tasks.recurring("job-cleanup", FixedDelay.of(Duration.ofDays(1)))
-                .execute((instance, context) -> jdbc.sql(REMOVE_OLD_ROWS).update());
+                .execute((instance, context) -> removeOldRows(jdbc, Instant.now()));
+    }
+
+    /**
+     * These are separate statements so that each one's locks are held only as long as it needs them. It's safe to stop
+     * partway, because the next run removes whatever is left.
+     */
+    private static void removeOldRows(JdbcClient jdbc, Instant now) {
+        jdbc.sql("""
+                        DELETE FROM scheduled_execution_logs
+                        WHERE time_started < :successfulBefore AND (succeeded OR time_started < :failedBefore)
+                        """)
+                .param("successfulBefore", before(now, SUCCESSFUL_HISTORY_KEPT))
+                .param("failedBefore", before(now, FAILED_HISTORY_KEPT))
+                .update();
+        jdbc.sql("DELETE FROM outbound_activity WHERE created_at < :before")
+                .param("before", before(now, ACTIVITIES_KEPT))
+                .update();
+        jdbc.sql("DELETE FROM inbound_activity WHERE received_at < :before")
+                .param("before", before(now, ACTIVITIES_KEPT))
+                .update();
+        jdbc.sql("DELETE FROM federation_host WHERE retry_after < :before")
+                .param("before", before(now, HOSTS_KEPT))
+                .update();
+    }
+
+    private static OffsetDateTime before(Instant now, Duration age) {
+        return now.minus(age).atOffset(ZoneOffset.UTC);
     }
 }

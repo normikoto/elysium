@@ -12,10 +12,8 @@ import java.net.URI;
 import java.util.List;
 
 /**
- * Fetches documents from other servers as the instance actor, for when no user is behind a request.
- *
- * <p>This doesn't depend on any signature format. There's no way to tell which formats a server accepts before asking,
- * so this tries each {@link RequestSigner} in order, and moves on to the next one if the server refuses the request.
+ * Fetches documents from other servers as the instance actor, for when no user is behind a request. This doesn't depend on
+ * any signature format.
  */
 @Component
 class SignedFetcher {
@@ -23,15 +21,12 @@ class SignedFetcher {
     private static final byte[] NO_BODY = new byte[0];
 
     private final FederationHttpClient http;
-    private final List<RequestSigner> signers;
+    private final SignerFallback signers;
     private final ActorSigningKeys keys;
 
     SignedFetcher(FederationHttpClient http, List<RequestSigner> signers, ActorSigningKeys keys) {
-        if (signers.isEmpty()) {
-            throw new IllegalArgumentException("At least one signer is needed");
-        }
         this.http = http;
-        this.signers = List.copyOf(signers);
+        this.signers = new SignerFallback(signers);
         this.keys = keys;
     }
 
@@ -44,15 +39,7 @@ class SignedFetcher {
      */
     Response get(URI url, String accept) throws IOException, KeyFetchException {
         var key = keys.forInstance();
-        Response response = null;
-        for (var signer : signers) {
-            // Signed for each try, so that the time in a signature is never out of date.
-            response = http.get(url, accept, sign(signer, url, key));
-            if (!isRefusal(response)) {
-                return response;
-            }
-        }
-        return response;
+        return signers.firstNotRefused(signer -> http.get(url, accept, sign(signer, url, key)));
     }
 
     private static HttpHeaders sign(RequestSigner signer, URI url, SigningKey key) throws KeyFetchException {
@@ -61,9 +48,5 @@ class SignedFetcher {
         } catch (IllegalArgumentException e) {
             throw KeyFetchException.permanent("Can't sign a request to " + url, e);
         }
-    }
-
-    static boolean isRefusal(Response response) {
-        return response.status() == 401 || response.status() == 403;
     }
 }

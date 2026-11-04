@@ -46,9 +46,7 @@ public class InboundActivities {
         if (added == 0) {
             return false;
         }
-        var now = Instant.now();
-        var job = new InboundJob(activity.id(), now);
-        scheduler.scheduleIfNotExists(TASK.instance(Jobs.instanceId(activity.id())).data(job).scheduledTo(now));
+        Jobs.schedule(scheduler, TASK, new InboundJob(activity.id(), Instant.now()), activity.id());
         return true;
     }
 }

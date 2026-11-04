@@ -9,6 +9,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Configuration(proxyBeanMethods = false)
 class JobsConfig {
@@ -16,13 +18,21 @@ class JobsConfig {
     /**
      * Job data is stored as JSON so that admins can read it. Java serialization, the library's fallback, couldn't be read,
      * and would make job data break whenever a class changes.
+     *
+     * <p>Workers are virtual threads, because they spend most of their time waiting on other servers. The library makes its
+     * own pool otherwise, whatever {@code spring.threads.virtual.enabled} says.
      */
     @Bean
-    DbSchedulerCustomizer jobDataAsJson() {
+    DbSchedulerCustomizer jobSchedulerCustomizer() {
         return new DbSchedulerCustomizer() {
             @Override
             public Optional<Serializer> serializer() {
                 return Optional.of(new Jackson3Serializer());
+            }
+
+            @Override
+            public Optional<ExecutorService> executorService() {
+                return Optional.of(Executors.newVirtualThreadPerTaskExecutor());
             }
         };
     }

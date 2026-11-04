@@ -26,7 +26,7 @@ class InboundActivityTask {
 
     @Bean
     Task<InboundJob> inboundActivity() {
-        return Jobs.task(InboundActivities.TASK, (instance, context) -> run(instance.getData()));
+        return Jobs.task(InboundActivities.TASK, this::run);
     }
 
     private CompletionHandler<InboundJob> run(InboundJob job) {
