@@ -76,7 +76,7 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
 
 - **Other checks:** key fetches and deliveries now share one limit per host (`HostRequests`), and deliveries leave one connection for fetches. Retrying a job that's outlived its activity fails with the reason (#55). A `Delete` waits about 35 seconds while its `Create` still has a job, so that it can't overtake one being sent.
 - **Left open:**
-  - `followers` still only gives its size, and its items and pages stay in #43 until hiding followers is decided
+  - `followers` still only gives its size, and its items and pages stay in #43, along with the option to hide them
   - a host that answers slowly gets fewer deliveries than turns, so its waiting jobs run more than twice each, though still only about 3 runs a second
   - a backlog for one fast host drains at about 180 a minute, well below what its connections could carry
   - actor document fetches aren't counted in the per-host limit, so they can still wait for a connection
@@ -135,6 +135,6 @@ Basic moderation landing before milestone 4 is confirmed. The rest of the order 
 - [x] Should an actor's inbox have to be on the actor's own host? Answer: Yes, as merged in PR #70. A shared inbox on another host is only left out.
 - [ ] Should `Question` get an issue too? The activity types now have #59 to #63, but it's an object, so it's still only a checklist item on #1.
 - [ ] Should unlisted statuses be in the outbox? Open on #40.
-- [ ] Should people be able to hide their followers lists? Open on #43. Until it's settled, `followers` only gives its size.
+- [x] Should people be able to hide what's in their followers and following collections? Answer: Yes, as an option. It still has to be built, in #43, and until then `followers` only gives its size.
 - [ ] Should mentions of remote users show the domain? Open on #28.
 - [x] Can a follower left behind by a retried `Follow` receive followers-only statuses, or can the case be told apart from a re-follow? Answer: No. PR #71 ignores a repeat after an Undo as a retry, since Misskey, Sharkey and Mastodon make a new ID for each request.
