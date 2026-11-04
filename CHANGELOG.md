@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `elysium.rate-limit.enabled` doesn't turn off. Behind a reverse proxy, this limit needs the same setup as the others.
   See `FEDERATION.md` and `docs/configuration.md`.
 - `elysium.federation.allowed-private-networks`, which lets requests to other servers reach the private networks it lists.
-  It's for servers on a private network, such as the federation test lab.
+  It should not normally be set: it's only for servers on a private network, such as the federation test lab.
 
 ### Changed
 

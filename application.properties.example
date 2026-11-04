@@ -21,6 +21,11 @@ spring.datasource.password=
 # doesn't affect existing statuses.
 #elysium.statuses.max-characters=5000
 
+# This should not normally be set. Lets requests to other servers reach these private networks, as a comma-separated list
+# in CIDR form. It's only for federating with servers on a private network, because anyone can make this server send
+# requests to any host, and could then reach anything on these networks.
+#elysium.federation.allowed-private-networks=
+
 # Uncomment if a reverse proxy is the only way to reach this server, so that redirects use the public URL and rate limits
 # apply to each client's address. Without this behind a proxy, all clients share one limit. The server trusts the
 # forwarded headers it receives, so the proxy must set them itself, or clients can get around the rate limits by making up
