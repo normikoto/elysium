@@ -5,8 +5,10 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.Ticker;
+import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.ratelimit.RunningLimit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +32,7 @@ import java.util.concurrent.TimeoutException;
  * <p>Key IDs are chosen by whoever sends a request, so anyone can make this server look one up. Local checks stop
  * careless requests, but a sender can always make a request that passes them, so the limits here are what really bound
  * the requests this server makes: failures are remembered, each host has a limit, and only so many fetches can run at
- * once.
+ * once, both overall and for each host. A {@link KeyFetchBudget} stops one sender from using up these limits.
  */
 @Component
 class PublicKeyResolver {
@@ -48,6 +50,11 @@ class PublicKeyResolver {
     private static final Duration MIN_AGE_TO_REFRESH = Duration.ofMinutes(5);
     private static final long MAX_CACHED_KEYS = 10_000;
     private static final int MAX_CONCURRENT_FETCHES = 32;
+
+    /**
+     * Keeps slow hosts from taking every fetch. A fetch beyond this would only wait for one of the client's connections.
+     */
+    private static final int MAX_CONCURRENT_FETCHES_PER_HOST = FederationHttpClient.MAX_CONNECTIONS_PER_HOST;
     private static final int MAX_FETCHES_PER_HOST_PER_MINUTE = 60;
     private static final long MAX_TRACKED_HOSTS = 10_000;
 
@@ -62,6 +69,11 @@ class PublicKeyResolver {
     private final Executor executor;
     private final FetchThrottle throttle;
     private final Semaphore fetches = new Semaphore(MAX_CONCURRENT_FETCHES);
+
+    /**
+     * A host only has an entry while a fetch holds one of {@link #fetches}, which bounds its size.
+     */
+    private final RunningLimit fetchesByHost = new RunningLimit(MAX_CONCURRENT_FETCHES_PER_HOST);
     private final AsyncCache<String, Lookup> cache;
     private final ConcurrentHashMap<String, CompletableFuture<Lookup>> refreshes = new ConcurrentHashMap<>();
 
@@ -100,11 +112,11 @@ class PublicKeyResolver {
     /**
      * @throws SignatureVerificationException if the key can't be found, or can't be fetched right now
      */
-    ResolvedKey resolve(KeyId keyId) {
+    ResolvedKey resolve(KeyId keyId, KeyFetchBudget budget) {
         if (keyId.local()) {
             return resolveLocal(keyId);
         }
-        return found(keyId, await(cache.get(keyId.value(), (ignored, unused) -> fetch(keyId))));
+        return found(keyId, await(cache.get(keyId.value(), (ignored, unused) -> fetch(keyId, budget))));
     }
 
     /**
@@ -118,7 +130,7 @@ class PublicKeyResolver {
      * @return the new key, or empty if there isn't a different one to try
      * @throws SignatureVerificationException if the key can't be fetched right now
      */
-    Optional<ResolvedKey> refresh(KeyId keyId, ResolvedKey stale) {
+    Optional<ResolvedKey> refresh(KeyId keyId, ResolvedKey stale, KeyFetchBudget budget) {
         if (keyId.local()) {
             return Optional.empty();
         }
@@ -138,7 +150,7 @@ class PublicKeyResolver {
             return refreshResult(keyId, stale, failed);
         }
 
-        var refresh = refreshes.computeIfAbsent(keyId.value(), ignored -> fetch(keyId));
+        var refresh = refreshes.computeIfAbsent(keyId.value(), ignored -> fetch(keyId, budget));
         refresh.whenComplete((lookup, failure) -> {
             // Before it stops being in progress, so that a request arriving in between can't start another one.
             switch (lookup) {
@@ -180,25 +192,47 @@ class PublicKeyResolver {
      * Starts a fetch, if the limits allow one. A fetch that isn't allowed fails rather than giving a result, so it isn't
      * remembered, and the next request can try again.
      */
-    private CompletableFuture<Lookup> fetch(KeyId keyId) {
-        if (!throttle.tryAcquire(keyId.host())) {
-            return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches from " + keyId.host()));
-        }
+    private CompletableFuture<Lookup> fetch(KeyId keyId, KeyFetchBudget budget) {
+        var host = keyId.host();
+        // In this order for two reasons. A fetch that this server can't run yet isn't the sender's fault, so it doesn't use
+        // the sender's budget. And a sender with no budget left can't spend the budget of the host it names.
         if (!fetches.tryAcquire()) {
             return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches at once"));
+        }
+        if (!fetchesByHost.tryStart(host)) {
+            fetches.release();
+            return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches running for " + host));
+        }
+        var reserved = budget.tryReserve();
+        if (reserved.isEmpty()) {
+            release(host);
+            return CompletableFuture.failedFuture(new FetchBudgetException("Sender has caused too many key fetches"));
+        }
+        var reservation = reserved.get();
+        if (!throttle.tryAcquire(host)) {
+            reservation.cancelled();
+            release(host);
+            return CompletableFuture.failedFuture(new FetchLimitException("Too many fetches from " + host));
         }
         try {
             return CompletableFuture.supplyAsync(() -> {
                 try {
                     return lookUp(keyId);
                 } finally {
-                    fetches.release();
+                    reservation.finished();
+                    release(host);
                 }
             }, executor);
         } catch (RuntimeException e) {
-            fetches.release();
+            reservation.cancelled();
+            release(host);
             throw e;
         }
+    }
+
+    private void release(String host) {
+        fetchesByHost.finish(host);
+        fetches.release();
     }
 
     private Lookup lookUp(KeyId keyId) {
@@ -225,6 +259,9 @@ class PublicKeyResolver {
         } catch (TimeoutException e) {
             throw unavailable("Timed out fetching a key");
         } catch (ExecutionException e) {
+            if (e.getCause() instanceof FetchBudgetException) {
+                throw new SignatureVerificationException(Failure.FETCH_BUDGET_SPENT, e.getCause().getMessage());
+            }
             throw unavailable(e.getCause().getMessage());
         }
     }
@@ -289,6 +326,13 @@ class PublicKeyResolver {
     private static final class FetchLimitException extends RuntimeException {
 
         FetchLimitException(String message) {
+            super(message);
+        }
+    }
+
+    private static final class FetchBudgetException extends RuntimeException {
+
+        FetchBudgetException(String message) {
             super(message);
         }
     }

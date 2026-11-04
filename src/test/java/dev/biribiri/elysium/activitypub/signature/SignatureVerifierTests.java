@@ -43,12 +43,12 @@ class SignatureVerifierTests {
 
     @BeforeEach
     void resolvesTheKey() {
-        when(keys.resolve(any())).thenReturn(key);
+        when(keys.resolve(any(), any())).thenReturn(key);
     }
 
     @Test
     void acceptsAValidSignature() {
-        assertThat(verifier(scheme(claim(NOW, null))).verify(REQUEST)).isEqualTo(new VerifiedSignature(KEY_ID, OWNER));
+        assertThat(verifier(scheme(claim(NOW, null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isEqualTo(new VerifiedSignature(KEY_ID, OWNER));
     }
 
     @Test
@@ -57,7 +57,7 @@ class SignatureVerifierTests {
         var preferred = scheme(claim(NOW, null));
         var fallback = new FakeScheme(true, invalidClaim(NOW));
 
-        assertThat(verifier(skipped, preferred, fallback).verify(REQUEST).keyId()).isEqualTo(KEY_ID);
+        assertThat(verifier(skipped, preferred, fallback).verify(REQUEST, SignatureFixtures.UNLIMITED).keyId()).isEqualTo(KEY_ID);
     }
 
     @Test
@@ -80,12 +80,12 @@ class SignatureVerifierTests {
         };
 
         assertFails(verifier(malformed), Failure.MALFORMED);
-        verify(keys, never()).resolve(any());
+        verify(keys, never()).resolve(any(), any());
     }
 
     @Test
     void acceptsAsFarAheadAsTheClockSkewAllows() {
-        assertThat(verifier(scheme(claim(NOW.plus(Duration.ofHours(1)), null))).verify(REQUEST)).isNotNull();
+        assertThat(verifier(scheme(claim(NOW.plus(Duration.ofHours(1)), null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
     }
 
     @Test
@@ -93,14 +93,14 @@ class SignatureVerifierTests {
         var claim = claim(NOW.plus(Duration.ofHours(1)).plusSeconds(1), null);
 
         assertFails(verifier(scheme(claim)), Failure.REJECTED);
-        verify(keys, never()).resolve(any());
+        verify(keys, never()).resolve(any(), any());
     }
 
     @Test
     void acceptsUntilTheDefaultLifetimeAndClockSkewEnd() {
         var created = NOW.minus(Duration.ofMinutes(5)).minus(Duration.ofHours(1));
 
-        assertThat(verifier(scheme(claim(created, null))).verify(REQUEST)).isNotNull();
+        assertThat(verifier(scheme(claim(created, null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
     }
 
     @Test
@@ -108,7 +108,7 @@ class SignatureVerifierTests {
         var created = NOW.minus(Duration.ofMinutes(5)).minus(Duration.ofHours(1)).minusSeconds(1);
 
         assertFails(verifier(scheme(claim(created, null))), Failure.REJECTED);
-        verify(keys, never()).resolve(any());
+        verify(keys, never()).resolve(any(), any());
     }
 
     @Test
@@ -116,7 +116,7 @@ class SignatureVerifierTests {
         var created = NOW.minus(Duration.ofHours(2));
         var expires = NOW.minus(Duration.ofHours(1));
 
-        assertThat(verifier(scheme(claim(created, expires))).verify(REQUEST)).isNotNull();
+        assertThat(verifier(scheme(claim(created, expires))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
     }
 
     @Test
@@ -133,7 +133,7 @@ class SignatureVerifierTests {
         var justInside = NOW.minus(Duration.ofHours(13));
         var justOutside = justInside.minusSeconds(1);
 
-        assertThat(verifier(scheme(claim(justInside, expires))).verify(REQUEST)).isNotNull();
+        assertThat(verifier(scheme(claim(justInside, expires))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
         assertFails(verifier(scheme(claim(justOutside, expires))), Failure.REJECTED);
     }
 
@@ -143,12 +143,12 @@ class SignatureVerifierTests {
                 "acct:bob@remote.example", SignatureAlgorithm.RSA_SHA256, BASE, sign(BASE), NOW, null);
 
         assertFails(verifier(scheme(claim)), Failure.REJECTED);
-        verify(keys, never()).resolve(any());
+        verify(keys, never()).resolve(any(), any());
     }
 
     @Test
     void passesOnAKeyFailure() {
-        when(keys.resolve(any())).thenThrow(new SignatureVerificationException(Failure.KEY_UNAVAILABLE, "down"));
+        when(keys.resolve(any(), any())).thenThrow(new SignatureVerificationException(Failure.KEY_UNAVAILABLE, "down"));
 
         assertFails(verifier(scheme(claim(NOW, null))), Failure.KEY_UNAVAILABLE);
     }
@@ -156,40 +156,40 @@ class SignatureVerifierTests {
     @Test
     void refreshesTheKeyWhenTheSignatureDoesNotMatch() {
         var staleKey = new ResolvedKey(KEY_ID, OWNER, otherKey());
-        when(keys.resolve(any())).thenReturn(staleKey);
-        when(keys.refresh(any(), any())).thenReturn(Optional.of(key));
+        when(keys.resolve(any(), any())).thenReturn(staleKey);
+        when(keys.refresh(any(), any(), any())).thenReturn(Optional.of(key));
 
-        assertThat(verifier(scheme(claim(NOW, null))).verify(REQUEST)).isEqualTo(new VerifiedSignature(KEY_ID, OWNER));
-        verify(keys).refresh(any(), eq(staleKey));
+        assertThat(verifier(scheme(claim(NOW, null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isEqualTo(new VerifiedSignature(KEY_ID, OWNER));
+        verify(keys).refresh(any(), eq(staleKey), any());
     }
 
     @Test
     void doesNotRefreshWhenTheSignatureMatches() {
-        verifier(scheme(claim(NOW, null))).verify(REQUEST);
+        verifier(scheme(claim(NOW, null))).verify(REQUEST, SignatureFixtures.UNLIMITED);
 
-        verify(keys, never()).refresh(any(), any());
+        verify(keys, never()).refresh(any(), any(), any());
     }
 
     @Test
     void rejectsIfThereIsNoDifferentKeyToTry() {
-        when(keys.resolve(any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
-        when(keys.refresh(any(), any())).thenReturn(Optional.empty());
+        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
+        when(keys.refresh(any(), any(), any())).thenReturn(Optional.empty());
 
         assertFails(verifier(scheme(claim(NOW, null))), Failure.REJECTED);
     }
 
     @Test
     void rejectsIfTheRefreshedKeyDoesNotMatchEither() {
-        when(keys.resolve(any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
-        when(keys.refresh(any(), any())).thenReturn(Optional.of(new ResolvedKey(KEY_ID, OWNER, otherKey())));
+        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
+        when(keys.refresh(any(), any(), any())).thenReturn(Optional.of(new ResolvedKey(KEY_ID, OWNER, otherKey())));
 
         assertFails(verifier(scheme(invalidClaim(NOW))), Failure.REJECTED);
     }
 
     @Test
     void passesOnAFailureFromARefresh() {
-        when(keys.resolve(any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
-        when(keys.refresh(any(), any())).thenThrow(new SignatureVerificationException(Failure.KEY_UNAVAILABLE, "down"));
+        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
+        when(keys.refresh(any(), any(), any())).thenThrow(new SignatureVerificationException(Failure.KEY_UNAVAILABLE, "down"));
 
         assertFails(verifier(scheme(claim(NOW, null))), Failure.KEY_UNAVAILABLE);
     }
@@ -199,7 +199,7 @@ class SignatureVerifierTests {
     }
 
     private void assertFails(SignatureVerifier verifier, Failure failure) {
-        assertThatThrownBy(() -> verifier.verify(REQUEST))
+        assertThatThrownBy(() -> verifier.verify(REQUEST, SignatureFixtures.UNLIMITED))
                 .isInstanceOfSatisfying(SignatureVerificationException.class,
                         e -> assertThat(e.failure()).isEqualTo(failure));
     }

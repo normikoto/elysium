@@ -54,7 +54,7 @@ class HttpSignatureIntegrationTests {
         }).orElseThrow();
         var key = signingKeys.forActor(alice).orElseThrow();
 
-        var verified = verifier.verify(signed("/users/bob/inbox", BODY, key));
+        var verified = verifier.verify(signed("/users/bob/inbox", BODY, key), SignatureFixtures.UNLIMITED);
 
         assertThat(verified).isEqualTo(new VerifiedSignature(alice.publicKeyId(), alice.uri()));
     }
@@ -67,7 +67,7 @@ class HttpSignatureIntegrationTests {
         var signed = signed("/users/bob/inbox", BODY, key);
         var tampered = new HttpRequestData("POST", "/users/mallory/inbox", signed.headers(), signed.body());
 
-        assertThatThrownBy(() -> verifier.verify(tampered))
+        assertThatThrownBy(() -> verifier.verify(tampered, SignatureFixtures.UNLIMITED))
                 .isInstanceOfSatisfying(SignatureVerificationException.class,
                         e -> assertThat(e.failure()).isEqualTo(SignatureVerificationException.Failure.REJECTED));
     }
@@ -80,7 +80,7 @@ class HttpSignatureIntegrationTests {
         }).orElseThrow();
         var forged = new SigningKey(erin.publicKeyId(), signingKeys.forActor(dave).orElseThrow().privateKey());
 
-        assertThatThrownBy(() -> verifier.verify(signed("/users/bob/inbox", BODY, forged)))
+        assertThatThrownBy(() -> verifier.verify(signed("/users/bob/inbox", BODY, forged), SignatureFixtures.UNLIMITED))
                 .isInstanceOfSatisfying(SignatureVerificationException.class,
                         e -> assertThat(e.failure()).isEqualTo(SignatureVerificationException.Failure.REJECTED));
     }
@@ -101,7 +101,7 @@ class HttpSignatureIntegrationTests {
 
             var request = signed("/users/bob/inbox", BODY, new SigningKey(keyId, privateKey));
 
-            assertThatThrownBy(() -> verifier.verify(request))
+            assertThatThrownBy(() -> verifier.verify(request, SignatureFixtures.UNLIMITED))
                     .isInstanceOfSatisfying(SignatureVerificationException.class,
                             e -> assertThat(e.failure()).isEqualTo(SignatureVerificationException.Failure.REJECTED));
             assertThatThrownBy(server::accept).isInstanceOf(SocketTimeoutException.class);

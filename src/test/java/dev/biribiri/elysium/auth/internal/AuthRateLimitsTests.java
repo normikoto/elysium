@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.auth.internal;
 
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.ratelimit.ClientAddresses;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -242,13 +243,6 @@ class AuthRateLimitsTests {
     }
 
     @Test
-    void roundsRetryAfterUp() {
-        assertThat(AuthRateLimits.retryAfterSeconds(Duration.ofSeconds(90))).isEqualTo("90");
-        assertThat(AuthRateLimits.retryAfterSeconds(Duration.ofMillis(90_001))).isEqualTo("91");
-        assertThat(AuthRateLimits.retryAfterSeconds(Duration.ZERO)).isEqualTo("1");
-    }
-
-    @Test
     void warnsOnceAboutLocalAddressesWithAPublicBaseUrl(CapturedOutput output) {
         limits.beginLogin(login("alice", "127.0.0.1"));
         limits.beginLogin(login("alice", "172.18.0.1"));
@@ -305,7 +299,9 @@ class AuthRateLimitsTests {
 
     private AuthRateLimits limits(boolean enabled, String baseUrl) {
         return new AuthRateLimits(
-                new RateLimitProperties(enabled), new InstanceProperties(URI.create(baseUrl)), now::get);
+                new RateLimitProperties(enabled),
+                new ClientAddresses(new InstanceProperties(URI.create(baseUrl))),
+                now::get);
     }
 
     private static MockHttpServletRequest login(String username, String address) {

@@ -6,6 +6,7 @@ import org.springframework.boot.http.client.InetAddressFilter;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Stops requests from reaching private or internal addresses, since other servers choose the URLs this server fetches.
@@ -22,6 +23,13 @@ final class PublicAddressDnsResolver implements DnsResolver {
      * can't overlap with real addresses, because that range is deprecated.
      */
     static final InetAddressFilter PUBLIC_ADDRESSES = InetAddressFilter.externalAddresses().andNot("::/96");
+
+    /**
+     * @param networks private networks to allow as well, in CIDR form
+     */
+    static InetAddressFilter publicAddressesAnd(List<String> networks) {
+        return networks.isEmpty() ? PUBLIC_ADDRESSES : PUBLIC_ADDRESSES.or(networks.toArray(String[]::new));
+    }
 
     private final DnsResolver delegate;
     private final InetAddressFilter filter;

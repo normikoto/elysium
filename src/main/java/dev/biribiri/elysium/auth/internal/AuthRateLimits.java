@@ -2,22 +2,16 @@ package dev.biribiri.elysium.auth.internal;
 
 import com.github.benmanes.caffeine.cache.Ticker;
 import dev.biribiri.elysium.actor.Actor;
-import dev.biribiri.elysium.actor.InstanceProperties;
-import dev.biribiri.elysium.auth.internal.RateLimiter.Slot;
+import dev.biribiri.elysium.ratelimit.ClientAddresses;
+import dev.biribiri.elysium.ratelimit.RateLimiter;
+import dev.biribiri.elysium.ratelimit.RateLimiter.Slot;
 import jakarta.servlet.http.HttpServletRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.net.Inet6Address;
-import java.net.InetAddress;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
@@ -33,30 +27,26 @@ import java.util.function.Consumer;
 @Component
 class AuthRateLimits {
 
-    private static final Logger log = LoggerFactory.getLogger(AuthRateLimits.class);
-
     private static final int MAX_TRACKED_KEYS = 100_000;
-    private static final int IPV6_NETWORK_BYTES = 8;
     private static final String USERNAME_PARAMETER = "username";
     private static final String LOGIN_ATTEMPT_ATTRIBUTE = AuthRateLimits.class.getName() + ".loginAttempt";
     private static final String SIGN_UP_SLOT_ATTRIBUTE = AuthRateLimits.class.getName() + ".signUpSlot";
 
     private final boolean enabled;
-    private final boolean publicBaseUrl;
+    private final ClientAddresses clients;
     private final RateLimiter loginsByAddress;
     private final RateLimiter loginsByUsernameAndAddress;
     private final RateLimiter loginsByUsername;
     private final RateLimiter signUpsByAddress;
-    private final AtomicBoolean warnedAboutProxy = new AtomicBoolean();
 
     @Autowired
-    AuthRateLimits(RateLimitProperties properties, InstanceProperties instance) {
-        this(properties, instance, Ticker.systemTicker());
+    AuthRateLimits(RateLimitProperties properties, ClientAddresses clients) {
+        this(properties, clients, Ticker.systemTicker());
     }
 
-    AuthRateLimits(RateLimitProperties properties, InstanceProperties instance, Ticker ticker) {
+    AuthRateLimits(RateLimitProperties properties, ClientAddresses clients, Ticker ticker) {
         this.enabled = properties.enabled();
-        this.publicBaseUrl = !isLoopbackHost(instance.baseUrl().getHost());
+        this.clients = clients;
         this.loginsByAddress = new RateLimiter(20, Duration.ofMinutes(15), MAX_TRACKED_KEYS, ticker);
         this.loginsByUsernameAndAddress = new RateLimiter(5, Duration.ofMinutes(15), MAX_TRACKED_KEYS, ticker);
         this.loginsByUsername = new RateLimiter(50, Duration.ofHours(1), MAX_TRACKED_KEYS, ticker);
@@ -73,7 +63,7 @@ class AuthRateLimits {
         if (!enabled) {
             return Optional.empty();
         }
-        var address = clientAddress(request);
+        var address = clients.keyFor(request);
         // This comes first so that one address can't push other counts out of the caches with made-up usernames.
         var addressSlot = loginsByAddress.tryAcquire(address);
         if (addressSlot.isEmpty()) {
@@ -136,7 +126,7 @@ class AuthRateLimits {
         if (!enabled) {
             return Optional.empty();
         }
-        var address = clientAddress(request);
+        var address = clients.keyFor(request);
         var slot = signUpsByAddress.tryAcquire(address);
         if (slot.isEmpty()) {
             return Optional.of(signUpsByAddress.timeUntilReset(address));
@@ -153,13 +143,6 @@ class AuthRateLimits {
             request.removeAttribute(SIGN_UP_SLOT_ATTRIBUTE);
             slot.release();
         }
-    }
-
-    /**
-     * The value for a {@code Retry-After} header, which is in whole seconds and shouldn't tell clients to retry early.
-     */
-    static String retryAfterSeconds(Duration wait) {
-        return Long.toString(Math.max(1, wait.toSeconds() + (wait.toNanosPart() > 0 ? 1 : 0)));
     }
 
     private static void finishLogin(HttpServletRequest request, Consumer<Slot> finishPair) {
@@ -191,67 +174,6 @@ class AuthRateLimits {
             return Optional.empty();
         }
         return Optional.of(trimmed.toLowerCase(Locale.ROOT));
-    }
-
-    private String clientAddress(HttpServletRequest request) {
-        var remoteAddress = request.getRemoteAddr();
-        InetAddress address;
-        try {
-            address = InetAddress.ofLiteral(remoteAddress);
-        } catch (IllegalArgumentException e) {
-            // Not something that can be reduced to a network, so it's used as it is.
-            return remoteAddress;
-        }
-        warnIfBehindMisconfiguredProxy(address);
-        if (address instanceof Inet6Address) {
-            // One host usually controls a whole /64, so counting each address separately wouldn't limit it.
-            var network = Arrays.copyOf(address.getAddress(), IPV6_NETWORK_BYTES);
-            return "ipv6:" + HexFormat.of().formatHex(network);
-        }
-        return address.getHostAddress();
-    }
-
-    /**
-     * A public server shouldn't normally see clients on its own host or private network, so this probably means it's
-     * seeing its proxy's address. Everyone would then share one limit, and one person could lock everyone out.
-     *
-     * <p>This can't detect a proxy that passes on an {@code X-Forwarded-For} header supplied by the client, because the
-     * made-up addresses look like any other client's.
-     */
-    private void warnIfBehindMisconfiguredProxy(InetAddress address) {
-        if (publicBaseUrl && isLocalNetwork(address) && warnedAboutProxy.compareAndSet(false, true)) {
-            log.warn("""
-                    Got a login or sign-up attempt from the local address {}. If this server is behind a reverse proxy, \
-                    every client probably shares one rate limit. Set server.forward-headers-strategy=native and make \
-                    sure the proxy sends X-Forwarded-For. See docs/configuration.md.""", address.getHostAddress());
-        }
-    }
-
-    /**
-     * Whether the address is in a range that Tomcat trusts as a proxy by default.
-     */
-    private static boolean isLocalNetwork(InetAddress address) {
-        var bytes = address.getAddress();
-        return address.isLoopbackAddress()
-                || address.isSiteLocalAddress()
-                || address.isLinkLocalAddress()
-                // Shared address space, which is 100.64.0.0/10. Overlay networks such as Tailscale use it.
-                || (bytes.length == 4 && bytes[0] == 100 && (bytes[1] & 0xc0) == 0x40)
-                // Unique local addresses, which are fc00::/7. isSiteLocalAddress doesn't cover these.
-                || (address instanceof Inet6Address && (bytes[0] & 0xfe) == 0xfc);
-    }
-
-    private static boolean isLoopbackHost(String host) {
-        if (host.equals("localhost") || host.endsWith(".localhost")) {
-            return true;
-        }
-        // URI keeps the brackets around IPv6 addresses.
-        var literal = host.startsWith("[") ? host.substring(1, host.length() - 1) : host;
-        try {
-            return InetAddress.ofLiteral(literal).isLoopbackAddress();
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
     }
 
     /**

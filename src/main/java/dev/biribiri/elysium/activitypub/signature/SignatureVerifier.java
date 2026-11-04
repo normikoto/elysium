@@ -48,10 +48,11 @@ public class SignatureVerifier {
      * Checks a request's signature. This can block while fetching the sender's key, so it mustn't be called inside a
      * database transaction.
      *
+     * @param budget the key fetches that the request's sender is allowed to cause
      * @return who signed the request. Callers still have to check that this actor can do what the request asks.
      * @throws SignatureVerificationException if the signature can't be accepted
      */
-    public VerifiedSignature verify(HttpRequestData request) {
+    public VerifiedSignature verify(HttpRequestData request, KeyFetchBudget budget) {
         var scheme = schemes.stream()
                 .filter(candidate -> candidate.appliesTo(request))
                 .findFirst()
@@ -61,10 +62,10 @@ public class SignatureVerifier {
         checkTimeWindow(claim);
 
         var keyId = KeyId.parse(claim.keyId(), instance);
-        var key = keys.resolve(keyId);
+        var key = keys.resolve(keyId, budget);
         if (!matches(claim, key)) {
             // The sender may have changed its key since this server fetched it.
-            key = keys.refresh(keyId, key)
+            key = keys.refresh(keyId, key, budget)
                     .filter(refreshed -> matches(claim, refreshed))
                     .orElseThrow(() -> new SignatureVerificationException(
                             Failure.REJECTED, "Signature doesn't match the key " + claim.keyId()));

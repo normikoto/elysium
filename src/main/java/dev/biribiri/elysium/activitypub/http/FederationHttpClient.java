@@ -61,8 +61,10 @@ public class FederationHttpClient implements AutoCloseable {
     private final Duration deadline;
 
     @Autowired
-    FederationHttpClient(BuildProperties build, InstanceProperties instance) {
-        this(new PublicAddressDnsResolver(SystemDefaultDnsResolver.INSTANCE, PublicAddressDnsResolver.PUBLIC_ADDRESSES),
+    FederationHttpClient(BuildProperties build, InstanceProperties instance, FederationProperties federation) {
+        this(new PublicAddressDnsResolver(
+                        SystemDefaultDnsResolver.INSTANCE,
+                        PublicAddressDnsResolver.publicAddressesAnd(federation.allowedPrivateNetworks())),
                 HTTPS_ONLY,
                 DEADLINE,
                 "Elysium/" + build.getVersion() + " (+" + instance.resolve("/") + ")");

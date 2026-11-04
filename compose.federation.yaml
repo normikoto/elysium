@@ -34,6 +34,8 @@ services:
     # This image only exists locally, so don't let a missing one pull something else with the same name from Docker Hub.
     pull_policy: never
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
@@ -43,6 +45,11 @@ services:
       SPRING_DATASOURCE_PASSWORD: lab-only
       ELYSIUM_INSTANCE_BASE_URL: 'https://elysium.test'
       SERVER_FORWARD_HEADERS_STRATEGY: native
+      ELYSIUM_FEDERATION_ALLOWED_PRIVATE_NETWORKS: 172.30.0.0/24
+      # Java doesn't read SSL_CERT_FILE. See federation/generate-certs.sh.
+      SERVICE_BINDING_ROOT: /certs/bindings
+    volumes:
+      - 'certs:/certs:ro'
     networks:
       - lab
 
