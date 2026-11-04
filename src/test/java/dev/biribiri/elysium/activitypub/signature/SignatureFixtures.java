@@ -7,6 +7,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.Optional;
 
 /**
  * A key and signatures made with OpenSSL rather than this project's own code, so that tests can't pass just because
@@ -92,6 +93,19 @@ final class SignatureFixtures {
      */
     static final String CREATED_SIGNATURE =
             "K7AkJjmrg+0sPNZBWwMUq2AORYdCny++6TJpC7+jQlRrUApPInzUMIoD2sjFj01XUf9y0pkTPSOc4oByPtXFU7ETZYLcwKvOFE/FXQfpeRdU+U7ohwlqCdtezwPJKySrFK3BCW/KO03AHsdki/7ywxvfBuGva675tDbVZBbZskUcHlylacRTXA1AFTsGhjJuvr3ORWZTmFHl2JqVJry4kbnbsrzmLYolecZim0fA/lkBFB/P2hYg1NrfilyMQ551ShEJ+Dl39XllG+DIJNmbvgQMGILYedMA5bvsQupGkMfUGgNRGIQwUpzXXb42fFYsng4/eJCZcVg8eU/kf9ixVA==";
+
+    /**
+     * For tests that aren't about the budget. Application code has no way to skip it, because each caller has to choose one.
+     */
+    static final KeyFetchBudget UNLIMITED = () -> Optional.of(new KeyFetchBudget.Reservation() {
+        @Override
+        public void finished() {
+        }
+
+        @Override
+        public void cancelled() {
+        }
+    });
 
     private SignatureFixtures() {
     }

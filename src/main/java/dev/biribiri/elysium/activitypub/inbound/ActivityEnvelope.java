@@ -15,7 +15,8 @@ import java.util.Optional;
  *
  * @param id    the activity's {@code id}
  * @param type  the activity's {@code type}, or the first one if it has several
- * @param actor the ID of the activity's {@code actor}, which can be sent as an ID or as an object
+ * @param actor the ID of the activity's {@code actor}, which can be sent as an ID, an object, or an array of one of those.
+ *              This is null if there are several, since one signature can't speak for all of them.
  * @param body  the activity's JSON
  */
 record ActivityEnvelope(String id, String type, String actor, String body) {
@@ -39,8 +40,10 @@ record ActivityEnvelope(String id, String type, String actor, String body) {
         }
         var id = text(document.path("id"));
         var type = firstText(document.path("type"));
-        var actor = idOf(document.path("actor"));
-        if (id == null || type == null || actor == null) {
+        var actorNode = document.path("actor");
+        var hasSeveralActors = actorNode.isArray() && actorNode.size() > 1;
+        var actor = hasSeveralActors ? null : idOf(actorNode.isArray() ? actorNode.path(0) : actorNode);
+        if (id == null || type == null || (actor == null && !hasSeveralActors)) {
             return Optional.empty();
         }
         return Optional.of(new ActivityEnvelope(id, type, actor, body));

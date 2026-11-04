@@ -103,7 +103,7 @@ all clients can share one limit, or clients can get around the limits by making 
 
 To turn the limits off, because you enforce your own elsewhere, set `elysium.rate-limit.enabled=false`. This doesn't turn
 off the [limit on inboxes](../FEDERATION.md#inboxes), which is always on. A limit elsewhere can't replace it, because it
-only counts requests with bad signatures.
+only counts requests that make this server fetch a key.
 
 **Warning:** These limits only slow down abuse from a small number of addresses. An attacker with many addresses can
 spread out their attempts, and there's still no email confirmation, approval queue, or invite system for sign-ups. For

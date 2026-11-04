@@ -29,7 +29,9 @@ public class SignatureVerificationException extends RuntimeException {
         /** The signature was read, but it isn't valid or isn't good enough. */
         REJECTED(401),
         /** The sender's key can't be fetched right now, so the sender should try again later. */
-        KEY_UNAVAILABLE(503);
+        KEY_UNAVAILABLE(503),
+        /** Checking this signature needs a key fetch, and the sender has caused too many. */
+        FETCH_BUDGET_SPENT(429);
 
         private final int status;
 

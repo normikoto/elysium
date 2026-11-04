@@ -62,24 +62,26 @@ plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
 | Status | Meaning                                                                                                      |
 |--------|--------------------------------------------------------------------------------------------------------------|
 | `202`  | The activity is queued, it's a repeat of one with the same `id`, or it was dropped because of who signed it  |
-| `400`  | The signature header can't be read, or the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor` |
+| `400`  | The signature header can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, or the `id` isn't a valid URI or is over 2048 bytes |
 | `401`  | There's no signature in a supported format, or it isn't valid                                                |
-| `403`  | The activity's `id` isn't an HTTPS URL on the same host and port as its `actor`                              |
+| `403`  | The activity's `id` is a valid URI, but not an HTTPS URL on the same host and port as its `actor`            |
 | `404`  | The user doesn't exist                                                                                       |
 | `413`  | The body is too large                                                                                        |
 | `415`  | The `Content-Type` isn't one of those above                                                                  |
-| `429`  | This address sent too many requests with bad signatures, and `Retry-After` says when to try again            |
+| `429`  | This address has caused too many key fetches, and `Retry-After` says when to try again                       |
 | `503`  | The sender's key can't be fetched right now                                                                  |
 
-An address can have 30 requests a minute fail signature checks, and those that pass aren't counted. IPv6 addresses are
-counted by their /64 network.
+The only limit is on key fetches: requests from one address can start 30 a minute, with 4 running at once. A request only
+counts if it starts a fetch, so one signed with a key this server already has isn't limited, and neither is one waiting on
+a fetch that's already running. IPv6 addresses are counted by their /64 network.
 
 ### Activities
 
 Activities that are accepted are stored, but nothing acts on them yet. No activities are sent.
 
-An activity is only accepted if its `actor` is the actor that signed the request. Otherwise it's answered with a `202` and
-dropped, which includes activities forwarded by another server. Linked Data Signatures aren't verified.
+An activity is only accepted if its `actor`, which can be an array of one, is the actor that signed the request. Otherwise
+it's answered with a `202` and dropped, which includes activities forwarded by another server and activities with several
+actors. Linked Data Signatures aren't verified.
 
 ### Notable differences
 

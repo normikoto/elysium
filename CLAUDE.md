@@ -62,7 +62,8 @@ feature is live.
 - **Inbound:** `InboxController` does the HTTP and signature steps, and `Inbox` decides whether to keep an activity. Who an
   activity is for has to come from the activity, never from the inbox's URL. Checks on who's speaking for an `id` have to
   run before `InboundActivities.accept`, where the first activity stored under an ID wins. To act on a type of activity,
-  add an `InboundActivityHandler`. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and the other properties
+  add an `InboundActivityHandler`. The inbox's only limit is on the key fetches an address can cause (`KeyFetchBudget`),
+  and `SignatureVerifier.verify` needs one, so that every caller has to decide who pays for fetches. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and the other properties
   still need the handling described in issue #39.
 - **Signatures:** `SignatureVerifier`, `PublicKeyResolver`, and `SignedFetcher` are independent of the signature format.
   Each format supplies a `SignatureScheme` and a `RequestSigner`. Only draft-cavage is implemented. The reasoning for
@@ -105,8 +106,8 @@ change. New settings an operator would use also belong in `application.propertie
 
 - Integration tests are `@SpringBootTest` with `@Import(TestcontainersConfiguration.class)`, which runs a real PostgreSQL.
 - `src/test/resources/config/application.properties` turns the login and sign-up rate limits off, because test classes
-  share contexts and one address. `RateLimitIntegrationTests` turns them back on. The inbox's limit is always on, so tests
-  that send bad signatures to an inbox should set their own address, as `InboxIntegrationTests` does.
+  share contexts and one address. `RateLimitIntegrationTests` turns them back on. The inbox's limit on key fetches is always on, so
+  tests that make an inbox fetch keys should set their own address, as `InboxIntegrationTests` does.
 - The sign-up page refuses to create the first account, and a test class's database can start empty. Call
   `TestAccounts.makeSureAnAccountExists` before a test signs up.
 

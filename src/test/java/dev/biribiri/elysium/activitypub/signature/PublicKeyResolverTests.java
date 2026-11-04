@@ -31,6 +31,8 @@ import static org.mockito.Mockito.when;
 
 class PublicKeyResolverTests {
 
+    private static final KeyFetchBudget UNLIMITED = SignatureFixtures.UNLIMITED;
+
     private static final InstanceProperties INSTANCE = new InstanceProperties(URI.create("https://example.test"));
     private static final String KEY_ID = "https://remote.example/users/bob#main-key";
     private static final URI OWNER = URI.create("https://remote.example/users/bob");
@@ -47,8 +49,8 @@ class PublicKeyResolverTests {
     void remembersAFetchedKey() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
 
-        assertThat(resolver.resolve(keyId(KEY_ID))).isEqualTo(KEY);
-        assertThat(resolver.resolve(keyId(KEY_ID))).isEqualTo(KEY);
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
 
         verify(documents, times(1)).fetch(any());
     }
@@ -57,13 +59,13 @@ class PublicKeyResolverTests {
     void fetchesAKeyAgainAfterADay() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
 
-        resolver.resolve(keyId(KEY_ID));
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofHours(24).minusSeconds(1));
-        resolver.resolve(keyId(KEY_ID));
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
         verify(documents, times(1)).fetch(any());
 
         advance(Duration.ofSeconds(1));
-        resolver.resolve(keyId(KEY_ID));
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
         verify(documents, times(2)).fetch(any());
     }
 
@@ -82,7 +84,7 @@ class PublicKeyResolverTests {
         var requests = new ArrayList<CompletableFuture<ResolvedKey>>();
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var i = 0; i < 10; i++) {
-                requests.add(CompletableFuture.supplyAsync(() -> concurrent.resolve(keyId(KEY_ID)), callers));
+                requests.add(CompletableFuture.supplyAsync(() -> concurrent.resolve(keyId(KEY_ID), UNLIMITED), callers));
             }
             assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
             release.countDown();
@@ -162,13 +164,13 @@ class PublicKeyResolverTests {
     void doesNotRememberBeingOverTheLimit() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
         for (var i = 0; i < 60; i++) {
-            resolver.resolve(keyId("https://remote.example/users/u" + i + "#main-key"));
+            resolver.resolve(keyId("https://remote.example/users/u" + i + "#main-key"), UNLIMITED);
         }
         assertFails(KEY_ID, Failure.KEY_UNAVAILABLE);
 
         advance(Duration.ofMinutes(1));
 
-        assertThat(resolver.resolve(keyId(KEY_ID))).isEqualTo(KEY);
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
     }
 
     @Test
@@ -187,18 +189,18 @@ class PublicKeyResolverTests {
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var i = 0; i < 32; i++) {
                 var id = keyId("https://host" + i + ".example/k");
-                requests.add(CompletableFuture.supplyAsync(() -> concurrent.resolve(id), callers));
+                requests.add(CompletableFuture.supplyAsync(() -> concurrent.resolve(id, UNLIMITED), callers));
             }
             assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
 
-            assertThatThrownBy(() -> concurrent.resolve(keyId("https://over.example/k")))
+            assertThatThrownBy(() -> concurrent.resolve(keyId("https://over.example/k"), UNLIMITED))
                     .isInstanceOfSatisfying(SignatureVerificationException.class,
                             e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
             release.countDown();
         }
 
         // Finished fetches give their places back.
-        assertThat(concurrent.resolve(keyId("https://over.example/k"))).isEqualTo(KEY);
+        assertThat(concurrent.resolve(keyId("https://over.example/k"), UNLIMITED)).isEqualTo(KEY);
     }
 
     /**
@@ -222,18 +224,146 @@ class PublicKeyResolverTests {
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var i = 0; i < 4; i++) {
                 var id = keyId("https://slow.example/k" + i);
-                CompletableFuture.supplyAsync(() -> concurrent.resolve(id), callers);
+                CompletableFuture.supplyAsync(() -> concurrent.resolve(id, UNLIMITED), callers);
             }
             assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
 
-            assertThatThrownBy(() -> concurrent.resolve(keyId("https://slow.example/over")))
+            assertThatThrownBy(() -> concurrent.resolve(keyId("https://slow.example/over"), UNLIMITED))
                     .isInstanceOfSatisfying(SignatureVerificationException.class,
                             e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
-            assertThat(concurrent.resolve(keyId("https://other.example/k"))).isEqualTo(KEY);
+            assertThat(concurrent.resolve(keyId("https://other.example/k"), UNLIMITED)).isEqualTo(KEY);
             release.countDown();
         }
 
-        assertThat(concurrent.resolve(keyId("https://slow.example/over"))).isEqualTo(KEY);
+        assertThat(concurrent.resolve(keyId("https://slow.example/over"), UNLIMITED)).isEqualTo(KEY);
+    }
+
+    @Test
+    void chargesTheSenderOnlyForAFetchItStarts() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY);
+        var budget = new CountingBudget(1);
+
+        assertThat(resolver.resolve(keyId(KEY_ID), budget)).isEqualTo(KEY);
+        assertThat(resolver.resolve(keyId(KEY_ID), budget)).isEqualTo(KEY);
+
+        assertThat(budget.reserved).isEqualTo(1);
+        assertThat(budget.finished).isEqualTo(1);
+    }
+
+    /**
+     * A server with many actors can use up its budget after a restart, and its keys that are cached have to keep working.
+     */
+    @Test
+    void servesACachedKeyToASenderWithNoBudgetLeft() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY);
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+
+        assertThat(resolver.resolve(keyId(KEY_ID), new CountingBudget(0))).isEqualTo(KEY);
+    }
+
+    /**
+     * After a restart, a busy server can have more keys to fetch than its host can run at once. That's this server's limit,
+     * so it shouldn't count against the sender.
+     */
+    @Test
+    void doesNotChargeTheSenderForAFetchOverTheHostsRunningLimit() throws Exception {
+        var release = new CountDownLatch(1);
+        var running = new CountDownLatch(4);
+        when(documents.fetch(any())).thenAnswer(invocation -> {
+            running.countDown();
+            release.await(10, TimeUnit.SECONDS);
+            return KEY;
+        });
+        var concurrent = new PublicKeyResolver(
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+        var budget = new CountingBudget(1);
+
+        try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (var i = 0; i < 4; i++) {
+                var id = keyId("https://busy.example/k" + i);
+                CompletableFuture.supplyAsync(() -> concurrent.resolve(id, UNLIMITED), callers);
+            }
+            assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> concurrent.resolve(keyId("https://busy.example/over"), budget))
+                    .isInstanceOfSatisfying(SignatureVerificationException.class,
+                            e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
+            assertThat(budget.reserved).isZero();
+            release.countDown();
+        }
+    }
+
+    @Test
+    void chargesOnlyTheFirstOfRequestsThatArriveTogether() throws Exception {
+        var release = new CountDownLatch(1);
+        var started = new CountDownLatch(1);
+        when(documents.fetch(any())).thenAnswer(invocation -> {
+            started.countDown();
+            release.await(10, TimeUnit.SECONDS);
+            return KEY;
+        });
+        var concurrent = new PublicKeyResolver(
+                actors, documents, nanos::get, Executors.newVirtualThreadPerTaskExecutor());
+        var first = new CountingBudget(1);
+        var second = new CountingBudget(0);
+
+        try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
+            var fetching = CompletableFuture.supplyAsync(() -> concurrent.resolve(keyId(KEY_ID), first), callers);
+            assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+            var waiting = CompletableFuture.supplyAsync(() -> concurrent.resolve(keyId(KEY_ID), second), callers);
+            release.countDown();
+
+            assertThat(fetching.get(10, TimeUnit.SECONDS)).isEqualTo(KEY);
+            assertThat(waiting.get(10, TimeUnit.SECONDS)).isEqualTo(KEY);
+        }
+
+        assertThat(first.reserved).isEqualTo(1);
+        assertThat(second.reserved).isZero();
+    }
+
+    @Test
+    void refusesAFetchOverTheSendersBudgetWithoutSpendingTheHosts() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY);
+        var spent = new CountingBudget(0);
+
+        for (var i = 0; i < 61; i++) {
+            var id = "https://remote.example/users/u" + i + "#main-key";
+            assertThatThrownBy(() -> resolver.resolve(keyId(id), spent))
+                    .isInstanceOfSatisfying(SignatureVerificationException.class,
+                            e -> assertThat(e.failure()).isEqualTo(Failure.FETCH_BUDGET_SPENT));
+        }
+        verify(documents, never()).fetch(any());
+
+        // It isn't remembered either, and the host still has its whole budget.
+        assertThat(resolver.resolve(keyId("https://remote.example/users/u0#main-key"), UNLIMITED)).isEqualTo(KEY);
+    }
+
+    @Test
+    void doesNotChargeTheSenderForAFetchThatsOverTheHostsLimit() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY);
+        for (var i = 0; i < 60; i++) {
+            resolver.resolve(keyId("https://remote.example/users/u" + i + "#main-key"), UNLIMITED);
+        }
+        var budget = new CountingBudget(1);
+
+        assertThatThrownBy(() -> resolver.resolve(keyId("https://remote.example/users/over#main-key"), budget))
+                .isInstanceOfSatisfying(SignatureVerificationException.class,
+                        e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
+
+        assertThat(budget.cancelled).isEqualTo(1);
+        assertThat(budget.finished).isZero();
+    }
+
+    @Test
+    void chargesTheSenderForARefresh() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY, NEW_KEY);
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+        advance(Duration.ofMinutes(5));
+        var budget = new CountingBudget(1);
+
+        assertThat(resolver.refresh(keyId(KEY_ID), KEY, budget)).contains(NEW_KEY);
+
+        assertThat(budget.reserved).isEqualTo(1);
     }
 
     @Test
@@ -251,65 +381,65 @@ class PublicKeyResolverTests {
         try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var i = 0; i < 32; i++) {
                 var id = keyId("https://host" + i + ".example/k");
-                CompletableFuture.supplyAsync(() -> concurrent.resolve(id), callers);
+                CompletableFuture.supplyAsync(() -> concurrent.resolve(id, UNLIMITED), callers);
             }
             assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
 
             for (var i = 0; i < 61; i++) {
                 var id = keyId("https://victim.example/k" + i);
-                assertThatThrownBy(() -> concurrent.resolve(id))
+                assertThatThrownBy(() -> concurrent.resolve(id, UNLIMITED))
                         .isInstanceOf(SignatureVerificationException.class);
             }
             release.countDown();
         }
 
-        assertThat(concurrent.resolve(keyId("https://victim.example/k"))).isEqualTo(KEY);
+        assertThat(concurrent.resolve(keyId("https://victim.example/k"), UNLIMITED)).isEqualTo(KEY);
     }
 
     @Test
     void refreshesAKeyThatIsOldEnough() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY, NEW_KEY);
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
 
         advance(Duration.ofMinutes(5));
 
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).contains(NEW_KEY);
-        assertThat(resolver.resolve(keyId(KEY_ID))).isEqualTo(NEW_KEY);
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).contains(NEW_KEY);
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(NEW_KEY);
     }
 
     @Test
     void doesNotRefreshAKeyThatWasJustFetched() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
 
         advance(Duration.ofMinutes(5).minusSeconds(1));
 
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).isEmpty();
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).isEmpty();
         verify(documents, times(1)).fetch(any());
     }
 
     @Test
     void reportsNoNewKeyIfTheKeyHasNotChanged() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
 
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).isEmpty();
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).isEmpty();
         verify(documents, times(2)).fetch(any());
 
         // That counts as a fetch, so bad signatures can't keep causing them.
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).isEmpty();
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).isEmpty();
         verify(documents, times(2)).fetch(any());
     }
 
     @Test
     void usesAKeyAnotherRequestAlreadyRefreshed() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY, NEW_KEY);
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
-        resolver.refresh(keyId(KEY_ID), stale);
+        resolver.refresh(keyId(KEY_ID), stale, UNLIMITED);
 
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).contains(NEW_KEY);
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).contains(NEW_KEY);
         verify(documents, times(2)).fetch(any());
     }
 
@@ -319,7 +449,7 @@ class PublicKeyResolverTests {
                 .thenReturn(KEY)
                 .thenThrow(KeyFetchException.temporary("down", null))
                 .thenReturn(NEW_KEY);
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
 
         assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
@@ -328,7 +458,7 @@ class PublicKeyResolverTests {
         verify(documents, times(2)).fetch(any());
 
         advance(Duration.ofSeconds(1));
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).contains(NEW_KEY);
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).contains(NEW_KEY);
         verify(documents, times(3)).fetch(any());
     }
 
@@ -337,7 +467,7 @@ class PublicKeyResolverTests {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
                 .thenThrow(KeyFetchException.temporary("down", null));
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
 
         advance(Duration.ofHours(23));
         assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
@@ -352,26 +482,26 @@ class PublicKeyResolverTests {
                 .thenReturn(KEY)
                 .thenThrow(KeyFetchException.permanent("a firewall said 403", null))
                 .thenReturn(NEW_KEY);
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
 
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).isEmpty();
-        assertThat(resolver.resolve(keyId(KEY_ID))).isEqualTo(KEY);
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).isEmpty();
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
 
         // Also not tried again until the time is up.
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).isEmpty();
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).isEmpty();
         verify(documents, times(2)).fetch(any());
         advance(Duration.ofMinutes(5));
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).contains(NEW_KEY);
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).contains(NEW_KEY);
     }
 
     @Test
     void doesNotRememberARefreshThatWasOverTheLimit() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
         for (var i = 0; i < 60; i++) {
-            resolver.resolve(keyId("https://remote.example/users/u" + i + "#main-key"));
+            resolver.resolve(keyId("https://remote.example/users/u" + i + "#main-key"), UNLIMITED);
         }
         assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
         verify(documents, times(61)).fetch(any());
@@ -379,7 +509,7 @@ class PublicKeyResolverTests {
         advance(Duration.ofMinutes(1));
 
         when(documents.fetch(any())).thenReturn(NEW_KEY);
-        assertThat(resolver.refresh(keyId(KEY_ID), stale)).contains(NEW_KEY);
+        assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).contains(NEW_KEY);
     }
 
     @Test
@@ -387,14 +517,14 @@ class PublicKeyResolverTests {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
                 .thenThrow(KeyFetchException.temporary("down", null));
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
 
-        assertThatThrownBy(() -> resolver.refresh(keyId(KEY_ID), stale))
+        assertThatThrownBy(() -> resolver.refresh(keyId(KEY_ID), stale, UNLIMITED))
                 .isInstanceOfSatisfying(SignatureVerificationException.class,
                         e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
 
-        assertThat(resolver.resolve(keyId(KEY_ID))).isEqualTo(KEY);
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
     }
 
     @Test
@@ -402,7 +532,7 @@ class PublicKeyResolverTests {
         when(documents.fetch(any()))
                 .thenReturn(KEY)
                 .thenThrow(KeyFetchException.gone("gone"));
-        var stale = resolver.resolve(keyId(KEY_ID));
+        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
 
         assertRefreshFails(stale, Failure.REJECTED);
@@ -420,7 +550,7 @@ class PublicKeyResolverTests {
         var alice = localActor();
         when(actors.findLocalByUri(alice.uri())).thenReturn(Optional.of(alice));
 
-        var key = resolver.resolve(keyId(value));
+        var key = resolver.resolve(keyId(value), UNLIMITED);
 
         assertThat(key.owner()).isEqualTo(alice.uri());
         assertThat(key.key()).isEqualTo(SignatureFixtures.publicKey());
@@ -451,7 +581,7 @@ class PublicKeyResolverTests {
         when(actors.findLocalByUri(alice.uri())).thenReturn(Optional.of(alice));
         var id = keyId(alice.publicKeyId());
 
-        assertThat(resolver.refresh(id, resolver.resolve(id))).isEmpty();
+        assertThat(resolver.refresh(id, resolver.resolve(id, UNLIMITED), UNLIMITED)).isEmpty();
 
         verify(documents, never()).fetch(any());
     }
@@ -464,13 +594,13 @@ class PublicKeyResolverTests {
     }
 
     private void assertRefreshFails(ResolvedKey stale, Failure failure) {
-        assertThatThrownBy(() -> resolver.refresh(keyId(KEY_ID), stale))
+        assertThatThrownBy(() -> resolver.refresh(keyId(KEY_ID), stale, UNLIMITED))
                 .isInstanceOfSatisfying(SignatureVerificationException.class,
                         e -> assertThat(e.failure()).isEqualTo(failure));
     }
 
     private void assertFails(String id, Failure failure) {
-        assertThatThrownBy(() -> resolver.resolve(keyId(id)))
+        assertThatThrownBy(() -> resolver.resolve(keyId(id), UNLIMITED))
                 .isInstanceOfSatisfying(SignatureVerificationException.class,
                         e -> assertThat(e.failure()).isEqualTo(failure));
     }
@@ -481,5 +611,36 @@ class PublicKeyResolverTests {
 
     private static KeyId keyId(String value) {
         return KeyId.parse(value, INSTANCE);
+    }
+
+    private static final class CountingBudget implements KeyFetchBudget {
+
+        private final int limit;
+        private int reserved;
+        private int finished;
+        private int cancelled;
+
+        CountingBudget(int limit) {
+            this.limit = limit;
+        }
+
+        @Override
+        public synchronized Optional<Reservation> tryReserve() {
+            if (reserved >= limit) {
+                return Optional.empty();
+            }
+            reserved++;
+            return Optional.of(new Reservation() {
+                @Override
+                public void finished() {
+                    finished++;
+                }
+
+                @Override
+                public void cancelled() {
+                    cancelled++;
+                }
+            });
+        }
     }
 }

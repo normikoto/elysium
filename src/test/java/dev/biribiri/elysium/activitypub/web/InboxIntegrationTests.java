@@ -7,6 +7,7 @@ import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
+import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -247,43 +248,75 @@ class InboxIntegrationTests {
         assertThat(stored(id)).isEqualTo(1);
     }
 
+    /**
+     * The addresses that these keys name are refused without connecting to anything, but they do count as fetches. Each has
+     * its own host, so that this only reaches the limit for the sender.
+     */
     @Test
-    void limitsFailedSignaturesFromAnAddress() throws Exception {
+    void limitsTheKeyFetchesThatAnAddressCanCause() throws Exception {
+        var alice = alice();
         var address = newAddress();
-        for (var i = 0; i < 30; i++) {
-            send(post("/inbox").contentType(ACTIVITY_JSON).content("{}"), address).andExpect(status().isUnauthorized());
+        for (var i = 1; i <= 30; i++) {
+            send(signedWithKeyId("https://127.0.0." + i + "/users/u#main-key", alice), address)
+                    .andExpect(status().isUnauthorized());
         }
 
-        send(post("/inbox").contentType(ACTIVITY_JSON).content("{}"), address)
+        send(signedWithKeyId("https://127.0.0.31/users/u#main-key", alice), address)
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", matchesPattern("[1-9][0-9]*")));
 
-        send(post("/inbox").contentType(ACTIVITY_JSON).content("{}"), newAddress())
+        send(signedWithKeyId("https://127.0.0.31/users/u#main-key", alice), newAddress())
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * Only the first of these makes a fetch, because the failure is remembered.
+     */
     @Test
-    void doesNotCountValidSignaturesTowardTheLimit() throws Exception {
+    void doesNotCountRepeatsOfAKeyThatWasAlreadyLookedUp() throws Exception {
+        var alice = alice();
+        var address = newAddress();
+        for (var i = 0; i < 31; i++) {
+            send(signedWithKeyId("https://127.0.1.1/users/u#main-key", alice), address)
+                    .andExpect(status().isUnauthorized());
+        }
+    }
+
+    /**
+     * None of these need a key to be fetched, so a server whose keys are cached can't be limited by any of them.
+     */
+    @Test
+    void doesNotLimitRequestsThatFetchNothing() throws Exception {
         var alice = alice();
         var address = newAddress();
         for (var i = 0; i < 31; i++) {
             send(signedRequest("/inbox", alice, activity(newId(alice), alice.uri().toString())), address)
                     .andExpect(status().isAccepted());
+            send(signedRequest("/inbox", alice, "not json"), address).andExpect(status().isBadRequest());
+            send(post("/inbox").contentType(ACTIVITY_JSON).content("{}"), address).andExpect(status().isUnauthorized());
         }
-
-        send(post("/inbox").contentType(ACTIVITY_JSON).content("{}"), address).andExpect(status().isUnauthorized());
     }
 
-    /**
-     * A sender that signed correctly can't use this to make this server fetch anything.
-     */
     @Test
-    void doesNotCountInvalidActivitiesWithValidSignaturesTowardTheLimit() throws Exception {
+    void acceptsAnActorSentAsAnArrayOfOne() throws Exception {
         var alice = alice();
-        var address = newAddress();
-        for (var i = 0; i < 31; i++) {
-            send(signedRequest("/inbox", alice, "not json"), address).andExpect(status().isBadRequest());
-        }
+        var id = newId(alice);
+        var body = "{\"id\":\"" + id + "\",\"type\":\"Test\",\"actor\":[\"" + alice.uri() + "\"]}";
+
+        signed("/inbox", alice, body).andExpect(status().isAccepted());
+
+        assertThat(stored(id)).isEqualTo(1);
+    }
+
+    @Test
+    void dropsAnActivityWithSeveralActors() throws Exception {
+        var alice = alice();
+        var id = newId(alice);
+        var body = "{\"id\":\"" + id + "\",\"type\":\"Test\",\"actor\":[\"" + alice.uri() + "\",\"" + BASE + "/users/bob\"]}";
+
+        signed("/inbox", alice, body).andExpect(status().isAccepted());
+
+        assertThat(stored(id)).isZero();
     }
 
     @Test
@@ -312,6 +345,13 @@ class InboxIntegrationTests {
     private MockHttpServletRequestBuilder signedRequest(String path, Actor actor, String body) {
         var headers = signer.sign("POST", URI.create(BASE + path), bytes(body), signingKeys.forActor(actor).orElseThrow());
         return post(path).contentType(ACTIVITY_JSON).headers(headers).content(body);
+    }
+
+    private MockHttpServletRequestBuilder signedWithKeyId(String keyId, Actor actor) {
+        var body = activity(newId(actor), actor.uri().toString());
+        var key = new SigningKey(keyId, signingKeys.forActor(actor).orElseThrow().privateKey());
+        var headers = signer.sign("POST", URI.create(BASE + "/inbox"), bytes(body), key);
+        return post("/inbox").contentType(ACTIVITY_JSON).headers(headers).content(body);
     }
 
     private ResultActions send(MockHttpServletRequestBuilder request) throws Exception {

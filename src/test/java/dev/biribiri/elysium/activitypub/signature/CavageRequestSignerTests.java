@@ -95,7 +95,7 @@ class CavageRequestSignerTests {
     void isAcceptedByTheVerifier() {
         var signed = signer.sign("POST", INBOX, BODY, KEY);
 
-        var verified = verifier().verify(received("POST", "/users/alice/inbox", BODY, signed));
+        var verified = verifier().verify(received("POST", "/users/alice/inbox", BODY, signed), SignatureFixtures.UNLIMITED);
 
         assertThat(verified.keyId()).isEqualTo(KEY_ID);
     }
@@ -111,14 +111,14 @@ class CavageRequestSignerTests {
 
         assertThat(headers.getFirst("Digest")).isEqualTo("SHA-256=47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=");
         assertThat(headers.getFirst("Signature")).contains("headers=\"(request-target) host date digest\"");
-        assertThat(verifier().verify(received("POST", "/users/alice/inbox", empty, headers)).keyId()).isEqualTo(KEY_ID);
+        assertThat(verifier().verify(received("POST", "/users/alice/inbox", empty, headers), SignatureFixtures.UNLIMITED).keyId()).isEqualTo(KEY_ID);
     }
 
     @Test
     void signsADigestOfAGetThatHasABody() {
         var headers = signer.sign("GET", INBOX, BODY, KEY);
 
-        assertThat(verifier().verify(received("GET", "/users/alice/inbox", BODY, headers)).keyId()).isEqualTo(KEY_ID);
+        assertThat(verifier().verify(received("GET", "/users/alice/inbox", BODY, headers), SignatureFixtures.UNLIMITED).keyId()).isEqualTo(KEY_ID);
     }
 
     @ParameterizedTest
@@ -136,21 +136,21 @@ class CavageRequestSignerTests {
         var request = received("POST", "/users/alice/inbox", "other".getBytes(StandardCharsets.UTF_8),
                 signer.sign("POST", INBOX, BODY, KEY));
 
-        assertThatThrownBy(() -> verifier().verify(request)).isInstanceOf(SignatureVerificationException.class);
+        assertThatThrownBy(() -> verifier().verify(request, SignatureFixtures.UNLIMITED)).isInstanceOf(SignatureVerificationException.class);
     }
 
     @Test
     void isRejectedIfTheTargetChanges() {
         var request = received("POST", "/users/mallory/inbox", BODY, signer.sign("POST", INBOX, BODY, KEY));
 
-        assertThatThrownBy(() -> verifier().verify(request)).isInstanceOf(SignatureVerificationException.class);
+        assertThatThrownBy(() -> verifier().verify(request, SignatureFixtures.UNLIMITED)).isInstanceOf(SignatureVerificationException.class);
     }
 
     @Test
     void isRejectedIfTheMethodChanges() {
         var request = received("PUT", "/users/alice/inbox", BODY, signer.sign("POST", INBOX, BODY, KEY));
 
-        assertThatThrownBy(() -> verifier().verify(request)).isInstanceOf(SignatureVerificationException.class);
+        assertThatThrownBy(() -> verifier().verify(request, SignatureFixtures.UNLIMITED)).isInstanceOf(SignatureVerificationException.class);
     }
 
     @Test
@@ -158,7 +158,7 @@ class CavageRequestSignerTests {
         var request = received("POST", "/users/alice/inbox", BODY,
                 signer.sign("POST", URI.create("https://other.example/users/alice/inbox"), BODY, KEY));
 
-        assertThatThrownBy(() -> verifier().verify(request)).isInstanceOf(SignatureVerificationException.class);
+        assertThatThrownBy(() -> verifier().verify(request, SignatureFixtures.UNLIMITED)).isInstanceOf(SignatureVerificationException.class);
     }
 
     private static HttpRequestData received(String method, String target, byte[] body, HttpHeaders signed) {
@@ -182,7 +182,7 @@ class CavageRequestSignerTests {
     private static SignatureVerifier verifier() {
         var instance = new InstanceProperties(URI.create("https://example.test"));
         var keys = mock(PublicKeyResolver.class);
-        when(keys.resolve(any())).thenReturn(new ResolvedKey(
+        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(
                 KEY_ID, URI.create("https://remote.example/users/bob"), SignatureFixtures.publicKey()));
         return new SignatureVerifier(
                 List.of(new CavageSignatureScheme(instance)), keys, instance, Clock.fixed(NOW, ZoneOffset.UTC));

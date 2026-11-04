@@ -28,6 +28,21 @@ class ActivityEnvelopeTests {
         assertThat(parsed).get().extracting(ActivityEnvelope::actor).isEqualTo("https://a.test/u");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"[\"https://a.test/u\"]", "[{\"id\":\"https://a.test/u\"}]"})
+    void readsAnArrayOfOneActor(String actor) {
+        var parsed = parse("{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":" + actor + "}");
+
+        assertThat(parsed).get().extracting(ActivityEnvelope::actor).isEqualTo("https://a.test/u");
+    }
+
+    @Test
+    void hasNoSingleActorWhenThereAreSeveral() {
+        var parsed = parse("{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":[\"https://a.test/u\",\"https://a.test/v\"]}");
+
+        assertThat(parsed).get().extracting(ActivityEnvelope::actor).isNull();
+    }
+
     @Test
     void readsTheFirstOfSeveralTypes() {
         var parsed = parse("{\"id\":\"https://a.test/1\",\"type\":[1,\"Create\",\"Other\"],\"actor\":\"https://a.test/u\"}");
@@ -49,7 +64,9 @@ class ActivityEnvelopeTests {
             "{\"id\":\"\",\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
             "{\"id\":\"https://a.test/1\",\"type\":[],\"actor\":\"https://a.test/u\"}",
             "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":{}}",
-            "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":[\"https://a.test/u\"]}",
+            "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":[]}",
+            "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":[1]}",
+            "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":[[\"https://a.test/u\"]]}",
             // Spelled-out NUL characters, which the database can't store in a column
             "{\"id\":\"https://a.test/\\u0000\",\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
             "{\"id\":\"https://a.test/1\",\"type\":\"Cre\\u0000ate\",\"actor\":\"https://a.test/u\"}",

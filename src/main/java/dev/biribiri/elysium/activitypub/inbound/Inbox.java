@@ -74,9 +74,9 @@ public class Inbox {
         /** The activity is queued, or it's a repeat of one that was. */
         ACCEPTED,
         /**
-         * Someone other than the activity's actor signed it, which is what forwarding looks like. It can only be trusted
-         * by fetching it from its origin, which isn't implemented, so it's dropped. The sender did nothing wrong, and
-         * shouldn't try again.
+         * Someone other than the activity's only actor signed it, which is what forwarding looks like. It can only be
+         * trusted by fetching it from its origin, which isn't implemented, so it's dropped. The sender did nothing wrong,
+         * and shouldn't try again.
          */
         IGNORED,
         /** The body isn't an activity that can be stored. */
