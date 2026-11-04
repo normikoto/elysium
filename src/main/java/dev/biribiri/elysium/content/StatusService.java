@@ -143,7 +143,8 @@ public class StatusService {
                 if (status.isVisibleTo(Optional.empty())) {
                     statuses.insertTombstone(status, Instant.now().truncatedTo(ChronoUnit.MICROS));
                 }
-                events.publishEvent(new StatusDeleted(status.id(), status.uri(), authorId, status.visibility()));
+                events.publishEvent(new StatusDeleted(
+                        status.id(), status.uri(), authorId, status.visibility(), status.publishedAt()));
             });
             return deleted;
         });

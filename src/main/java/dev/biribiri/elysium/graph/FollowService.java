@@ -129,6 +129,13 @@ public class FollowService {
         return follows.findFollowerInboxes(followedId);
     }
 
+    /**
+     * Like {@link #followerInboxes}, leaving out actors who started following after this time.
+     */
+    public List<URI> followerInboxesAsOf(UUID followedId, Instant time) {
+        return follows.findFollowerInboxesAsOf(followedId, time);
+    }
+
     public long countFollowers(UUID followedId) {
         return follows.countFollowers(followedId);
     }

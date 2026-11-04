@@ -48,6 +48,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
@@ -363,6 +365,63 @@ class StatusDeliveryIntegrationTests {
 
         assertThat(awaitDelete(host, status).request().path()).isEqualTo("/inbox");
         await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> deletesFor(host, status).size() == 1);
+    }
+
+    @Test
+    void aLaterFollowerIsNotToldAboutADeletedFollowersOnlyStatus() {
+        var earlier = newHost();
+        follow(earlier, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        awaitCreate(earlier, status);
+        awaitNothingLeftFor(status);
+        var later = newHost();
+        follow(later, "carol", false);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(earlier, status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
+    }
+
+    @Test
+    void aLaterFollowerIsToldAboutADeletedPublicStatus() {
+        var status = post(Visibility.PUBLIC, null);
+        awaitNothingLeftFor(status);
+        var later = newHost();
+        follow(later, "carol", false);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(later, status);
+    }
+
+    @Test
+    void aFollowersOnlyStatusIsNotSentToSomeoneWhoFollowedAfterItWasPosted() {
+        var earlier = newHost();
+        follow(earlier, "bob", false);
+        var later = newHost();
+        // Runs in the listener, so this follow is after the status was posted, and before its audience is worked out.
+        doAnswer(call -> {
+            follow(later, "carol", false);
+            return call.callRealMethod();
+        }).doCallRealMethod().when(follows).followerInboxesAsOf(eq(author.id()), any());
+
+        var status = post(Visibility.PRIVATE, null);
+
+        awaitCreate(earlier, status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
+    }
+
+    @Test
+    void aFollowerSentAFollowersOnlyStatusIsAlsoSentItsDelete() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        awaitCreate(host, status);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(host, status);
     }
 
     @Test

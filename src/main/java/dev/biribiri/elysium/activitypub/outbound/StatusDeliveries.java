@@ -14,6 +14,11 @@ import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URI;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
 /**
  * Sends new and deleted statuses to the author's followers on other servers. This can run again for the same status, which
  * only sends it again if its jobs have finished, and other servers ignore an {@code id} they've already seen.
@@ -58,7 +63,7 @@ public class StatusDeliveries {
         if (status.isEmpty() || author.isEmpty()) {
             return;
         }
-        var inboxes = follows.followerInboxes(author.get().id());
+        var inboxes = inboxes(author.get().id(), status.get().visibility(), status.get().publishedAt());
         if (inboxes.isEmpty()) {
             return;
         }
@@ -68,8 +73,8 @@ public class StatusDeliveries {
     }
 
     /**
-     * Stops any further sending of the status, and tells followers to remove it. This goes to whoever follows the author
-     * now, since who was sent the status isn't kept. A follower who was never sent it has nothing to remove.
+     * Stops any further sending of the status, and tells followers to remove it. Who was sent the status isn't kept, so this
+     * goes to current followers, as {@link #inboxes} decides.
      */
     @ApplicationModuleListener
     public void on(StatusDeleted event) {
@@ -81,12 +86,24 @@ public class StatusDeliveries {
         if (author.isEmpty()) {
             return;
         }
-        var inboxes = follows.followerInboxes(author.get().id());
+        var inboxes = inboxes(author.get().id(), event.visibility(), event.publishedAt());
         if (inboxes.isEmpty()) {
             return;
         }
         var delete = Delete.of(event.statusUri(), author.get(), event.visibility());
         deliveries.enqueue(
                 new OutboundActivity(delete.id().toString(), author.get().id(), json.writeValueAsString(delete)), inboxes);
+    }
+
+    /**
+     * Where to send a status's activities. Someone who follows after a followers-only status was posted gets neither its
+     * {@code Create} nor its {@code Delete}, so that its {@code Delete} can't tell them it existed. Both have to use the same
+     * rule, or a follower could be sent a status and not its deletion. Other statuses can be fetched, so a later follower may
+     * have a copy to remove.
+     */
+    private List<URI> inboxes(UUID authorId, Visibility visibility, Instant publishedAt) {
+        return visibility == Visibility.PRIVATE
+                ? follows.followerInboxesAsOf(authorId, publishedAt)
+                : follows.followerInboxes(authorId);
     }
 }

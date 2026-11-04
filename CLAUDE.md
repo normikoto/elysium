@@ -76,7 +76,7 @@ feature is live.
   Each format supplies a `SignatureScheme` and a `RequestSigner`. Only draft-cavage is implemented. The reasoning for
   signer order is in `activitypub/signature/package-info.java`.
 - **Outbound:** A module publishes an event inside its transaction, with only IDs in it, and a listener in
-  `activitypub.outbound` builds the activity, as `StatusDeliveries` does. `StatusDeleted` also has the URI and visibility,
+  `activitypub.outbound` builds the activity, as `StatusDeliveries` does. `StatusDeleted` also has the URI, visibility, and time of publishing,
   which can't be looked up once the row is gone, and never has a status's text, because events are stored. Listeners have to be safe to repeat and shouldn't
   fail for what's since been deleted, because `EventRetries` runs a failed one again every 5 minutes, and an event only stays
   stored until its listeners finish. `Notes` builds `Note` objects, so that fetched and delivered ones match.

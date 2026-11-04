@@ -28,18 +28,11 @@ public record Delete(
         var audience = Audience.of(visibility, author, List.of());
         return new Delete(
                 ActivityStreams.CONTEXT,
-                URI.create(idFor(statusUri)),
+                URI.create(statusUri + "#delete"),
                 "Delete",
                 author.uri(),
                 audience.to(),
                 audience.cc(),
                 Tombstone.inActivity(statusUri));
-    }
-
-    /**
-     * @return the {@code id} of the activity for a status
-     */
-    public static String idFor(URI statusUri) {
-        return statusUri + "#delete";
     }
 }

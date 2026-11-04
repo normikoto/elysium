@@ -7,7 +7,7 @@ other servers. This file only describes what's implemented today.
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
-  activities at an inbox, receiving `Follow` and `Undo` of a `Follow`, and sending `Create` of a `Note`
+  activities at an inbox, receiving `Follow` and `Undo` of a `Follow`, and sending `Create` and `Delete` of a `Note`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -189,7 +189,8 @@ unless an `Undo` covers it. It's then treated as a retry, so a new request to fo
 When a local user posts a public, unlisted, or followers-only status, it's sent to their followers on other servers, signed as
 the user. Each server's shared inbox is used for its followers that have one, so that they share one delivery, and other
 followers' `inbox` is used otherwise. Direct statuses aren't sent, since they have no audience without mentions. Followers are
-worked out shortly after posting, and statuses from before this feature, or from before someone followed, aren't sent.
+worked out shortly after posting, and statuses from before this feature, or from before someone followed, aren't sent. A
+followers-only status only goes to those who were already following when it was posted.
 
 ```json
 {
@@ -220,7 +221,9 @@ same `id`.
 
 When a local user deletes a public, unlisted, or followers-only status, any delivery of its `Create` that hasn't started is
 cancelled, and a `Delete` is sent to their followers on other servers, the same way as a `Create`. It's addressed like the
-`Create`, except that it doesn't address the author of a parent status. Deleting a direct status sends nothing.
+`Create`, except that it doesn't address the author of a parent status. Deleting a direct status sends nothing. The `Delete` of
+a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
+that the status existed.
 
 ```json
 {
@@ -254,7 +257,7 @@ again with the same `id`.
 - Followers-only statuses are only sent, and can't be fetched, even by a follower.
 - A `Create` that's already being sent when its status is deleted can't be stopped, so it can arrive after the `Delete`.
 - A `Delete` goes to whoever follows the author when it's deleted, so a server whose only follower has since unfollowed keeps
-  its copy.
+  its copy. For a followers-only status, that includes a follower who unfollowed and then followed again after it was posted.
 - Inboxes can't be read, so a `GET` gets a 403.
 - The `outbox` that the instance actor advertises isn't implemented yet.
 - Fetching actors and objects from this server doesn't need a signature, and any signature on those requests is ignored.

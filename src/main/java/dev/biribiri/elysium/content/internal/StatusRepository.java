@@ -110,8 +110,8 @@ public class StatusRepository {
     }
 
     /**
-     * Finds a status and stops it from being deleted until the transaction ends, so that a reply to it can be inserted
-     * without a concurrent delete breaking the foreign key.
+     * Finds a status and stops it from being deleted until the transaction ends, such as so that a reply to it can be
+     * inserted without a concurrent delete breaking the foreign key.
      */
     public Optional<Status> findByIdAndLock(UUID id) {
         return jdbc.sql(SELECT + "WHERE s.id = :id FOR KEY SHARE OF s").param("id", id).query(STATUS_MAPPER).optional();

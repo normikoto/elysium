@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, and receive its statuses.
+# and unfollow it, and receive its statuses and their deletion.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -178,8 +178,8 @@ post_from_elysium() {
     [[ -n $elysium_token ]] || fail "Couldn't get an Elysium access token"
     public_uri=$(post_status "$elysium_token" public)
     private_uri=$(post_status "$elysium_token" private)
-    expect_queued "$public_uri"
-    expect_queued "$private_uri"
+    expect_queued "$public_uri#create"
+    expect_queued "$private_uri#create"
 
     status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$private_uri")
     [[ $status == 404 ]] || fail "Fetching a followers-only status got a $status, not a 404"
@@ -198,13 +198,13 @@ expect_queued() {
     echo "Waiting for Elysium to queue $1"
     for _ in $(seq 1 30); do
         found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
-            "SELECT count(*) FROM outbound_activity WHERE activity_id = '$1#create'")
+            "SELECT count(*) FROM outbound_activity WHERE activity_id = '$1'")
         if [[ $found -eq 1 ]]; then
             return
         fi
         sleep 2
     done
-    fail "Elysium never queued a Create for $1. Check its logs"
+    fail "Elysium never queued $1. Check its logs"
 }
 
 delete_status() {
@@ -212,26 +212,12 @@ delete_status() {
         -H "Authorization: Bearer $elysium_token"
 }
 
-expect_delete_queued() {
-    local found
-    echo "Waiting for Elysium to queue a Delete for $1"
-    for _ in $(seq 1 30); do
-        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
-            "SELECT count(*) FROM outbound_activity WHERE activity_id = '$1#delete'")
-        if [[ $found -eq 1 ]]; then
-            return
-        fi
-        sleep 2
-    done
-    fail "Elysium never queued a Delete for $1. Check its logs"
-}
-
 # Deletes the statuses from post_from_elysium, for the other server to remove.
 delete_from_elysium() {
     delete_status "$public_uri"
     delete_status "$private_uri"
-    expect_delete_queued "$public_uri"
-    expect_delete_queued "$private_uri"
+    expect_queued "$public_uri#delete"
+    expect_queued "$private_uri#delete"
 
     local status tombstone
     status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$public_uri")
