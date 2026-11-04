@@ -1,0 +1,707 @@
+package dev.biribiri.elysium.activitypub.delivery;
+
+import com.github.kagkarlsson.scheduler.Scheduler;
+import com.github.kagkarlsson.scheduler.boot.autoconfigure.Jackson3Serializer;
+import com.github.kagkarlsson.scheduler.task.Task;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import com.zaxxer.hikari.HikariDataSource;
+import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
+import dev.biribiri.elysium.activitypub.http.LoopbackClients;
+import dev.biribiri.elysium.actor.ActorService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.modulith.events.ApplicationModuleListener;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import javax.sql.DataSource;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
+import static org.awaitility.Awaitility.await;
+
+/**
+ * Runs the real scheduler against a real server on the loopback address. Any hostname reaches that server, so each test
+ * uses its own hosts, and they can't affect each other's backoff or limits.
+ */
+@Import({TestcontainersConfiguration.class, ActivityDeliveryIntegrationTests.Config.class})
+@SpringBootTest(properties = {"db-scheduler.polling-interval=PT0.1S", "db-scheduler.heartbeat-interval=PT1S"})
+class ActivityDeliveryIntegrationTests {
+
+    private static final Duration WAIT = Duration.ofSeconds(30);
+    private static final AtomicInteger nextHost = new AtomicInteger();
+
+    @Autowired
+    private ActivityDeliveries deliveries;
+    @Autowired
+    private TransactionTemplate transactions;
+    @Autowired
+    private JdbcClient jdbc;
+    @Autowired
+    private Scheduler scheduler;
+    @Autowired
+    private ActorService actors;
+    @Autowired
+    private ApplicationEventPublisher events;
+    @Autowired
+    private DataSource dataSource;
+    @Autowired
+    private Task<DeliveryJob> task;
+
+    private final Queue<Received> received = new ConcurrentLinkedQueue<>();
+    private final Map<String, Queue<Answer>> answers = new ConcurrentHashMap<>();
+    private final Map<String, Handler> handlers = new ConcurrentHashMap<>();
+    private HttpServer server;
+    private UUID actorId;
+
+    @BeforeEach
+    void start() throws IOException {
+        server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+        server.createContext("/", this::answer);
+        server.start();
+        actors.createLocalIfAbsent("deliverer", actor -> {
+        });
+        actorId = actors.findLocalByUsername("deliverer").orElseThrow().id();
+    }
+
+    @AfterEach
+    void stop() {
+        server.stop(0);
+    }
+
+    // Transactions
+
+    @Test
+    void aRollbackLeavesNeitherTheJobNorTheActivity() {
+        var activity = activity();
+
+        transactions.executeWithoutResult(status -> {
+            deliveries.enqueue(activity, List.of(inboxOn(newHost())));
+            status.setRollbackOnly();
+        });
+
+        assertThat(jobs(activity)).isZero();
+        assertThat(activities(activity)).isZero();
+    }
+
+    @Test
+    void queuingOutsideATransactionFails() {
+        assertThatThrownBy(() -> deliveries.enqueue(activity(), List.of(inboxOn(newHost()))))
+                .isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    @Test
+    void queuesFromAListenerToAnEventPublishedInATransaction() {
+        var activity = activity();
+        var host = newHost();
+
+        transactions.executeWithoutResult(status -> events.publishEvent(new SampleEvent(activity, inboxOn(host))));
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1);
+        assertThat(completedPublications(activity)).isOne();
+    }
+
+    // Sending
+
+    @Test
+    void sendsTheSignedActivityAndThenRemovesTheJob() throws Exception {
+        var activity = activity();
+        var host = newHost();
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && jobs(activity) == 0);
+        var request = receivedBy(host).getFirst();
+        assertThat(request.body()).isEqualTo(activity.body());
+        assertThat(request.header("Content-Type")).isEqualTo("application/activity+json");
+        assertThat(request.header("Signature")).contains("keyId=\"", "/users/deliverer#main-key\"");
+        var digest = MessageDigest.getInstance("SHA-256").digest(activity.body().getBytes(StandardCharsets.UTF_8));
+        assertThat(request.header("Digest")).isEqualTo("SHA-256=" + Base64.getEncoder().encodeToString(digest));
+    }
+
+    @Test
+    void eachInboxGetsOneJob() {
+        var activity = activity();
+        var host = newHost();
+        var other = newHost();
+
+        enqueue(activity, inboxOn(host), inboxOn(host), inboxOn(other));
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && receivedBy(other).size() == 1);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(host).size() == 1);
+    }
+
+    @Test
+    void doesNotSendACancelledActivity() {
+        var activity = activity();
+        var host = newHost();
+        transactions.executeWithoutResult(status -> {
+            deliveries.enqueue(activity, List.of(inboxOn(host)));
+            deliveries.cancel(activity.id());
+        });
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+
+        assertThat(receivedBy(host)).isEmpty();
+    }
+
+    @Test
+    void doesNotHoldADatabaseConnectionWhileSending() throws Exception {
+        var activity = activity();
+        var host = newHost();
+        var arrived = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        handlers.put(host, exchange -> {
+            arrived.countDown();
+            release.await(30, TimeUnit.SECONDS);
+            return new Answer(200, null);
+        });
+        enqueue(activity, inboxOn(host));
+        assertThat(arrived.await(30, TimeUnit.SECONDS)).isTrue();
+
+        try {
+            var pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+            await().atMost(WAIT).until(() -> pool.getActiveConnections() == 0);
+        } finally {
+            release.countDown();
+        }
+    }
+
+    // Retries
+
+    @Test
+    void retriesATemporaryFailureAndSignsTheRetryAgain() throws Exception {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(500, null));
+
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+        var delay = Duration.between(Instant.now(), executionTime(activity));
+        assertThat(delay).isBetween(Duration.ofSeconds(30), Duration.ofSeconds(80));
+        assertThat(failureMessages(activity)).contains("The inbox answered with a 500");
+
+        // Dates in signatures have a resolution of one second.
+        Thread.sleep(1100);
+        runNow(activity);
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        var requests = receivedBy(host);
+        assertThat(requests).hasSize(2);
+        assertThat(requests.get(1).header("Date")).isNotEqualTo(requests.get(0).header("Date"));
+        assertThat(requests.get(1).header("Signature")).isNotEqualTo(requests.get(0).header("Signature"));
+    }
+
+    @Test
+    void parksAPermanentFailureWithItsReason() {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(410, null));
+
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+        assertThat(executionTime(activity)).isCloseTo(Instant.now().plus(Duration.ofDays(30)), within(Duration.ofMinutes(1)));
+        assertThat(failureMessages(activity)).contains("The inbox answered with a 410");
+        assertThat(receivedBy(host)).hasSize(1);
+    }
+
+    @Test
+    void parksAJobThatHasBeenFailingForTooLong() {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(500, null));
+        transactions.executeWithoutResult(status -> {
+            deliveries.enqueue(activity, List.of(inboxOn(host)));
+            ageJob(activity, Duration.ofDays(3));
+        });
+
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+        assertThat(executionTime(activity)).isCloseTo(Instant.now().plus(Duration.ofDays(30)), within(Duration.ofMinutes(1)));
+    }
+
+    @Test
+    void refusesInboxesThatTheClientWillNotReach() {
+        var activity = activity();
+
+        enqueue(activity, URI.create("ftp://" + newHost() + "/inbox"));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+        assertThat(failureMessages(activity)).contains("The inbox URL isn't allowed");
+        assertThat(executionTime(activity)).isAfter(Instant.now().plus(Duration.ofDays(29)));
+    }
+
+    // Parked jobs
+
+    @Test
+    void aParkedJobThatNobodyTouchedIsDroppedWithoutRunning() {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(410, null));
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+        jdbc.sql("""
+                        UPDATE scheduled_tasks SET last_failure = now() - INTERVAL '31 days', execution_time = now()
+                        WHERE task_instance = :instance
+                        """)
+                .param("instance", instanceOf(activity))
+                .update();
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(1);
+    }
+
+    @Test
+    void anAdminCanRetryAParkedJobTheWayTheUiDoes() {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(410, null));
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+        // db-scheduler-ui's rerun button calls this.
+        scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instanceOf(activity)), Instant.now());
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(2);
+    }
+
+    @Test
+    void aRetriedParkedJobThatFailsAgainIsParkedAgain() {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(410, null));
+        answer(host, new Answer(410, null));
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        var firstTime = executionTime(activity);
+
+        scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instanceOf(activity)), Instant.now());
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 2 && executionTime(activity).isAfter(firstTime));
+        assertThat(executionTime(activity)).isAfter(Instant.now().plus(Duration.ofDays(29)));
+    }
+
+    // One server's problems stay its own
+
+    @Test
+    void aFailingServerDoesNotHoldUpOthers() {
+        var failing = newHost();
+        var working = newHost();
+        answer(failing, new Answer(500, null));
+        var activity = activity();
+
+        enqueue(activity, inboxOn(failing), inboxOn(working));
+
+        await().atMost(WAIT).until(() -> receivedBy(working).size() == 1 && receivedBy(failing).size() == 1);
+    }
+
+    @Test
+    void limitsRequestsRunningAtOnceForOneServerAndStillDeliversEverything() {
+        var host = newHost();
+        var running = new AtomicInteger();
+        var mostRunning = new AtomicInteger();
+        handlers.put(host, exchange -> {
+            mostRunning.accumulateAndGet(running.incrementAndGet(), Math::max);
+            Thread.sleep(300);
+            running.decrementAndGet();
+            return new Answer(200, null);
+        });
+
+        var activity = activity();
+        var inboxes = IntStream.range(0, 8).mapToObj(i -> URI.create(inboxOn(host) + "/" + i)).toArray(URI[]::new);
+        enqueue(activity, inboxes);
+
+        await().atMost(Duration.ofSeconds(60)).until(() -> receivedBy(host).size() == 8);
+        assertThat(mostRunning.get()).isLessThanOrEqualTo(HostGate.MAX_REQUESTS_PER_HOST);
+    }
+
+    @Test
+    void backsOffFromAServerThatKeepsFailingWithoutUsingUpOtherJobsRetries() {
+        var host = newHost();
+        var first = activity();
+        for (var i = 0; i < HostGate.FAILURES_BEFORE_BACKOFF; i++) {
+            answer(host, new Answer(500, null));
+        }
+        enqueue(first, inboxOn(host));
+        for (var i = 1; i <= HostGate.FAILURES_BEFORE_BACKOFF; i++) {
+            var expected = i;
+            await().atMost(WAIT).until(() -> failures(first) == expected);
+            if (i < HostGate.FAILURES_BEFORE_BACKOFF) {
+                runNow(first);
+            }
+        }
+        assertThat(retryAfter(host)).isAfter(Instant.now());
+
+        var second = activity();
+        enqueue(second, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> {
+            var time = jobs(second) == 1 ? executionTime(second) : Instant.EPOCH;
+            return time.isAfter(Instant.now().plusSeconds(10));
+        });
+        assertThat(failures(second)).isZero();
+        assertThat(receivedBy(host)).hasSize(HostGate.FAILURES_BEFORE_BACKOFF);
+    }
+
+    @Test
+    void aServerThatAnswersEndsItsBackoff() {
+        var host = newHost();
+        answer(host, new Answer(500, null));
+        var activity = activity();
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        assertThat(jdbc.sql("SELECT count(*) FROM federation_host WHERE host = :host").param("host", host)
+                .query(Long.class).single()).isOne();
+
+        runNow(activity);
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(jdbc.sql("SELECT count(*) FROM federation_host WHERE host = :host").param("host", host)
+                .query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void honoursRetryAfterInSeconds() {
+        var host = newHost();
+        answer(host, new Answer(429, "3600"));
+        var activity = activity();
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        assertThat(retryAfter(host)).isCloseTo(Instant.now().plus(Duration.ofHours(1)), within(Duration.ofMinutes(1)));
+    }
+
+    @Test
+    void honoursRetryAfterAsADate() {
+        var host = newHost();
+        var date = java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
+                .format(OffsetDateTime.now(java.time.ZoneOffset.UTC).plusHours(2));
+        answer(host, new Answer(503, date));
+        var activity = activity();
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        assertThat(retryAfter(host)).isCloseTo(Instant.now().plus(Duration.ofHours(2)), within(Duration.ofMinutes(1)));
+    }
+
+    @Test
+    void limitsHowLongAServerCanAskToWait() {
+        var host = newHost();
+        answer(host, new Answer(429, "99999999"));
+        var activity = activity();
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        assertThat(retryAfter(host)).isBefore(Instant.now().plus(Duration.ofHours(7)));
+    }
+
+    @Test
+    void parksAJobWhenItsServerIsStillBackingOffAtTheLimit() {
+        var host = newHost();
+        jdbc.sql("INSERT INTO federation_host (host, consecutive_failures, retry_after) VALUES (:host, 9, now() + INTERVAL '1 hour')")
+                .param("host", host)
+                .update();
+        var activity = activity();
+        transactions.executeWithoutResult(status -> {
+            deliveries.enqueue(activity, List.of(inboxOn(host)));
+            ageJob(activity, Duration.ofDays(3));
+        });
+
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+        assertThat(failureMessages(activity)).anyMatch(message -> message.contains("has been failing for too long"));
+        assertThat(receivedBy(host)).isEmpty();
+    }
+
+    // More than one worker
+
+    @Test
+    void twoWorkersRunEachJobOnce() {
+        var other = Scheduler.create(dataSource, task)
+                .serializer(new Jackson3Serializer())
+                .threads(10)
+                .pollingInterval(Duration.ofMillis(100))
+                .schedulerName(new com.github.kagkarlsson.scheduler.SchedulerName.Fixed("second-worker"))
+                .build();
+        other.start();
+        try {
+            var hosts = new ArrayList<String>();
+            var activity = activity();
+            var inboxes = new ArrayList<URI>();
+            for (var i = 0; i < 40; i++) {
+                hosts.add(newHost());
+                inboxes.add(inboxOn(hosts.getLast()));
+            }
+
+            enqueue(activity, inboxes.toArray(URI[]::new));
+
+            await().atMost(WAIT).until(() -> hosts.stream().allMatch(host -> !receivedBy(host).isEmpty()));
+            await().during(Duration.ofSeconds(1)).atMost(WAIT)
+                    .until(() -> hosts.stream().allMatch(host -> receivedBy(host).size() == 1));
+        } finally {
+            other.stop();
+        }
+    }
+
+    @Test
+    void aJobAbandonedByADeadWorkerIsPickedUpAgain() {
+        var activity = activity();
+        var host = newHost();
+        transactions.executeWithoutResult(status -> {
+            deliveries.enqueue(activity, List.of(inboxOn(host)));
+            jdbc.sql("""
+                            UPDATE scheduled_tasks
+                            SET picked = true, picked_by = 'dead-worker', last_heartbeat = now() - INTERVAL '1 hour', version = version + 1
+                            WHERE task_instance = :instance
+                            """)
+                    .param("instance", instanceOf(activity))
+                    .update();
+        });
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && jobs(activity) == 0);
+    }
+
+    // Helpers
+
+    private OutboundActivity activity() {
+        var id = "https://elysium.example/activities/" + UUID.randomUUID();
+        return new OutboundActivity(id, actorId, "{\"id\":\"" + id + "\",\"text\":\"ünïcödé\"}");
+    }
+
+    private String newHost() {
+        return "host" + nextHost.incrementAndGet() + ".test";
+    }
+
+    private URI inboxOn(String host) {
+        return URI.create("http://" + host + ":" + server.getAddress().getPort() + "/inbox");
+    }
+
+    private void enqueue(OutboundActivity activity, URI... inboxes) {
+        transactions.executeWithoutResult(status -> deliveries.enqueue(activity, List.of(inboxes)));
+    }
+
+    private void answer(String host, Answer answer) {
+        answers.computeIfAbsent(host, ignored -> new ConcurrentLinkedQueue<>()).add(answer);
+    }
+
+    private void answer(HttpExchange exchange) throws IOException {
+        var host = exchange.getRequestHeaders().getFirst("Host").split(":")[0];
+        var headers = new java.util.HashMap<String, String>();
+        exchange.getRequestHeaders().forEach((name, values) -> headers.put(name.toLowerCase(), values.getFirst()));
+        var body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        received.add(new Received(host, headers, body));
+
+        var answer = new Answer(202, null);
+        var handler = handlers.get(host);
+        if (handler != null) {
+            try {
+                answer = handler.handle(exchange);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        } else {
+            var queue = answers.get(host);
+            var next = queue == null ? null : queue.poll();
+            answer = next == null ? answer : next;
+        }
+        if (answer.retryAfter() != null) {
+            exchange.getResponseHeaders().add("Retry-After", answer.retryAfter());
+        }
+        exchange.sendResponseHeaders(answer.status(), -1);
+        exchange.close();
+    }
+
+    private List<Received> receivedBy(String host) {
+        return received.stream().filter(request -> request.host().equals(host)).toList();
+    }
+
+    /**
+     * Only for jobs with one inbox.
+     */
+    private String instanceOf(OutboundActivity activity) {
+        return jdbc.sql("""
+                        SELECT task_instance FROM scheduled_tasks
+                        WHERE task_name = 'activity-delivery' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activity.id() + "%")
+                .query(String.class)
+                .single();
+    }
+
+    private long jobs(OutboundActivity activity) {
+        return jdbc.sql("""
+                        SELECT count(*) FROM scheduled_tasks
+                        WHERE task_name = 'activity-delivery' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activity.id() + "%")
+                .query(Long.class)
+                .single();
+    }
+
+    private long activities(OutboundActivity activity) {
+        return jdbc.sql("SELECT count(*) FROM outbound_activity WHERE activity_id = :id")
+                .param("id", activity.id())
+                .query(Long.class)
+                .single();
+    }
+
+    private int failures(OutboundActivity activity) {
+        return jdbc.sql("""
+                        SELECT consecutive_failures FROM scheduled_tasks
+                        WHERE task_name = 'activity-delivery' AND picked = false
+                          AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activity.id() + "%")
+                .query(Integer.class)
+                .optional()
+                .orElse(0);
+    }
+
+    private Instant executionTime(OutboundActivity activity) {
+        return jdbc.sql("SELECT execution_time FROM scheduled_tasks WHERE task_instance = :instance")
+                .param("instance", instanceOf(activity))
+                .query(OffsetDateTime.class)
+                .single()
+                .toInstant();
+    }
+
+    private List<String> failureMessages(OutboundActivity activity) {
+        return jdbc.sql("SELECT exception_message FROM scheduled_execution_logs WHERE task_instance = :instance")
+                .param("instance", instanceOf(activity))
+                .query(String.class)
+                .list();
+    }
+
+    private Instant retryAfter(String host) {
+        return jdbc.sql("SELECT retry_after FROM federation_host WHERE host = :host")
+                .param("host", host)
+                .query(OffsetDateTime.class)
+                .single()
+                .toInstant();
+    }
+
+    private void runNow(OutboundActivity activity) {
+        jdbc.sql("UPDATE scheduled_tasks SET execution_time = now() WHERE task_instance = :instance")
+                .param("instance", instanceOf(activity))
+                .update();
+    }
+
+    /**
+     * Rewrites the job's data, since a job's time of queuing can't be set from outside.
+     */
+    private void ageJob(OutboundActivity activity, Duration age) {
+        var queuedAt = Instant.now().minus(age).minusSeconds(60);
+        var inbox = jdbc.sql("""
+                        SELECT convert_from(task_data, 'UTF8')::json ->> 'inbox' FROM scheduled_tasks
+                        WHERE task_instance = :instance
+                        """)
+                .param("instance", instanceOf(activity))
+                .query(String.class)
+                .single();
+        var data = new Jackson3Serializer().serialize(new DeliveryJob(activity.id(), inbox, queuedAt));
+        jdbc.sql("UPDATE scheduled_tasks SET task_data = :data WHERE task_instance = :instance")
+                .param("data", data)
+                .param("instance", instanceOf(activity))
+                .update();
+    }
+
+    private long completedPublications(OutboundActivity activity) {
+        return jdbc.sql("""
+                        SELECT count(*) FROM event_publication
+                        WHERE completion_date IS NOT NULL AND serialized_event LIKE :id
+                        """)
+                .param("id", "%" + activity.id() + "%")
+                .query(Long.class)
+                .single();
+    }
+
+    private record Received(String host, Map<String, String> headers, String body) {
+        String header(String name) {
+            return headers.get(name.toLowerCase());
+        }
+    }
+
+    private record Answer(int status, String retryAfter) {
+    }
+
+    @FunctionalInterface
+    private interface Handler {
+        Answer handle(HttpExchange exchange) throws InterruptedException;
+    }
+
+    public record SampleEvent(OutboundActivity activity, URI inbox) {
+    }
+
+    /**
+     * The route the issue describes for statuses, which will be built with the first real event.
+     */
+    public static class SampleListener {
+        private final ActivityDeliveries deliveries;
+
+        SampleListener(ActivityDeliveries deliveries) {
+            this.deliveries = deliveries;
+        }
+
+        @ApplicationModuleListener
+        public void on(SampleEvent event) {
+            deliveries.enqueue(event.activity(), List.of(event.inbox()));
+        }
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Config {
+        @Bean
+        @Primary
+        FederationHttpClient loopbackClient() {
+            return LoopbackClients.create();
+        }
+
+        @Bean
+        SampleListener sampleListener(ActivityDeliveries deliveries) {
+            return new SampleListener(deliveries);
+        }
+    }
+}

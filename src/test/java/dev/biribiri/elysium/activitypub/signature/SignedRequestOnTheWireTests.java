@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,7 +48,7 @@ class SignedRequestOnTheWireTests {
             exchange.getRequestHeaders().forEach((name, values) -> values.forEach(value -> headers.add(name, value)));
             var uri = exchange.getRequestURI();
             var target = uri.getRawQuery() == null ? uri.getRawPath() : uri.getRawPath() + "?" + uri.getRawQuery();
-            received.set(new HttpRequestData(exchange.getRequestMethod(), target, headers, new byte[0]));
+            received.set(new HttpRequestData(exchange.getRequestMethod(), target, headers, exchange.getRequestBody().readAllBytes()));
             exchange.sendResponseHeaders(200, -1);
             exchange.close();
         });
@@ -70,6 +71,25 @@ class SignedRequestOnTheWireTests {
     @ValueSource(strings = {"/users/bob", "/users/bob/main-key", "/a%7Eb/%2F/c", "/users/bob?page=1&x=%7E"})
     void aServerCanCheckWhatItReceives(String pathAndQuery) throws Exception {
         assertCanBeChecked(pathAndQuery, pathAndQuery);
+    }
+
+    @Test
+    void aServerCanCheckASentActivity() throws Exception {
+        var sender = new SignedSender(client, List.of(new CavageRequestSigner()));
+        var authority = "remote.example:" + server.getAddress().getPort();
+        var body = "{\"text\":\"ü\"}".getBytes(StandardCharsets.UTF_8);
+
+        sender.post(URI.create("http://Remote.Example:" + server.getAddress().getPort() + "/inbox"), body, KEY);
+
+        var request = received.get();
+        assertThat(request.method()).isEqualTo("POST");
+        assertThat(request.body()).isEqualTo(body);
+        assertThat(request.headers().getFirst("Content-Type")).isEqualTo("application/activity+json");
+        var claim = new CavageSignatureScheme(new InstanceProperties(URI.create("http://" + authority)))
+                .parse(request);
+        assertThat(claim.keyId()).isEqualTo(KEY.keyId());
+        assertThat(claim.algorithm().verify(SignatureFixtures.publicKey(), claim.signatureBase(), claim.signature()))
+                .isTrue();
     }
 
     private void assertCanBeChecked(String pathAndQuery, String expectedTarget) throws Exception {

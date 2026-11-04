@@ -45,6 +45,13 @@ public record InstanceProperties(URI baseUrl) {
     }
 
     /**
+     * What browsers send as the {@code Origin} of requests from this server's own pages.
+     */
+    public String origin() {
+        return baseUrl.toString();
+    }
+
+    /**
      * Resolves an absolute path against the base URL.
      */
     public URI resolve(String path) {

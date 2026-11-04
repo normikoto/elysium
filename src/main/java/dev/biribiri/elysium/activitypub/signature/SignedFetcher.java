@@ -63,7 +63,7 @@ class SignedFetcher {
         }
     }
 
-    private static boolean isRefusal(Response response) {
+    static boolean isRefusal(Response response) {
         return response.status() == 401 || response.status() == 403;
     }
 }

@@ -27,6 +27,7 @@ class InstancePropertiesTests {
 
         assertThat(properties.baseUrl()).isEqualTo(URI.create("https://elysium.example"));
         assertThat(properties.domain()).isEqualTo("elysium.example");
+        assertThat(properties.origin()).isEqualTo("https://elysium.example");
         assertThat(properties.resolve("/users/admin")).isEqualTo(URI.create("https://elysium.example/users/admin"));
     }
 
@@ -35,6 +36,7 @@ class InstancePropertiesTests {
         var properties = new InstanceProperties(URI.create("http://localhost:8080"));
 
         assertThat(properties.domain()).isEqualTo("localhost:8080");
+        assertThat(properties.origin()).isEqualTo("http://localhost:8080");
     }
 
     @Test

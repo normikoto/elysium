@@ -12,6 +12,7 @@ import java.net.URI;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -54,6 +55,13 @@ class ApiDocsIntegrationTests {
         mockMvc.perform(get("/api-docs.yaml"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("openapi:")));
+    }
+
+    @Test
+    void doesNotDocumentTheJobUi() throws Exception {
+        mockMvc.perform(get("/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("db-scheduler"))));
     }
 
     @Test

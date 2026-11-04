@@ -1,0 +1,21 @@
+package dev.biribiri.elysium.activitypub.inbound;
+
+/**
+ * Processes one type of activity from other servers. An activity of a type with no handler is ignored.
+ */
+public interface InboundActivityHandler {
+
+    /**
+     * The activity's {@code type}, such as {@code Create}. Only one handler can have each type.
+     */
+    String type();
+
+    /**
+     * Processes an activity. No database transaction is open during this. It has to be safe to repeat, because a job can
+     * run more than once.
+     *
+     * @throws dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure if the activity can never be processed. Anything
+     *                                                                   else that's thrown means it's tried again later.
+     */
+    void handle(InboundActivity activity);
+}

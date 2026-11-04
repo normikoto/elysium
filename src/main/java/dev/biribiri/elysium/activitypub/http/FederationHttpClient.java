@@ -4,6 +4,8 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -12,6 +14,7 @@ import org.apache.hc.client5.http.impl.io.ManagedHttpClientConnectionFactory;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
 import org.apache.hc.core5.http.config.Http1Config;
 import org.apache.hc.core5.net.URIAuthority;
 import org.apache.hc.core5.util.TimeValue;
@@ -107,15 +110,47 @@ public class FederationHttpClient implements AutoCloseable {
      * @throws IOException if the request fails or takes too long
      */
     public Response get(URI uri, String accept, org.springframework.http.HttpHeaders extra) throws IOException {
-        var scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-        if (!allowedSchemes.contains(scheme)) {
-            throw new BlockedTargetException("Refusing to fetch a URL with this scheme: " + scheme);
-        }
-
-        // In ASCII because that's what's signed. The client would otherwise write other characters as single bytes.
-        var request = new HttpGet(URI.create(uri.toASCIIString()));
-        request.setAuthority(canonicalAuthority(scheme, request.getAuthority()));
+        var request = new HttpGet(checked(uri));
         request.setHeader(HttpHeaders.ACCEPT, accept);
+        return execute(request, extra);
+    }
+
+    /**
+     * Sends a body to a URL. Blocks until it's finished, so this mustn't be called inside a database transaction.
+     *
+     * @param contentType the value of the {@code Content-Type} header
+     * @param extra       headers to send as well, such as a signature
+     * @return the response, whatever its status
+     * @throws BlockedTargetException if the URL isn't one this client will send to
+     * @throws ResponseTooLargeException if the response is over the limit
+     * @throws IOException if the request fails or takes too long
+     */
+    public Response post(URI uri, String contentType, byte[] body, org.springframework.http.HttpHeaders extra)
+            throws IOException {
+        var request = new HttpPost(checked(uri));
+        // Set as a header and not through the entity, which would add a charset that the receiver hasn't been told about.
+        request.setHeader(HttpHeaders.CONTENT_TYPE, contentType);
+        request.setEntity(new ByteArrayEntity(body, null));
+        return execute(request, extra);
+    }
+
+    /**
+     * @return the URL in ASCII because that's what's signed. The client would otherwise write other characters as single
+     * bytes.
+     */
+    private URI checked(URI uri) throws BlockedTargetException {
+        if (!allowedSchemes.contains(scheme(uri))) {
+            throw new BlockedTargetException("Refusing to fetch a URL with this scheme: " + scheme(uri));
+        }
+        return URI.create(uri.toASCIIString());
+    }
+
+    private static String scheme(URI uri) {
+        return uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+    }
+
+    private Response execute(HttpUriRequestBase request, org.springframework.http.HttpHeaders extra) throws IOException {
+        request.setAuthority(canonicalAuthority(request.getScheme().toLowerCase(Locale.ROOT), request.getAuthority()));
         extra.forEach((name, values) -> values.forEach(value -> request.addHeader(name, value)));
         var cancellation = CompletableFuture.runAsync(
                 request::cancel,
@@ -151,6 +186,7 @@ public class FederationHttpClient implements AutoCloseable {
     private static Response read(ClassicHttpResponse response) throws IOException {
         var entity = response.getEntity();
         var contentType = response.getFirstHeader(HttpHeaders.CONTENT_TYPE);
+        var retryAfter = response.getFirstHeader(HttpHeaders.RETRY_AFTER);
         var body = new byte[0];
         if (entity != null) {
             if (entity.getContentLength() > MAX_RESPONSE_BYTES) {
@@ -163,12 +199,17 @@ public class FederationHttpClient implements AutoCloseable {
                 throw new ResponseTooLargeException("Response is over " + MAX_RESPONSE_BYTES + " bytes");
             }
         }
-        return new Response(response.getCode(), contentType == null ? null : contentType.getValue(), body);
+        return new Response(
+                response.getCode(),
+                contentType == null ? null : contentType.getValue(),
+                retryAfter == null ? null : retryAfter.getValue(),
+                body);
     }
 
     /**
      * @param contentType the {@code Content-Type} header, or null if it was missing
+     * @param retryAfter  the {@code Retry-After} header, or null if it was missing
      */
-    public record Response(int status, String contentType, byte[] body) {
+    public record Response(int status, String contentType, String retryAfter, byte[] body) {
     }
 }
