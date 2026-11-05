@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.delivery;
 
-import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
+import dev.biribiri.elysium.activitypub.http.HostRequests;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -13,19 +14,17 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Keeps this server from overloading others: it limits how many requests run at once for each host, and backs off from
- * hosts that keep failing.
+ * Keeps this server from overloading others: it limits how many requests run at once for each host, spaces out the jobs
+ * waiting for one, and backs off from hosts that keep failing.
  *
- * <p>The limit is per node, because sharing it would mean a database write around every request, so the real limit is this
- * many times the number of nodes. Backoff is in the database, so nodes share it and it survives a restart.
+ * <p>The limit and the spacing are per node, because sharing them would mean a database write around every request, so the
+ * real limit is this many times the number of nodes. Backoff is in the database, so nodes share it and it survives a restart.
  */
 @Component
 class HostGate {
 
-    /**
-     * Matches the connections the HTTP client allows to one host. Any more would only wait for a connection.
-     */
-    static final int MAX_REQUESTS_PER_HOST = FederationHttpClient.MAX_CONNECTIONS_PER_HOST;
+    static final int MAX_REQUESTS_PER_HOST = HostRequests.MAX_DELIVERIES_PER_HOST;
+
 
     /**
      * One failure could just be one bad request, or a brief problem that a retry gets past.
@@ -36,26 +35,49 @@ class HostGate {
     private static final Duration MAX_BACKOFF = Duration.ofHours(6);
 
     private final JdbcClient jdbc;
-    private final Map<String, Integer> running = new HashMap<>();
+    private final HostRequests requests;
 
-    HostGate(JdbcClient jdbc) {
+    /**
+     * Lets about as many waiting jobs come due between polls as can get a slot. All the jobs due at a poll run within moments,
+     * before any request has finished, so any more would only be refused, with each refusal writing to the database. For a
+     * host that answers slowly, this still limits how often its jobs run.
+     */
+    private final Duration turnSpacing;
+
+    /**
+     * The last turn given out for each host. A host only stays here while that's in the future.
+     */
+    private final Map<String, Instant> lastTurns = new HashMap<>();
+
+    HostGate(
+            JdbcClient jdbc,
+            HostRequests requests,
+            @Value("${db-scheduler.polling-interval}") Duration pollingInterval) {
         this.jdbc = jdbc;
+        this.requests = requests;
+        this.turnSpacing = pollingInterval.dividedBy(MAX_REQUESTS_PER_HOST);
     }
 
     /**
      * Takes a slot for a request, if there's one free. Every successful call needs a call to {@link #release}.
      */
-    synchronized boolean tryAcquire(String host) {
-        var current = running.getOrDefault(host, 0);
-        if (current >= MAX_REQUESTS_PER_HOST) {
-            return false;
-        }
-        running.put(host, current + 1);
-        return true;
+    boolean tryAcquire(String host) {
+        return requests.tryStartDelivery(host);
     }
 
-    synchronized void release(String host) {
-        running.computeIfPresent(host, (ignored, count) -> count == 1 ? null : count - 1);
+    void release(String host) {
+        requests.finishDelivery(host);
+    }
+
+    /**
+     * @return when a job that couldn't get a slot should try again, which is after every job already waiting for this host
+     */
+    synchronized Instant nextTurn(String host, Instant now) {
+        lastTurns.values().removeIf(now::isAfter);
+        var last = lastTurns.getOrDefault(host, now);
+        var turn = (last.isAfter(now) ? last : now).plus(turnSpacing);
+        lastTurns.put(host, turn);
+        return turn;
     }
 
     /**

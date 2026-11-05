@@ -35,11 +35,15 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -81,6 +85,8 @@ class StatusDeliveryIntegrationTests {
     private EventRetries retries;
 
     private final Queue<Received> received = new ConcurrentLinkedQueue<>();
+    private final Map<String, CountDownLatch> holdCreates = new ConcurrentHashMap<>();
+    private final Set<String> refuseCreates = ConcurrentHashMap.newKeySet();
     private HttpServer server;
     private Actor author;
 
@@ -90,12 +96,21 @@ class StatusDeliveryIntegrationTests {
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/", exchange -> {
             var host = exchange.getRequestHeaders().getFirst("Host").split(":")[0];
+            var body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             received.add(new Received(
                     host,
                     exchange.getRequestURI().getPath(),
                     exchange.getRequestHeaders().getFirst("Signature"),
-                    new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
-            exchange.sendResponseHeaders(202, -1);
+                    body));
+            var hold = holdCreates.get(host);
+            if (hold != null && body.contains("#create")) {
+                try {
+                    hold.await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            exchange.sendResponseHeaders(refuseCreates.contains(host) && body.contains("#create") ? 410 : 202, -1);
             exchange.close();
         });
         server.start();
@@ -518,8 +533,91 @@ class StatusDeliveryIntegrationTests {
 
         await().atMost(WAIT).until(() -> deleting.isDone() && deleting.join().isDone());
         assertThat(deleteWaited).isTrue();
-        awaitDelete(host, status);
         await().atMost(WAIT).until(() -> stored(status) == 0);
+        awaitDelete(host, status);
+    }
+
+    @Test
+    void aDeleteStaysBehindACreateBeingSent() throws Exception {
+        var host = newHost();
+        follow(host, "bob", false);
+        var hold = holdCreates(host);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+
+        try {
+            statuses.delete(status.id(), author.id());
+
+            await().atMost(WAIT).until(() -> jobsFor(status.uri() + "#delete") == 1);
+            await().during(Duration.ofSeconds(2)).atMost(WAIT).until(() -> deletesFor(host, status).isEmpty());
+        } finally {
+            hold.countDown();
+        }
+        awaitDelete(host, status);
+    }
+
+    @Test
+    void aDeleteStaysBehindACreateBeingSentToAnotherInboxOnItsServer() throws Exception {
+        var host = newHost();
+        var follower = follow(host, "bob", false);
+        var hold = holdCreates(host);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+        var domain = follower.getAuthority();
+
+        try {
+            actors.upsertRemote(new RemoteActorProfile(
+                    follower,
+                    "bob",
+                    domain,
+                    URI.create(follower + "/inbox"),
+                    null,
+                    URI.create("http://" + domain + "/inbox"),
+                    null));
+            statuses.delete(status.id(), author.id());
+
+            await().atMost(WAIT).until(() -> jobsFor(status.uri() + "#delete") == 1);
+            await().during(Duration.ofSeconds(2)).atMost(WAIT).until(() -> deletesFor(host, status).isEmpty());
+        } finally {
+            hold.countDown();
+        }
+        assertThat(awaitDelete(host, status).request().path()).isEqualTo("/inbox");
+    }
+
+    @Test
+    void aDeleteOnlyWaitsForItsOwnServer() throws Exception {
+        var held = newHost();
+        follow(held, "bob", false);
+        var other = newHost();
+        follow(other, "carol", false);
+        var hold = holdCreates(held);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(held, status);
+        awaitCreate(other, status);
+
+        try {
+            statuses.delete(status.id(), author.id());
+
+            awaitDelete(other, status);
+            assertThat(deletesFor(held, status)).isEmpty();
+        } finally {
+            hold.countDown();
+        }
+        awaitDelete(held, status);
+    }
+
+    @Test
+    void aDeleteDoesNotWaitForACreateThatGaveUp() {
+        var host = newHost();
+        follow(host, "bob", false);
+        refuseCreates.add(host);
+        var status = post(Visibility.PUBLIC, null);
+        await().atMost(WAIT).until(() -> parkedJobsFor(status.uri() + "#create") == 1);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(host, status);
+        assertThat(jobsFor(status.uri() + "#create")).isOne();
     }
 
     // Helpers
@@ -555,6 +653,33 @@ class StatusDeliveryIntegrationTests {
 
     private Delivered awaitCreate(String host, Status status) {
         return awaitActivity(host, status.uri() + "#create");
+    }
+
+    private CountDownLatch holdCreates(String host) {
+        var hold = new CountDownLatch(1);
+        holdCreates.put(host, hold);
+        return hold;
+    }
+
+    private long parkedJobsFor(String activityId) {
+        return jdbc.sql("""
+                        SELECT count(*) FROM scheduled_tasks
+                        WHERE task_name = 'activity-delivery' AND consecutive_failures > 0 AND NOT picked
+                          AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activityId + "%")
+                .query(Long.class)
+                .single();
+    }
+
+    private long jobsFor(String activityId) {
+        return jdbc.sql("""
+                        SELECT count(*) FROM scheduled_tasks
+                        WHERE task_name = 'activity-delivery' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + activityId + "%")
+                .query(Long.class)
+                .single();
     }
 
     private Delivered awaitDelete(String host, Status status) {

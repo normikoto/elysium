@@ -326,7 +326,95 @@ class ActivityDeliveryIntegrationTests {
         assertThat(executionTime(activity)).isAfter(Instant.now().plus(Duration.ofDays(29)));
     }
 
+    @Test
+    void retryingAJobOldEnoughToHaveLostItsActivityFailsWithTheReason() {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(410, null));
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        var instance = instanceOf(activity);
+        ageJob(activity, Duration.ofDays(34));
+        deliveries.cancel(activity.id());
+
+        scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instance), Instant.now());
+
+        // By its history and not its count of failures, which rescheduling resets.
+        await().atMost(WAIT).until(() -> failureMessages(activity).stream()
+                .anyMatch(message -> message != null && message.contains("Its activity is gone")));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        assertThat(executionTime(activity)).isAfter(Instant.now().plus(Duration.ofDays(29)));
+        assertThat(receivedBy(host)).hasSize(1);
+    }
+
+    @Test
+    void retryingAParkedJobWhoseActivityWasCancelledFinishesIt() {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(410, null));
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        var instance = instanceOf(activity);
+        deliveries.cancel(activity.id());
+
+        scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instance), Instant.now());
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(1);
+    }
+
+    @Test
+    void queuingAnActivityAgainKeepsItForAsLongAsTheNewJobCanLast() {
+        var activity = activity();
+        enqueue(activity, inboxOn(newHost()));
+        jdbc.sql("UPDATE outbound_activity SET created_at = now() - INTERVAL '33 days' WHERE activity_id = :id")
+                .param("id", activity.id())
+                .update();
+
+        enqueue(activity, inboxOn(newHost()));
+
+        var created = jdbc.sql("SELECT created_at FROM outbound_activity WHERE activity_id = :id")
+                .param("id", activity.id())
+                .query(OffsetDateTime.class)
+                .single();
+        assertThat(created.toInstant()).isCloseTo(Instant.now(), within(Duration.ofMinutes(1)));
+    }
+
     // One server's problems stay its own
+
+    @Test
+    void aCancelledJobFinishesRatherThanGivingUpOnAFailingServer() {
+        var host = newHost();
+        jdbc.sql("INSERT INTO federation_host (host, consecutive_failures, retry_after) VALUES (:host, 9, now() + INTERVAL '1 hour')")
+                .param("host", host)
+                .update();
+        var activity = activity();
+
+        transactions.executeWithoutResult(status -> {
+            deliveries.enqueue(activity, List.of(inboxOn(host)));
+            ageJob(activity, Duration.ofDays(3));
+            deliveries.cancel(activity.id());
+        });
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(jdbc.sql("SELECT count(*) FROM scheduled_execution_logs WHERE NOT succeeded AND task_data IS NOT NULL AND convert_from(task_data, 'UTF8') LIKE :id")
+                .param("id", "%" + activity.id() + "%")
+                .query(Long.class)
+                .single()).isZero();
+    }
+
+    @Test
+    void jobsWaitingForAServerGetTheirOwnTurns() {
+        var host = newHost();
+        var now = Instant.now().plusSeconds(60);
+
+        var first = gate.nextTurn(host, now);
+        var second = gate.nextTurn(host, now);
+
+        assertThat(first).isAfter(now);
+        assertThat(second).isAfter(first);
+        assertThat(gate.nextTurn(newHost(), now)).isEqualTo(first);
+    }
 
     @Test
     void aFailingServerDoesNotHoldUpOthers() {
@@ -722,7 +810,7 @@ class ActivityDeliveryIntegrationTests {
                 .param("instance", instanceOf(activity))
                 .query(String.class)
                 .single();
-        var data = new Jackson3Serializer().serialize(new DeliveryJob(activity.id(), inbox, queuedAt));
+        var data = new Jackson3Serializer().serialize(new DeliveryJob(activity.id(), inbox, queuedAt, null));
         jdbc.sql("UPDATE scheduled_tasks SET task_data = :data WHERE task_instance = :instance")
                 .param("data", data)
                 .param("instance", instanceOf(activity))

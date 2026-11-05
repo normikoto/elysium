@@ -27,6 +27,11 @@ final class RetryPolicy<T extends QueuedJob> implements FailureHandler<T> {
     static final Duration GIVE_UP_AFTER = Duration.ofDays(3);
     static final Duration PARKED_FOR = Duration.ofDays(30);
 
+    /**
+     * How long a job can last without an admin retrying it, which is failing until it's given up on and then being parked.
+     */
+    static final Duration LONGEST_LIFE = GIVE_UP_AFTER.plus(PARKED_FOR);
+
     private static final Logger log = LoggerFactory.getLogger(RetryPolicy.class);
     private static final Duration MIN_DELAY = Duration.ofMinutes(1);
     private static final Duration MAX_DELAY = Duration.ofHours(6);

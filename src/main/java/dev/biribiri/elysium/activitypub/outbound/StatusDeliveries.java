@@ -73,15 +73,16 @@ public class StatusDeliveries {
     }
 
     /**
-     * Stops any further sending of the status, and tells followers to remove it. Who was sent the status isn't kept, so this
-     * goes to current followers, as {@link #inboxes} decides.
+     * Stops any further sending of the status, and tells followers to remove it, after any {@code Create} still being sent.
+     * Who was sent the status isn't kept, so this goes to current followers, as {@link #inboxes} decides.
      */
     @ApplicationModuleListener
     public void on(StatusDeleted event) {
         if (event.visibility() == Visibility.DIRECT) {
             return;
         }
-        deliveries.cancel(Create.idFor(event.statusUri()));
+        var create = Create.idFor(event.statusUri());
+        deliveries.cancel(create);
         var author = actors.findLocalById(event.authorId());
         if (author.isEmpty()) {
             return;
@@ -91,8 +92,10 @@ public class StatusDeliveries {
             return;
         }
         var delete = Delete.of(event.statusUri(), author.get(), event.visibility());
-        deliveries.enqueue(
-                new OutboundActivity(delete.id().toString(), author.get().id(), json.writeValueAsString(delete)), inboxes);
+        deliveries.enqueueAfter(
+                new OutboundActivity(delete.id().toString(), author.get().id(), json.writeValueAsString(delete)),
+                inboxes,
+                create);
     }
 
     /**

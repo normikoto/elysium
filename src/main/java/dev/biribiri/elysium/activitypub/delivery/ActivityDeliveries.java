@@ -13,6 +13,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.stream.Stream;
 
 /**
  * Queues activities for sending to other servers, with one job for each inbox so that a failing server can't hold up the
@@ -44,24 +45,7 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(OutboundActivity activity, Collection<URI> inboxes) {
-        store(activity);
-        var now = Instant.now();
-        for (var inbox : new LinkedHashSet<>(inboxes)) {
-            var job = new DeliveryJob(activity.id(), inbox.toString(), now);
-            Jobs.schedule(scheduler, TASK, job, job.activityId(), job.inbox());
-        }
-    }
-
-    private void store(OutboundActivity activity) {
-        jdbc.sql("""
-                        INSERT INTO outbound_activity (activity_id, actor_id, body)
-                        VALUES (:id, :actorId, :body)
-                        ON CONFLICT (activity_id) DO NOTHING
-                        """)
-                .param("id", activity.id())
-                .param("actorId", activity.actorId())
-                .param("body", activity.body())
-                .update();
+        queue(activity, inboxes, null);
     }
 
     /**
@@ -74,17 +58,49 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(OutboundActivity activity, Collection<URI> inboxes, String attempt) {
+        queue(activity, inboxes, null, attempt);
+    }
+
+    /**
+     * Queues an activity that shouldn't overtake one that's been {@linkplain #cancel cancelled}, as a {@code Delete} shouldn't
+     * overtake its {@code Create}. Cancelling can't stop a request in progress, so each job waits while one of the cancelled
+     * activity's jobs is running for its host. Otherwise this is like {@link #enqueue(OutboundActivity, Collection)}.
+     *
+     * <p>Cancel in the same transaction. A job that isn't running by the time these can see the cancel can't send anything.
+     *
+     * @param cancelledActivityId the activity to stay behind
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueueAfter(OutboundActivity activity, Collection<URI> inboxes, String cancelledActivityId) {
+        queue(activity, inboxes, cancelledActivityId);
+    }
+
+    private void queue(OutboundActivity activity, Collection<URI> inboxes, String staysBehind, String... extraIdParts) {
         store(activity);
         var now = Instant.now();
         for (var inbox : new LinkedHashSet<>(inboxes)) {
-            var job = new DeliveryJob(activity.id(), inbox.toString(), now);
-            Jobs.schedule(scheduler, TASK, job, job.activityId(), job.inbox(), attempt);
+            var job = new DeliveryJob(activity.id(), inbox.toString(), now, staysBehind);
+            var idParts = Stream.concat(Stream.of(job.activityId(), job.inbox()), Stream.of(extraIdParts))
+                    .toArray(String[]::new);
+            Jobs.schedule(scheduler, TASK, job, idParts);
         }
+    }
+
+    private void store(OutboundActivity activity) {
+        jdbc.sql("""
+                        INSERT INTO outbound_activity (activity_id, actor_id, body)
+                        VALUES (:id, :actorId, :body)
+                        ON CONFLICT (activity_id) DO UPDATE SET created_at = now()
+                        """)
+                .param("id", activity.id())
+                .param("actorId", activity.actorId())
+                .param("body", activity.body())
+                .update();
     }
 
     /**
      * Stops any further sending of an activity, so that a status deleted soon after it was posted isn't then delivered.
-     * Its jobs finish without sending the next time they run.
+     * Its jobs finish without sending the next time they run and get a slot for their host.
      */
     public void cancel(String activityId) {
         jdbc.sql("DELETE FROM outbound_activity WHERE activity_id = :id").param("id", activityId).update();

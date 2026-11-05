@@ -7,6 +7,7 @@ import com.github.kagkarlsson.scheduler.task.helper.CustomTask;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
 import dev.biribiri.elysium.activitypub.signature.Digests;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.function.Function;
 
@@ -14,6 +15,11 @@ import java.util.function.Function;
  * Builds the tasks that run jobs, which all retry and park the same way.
  */
 public final class Jobs {
+
+    /**
+     * A little longer than a job can last, so that they're still there if it's retried at the last moment.
+     */
+    static final Duration ACTIVITIES_KEPT = RetryPolicy.LONGEST_LIFE.plusDays(1);
 
     private Jobs() {
     }
@@ -35,6 +41,21 @@ public final class Jobs {
      */
     public static <T> CompletionHandler<T> done() {
         return (complete, operations) -> operations.remove();
+    }
+
+    /**
+     * What to do with a job whose activity isn't stored. An outbound one can have been cancelled, and then the job just
+     * finishes. But an admin can retry a job for longer than activities are kept, so one that's old enough to have lost its
+     * activity fails, which shows them why there's nothing to do. Failing parks it, and it's removed when that runs out.
+     *
+     * @throws PermanentJobFailure if the job is old enough that its activity could have been cleaned up
+     */
+    public static <T extends QueuedJob> CompletionHandler<T> activityGone(T job) {
+        if (Duration.between(job.queuedAt(), Instant.now()).compareTo(RetryPolicy.LONGEST_LIFE) > 0) {
+            throw new PermanentJobFailure("Its activity is gone, so there's nothing to do. Activities are kept for "
+                    + ACTIVITIES_KEPT.toDays() + " days, and one being sent can also have been cancelled");
+        }
+        return done();
     }
 
     /**
