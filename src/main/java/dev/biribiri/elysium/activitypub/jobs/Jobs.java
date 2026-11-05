@@ -43,7 +43,15 @@ public final class Jobs {
      * @param idParts what identifies the job, so that a repeat can't queue a second one
      */
     public static <T extends QueuedJob> void schedule(SchedulerClient scheduler, TaskDescriptor<T> task, T job, String... idParts) {
-        scheduler.scheduleIfNotExists(task.instance(instanceId(idParts)).data(job).scheduledTo(job.queuedAt()));
+        scheduleAt(scheduler, task, job, job.queuedAt(), idParts);
+    }
+
+    /**
+     * Like {@link #schedule}, for a job that shouldn't run until later.
+     */
+    public static <T extends QueuedJob> void scheduleAt(
+            SchedulerClient scheduler, TaskDescriptor<T> task, T job, Instant runAt, String... idParts) {
+        scheduler.scheduleIfNotExists(task.instance(instanceId(idParts)).data(job).scheduledTo(runAt));
     }
 
     /**

@@ -1,10 +1,13 @@
 package dev.biribiri.elysium.activitypub.http;
 
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.apache.hc.client5.http.DnsResolver;
 
 import java.net.InetAddress;
 import java.time.Duration;
 import java.util.Set;
+
+import static org.mockito.Mockito.mock;
 
 /**
  * Lets tests in other packages use a real client against a server on the loopback address, for any hostname.
@@ -25,6 +28,6 @@ public final class LoopbackClients {
             public String resolveCanonicalHostname(String host) {
                 return host;
             }
-        }, Set.of("http"), Duration.ofSeconds(30), "Elysium/test");
+        }, Set.of("http"), Duration.ofSeconds(30), "Elysium/test", mock(DomainBlocks.class));
     }
 }

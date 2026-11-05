@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.http;
 
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
@@ -59,18 +60,23 @@ public class FederationHttpClient implements AutoCloseable {
     private final CloseableHttpClient client;
     private final Set<String> allowedSchemes;
     private final Duration deadline;
+    private final DomainBlocks blocks;
 
     @Autowired
-    FederationHttpClient(BuildProperties build, InstanceProperties instance, FederationProperties federation) {
+    FederationHttpClient(
+            BuildProperties build, InstanceProperties instance, FederationProperties federation, DomainBlocks blocks) {
         this(new PublicAddressDnsResolver(
                         SystemDefaultDnsResolver.INSTANCE,
                         PublicAddressDnsResolver.publicAddressesAnd(federation.allowedPrivateNetworks())),
                 HTTPS_ONLY,
                 DEADLINE,
-                "Elysium/" + build.getVersion() + " (+" + instance.resolve("/") + ")");
+                "Elysium/" + build.getVersion() + " (+" + instance.resolve("/") + ")",
+                blocks);
     }
 
-    FederationHttpClient(DnsResolver resolver, Set<String> allowedSchemes, Duration deadline, String userAgent) {
+    FederationHttpClient(
+            DnsResolver resolver, Set<String> allowedSchemes, Duration deadline, String userAgent, DomainBlocks blocks) {
+        this.blocks = blocks;
         this.allowedSchemes = allowedSchemes;
         this.deadline = deadline;
         this.client = HttpClients.custom()
@@ -148,6 +154,9 @@ public class FederationHttpClient implements AutoCloseable {
         var scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         if (!allowedSchemes.contains(scheme)) {
             throw new BlockedTargetException("Refusing to fetch a URL with this scheme: " + scheme);
+        }
+        if (blocks.isBlocked(uri.getHost())) {
+            throw new BlockedTargetException("Refusing to contact a blocked server: " + uri.getHost());
         }
         return URI.create(uri.toASCIIString());
     }

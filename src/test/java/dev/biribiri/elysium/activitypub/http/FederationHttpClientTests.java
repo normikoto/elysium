@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.http;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.junit.jupiter.api.AfterEach;
@@ -28,12 +29,16 @@ import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Runs against a real server on the loopback address. Each test makes its own client, because a reused connection doesn't
  * go through the resolver again.
  */
 class FederationHttpClientTests {
+
+    private final DomainBlocks blocks = mock();
 
     private static final Set<String> HTTP = Set.of("http");
     private static final Duration LONG_DEADLINE = Duration.ofSeconds(30);
@@ -95,6 +100,29 @@ class FederationHttpClientTests {
                 .isInstanceOf(BlockedTargetException.class);
 
         assertThat(requests).isEmpty();
+    }
+
+    @Test
+    void refusesABlockedServerWithoutConnecting() {
+        when(blocks.isBlocked("blocked.test")).thenReturn(true);
+        // This resolver fails the test if anything tries to look the host up.
+        var client = client(new DnsResolver() {
+            @Override
+            public InetAddress[] resolve(String host) {
+                throw new AssertionError("Looked up " + host);
+            }
+
+            @Override
+            public String resolveCanonicalHostname(String host) {
+                throw new AssertionError("Looked up " + host);
+            }
+        }, HTTP, LONG_DEADLINE);
+        var url = URI.create("http://blocked.test:8443/");
+        var headers = new org.springframework.http.HttpHeaders();
+
+        assertThatThrownBy(() -> client.get(url, "*/*", headers)).isInstanceOf(BlockedTargetException.class);
+        assertThatThrownBy(() -> client.post(url, "text/plain", new byte[0], headers))
+                .isInstanceOf(BlockedTargetException.class);
     }
 
     @Test
@@ -300,7 +328,7 @@ class FederationHttpClientTests {
     }
 
     private FederationHttpClient client(DnsResolver resolver, Set<String> schemes, Duration deadline) {
-        var client = new FederationHttpClient(resolver, schemes, deadline, "Elysium/test");
+        var client = new FederationHttpClient(resolver, schemes, deadline, "Elysium/test", blocks);
         closeables.add(client);
         return client;
     }

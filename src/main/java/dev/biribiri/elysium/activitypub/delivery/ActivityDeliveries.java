@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -11,8 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Queues activities for sending to other servers, with one job for each inbox so that a failing server can't hold up the
@@ -25,13 +29,15 @@ public class ActivityDeliveries {
 
     private final JdbcClient jdbc;
     private final SchedulerClient scheduler;
+    private final DomainBlocks blocks;
 
     /**
      * @param scheduler lazy because the scheduler needs every task, and tasks need handlers, which queue activities here
      */
-    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler) {
+    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler, DomainBlocks blocks) {
         this.jdbc = jdbc;
         this.scheduler = scheduler;
+        this.blocks = blocks;
     }
 
     /**
@@ -44,12 +50,34 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(OutboundActivity activity, Collection<URI> inboxes) {
+        queue(activity, inboxes);
+    }
+
+    /**
+     * @param extraIdParts what else identifies these jobs, along with the activity and the inbox
+     */
+    private void queue(OutboundActivity activity, Collection<URI> inboxes, String... extraIdParts) {
+        var allowed = allowed(inboxes);
+        if (allowed.isEmpty()) {
+            return;
+        }
         store(activity);
         var now = Instant.now();
-        for (var inbox : new LinkedHashSet<>(inboxes)) {
+        for (var inbox : allowed) {
             var job = new DeliveryJob(activity.id(), inbox.toString(), now);
-            Jobs.schedule(scheduler, TASK, job, job.activityId(), job.inbox());
+            var idParts = Stream.concat(Stream.of(job.activityId(), job.inbox()), Arrays.stream(extraIdParts));
+            Jobs.schedule(scheduler, TASK, job, idParts.toArray(String[]::new));
         }
+    }
+
+    /**
+     * Leaves out inboxes on blocked servers. One with no host stays in, so that its job fails where an admin can see it.
+     */
+    private Set<URI> allowed(Collection<URI> inboxes) {
+        var blocked = blocks.blockedHosts(inboxes.stream().map(URI::getHost).toList());
+        var allowed = new LinkedHashSet<>(inboxes);
+        allowed.removeIf(inbox -> inbox.getHost() != null && blocked.contains(inbox.getHost()));
+        return allowed;
     }
 
     private void store(OutboundActivity activity) {
@@ -74,12 +102,7 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(OutboundActivity activity, Collection<URI> inboxes, String attempt) {
-        store(activity);
-        var now = Instant.now();
-        for (var inbox : new LinkedHashSet<>(inboxes)) {
-            var job = new DeliveryJob(activity.id(), inbox.toString(), now);
-            Jobs.schedule(scheduler, TASK, job, job.activityId(), job.inbox(), attempt);
-        }
+        queue(activity, inboxes, attempt);
     }
 
     /**

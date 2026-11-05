@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -39,6 +40,7 @@ class SignatureVerifierTests {
     private static final InstanceProperties INSTANCE = new InstanceProperties(URI.create("https://example.test"));
 
     private final PublicKeyResolver keys = mock();
+    private final DomainBlocks blocks = mock();
     private final ResolvedKey key = new ResolvedKey(KEY_ID, OWNER, SignatureFixtures.publicKey());
 
     @BeforeEach
@@ -49,6 +51,16 @@ class SignatureVerifierTests {
     @Test
     void acceptsAValidSignature() {
         assertThat(verifier(scheme(claim(NOW, null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isEqualTo(new VerifiedSignature(KEY_ID, OWNER));
+    }
+
+    @Test
+    void refusesAKeyOnABlockedServerWithoutLookingItUp() {
+        when(blocks.isBlocked("remote.example")).thenReturn(true);
+
+        assertFails(verifier(scheme(claim(NOW, null))), Failure.DOMAIN_BLOCKED);
+
+        verify(keys, never()).resolve(any(), any());
+        verify(keys, never()).refresh(any(), any(), any());
     }
 
     @Test
@@ -195,7 +207,7 @@ class SignatureVerifierTests {
     }
 
     private SignatureVerifier verifier(SignatureScheme... schemes) {
-        return new SignatureVerifier(List.of(schemes), keys, INSTANCE, Clock.fixed(NOW, ZoneOffset.UTC));
+        return new SignatureVerifier(List.of(schemes), keys, INSTANCE, blocks, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private void assertFails(SignatureVerifier verifier, Failure failure) {

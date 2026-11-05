@@ -16,7 +16,7 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 | Followers and following collections | Live, partly | `followers` only gives its size. Its items and pages, and `following`, are in #43 |
 | Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Receiving is in #41, and the outbox is in #40 |
 | Likes, boosts, edits, polls, receiving deletes | Missing | #60, #61, #62, #59, with polls only listed on #1 |
-| Moderation and server policy | Missing | #37 |
+| Moderation and server policy | Partly | Domain blocks are in #64. The rest is under #37 |
 
 ## Roadmap
 

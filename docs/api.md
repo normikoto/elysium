@@ -22,5 +22,18 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   `/api/v2/instance` isn't implemented. Clients that don't read the limit from v1 may apply their own limit of 500.
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
 
+Domain blocks follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/domain_blocks/), under
+`/api/v1/admin/domain_blocks`, with the `admin:read:domain_blocks` and `admin:write:domain_blocks` scopes. Every block is a
+full block, so these differ from Mastodon:
+
+- `severity` is required when creating a block, and has to be `suspend`. Mastodon's default is `silence`, and `silence` and
+  `noop` get a 422 here rather than cutting off a server that an admin only meant to limit.
+- `reject_media` and `reject_reports` are always returned as `true`, `obfuscate` as `false`, and `public_comment` as null.
+  Any values sent for them are ignored.
+- A domain with a wildcard, a port, or a URL's other parts is refused, as are IP addresses, a domain with only one label such
+  as `com`, and this server's own domain or one above it. Blocks always cover subdomains and every port.
+- `private_comment` can be up to 1000 characters.
+- A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one that's already blocked.
+
 API documentation is public, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs` or
 `/api-docs.yaml`.

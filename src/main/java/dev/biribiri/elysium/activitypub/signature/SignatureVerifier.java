@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -30,17 +31,25 @@ public class SignatureVerifier {
     private final List<SignatureScheme> schemes;
     private final PublicKeyResolver keys;
     private final InstanceProperties instance;
+    private final DomainBlocks blocks;
     private final Clock clock;
 
     @Autowired
-    SignatureVerifier(List<SignatureScheme> schemes, PublicKeyResolver keys, InstanceProperties instance) {
-        this(schemes, keys, instance, Clock.systemUTC());
+    SignatureVerifier(
+            List<SignatureScheme> schemes, PublicKeyResolver keys, InstanceProperties instance, DomainBlocks blocks) {
+        this(schemes, keys, instance, blocks, Clock.systemUTC());
     }
 
-    SignatureVerifier(List<SignatureScheme> schemes, PublicKeyResolver keys, InstanceProperties instance, Clock clock) {
+    SignatureVerifier(
+            List<SignatureScheme> schemes,
+            PublicKeyResolver keys,
+            InstanceProperties instance,
+            DomainBlocks blocks,
+            Clock clock) {
         this.schemes = schemes;
         this.keys = keys;
         this.instance = instance;
+        this.blocks = blocks;
         this.clock = clock;
     }
 
@@ -62,6 +71,11 @@ public class SignatureVerifier {
         checkTimeWindow(claim);
 
         var keyId = KeyId.parse(claim.keyId(), instance);
+        // Before anything is fetched, so that a blocked server can't cause a request or use up any limits. This also covers
+        // keys that were cached before the block.
+        if (!keyId.local() && blocks.isBlocked(keyId.host())) {
+            throw new SignatureVerificationException(Failure.DOMAIN_BLOCKED, "Key is on a blocked server: " + claim.keyId());
+        }
         var key = keys.resolve(keyId, budget);
         if (!matches(claim, key)) {
             // The sender may have changed its key since this server fetched it.

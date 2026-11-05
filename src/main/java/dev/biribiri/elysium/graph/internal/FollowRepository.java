@@ -8,6 +8,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -142,6 +143,37 @@ public class FollowRepository {
                 .param("arrivedBy", time(arrivedBy))
                 .query(String.class)
                 .optional();
+    }
+
+    /**
+     * @return the domain of every remote actor
+     */
+    public List<String> findRemoteDomains() {
+        return jdbc.sql("SELECT DISTINCT domain FROM actor WHERE NOT is_local").query(String.class).list();
+    }
+
+    /**
+     * @param after only return IDs that sort after this one, in PostgreSQL's order
+     * @return the IDs of remote actors on a domain, in order
+     */
+    public List<UUID> findRemoteActorIds(String domain, UUID after, int limit) {
+        return jdbc.sql("""
+                        SELECT id FROM actor
+                        WHERE domain = :domain AND NOT is_local AND id > :after
+                        ORDER BY id
+                        LIMIT :limit
+                        """)
+                .param("domain", domain)
+                .param("after", after)
+                .param("limit", limit)
+                .query(UUID.class)
+                .list();
+    }
+
+    public void deleteForActors(Collection<UUID> actorIds) {
+        jdbc.sql("DELETE FROM follow WHERE follower_id IN (:ids) OR followed_id IN (:ids)")
+                .param("ids", actorIds)
+                .update();
     }
 
     public boolean isUndone(String activityUri, String followerUri) {

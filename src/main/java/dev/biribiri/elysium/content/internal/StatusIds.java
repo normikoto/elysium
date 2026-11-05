@@ -1,16 +1,14 @@
 package dev.biribiri.elysium.content.internal;
 
-import java.security.SecureRandom;
+import dev.biribiri.elysium.actor.Ids;
+
 import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Generates UUIDv7 status IDs, which PostgreSQL sorts by time. Pagination relies on that order. {@link UUID#compareTo}
- * compares signed values, so these can only be ordered in SQL.
+ * Generates status IDs, which PostgreSQL sorts by time. Pagination relies on that order.
  */
 public final class StatusIds {
-
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private StatusIds() {
     }
@@ -20,7 +18,7 @@ public final class StatusIds {
      * published.
      */
     public static UUID fromTimestamp(Instant timestamp) {
-        return generate(timestamp.toEpochMilli());
+        return Ids.timeOrdered(timestamp);
     }
 
     /**
@@ -28,12 +26,6 @@ public final class StatusIds {
      */
     public static UUID after(UUID previous, Instant timestamp) {
         var previousMillis = previous.getMostSignificantBits() >>> 16;
-        return generate(Math.max(timestamp.toEpochMilli(), previousMillis + 1));
-    }
-
-    private static UUID generate(long millis) {
-        var mostSignificant = (millis << 16) | 0x7000L | RANDOM.nextInt(1 << 12);
-        var leastSignificant = (RANDOM.nextLong() & 0x3FFFFFFFFFFFFFFFL) | 0x8000000000000000L;
-        return new UUID(mostSignificant, leastSignificant);
+        return Ids.timeOrdered(Instant.ofEpochMilli(Math.max(timestamp.toEpochMilli(), previousMillis + 1)));
     }
 }

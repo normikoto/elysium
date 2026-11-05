@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
 import dev.biribiri.elysium.actor.signing.SigningKey;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -57,6 +58,8 @@ class InboxIntegrationTests {
     private CavageRequestSigner signer;
     @Autowired
     private Inbox inbox;
+    @Autowired
+    private DomainBlocks blocks;
     @Autowired
     private JdbcClient jdbc;
 
@@ -204,6 +207,30 @@ class InboxIntegrationTests {
 
         signed("/inbox", alice, activity(id, BASE + "/users/bob")).andExpect(status().isAccepted());
 
+        assertThat(stored(id)).isZero();
+    }
+
+    @Test
+    void refusesAKeyOnABlockedServer() throws Exception {
+        blocks.create("blocked-key.example", null);
+
+        var keyId = "https://sub.blocked-key.example/users/bob#main-key";
+        var address = newAddress();
+        // More than the limit on key fetches, which this has to leave alone because nothing is fetched.
+        for (var i = 0; i < 35; i++) {
+            send(signedWithKeyId(keyId, alice()), address).andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    void refusesAnActivityFromABlockedServerThatGetsPastTheSignatureCheck() {
+        blocks.create("blocked-actor.example", null);
+        var actor = "https://blocked-actor.example/users/bob";
+        var id = "https://blocked-actor.example/activities/" + UUID.randomUUID();
+
+        var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor)));
+
+        assertThat(outcome).isEqualTo(Inbox.Outcome.FORBIDDEN);
         assertThat(stored(id)).isZero();
     }
 

@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.vocab.Accept;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -30,6 +31,7 @@ class FollowHandler implements InboundActivityHandler {
     private final ActivityDeliveries deliveries;
     private final TransactionTemplate transaction;
     private final JsonMapper json;
+    private final DomainBlocks blocks;
 
     FollowHandler(
             ActorService actors,
@@ -37,13 +39,15 @@ class FollowHandler implements InboundActivityHandler {
             FollowService follows,
             ActivityDeliveries deliveries,
             TransactionTemplate transaction,
-            JsonMapper json) {
+            JsonMapper json,
+            DomainBlocks blocks) {
         this.actors = actors;
         this.remoteActors = remoteActors;
         this.follows = follows;
         this.deliveries = deliveries;
         this.transaction = transaction;
         this.json = json;
+        this.blocks = blocks;
     }
 
     @Override
@@ -87,6 +91,10 @@ class FollowHandler implements InboundActivityHandler {
         var accept = Accept.of(followed.uri(), activity.id(), follower.uri());
         var body = json.writeValueAsString(accept);
         transaction.executeWithoutResult(status -> {
+            // Fetching the follower can take a while, and its server can have been blocked since the job started.
+            if (blocks.isBlocked(follower.uri().getHost())) {
+                return;
+            }
             var accepted = follows.accept(follower.id(), follower.uri(), followed.id(), activity.id(), activity.arrival());
             if (accepted.isEmpty()) {
                 return;

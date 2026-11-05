@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.delivery;
 
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import com.github.kagkarlsson.scheduler.Scheduler;
 import com.github.kagkarlsson.scheduler.boot.autoconfigure.Jackson3Serializer;
 import com.github.kagkarlsson.scheduler.task.Task;
@@ -86,6 +87,8 @@ class ActivityDeliveryIntegrationTests {
     private HostGate gate;
     @Autowired
     private FederationHttpClient http;
+    @Autowired
+    private DomainBlocks blocks;
 
     private final Queue<Received> received = new ConcurrentLinkedQueue<>();
     private final Map<String, Queue<Answer>> answers = new ConcurrentHashMap<>();
@@ -184,6 +187,60 @@ class ActivityDeliveryIntegrationTests {
         await().atMost(WAIT).until(() -> jobs(activity) == 0);
 
         assertThat(receivedBy(host)).isEmpty();
+    }
+
+    @Test
+    void storesNothingWhenEveryInboxIsOnABlockedServer() {
+        var activity = activity();
+        var host = newHost();
+        blocks.create(host, null);
+
+        enqueue(activity, inboxOn("sub." + host), inboxOn(host));
+
+        assertThat(jobs(activity)).isZero();
+        assertThat(activities(activity)).isZero();
+    }
+
+    @Test
+    void leavesOutABlockedServerButStillSendsToOthers() {
+        var activity = activity();
+        var blocked = newHost();
+        var allowed = newHost();
+        blocks.create(blocked, null);
+
+        transactions.executeWithoutResult(status ->
+                deliveries.enqueue(activity, List.of(inboxOn(blocked), inboxOn(allowed)), "attempt"));
+
+        await().atMost(WAIT).until(() -> receivedBy(allowed).size() == 1);
+        assertThat(receivedBy(blocked)).isEmpty();
+    }
+
+    @Test
+    void finishesAJobQueuedBeforeABlockWithoutSendingOrFailing() {
+        var activity = activity();
+        var host = newHost();
+        answer(host, new Answer(503, null));
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> failures(activity) == 1);
+        var attempts = receivedBy(host).size();
+
+        blocks.create(host, null);
+        runNow(activity);
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(attempts);
+    }
+
+    @Test
+    void sendsAgainOnceABlockIsRemoved() {
+        var host = newHost();
+        var block = blocks.create(host, null);
+        enqueue(activity(), inboxOn(host));
+
+        blocks.delete(block.id());
+        enqueue(activity(), inboxOn(host));
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1);
     }
 
     @Test

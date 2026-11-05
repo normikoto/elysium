@@ -10,6 +10,7 @@ import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.SignedSender;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,13 +39,21 @@ class DeliveryTask {
     private final ActorSigningKeys keys;
     private final SignedSender sender;
     private final HostGate gate;
+    private final DomainBlocks blocks;
 
-    DeliveryTask(JdbcClient jdbc, ActorService actors, ActorSigningKeys keys, SignedSender sender, HostGate gate) {
+    DeliveryTask(
+            JdbcClient jdbc,
+            ActorService actors,
+            ActorSigningKeys keys,
+            SignedSender sender,
+            HostGate gate,
+            DomainBlocks blocks) {
         this.jdbc = jdbc;
         this.actors = actors;
         this.keys = keys;
         this.sender = sender;
         this.gate = gate;
+        this.blocks = blocks;
     }
 
     @Bean
@@ -68,6 +77,10 @@ class DeliveryTask {
             throw new PermanentJobFailure("The inbox URL doesn't have a host");
         }
         var host = inbox.getHost().toLowerCase(Locale.ROOT);
+        if (blocks.isBlocked(host)) {
+            // It was queued before the block. This isn't the server failing, so it doesn't count as a failure.
+            return Jobs.done();
+        }
 
         var now = Instant.now();
         var backingOff = gate.backingOffUntil(host, now);

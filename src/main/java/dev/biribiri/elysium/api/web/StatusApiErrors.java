@@ -13,7 +13,8 @@ import java.util.Map;
  * Handles only these specific exceptions. Catching anything broader would stop scope denials from reaching Spring
  * Security, which turns them into the API's 403 response.
  */
-@RestControllerAdvice(assignableTypes = {AccountsController.class, StatusesController.class, TimelinesController.class})
+@RestControllerAdvice(assignableTypes = {
+        AccountsController.class, DomainBlocksController.class, StatusesController.class, TimelinesController.class})
 class StatusApiErrors {
 
     @ExceptionHandler

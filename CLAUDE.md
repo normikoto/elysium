@@ -41,10 +41,11 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `auth`        | Logins, OAuth, HTTP security configuration | `actor`, `ratelimit`                           |
 | `content`     | Posts and related records                  | `actor`                                        |
 | `graph`       | Follows (blocks and mutes to come)         | `actor`                                        |
+| `moderation`  | Domain blocks                              | `actor`                                        |
 | `timeline`    | Home and public feeds                      | `actor`, `content`, `graph`                    |
-| `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `timeline` |
+| `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `content`                             |
-| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `ratelimit` |
+| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `moderation`, `ratelimit` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
 - `actor.signing` exposes private keys as a named interface, so a module has to ask for it explicitly. Only `activitypub`
@@ -80,6 +81,10 @@ feature is live.
   which can't be looked up once the row is gone, and never has a status's text, because events are stored. Listeners have to be safe to repeat and shouldn't
   fail for what's since been deleted, because `EventRetries` runs a failed one again every 5 minutes, and an event only stays
   stored until its listeners finish. `Notes` builds `Note` objects, so that fetched and delivered ones match.
+- **Domain blocks:** `moderation.DomainBlocks` decides what's blocked, and `activitypub` enforces it at `SignatureVerifier`,
+  `Inbox`, `InboundActivityTask`, `FollowHandler`, `FederationHttpClient`, `ActivityDeliveries`, and `DeliveryTask`. `InboundActivityTask` only
+  checks an activity's actor, so a handler has to check any other actor or object that it fetches or stores. New remote data
+  also has to be removed by `DomainBlockCleanupTask`.
 - **Outbound HTTP:** Use `activitypub.http.FederationHttpClient`, which refuses private addresses, including through its
   own DNS resolver. The lab gets around this with `elysium.federation.allowed-private-networks`, and `federation/README.md`
   rules out an on/off switch or plain HTTP.

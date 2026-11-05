@@ -12,17 +12,12 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockPart;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.springframework.web.util.UriComponentsBuilder;
 
-import java.net.URI;
-import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
@@ -60,7 +55,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class StatusesIntegrationTests {
 
     private static final String PASSWORD = "correct horse battery staple";
-    private static final String REDIRECT_URI = "https://app.example/callback";
     private static final String TIMELINE = "/api/v1/timelines/public";
     private static final String VERIFY_CREDENTIALS = "/api/v1/accounts/verify_credentials";
 
@@ -796,34 +790,7 @@ class StatusesIntegrationTests {
                     .andExpect(status().is3xxRedirection());
         }
 
-        var app = registerApp(scope);
-        var session = new MockHttpSession();
-        mockMvc.perform(post("/login").with(csrf()).session(session)
-                        .param("username", username)
-                        .param("password", PASSWORD))
-                .andExpect(status().is3xxRedirection());
-        var consentUrl = mockMvc.perform(get("/oauth/authorize").session(session)
-                        .queryParam("response_type", "code")
-                        .queryParam("client_id", app.get("client_id"))
-                        .queryParam("redirect_uri", REDIRECT_URI)
-                        .queryParam("scope", scope))
-                .andExpect(status().is3xxRedirection())
-                .andReturn().getResponse().getRedirectedUrl();
-        var approve = post("/oauth/authorize").session(session)
-                .param("client_id", app.get("client_id"))
-                .param("state", queryParameter(consentUrl, "state"));
-        for (var requested : queryParameter(consentUrl, "scope").split(" ")) {
-            approve.param("scope", requested);
-        }
-        var callback = mockMvc.perform(approve)
-                .andExpect(status().is3xxRedirection())
-                .andReturn().getResponse().getRedirectedUrl();
-        var token = accessToken(post("/oauth/token")
-                .param("grant_type", "authorization_code")
-                .param("client_id", app.get("client_id"))
-                .param("client_secret", app.get("client_secret"))
-                .param("code", queryParameter(callback, "code"))
-                .param("redirect_uri", REDIRECT_URI));
+        var token = TestOAuth.userToken(mockMvc, username, PASSWORD, scope);
         TOKENS.put(username + " " + scope, token);
         return token;
     }
@@ -833,7 +800,7 @@ class StatusesIntegrationTests {
         if (cached != null) {
             return cached;
         }
-        var app = registerApp("read write");
+        var app = TestOAuth.registerApp(mockMvc, "read write");
         var token = accessToken(post("/oauth/token")
                 .param("grant_type", "client_credentials")
                 .param("scope", "read write")
@@ -848,24 +815,5 @@ class StatusesIntegrationTests {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.access_token");
-    }
-
-    private Map<String, String> registerApp(String scopes) throws Exception {
-        MockHttpServletResponse response = mockMvc.perform(post("/api/v1/apps")
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("client_name", "Test")
-                        .param("redirect_uris", REDIRECT_URI)
-                        .param("scopes", scopes))
-                .andExpect(status().isOk())
-                .andReturn().getResponse();
-        var body = response.getContentAsString();
-        return Map.of(
-                "client_id", JsonPath.read(body, "$.client_id"),
-                "client_secret", JsonPath.read(body, "$.client_secret"));
-    }
-
-    private static String queryParameter(String url, String name) {
-        var value = UriComponentsBuilder.fromUri(URI.create(url)).build().getQueryParams().getFirst(name);
-        return value == null ? null : URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 }

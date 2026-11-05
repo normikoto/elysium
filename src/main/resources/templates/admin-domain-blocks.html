@@ -1,0 +1,33 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Domain blocks', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>
+            Blocking a domain also blocks its subdomains. Nothing more is accepted from those servers or sent to them, and
+            their follows are removed. Removing a block doesn't bring back what was removed.
+        </p>
+        <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+        <form method="post" th:action="@{/admin/domain-blocks}">
+            <label for="domain">Domain</label>
+            <input type="text" id="domain" name="domain" th:value="${domain}" placeholder="example.com" required autofocus>
+            <label for="comment">Private comment (optional)</label>
+            <input type="text" id="comment" name="comment" th:value="${comment}" th:maxlength="${maxCommentLength}">
+            <button type="submit">Block</button>
+        </form>
+
+        <h2>Blocked domains</h2>
+        <p th:if="${blocks.isEmpty()}">No domains are blocked.</p>
+        <div class="status" th:each="block : ${blocks}">
+            <p class="status-meta">
+                <strong th:text="${block.domain()}"></strong>
+                <time th:datetime="${block.createdAt()}" th:text="${block.createdAt()}"></time>
+            </p>
+            <p class="status-content" th:if="${block.comment() != null}" th:text="${block.comment()}"></p>
+            <form class="actions" method="post" th:action="@{/admin/domain-blocks/{id}/delete(id=${block.id()})}">
+                <button type="submit">Remove</button>
+            </form>
+        </div>
+        <p th:if="${older != null}"><a th:href="@{/admin/domain-blocks(max_id=${older})}">Older blocks</a></p>
+    </div>
+</th:block>
+</html>

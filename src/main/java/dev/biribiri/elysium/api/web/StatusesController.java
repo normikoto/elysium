@@ -19,9 +19,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import tools.jackson.core.JacksonException;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -44,9 +41,9 @@ public class StatusesController {
 
     private final StatusService statuses;
     private final StatusResponses responses;
-    private final JsonMapper json;
+    private final JsonBodies json;
 
-    StatusesController(StatusService statuses, StatusResponses responses, JsonMapper json) {
+    StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json) {
         this.statuses = statuses;
         this.responses = responses;
         this.json = json;
@@ -70,7 +67,7 @@ public class StatusesController {
     })
     public StatusResponse createFromJson(@AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request)
             throws IOException {
-        var body = readJson(request);
+        var body = json.read(request, statuses.maxStoredCharacters() * MAX_BYTES_PER_CHARACTER + OTHER_FIELDS_BYTES);
         rejectUnsupported(body);
         return create(token, body);
     }
@@ -94,38 +91,15 @@ public class StatusesController {
                 .orElseThrow(RecordNotFoundException::new);
     }
 
-    /**
-     * Reads the body here rather than through {@code @RequestBody}, which Spring would read in full before the
-     * authorization check runs, however large it is. Tomcat already limits the size of form bodies.
-     */
-    private Map<String, Object> readJson(HttpServletRequest request) throws IOException {
-        var limit = statuses.maxStoredCharacters() * MAX_BYTES_PER_CHARACTER + OTHER_FIELDS_BYTES;
-        var bytes = request.getInputStream().readNBytes(Math.toIntExact(Math.min(limit + 1, Integer.MAX_VALUE - 8)));
-        if (bytes.length > limit) {
-            throw new RequestTooLargeException();
-        }
-        Map<String, Object> body;
-        try {
-            body = json.readValue(bytes, new TypeReference<>() {
-            });
-        } catch (JacksonException e) {
-            body = null;
-        }
-        if (body == null) {
-            throw new InvalidRequestException("Validation failed: the request body must be a JSON object");
-        }
-        return body;
-    }
-
     private StatusResponse create(TokenPrincipal token, Map<String, ?> parameters) {
         var author = requireUser(token);
         var draft = new NewStatus(
-                string(parameters, "status"),
-                string(parameters, "spoiler_text"),
-                string(parameters, "language"),
+                RequestParameters.string(parameters, "status"),
+                RequestParameters.string(parameters, "spoiler_text"),
+                RequestParameters.string(parameters, "language"),
                 visibility(parameters),
                 flag(parameters, "sensitive"),
-                replyParent(string(parameters, "in_reply_to_id")));
+                replyParent(RequestParameters.string(parameters, "in_reply_to_id")));
         return responses.one(statuses.create(author, draft));
     }
 
@@ -177,18 +151,6 @@ public class StatusesController {
             case null -> Visibility.PUBLIC;
             case String value -> Visibility.fromValue(value);
             default -> throw new InvalidRequestException("Validation failed: visibility must be a string");
-        };
-    }
-
-    /**
-     * Reads a text value. An empty value counts as missing, because form clients send fields they haven't filled in. A
-     * value of the wrong type is rejected rather than treated as missing.
-     */
-    private static String string(Map<String, ?> parameters, String name) {
-        return switch (parameters.get(name)) {
-            case null -> null;
-            case String string -> string.isEmpty() ? null : string;
-            default -> throw new InvalidRequestException("Validation failed: " + name + " must be a string");
         };
     }
 
