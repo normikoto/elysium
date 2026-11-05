@@ -128,6 +128,24 @@ public class DomainBlocks {
             throw new InvalidDomainBlockException(
                     "Comments can't be longer than %d characters.".formatted(MAX_COMMENT_LENGTH));
         }
+        requireStorable(comment);
         return comment.strip();
+    }
+
+    /**
+     * PostgreSQL can't store these, and would otherwise fail the request with an error nobody can act on.
+     */
+    private static void requireStorable(String comment) {
+        for (var i = 0; i < comment.length(); i++) {
+            var character = comment.charAt(i);
+            var paired = Character.isHighSurrogate(character)
+                    && i + 1 < comment.length()
+                    && Character.isLowSurrogate(comment.charAt(i + 1));
+            if (paired) {
+                i++;
+            } else if (character == '\0' || Character.isSurrogate(character)) {
+                throw new InvalidDomainBlockException("Comments can't contain invalid characters.");
+            }
+        }
     }
 }

@@ -126,6 +126,15 @@ class FederationHttpClientTests {
     }
 
     @Test
+    void refusesAHostItCannotReadBecauseItCouldNotCheckIt() {
+        var client = client(allAddresses(), HTTP, LONG_DEADLINE);
+        var url = URI.create("http://foo_bar.blocked.test/");
+
+        assertThatThrownBy(() -> client.get(url, "*/*", new org.springframework.http.HttpHeaders()))
+                .isInstanceOf(BlockedTargetException.class);
+    }
+
+    @Test
     void blocksAHostnameThatResolvesToLoopback() {
         var resolver = new PublicAddressDnsResolver(
                 resolvingTo(InetAddress.getLoopbackAddress()), PublicAddressDnsResolver.PUBLIC_ADDRESSES);

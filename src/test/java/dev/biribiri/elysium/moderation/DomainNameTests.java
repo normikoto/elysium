@@ -19,7 +19,10 @@ class DomainNameTests {
             "' example.com ', example.com",
             "sub.example.com, sub.example.com",
             "münchen.example, xn--mnchen-3ya.example",
-            "xn--mnchen-3ya.example, xn--mnchen-3ya.example"
+            "MÜNCHEN.example, xn--mnchen-3ya.example",
+            "mu\u0308nchen.example, xn--mnchen-3ya.example",
+            "xn--mnchen-3ya.example, xn--mnchen-3ya.example",
+            "xn--fa-hia.example, xn--fa-hia.example"
     })
     void readsDomainsToBlock(String value, String expected) {
         assertThat(DomainName.parse(value)).isEqualTo(expected);
@@ -33,6 +36,12 @@ class DomainNameTests {
             "192.0.2.1", "[2001:db8::1]", "2001:db8::1", "0x7f.0x1", "example.123"
     })
     void refusesWhatCannotBeBlocked(String value) {
+        assertThatThrownBy(() -> DomainName.parse(value)).isInstanceOf(InvalidDomainBlockException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"faß.example", "σς.example", "a\u200Db.example", "ｅxample.com"})
+    void refusesNamesThatConvertingWouldTurnIntoAnotherDomain(String value) {
         assertThatThrownBy(() -> DomainName.parse(value)).isInstanceOf(InvalidDomainBlockException.class);
     }
 

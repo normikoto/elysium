@@ -101,7 +101,7 @@ class DeliveryTask {
         }
     }
 
-    private void send(OutboundActivity activity, URI inbox, String host) {
+    void send(OutboundActivity activity, URI inbox, String host) {
         var key = actors.findLocalById(activity.actorId())
                 .flatMap(keys::forActor)
                 .orElseThrow(() -> new PermanentJobFailure("The activity's actor no longer has a local key"));
@@ -111,6 +111,10 @@ class DeliveryTask {
         } catch (IllegalArgumentException e) {
             throw new PermanentJobFailure("The inbox URL can't be signed", e);
         } catch (BlockedTargetException e) {
+            if (blocks.isBlocked(host)) {
+                // Blocked since this job's check, so this finishes as it would have then.
+                return;
+            }
             // This extends IOException, but it's about where the request was going and not about the server's health.
             throw new PermanentJobFailure("The inbox URL isn't allowed", e);
         } catch (ResponseTooLargeException e) {

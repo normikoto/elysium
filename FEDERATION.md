@@ -96,7 +96,7 @@ plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
 | `202`  | The activity is queued, it's a repeat of one with the same `id`, or it was dropped because of who signed it  |
 | `400`  | The signature header can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, or the `id` isn't a valid URI or is over 2048 bytes |
 | `401`  | There's no signature in a supported format, or it isn't valid                                                |
-| `403`  | The activity's `id` is a valid URI, but not an HTTPS URL on the same host and port as its `actor`, or the signature's key or the `actor` is on a [blocked domain](#domain-blocks) |
+| `403`  | The activity's `id` is a valid URI, but not an HTTPS URL on the same host and port as its `actor`, or the signature's key is on a [blocked domain](#domain-blocks) |
 | `404`  | The user doesn't exist                                                                                       |
 | `413`  | The body is too large                                                                                        |
 | `415`  | The `Content-Type` isn't one of those above                                                                  |
@@ -277,11 +277,16 @@ compared in lowercase ASCII, without a trailing dot. A block is only ever a full
 - **Existing data:** Follows to and from its actors are removed by a job, and run again 5 minutes later for any that were
   being saved at the time. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
-  blocked isn't delivered.
+  blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
+  status posted before then, and it keeps any copy it has.
 
 A block doesn't stop a server's users from reading this server's public pages and documents, which need no signature, or
 recall a delivery that's already being sent. It only covers names, so it doesn't apply to a server that moves to an unrelated
 domain, or that's reached by its IP address, and IP addresses can't be blocked.
+
+The list of blocks isn't shown anywhere, but anyone can find out whether a domain is on it. The `403` comes before the
+signature is checked, so a request naming a key on that domain gets one whether or not it really came from there. Mastodon and
+GoToSocial answer the same way.
 
 ### HTTP Signatures
 

@@ -155,6 +155,10 @@ public class FederationHttpClient implements AutoCloseable {
         if (!allowedSchemes.contains(scheme)) {
             throw new BlockedTargetException("Refusing to fetch a URL with this scheme: " + scheme);
         }
+        // URI.getHost is null for names like foo_bar.example, which the request would still connect to, unchecked.
+        if (uri.getHost() == null) {
+            throw new BlockedTargetException("Refusing to contact a URL whose host can't be read: " + uri);
+        }
         if (blocks.isBlocked(uri.getHost())) {
             throw new BlockedTargetException("Refusing to contact a blocked server: " + uri.getHost());
         }

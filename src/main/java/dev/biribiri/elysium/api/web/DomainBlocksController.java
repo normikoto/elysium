@@ -137,12 +137,14 @@ public class DomainBlocksController {
      * would do.
      */
     private DomainBlockResponse create(Map<String, ?> parameters) {
-        if (RequestParameters.string(parameters, "severity") == null) {
+        var severity = RequestParameters.string(parameters, "severity");
+        if (severity == null) {
             throw new InvalidRequestException(
                     "Validation failed: severity is required, and has to be " + DomainBlockResponse.SEVERITY);
         }
-        checkSeverity(parameters);
-        return DomainBlockResponse.from(blocks.create(RequestParameters.string(parameters, "domain"), RequestParameters.string(parameters, "private_comment")));
+        checkSeverity(severity);
+        return DomainBlockResponse.from(blocks.create(
+                RequestParameters.string(parameters, "domain"), RequestParameters.string(parameters, "private_comment")));
     }
 
     /**
@@ -150,7 +152,7 @@ public class DomainBlocksController {
      * clears it.
      */
     private DomainBlockResponse update(String id, Map<String, ?> parameters) {
-        checkSeverity(parameters);
+        checkSeverity(RequestParameters.string(parameters, "severity"));
         var comment = RequestParameters.string(parameters, "private_comment");
         var blockId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
         var updated = parameters.containsKey("private_comment")
@@ -162,8 +164,7 @@ public class DomainBlocksController {
     /**
      * Silencing isn't implemented. Making a full block instead would cut off a server that an admin only meant to limit.
      */
-    private static void checkSeverity(Map<String, ?> parameters) {
-        var severity = RequestParameters.string(parameters, "severity");
+    private static void checkSeverity(String severity) {
         if (severity != null && !severity.equals(DomainBlockResponse.SEVERITY)) {
             throw new InvalidRequestException(
                     "Validation failed: severity has to be " + DomainBlockResponse.SEVERITY + ", the only one supported");

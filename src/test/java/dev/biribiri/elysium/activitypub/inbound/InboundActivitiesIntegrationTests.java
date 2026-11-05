@@ -67,6 +67,20 @@ class InboundActivitiesIntegrationTests {
     }
 
     @Test
+    void finishesIfItsServerIsBlockedWhileItIsBeingProcessed() {
+        var id = "https://blocked-during.test/activities/" + UUID.randomUUID();
+        var activity = new InboundActivity(id, "https://blocked-during.test/actor", "Test", "{\"id\":\"" + id + "\"}");
+        handler.onNext.put(activity.id(), ignored -> {
+            blocks.create("blocked-during.test", null);
+            throw new PermanentJobFailure("Won't fetch the actor: its server is blocked");
+        });
+
+        inbound.accept(activity);
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+    }
+
+    @Test
     void doesNotProcessARepeatOfAnActivity() {
         var activity = activity("Test");
 

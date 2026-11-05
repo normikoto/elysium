@@ -58,7 +58,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 
 Only part of this is live. `InboxController` receives activities and queues them, and only `Follow` and `Undo` have an
 `InboundActivityHandler`, so other types are stored and ignored. `FollowHandler` and `StatusDeliveries` use
-`activitypub.delivery`, and `StatusPublished` and `StatusDeleted` are the only application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
+`activitypub.delivery`, and `StatusPublished`, `StatusDeleted`, and `DomainBlocked` are the only application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
 feature is live.
 
 - **Inbound:** `InboxController` does the HTTP and signature steps, and `Inbox` decides whether to keep an activity. Who an

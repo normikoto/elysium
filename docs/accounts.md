@@ -68,7 +68,8 @@ Admins can cut off another server at `/admin/domain-blocks`, or through the
 accepted from those servers or sent to them, and their follows are removed. See
 [`FEDERATION.md`](../FEDERATION.md#domain-blocks) for the details, and what a block doesn't stop.
 
-Comments are only shown to admins, and the list of blocks isn't published. Removing a block doesn't bring back what was
+Comments are only shown to admins, and the list of blocks isn't shown anywhere, but it isn't secret: anyone can find out
+whether a domain is blocked, [as `FEDERATION.md` explains](../FEDERATION.md#domain-blocks). Removing a block doesn't bring back what was
 removed, so followers on that server have to follow again.
 
 ## Job queue

@@ -185,6 +185,20 @@ class DomainBlocksIntegrationTests {
                 .andExpect(status().isUnprocessableContent());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"a\\u0000b", "a\\ud83db"})
+    void refusesACommentThatCannotBeStored(String comment) throws Exception {
+        var body = "{\"domain\":\"" + newDomain() + "\",\"severity\":\"suspend\",\"private_comment\":\"" + comment + "\"}";
+        mockMvc.perform(withToken(post(PATH), write()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnprocessableContent());
+
+        var id = id(create(newDomain()));
+        mockMvc.perform(withToken(put(PATH + "/" + id), write())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"private_comment\":\"" + comment + "\"}"))
+                .andExpect(status().isUnprocessableContent());
+    }
+
     @Test
     void refusesAValueOfTheWrongType() throws Exception {
         mockMvc.perform(withToken(post(PATH), write())

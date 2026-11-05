@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,10 +40,25 @@ class InboundActivityTask {
     private CompletionHandler<InboundJob> run(InboundJob job) {
         stored.find(job.activityId()).ifPresent(activity -> {
             var handler = handlers.get(activity.type());
-            if (handler != null && !blocks.isBlocked(URI.create(activity.actorUri()).getHost())) {
-                handler.handle(activity);
+            if (handler != null) {
+                process(handler, activity);
             }
         });
         return Jobs.done();
+    }
+
+    private void process(InboundActivityHandler handler, InboundActivity activity) {
+        var host = URI.create(activity.actorUri()).getHost();
+        if (blocks.isBlocked(host)) {
+            return;
+        }
+        try {
+            handler.handle(activity);
+        } catch (PermanentJobFailure e) {
+            // A block landing during this job makes fetching the actor fail, which isn't a problem for an admin to look at.
+            if (!blocks.isBlocked(host)) {
+                throw e;
+            }
+        }
     }
 }

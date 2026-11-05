@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.moderation;
 
 import java.net.IDN;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -50,6 +51,10 @@ final class DomainName {
         } catch (IllegalArgumentException e) {
             throw new InvalidDomainBlockException(NOT_A_DOMAIN);
         }
+        if (!stillTheSameName(name, ascii)) {
+            throw new InvalidDomainBlockException(
+                    "That domain can be read in more than one way. Enter its xn-- form instead.");
+        }
         if (ascii.length() > MAX_LENGTH) {
             throw new InvalidDomainBlockException("That domain is too long.");
         }
@@ -66,6 +71,15 @@ final class DomainName {
             throw new InvalidDomainBlockException("Blocking a whole top-level domain isn't allowed.");
         }
         return ascii;
+    }
+
+    /**
+     * {@link IDN} follows IDNA2003, which replaces some characters rather than encoding them, such as ß with ss. That would
+     * block an unrelated server and leave the intended one alone.
+     */
+    private static boolean stillTheSameName(String name, String ascii) {
+        return name.chars().allMatch(character -> character < 128)
+                || Normalizer.normalize(name.toLowerCase(Locale.ROOT), Normalizer.Form.NFC).equals(IDN.toUnicode(ascii));
     }
 
     /**

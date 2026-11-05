@@ -31,7 +31,8 @@ full block, so these differ from Mastodon:
 - `reject_media` and `reject_reports` are always returned as `true`, `obfuscate` as `false`, and `public_comment` as null.
   Any values sent for them are ignored.
 - A domain with a wildcard, a port, or a URL's other parts is refused, as are IP addresses, a domain with only one label such
-  as `com`, and this server's own domain or one above it. Blocks always cover subdomains and every port.
+  as `com`, and this server's own domain or one above it. Blocks always cover subdomains and every port. A Unicode domain
+  that converting would change, such as `faß.example`, has to be sent in its `xn--` form.
 - `private_comment` can be up to 1000 characters.
 - A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one that's already blocked.
 
