@@ -55,6 +55,7 @@ public class FollowRepository {
                 .param("followerId", followerId)
                 .param("activityUri", activityUri)
                 .query(ROW_MAPPER)
+                .list()
                 .stream()
                 .findFirst();
     }
@@ -85,6 +86,7 @@ public class FollowRepository {
                         """)
                 .param("followedId", followedId)
                 .query(String.class)
+                .list()
                 .stream()
                 .map(URI::create)
                 .toList();
@@ -104,6 +106,7 @@ public class FollowRepository {
                 .param("followedId", followedId)
                 .param("time", time(time))
                 .query(String.class)
+                .list()
                 .stream()
                 .map(URI::create)
                 .toList();
@@ -124,6 +127,7 @@ public class FollowRepository {
                 .param("followerId", followerId)
                 .param("activityUri", activityUri)
                 .query(UUID.class)
+                .list()
                 .stream()
                 .findFirst();
     }
