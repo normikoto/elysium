@@ -20,8 +20,8 @@ import org.springframework.security.oauth2.server.authorization.authentication.C
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.introspection.OpaqueTokenIntrospector;
+import org.springframework.security.web.DefaultRedirectStrategy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.ExceptionMappingAuthenticationFailureHandler;
 import org.springframework.security.web.authentication.Http403ForbiddenEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
@@ -35,7 +35,6 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import static org.springframework.security.config.Customizer.withDefaults;
@@ -183,9 +182,7 @@ class SecurityConfig {
         requestCache.setRequestMatcher(
                 request -> pagesNeedingLogin.matches(request) && requestCache.getRequest(request, null) == null);
 
-        var loginFailure = new ExceptionMappingAuthenticationFailureHandler();
-        loginFailure.setDefaultFailureUrl(LOGIN_PATH + "?error");
-        loginFailure.setExceptionMappings(Map.of(PasswordHashingBusyException.class.getName(), LOGIN_PATH + "?busy"));
+        var redirects = new DefaultRedirectStrategy();
 
         // Setting a success handler replaces Spring's default one, which is also what it would give this request cache.
         var loginSuccess = new SavedRequestAwareAuthenticationSuccessHandler();
@@ -229,7 +226,10 @@ class SecurityConfig {
                             } else {
                                 limits.loginNotCounted(request);
                             }
-                            loginFailure.onAuthenticationFailure(request, response, failure);
+                            // Not one of Spring's failure handlers, which keep the exception in the session. It has the
+                            // submitted password in it, and sessions are stored in the database.
+                            redirects.sendRedirect(request, response, LOGIN_PATH
+                                    + (failure instanceof PasswordHashingBusyException ? "?busy" : "?error"));
                         })
                         .permitAll())
                 .logout(withDefaults())

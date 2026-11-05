@@ -20,6 +20,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -172,6 +174,38 @@ class LoginSessionsIntegrationTests {
 
         mockMvc.perform(get("/").session(session)).andExpect(status().isOk());
         assertLoggedOut(session);
+    }
+
+    @Test
+    void aFailedLoginDoesNotStoreThePassword() throws Exception {
+        var knownUsername = newUsername();
+        account(knownUsername);
+
+        for (var username : List.of(knownUsername, newUsername())) {
+            var attempted = "attempted " + UUID.randomUUID();
+            var session = new MockHttpSession();
+            // A session exists by now in a browser, because the login form's CSRF token is kept in it.
+            mockMvc.perform(get("/login").session(session)).andExpect(status().isOk());
+
+            mockMvc.perform(post("/login").with(csrf()).session(session)
+                            .param("username", username)
+                            .param("password", attempted))
+                    .andExpect(redirectedUrl("/login?error"));
+
+            assertThat(jdbc.sql("""
+                            SELECT count(*) FROM spring_session_attributes
+                            WHERE position(:password IN attribute_bytes) > 0
+                            """)
+                    .param("password", attempted.getBytes(StandardCharsets.UTF_8))
+                    .query(Long.class)
+                    .single()).isZero();
+        }
+        assertThat(jdbc.sql("""
+                        SELECT count(*) FROM spring_session_attributes
+                        WHERE attribute_name = 'SPRING_SECURITY_LAST_EXCEPTION'
+                        """)
+                .query(Long.class)
+                .single()).isZero();
     }
 
     private void assertLoggedIn(MockHttpSession session) throws Exception {
