@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +56,8 @@ class FollowIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private JsonMapper json;
+    @Autowired
+    private DomainBlocks blocks;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -102,6 +105,16 @@ class FollowIntegrationTests {
         assertThat(inner.path("actor").stringValue()).isEqualTo(followerUri);
         assertThat(inner.path("object").stringValue()).isEqualTo(followed.uri().toString());
         assertThat(deliveryInboxes()).containsExactly(followerUri + "/inbox");
+    }
+
+    @Test
+    void doesNotAcceptAFollowFromAServerBlockedWhileItWasBeingHandled() {
+        blocks.create(host, null);
+
+        followHandler.handle(follow(newId()));
+
+        assertThat(follows()).isEmpty();
+        assertThat(deliveryInboxes()).isEmpty();
     }
 
     @Test

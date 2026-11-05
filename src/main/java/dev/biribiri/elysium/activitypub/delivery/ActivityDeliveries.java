@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -26,13 +28,15 @@ public class ActivityDeliveries {
 
     private final JdbcClient jdbc;
     private final SchedulerClient scheduler;
+    private final DomainBlocks blocks;
 
     /**
      * @param scheduler lazy because the scheduler needs every task, and tasks need handlers, which queue activities here
      */
-    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler) {
+    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler, DomainBlocks blocks) {
         this.jdbc = jdbc;
         this.scheduler = scheduler;
+        this.blocks = blocks;
     }
 
     /**
@@ -76,14 +80,28 @@ public class ActivityDeliveries {
     }
 
     private void queue(OutboundActivity activity, Collection<URI> inboxes, String staysBehind, String... extraIdParts) {
+        var allowed = allowed(inboxes);
+        if (allowed.isEmpty()) {
+            return;
+        }
         store(activity);
         var now = Instant.now();
-        for (var inbox : new LinkedHashSet<>(inboxes)) {
+        for (var inbox : allowed) {
             var job = new DeliveryJob(activity.id(), inbox.toString(), now, staysBehind);
             var idParts = Stream.concat(Stream.of(job.activityId(), job.inbox()), Stream.of(extraIdParts))
                     .toArray(String[]::new);
             Jobs.schedule(scheduler, TASK, job, idParts);
         }
+    }
+
+    /**
+     * Leaves out inboxes on blocked servers. One with no host stays in, so that its job fails where an admin can see it.
+     */
+    private Set<URI> allowed(Collection<URI> inboxes) {
+        var blocked = blocks.blockedHosts(inboxes.stream().map(URI::getHost).toList());
+        var allowed = new LinkedHashSet<>(inboxes);
+        allowed.removeIf(inbox -> inbox.getHost() != null && blocked.contains(inbox.getHost()));
+        return allowed;
     }
 
     private void store(OutboundActivity activity) {

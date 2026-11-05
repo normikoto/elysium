@@ -28,6 +28,8 @@ public class SignatureVerificationException extends RuntimeException {
         NO_SUPPORTED_SIGNATURE(401),
         /** The signature was read, but it isn't valid or isn't good enough. */
         REJECTED(401),
+        /** The key is on a server that's been blocked, so it's never looked up. This tells the sender not to try again. */
+        DOMAIN_BLOCKED(403),
         /** The sender's key can't be fetched right now, so the sender should try again later. */
         KEY_UNAVAILABLE(503),
         /** Checking this signature needs a key fetch, and the sender has caused too many. */

@@ -24,6 +24,8 @@ import java.util.UUID;
 @Service
 public class FollowService {
 
+    private static final int REMOVAL_BATCH_SIZE = 1000;
+
     private final FollowRepository follows;
     private final ActorService actors;
 
@@ -138,6 +140,31 @@ public class FollowService {
 
     public long countFollowers(UUID followedId) {
         return follows.countFollowers(followedId);
+    }
+
+    /**
+     * @return the domain of every remote actor, each as {@code actor.domain} has it
+     */
+    public List<String> remoteDomains() {
+        return follows.findRemoteDomains();
+    }
+
+    /**
+     * Removes all follows to and from a domain's remote actors. Each batch of actors commits by itself, so that removing a
+     * lot of them doesn't hold one long transaction.
+     *
+     * @param domain a domain from {@link #remoteDomains}
+     */
+    public void removeForDomain(String domain) {
+        var after = new UUID(0, 0);
+        List<UUID> actorIds;
+        do {
+            actorIds = follows.findRemoteActorIds(domain, after, REMOVAL_BATCH_SIZE);
+            if (!actorIds.isEmpty()) {
+                follows.deleteForActors(actorIds);
+                after = actorIds.getLast();
+            }
+        } while (actorIds.size() == REMOVAL_BATCH_SIZE);
     }
 
     private Optional<Removed> cover(String followerUri, UUID followedId, Instant arrivedBy) {

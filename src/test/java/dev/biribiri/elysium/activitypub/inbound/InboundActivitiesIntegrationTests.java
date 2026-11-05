@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import com.github.kagkarlsson.scheduler.boot.autoconfigure.Jackson3Serializer;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +41,8 @@ class InboundActivitiesIntegrationTests {
     @Autowired
     private RepeatingHandler repeating;
     @Autowired
+    private DomainBlocks blocks;
+    @Autowired
     private JdbcClient jdbc;
 
     @Test
@@ -50,6 +53,32 @@ class InboundActivitiesIntegrationTests {
 
         await().atMost(WAIT).until(() -> handler.handled(activity) == 1 && jobs(activity) == 0);
         assertThat(handler.inTransaction).isEmpty();
+    }
+
+    @Test
+    void doesNotProcessAnActivityQueuedBeforeItsServerWasBlocked() {
+        blocks.create("blocked-queue.test", null);
+        var id = "https://blocked-queue.test/activities/" + UUID.randomUUID();
+        var activity = new InboundActivity(id, "https://blocked-queue.test/actor", "Test", "{\"id\":\"" + id + "\"}");
+
+        assertThat(inbound.accept(activity)).isTrue();
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(handler.handled(activity)).isZero();
+    }
+
+    @Test
+    void finishesIfItsServerIsBlockedWhileItIsBeingProcessed() {
+        var id = "https://blocked-during.test/activities/" + UUID.randomUUID();
+        var activity = new InboundActivity(id, "https://blocked-during.test/actor", "Test", "{\"id\":\"" + id + "\"}");
+        handler.onNext.put(activity.id(), ignored -> {
+            blocks.create("blocked-during.test", null);
+            throw new PermanentJobFailure("Won't fetch the actor: its server is blocked");
+        });
+
+        inbound.accept(activity);
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
     }
 
     @Test

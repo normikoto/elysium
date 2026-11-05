@@ -62,9 +62,20 @@ tokens, which don't belong to any user, even if the application registered with 
 revokes its applications that have admin scopes, along with the rest of their access to that account, so they'll need to
 be authorized again.
 
+## Domain blocks
+Admins can cut off another server at `/admin/domain-blocks`, or through the
+[API](api.md). A block covers the domain's subdomains too, and applies straight away, with no restart. Nothing more is
+accepted from those servers or sent to them, and their follows are removed. See
+[`FEDERATION.md`](../FEDERATION.md#domain-blocks) for the details, and what a block doesn't stop.
+
+Comments are only shown to admins, and the list of blocks isn't shown anywhere, but it isn't secret: anyone can find out
+whether a domain is blocked, [as `FEDERATION.md` explains](../FEDERATION.md#domain-blocks). Removing a block doesn't bring back what was
+removed, so followers on that server have to follow again.
+
 ## Job queue
 Admins can see the background job queue at `/admin/db-scheduler`. It has a job for each activity received from another
-server, a job for each activity being sent to another server's inbox, and its own daily cleanup job. Each job shows what it's for, when it'll
+server, a job for each activity being sent to another server's inbox, jobs that remove what's stored from a server that's
+been blocked, and its own daily cleanup job. Each job shows what it's for, when it'll
 next run, and its failures, and **History** shows why it failed. A job only holds IDs, so private posts aren't shown.
 
 - **Retries:** A job that fails for a temporary reason, like a server being down, is tried again with longer and longer

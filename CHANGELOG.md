@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See `FEDERATION.md` and `docs/configuration.md`.
 - `elysium.federation.allowed-private-networks`, which lets requests to other servers reach the private networks it lists.
   It should not normally be set: it's only for servers on a private network, such as the federation test lab.
+- Domain blocks, for admins to cut off another server and its subdomains, at `/admin/domain-blocks` and
+  `/api/v1/admin/domain_blocks`. Blocked servers get a `403`, nothing is fetched from them or sent to them, and their follows
+  are removed. See `docs/accounts.md` and `FEDERATION.md`.
 
 ### Changed
 

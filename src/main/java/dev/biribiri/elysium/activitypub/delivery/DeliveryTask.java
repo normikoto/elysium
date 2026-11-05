@@ -10,6 +10,7 @@ import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.SignedSender;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,13 +41,21 @@ class DeliveryTask {
     private final ActorSigningKeys keys;
     private final SignedSender sender;
     private final HostGate gate;
+    private final DomainBlocks blocks;
 
-    DeliveryTask(JdbcClient jdbc, ActorService actors, ActorSigningKeys keys, SignedSender sender, HostGate gate) {
+    DeliveryTask(
+            JdbcClient jdbc,
+            ActorService actors,
+            ActorSigningKeys keys,
+            SignedSender sender,
+            HostGate gate,
+            DomainBlocks blocks) {
         this.jdbc = jdbc;
         this.actors = actors;
         this.keys = keys;
         this.sender = sender;
         this.gate = gate;
+        this.blocks = blocks;
     }
 
     @Bean
@@ -77,6 +86,10 @@ class DeliveryTask {
             var activity = find(job);
             if (activity.isEmpty()) {
                 return Jobs.activityGone(job);
+            }
+            if (blocks.isBlocked(host)) {
+                // It was queued before the block. This comes before backing off, which could end with it failing.
+                return Jobs.done();
             }
             var backingOff = gate.backingOffUntil(host, now);
             if (backingOff.isPresent()) {
@@ -121,7 +134,7 @@ class DeliveryTask {
                 .optional();
     }
 
-    private void send(OutboundActivity activity, URI inbox, String host) {
+    void send(OutboundActivity activity, URI inbox, String host) {
         var key = actors.findLocalById(activity.actorId())
                 .flatMap(keys::forActor)
                 .orElseThrow(() -> new PermanentJobFailure("The activity's actor no longer has a local key"));
@@ -131,6 +144,10 @@ class DeliveryTask {
         } catch (IllegalArgumentException e) {
             throw new PermanentJobFailure("The inbox URL can't be signed", e);
         } catch (BlockedTargetException e) {
+            if (blocks.isBlocked(host)) {
+                // Blocked since this job's check, so this finishes as it would have then.
+                return;
+            }
             // This extends IOException, but it's about where the request was going and not about the server's health.
             throw new PermanentJobFailure("The inbox URL isn't allowed", e);
         } catch (ResponseTooLargeException e) {

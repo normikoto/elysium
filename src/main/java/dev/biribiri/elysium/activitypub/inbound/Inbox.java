@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.activitypub.http.HostHeader;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,10 +23,12 @@ public class Inbox {
 
     private final InboundActivities activities;
     private final JsonMapper json;
+    private final DomainBlocks blocks;
 
-    Inbox(InboundActivities activities, JsonMapper json) {
+    Inbox(InboundActivities activities, JsonMapper json, DomainBlocks blocks) {
         this.activities = activities;
         this.json = json;
+        this.blocks = blocks;
     }
 
     /**
@@ -41,6 +44,11 @@ public class Inbox {
         if (!signer.owner().toString().equals(envelope.actor())) {
             log.debug("Ignoring activity {} from {}, signed by {}", envelope.id(), envelope.actor(), signer.owner());
             return Outcome.IGNORED;
+        }
+        // The signature check has already refused keys on a blocked server, but a block can have been added since then.
+        if (blocks.isBlocked(signer.owner().getHost())) {
+            log.debug("Refusing activity {} from {}, whose server is blocked", envelope.id(), signer.owner());
+            return Outcome.FORBIDDEN;
         }
         URI id;
         try {
@@ -84,7 +92,7 @@ public class Inbox {
         IGNORED,
         /** The body isn't an activity that can be stored. */
         INVALID,
-        /** The activity's ID isn't on its actor's server, so the actor can't speak for it. */
+        /** The activity's ID isn't on its actor's server, so the actor can't speak for it, or that server is blocked. */
         FORBIDDEN
     }
 }

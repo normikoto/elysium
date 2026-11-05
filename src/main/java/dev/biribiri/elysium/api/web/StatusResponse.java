@@ -4,9 +4,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.content.Status;
 
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -50,13 +47,10 @@ record StatusResponse(
         boolean pinned
 ) {
 
-    private static final DateTimeFormatter TIMESTAMP =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
-
     static StatusResponse from(Status status, AccountResponse account, boolean includeText) {
         return new StatusResponse(
                 status.id().toString(),
-                format(status.publishedAt()),
+                ApiTimestamps.format(status.publishedAt()),
                 null,
                 string(status.inReplyToId()),
                 string(status.inReplyToAccountId()),
@@ -92,10 +86,6 @@ record StatusResponse(
      */
     private static String pageUrl(Status status) {
         return status.isVisibleTo(Optional.empty()) ? status.uri().toString() : null;
-    }
-
-    private static String format(Instant instant) {
-        return TIMESTAMP.format(instant);
     }
 
     private static String string(UUID id) {

@@ -6,15 +6,11 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
-import org.springframework.web.util.UriComponentsBuilder;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -61,10 +57,7 @@ class StatusResponses {
     ResponseEntity<List<StatusResponse>> page(
             String path, Map<String, String> filters, StatusPage page, List<Status> found) {
         var response = ResponseEntity.ok();
-        var links = links(path, filters, page, found);
-        if (!links.isEmpty()) {
-            response.header(HttpHeaders.LINK, String.join(", ", links));
-        }
+        PageLinks.addTo(response, instance, path, filters, page.limit(), found.stream().map(Status::id).toList());
         return response.body(build(found, false));
     }
 
@@ -85,27 +78,5 @@ class StatusResponses {
                                 authors.get(status.actorId()), stats.get(status.actorId()), instance),
                         includeText))
                 .toList();
-    }
-
-    /**
-     * Only a full page can have older statuses after it. Any non-empty page offers a link to newer ones, which clients
-     * use to poll for new statuses.
-     */
-    private List<String> links(String path, Map<String, String> filters, StatusPage page, List<Status> found) {
-        var links = new ArrayList<String>();
-        if (found.size() == page.limit()) {
-            links.add(link(path, filters, page, "max_id", found.getLast().id(), "next"));
-        }
-        if (!found.isEmpty()) {
-            links.add(link(path, filters, page, "min_id", found.getFirst().id(), "prev"));
-        }
-        return links;
-    }
-
-    private String link(
-            String path, Map<String, String> filters, StatusPage page, String cursor, UUID id, String relation) {
-        var uri = UriComponentsBuilder.fromUri(instance.resolve(path)).queryParam("limit", page.limit());
-        filters.forEach(uri::queryParam);
-        return "<%s>; rel=\"%s\"".formatted(uri.queryParam(cursor, id).encode().build().toUriString(), relation);
     }
 }

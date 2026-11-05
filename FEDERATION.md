@@ -96,7 +96,7 @@ plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
 | `202`  | The activity is queued, it's a repeat of one with the same `id`, or it was dropped because of who signed it  |
 | `400`  | The signature header can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, or the `id` isn't a valid URI or is over 2048 bytes |
 | `401`  | There's no signature in a supported format, or it isn't valid                                                |
-| `403`  | The activity's `id` is a valid URI, but not an HTTPS URL on the same host and port as its `actor`            |
+| `403`  | The activity's `id` is a valid URI, but not an HTTPS URL on the same host and port as its `actor`, or the signature's key is on a [blocked domain](#domain-blocks) |
 | `404`  | The user doesn't exist                                                                                       |
 | `413`  | The body is too large                                                                                        |
 | `415`  | The `Content-Type` isn't one of those above                                                                  |
@@ -264,6 +264,32 @@ again with the same `id`.
 - Inboxes can't be read, so a `GET` gets a 403.
 - The `outbox` that the instance actor advertises isn't implemented yet.
 - Fetching actors and objects from this server doesn't need a signature, and any signature on those requests is ignored.
+
+### Domain blocks
+
+Admins can [block a domain](docs/accounts.md#domain-blocks), which also covers its subdomains and every port. Domains are
+compared in lowercase ASCII, without a trailing dot. A block is only ever a full one, with no lesser level.
+
+- **Inbound:** A delivery signed with a key on a blocked domain gets a `403`, before any key is fetched, so it doesn't use up
+  any limits. This also applies to keys this server has already cached. A signature that's malformed or out of date still
+  gets its usual `400` or `401`, because those are checked first. Activities that were already queued are dropped without
+  being processed.
+- **Fetching:** Keys and actors are never fetched from a blocked domain.
+- **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
+  sent, and that doesn't count as the server failing.
+- **Existing data:** Follows to and from its actors are removed by a job, and run again 5 minutes later for any that were
+  being saved at the time. Its actors are kept.
+- **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
+  blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
+  status posted before then, and it keeps any copy it has.
+
+A block doesn't stop a server's users from reading this server's public pages and documents, which need no signature, or
+recall a delivery that's already being sent. It only covers names, so it doesn't apply to a server that moves to an unrelated
+domain, or that's reached by its IP address, and IP addresses can't be blocked.
+
+The list of blocks isn't shown anywhere, but anyone can find out whether a domain is on it. The `403` comes before the
+signature is checked, so a request naming a key on that domain gets one whether or not it really came from there. Mastodon and
+GoToSocial answer the same way.
 
 ### HTTP Signatures
 
