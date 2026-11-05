@@ -38,12 +38,14 @@ class InboundActivityTask {
      * actor, so a handler has to check any other actor or object that it fetches or stores.
      */
     private CompletionHandler<InboundJob> run(InboundJob job) {
-        stored.find(job.activityId()).ifPresent(activity -> {
-            var handler = handlers.get(activity.type());
-            if (handler != null) {
-                process(handler, activity);
-            }
-        });
+        var activity = stored.find(job.activityId());
+        if (activity.isEmpty()) {
+            return Jobs.activityGone(job);
+        }
+        var handler = handlers.get(activity.get().type());
+        if (handler != null) {
+            process(handler, activity.get());
+        }
         return Jobs.done();
     }
 

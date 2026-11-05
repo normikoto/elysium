@@ -231,7 +231,6 @@ delete_from_elysium() {
 
 mastodon_expect_statuses() {
     local output
-    # Not the home feed, because Mastodon doesn't fill those for users who haven't signed in lately.
     output=$(docker compose exec -T -e PUBLIC_URI="$public_uri" -e PRIVATE_URI="$private_uri" mastodon-web bin/rails runner '
         find = lambda do |uri|
             status = nil
@@ -242,14 +241,28 @@ mastodon_expect_statuses() {
             end
             status
         end
+        # By ID, because a feed only loads the IDs of its statuses.
+        feed = HomeFeed.new(Account.find_local("lab"))
+        in_feed = lambda do |status|
+            found = false
+            30.times do
+                found = Status.uncached { feed.get(100).map(&:id).include?(status.id) }
+                break if found
+                sleep 2
+            end
+            found
+        end
         [ENV["PUBLIC_URI"], ENV["PRIVATE_URI"]].each do |uri|
             status = find.call(uri)
             puts "STATUS #{status&.visibility} #{status&.account&.uri}"
+            puts "IN FEED #{status.present? && in_feed.call(status)}"
         end')
     echo "$output"
     grep -qxF "STATUS public $expected_actor" <<<"$output" || fail "Mastodon never stored the public status"
     grep -qxF "STATUS private $expected_actor" <<<"$output" || fail "Mastodon never stored the followers-only status"
     echo 'Mastodon stored both statuses, with the right visibility'
+    [[ $(grep -cxF 'IN FEED true' <<<"$output") == 2 ]] || fail "A status isn't in the home feed of Mastodon's lab user"
+    echo "Both statuses are in the home feed of Mastodon's lab user"
 }
 
 mastodon_expect_deleted() {
@@ -319,8 +332,11 @@ gotosocial_expect_deleted() {
 deliver_from_mastodon() {
     # Mastodon answers a 404 for the actor of an account that isn't approved, which Elysium would remember for a while.
     docker compose exec -T mastodon-web bin/tootctl accounts create lab --email lab@mastodon.test --confirmed --approve
+    # Signed in, because Mastodon doesn't fill the home feeds of users who haven't signed in lately.
     docker compose exec -T mastodon-web bin/rails runner '
-        PostStatusService.new.call(Account.find_local("lab"), text: "@alice@elysium.test Hello from the lab")'
+        lab = Account.find_local("lab")
+        lab.user.update!(current_sign_in_at: Time.now.utc)
+        PostStatusService.new.call(lab, text: "@alice@elysium.test Hello from the lab")'
     expect_delivery mastodon.test
 }
 

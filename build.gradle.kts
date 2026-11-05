@@ -100,6 +100,21 @@ tasks.bootBuildImage {
     }
 }
 
-tasks.withType<Test> {
-    useJUnitPlatform()
+tasks.test {
+    useJUnitPlatform {
+        excludeTags("load")
+    }
+}
+
+tasks.register<Test>("loadTest") {
+    description = "Measures delivery under load, and prints the numbers. Takes minutes, and needs Docker."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform {
+        includeTags("load")
+    }
+    testLogging.showStandardStreams = true
+    // The numbers are the point, so a run that changes nothing still has to happen.
+    outputs.upToDateWhen { false }
 }

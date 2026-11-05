@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -50,13 +49,37 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(OutboundActivity activity, Collection<URI> inboxes) {
-        queue(activity, inboxes);
+        queue(activity, inboxes, null);
     }
 
     /**
-     * @param extraIdParts what else identifies these jobs, along with the activity and the inbox
+     * Queues an activity to be sent again, as a new try for each inbox, for when something has asked for it again. A job from
+     * an earlier try may have given up and been set aside, and queuing the same job wouldn't replace it. Doing this again
+     * for the same try has no effect, so a listener that runs again after a crash is safe. Otherwise this is like
+     * {@link #enqueue(OutboundActivity, Collection)}.
+     *
+     * @param attempt what identifies this try
      */
-    private void queue(OutboundActivity activity, Collection<URI> inboxes, String... extraIdParts) {
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueue(OutboundActivity activity, Collection<URI> inboxes, String attempt) {
+        queue(activity, inboxes, null, attempt);
+    }
+
+    /**
+     * Queues an activity that shouldn't overtake one that's been {@linkplain #cancel cancelled}, as a {@code Delete} shouldn't
+     * overtake its {@code Create}. Cancelling can't stop a request in progress, so each job waits while one of the cancelled
+     * activity's jobs is running for its host. Otherwise this is like {@link #enqueue(OutboundActivity, Collection)}.
+     *
+     * <p>Cancel in the same transaction. A job that isn't running by the time these can see the cancel can't send anything.
+     *
+     * @param cancelledActivityId the activity to stay behind
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueueAfter(OutboundActivity activity, Collection<URI> inboxes, String cancelledActivityId) {
+        queue(activity, inboxes, cancelledActivityId);
+    }
+
+    private void queue(OutboundActivity activity, Collection<URI> inboxes, String staysBehind, String... extraIdParts) {
         var allowed = allowed(inboxes);
         if (allowed.isEmpty()) {
             return;
@@ -64,9 +87,10 @@ public class ActivityDeliveries {
         store(activity);
         var now = Instant.now();
         for (var inbox : allowed) {
-            var job = new DeliveryJob(activity.id(), inbox.toString(), now);
-            var idParts = Stream.concat(Stream.of(job.activityId(), job.inbox()), Arrays.stream(extraIdParts));
-            Jobs.schedule(scheduler, TASK, job, idParts.toArray(String[]::new));
+            var job = new DeliveryJob(activity.id(), inbox.toString(), now, staysBehind);
+            var idParts = Stream.concat(Stream.of(job.activityId(), job.inbox()), Stream.of(extraIdParts))
+                    .toArray(String[]::new);
+            Jobs.schedule(scheduler, TASK, job, idParts);
         }
     }
 
@@ -84,7 +108,7 @@ public class ActivityDeliveries {
         jdbc.sql("""
                         INSERT INTO outbound_activity (activity_id, actor_id, body)
                         VALUES (:id, :actorId, :body)
-                        ON CONFLICT (activity_id) DO NOTHING
+                        ON CONFLICT (activity_id) DO UPDATE SET created_at = now()
                         """)
                 .param("id", activity.id())
                 .param("actorId", activity.actorId())
@@ -93,21 +117,8 @@ public class ActivityDeliveries {
     }
 
     /**
-     * Queues an activity to be sent again, as a new try for each inbox, for when something has asked for it again. A job from
-     * an earlier try may have given up and been set aside, and queuing the same job wouldn't replace it. Doing this again
-     * for the same try has no effect, so a listener that runs again after a crash is safe. Otherwise this is like
-     * {@link #enqueue(OutboundActivity, Collection)}.
-     *
-     * @param attempt what identifies this try
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void enqueue(OutboundActivity activity, Collection<URI> inboxes, String attempt) {
-        queue(activity, inboxes, attempt);
-    }
-
-    /**
      * Stops any further sending of an activity, so that a status deleted soon after it was posted isn't then delivered.
-     * Its jobs finish without sending the next time they run.
+     * Its jobs finish without sending the next time they run and get a slot for their host.
      */
     public void cancel(String activityId) {
         jdbc.sql("DELETE FROM outbound_activity WHERE activity_id = :id").param("id", activityId).update();

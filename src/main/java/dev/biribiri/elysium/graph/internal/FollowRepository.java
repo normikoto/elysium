@@ -52,12 +52,13 @@ public class FollowRepository {
         return jdbc.sql("""
                         SELECT followed_id, activity_uri, activity_at FROM follow
                         WHERE follower_id = :followerId AND activity_uri = :activityUri
+                        ORDER BY activity_at DESC, id
+                        LIMIT 1
                         """)
                 .param("followerId", followerId)
                 .param("activityUri", activityUri)
                 .query(ROW_MAPPER)
-                .stream()
-                .findFirst();
+                .optional();
     }
 
     public void saveAccepted(UUID followerId, UUID followedId, String activityUri, Instant activityAt) {
@@ -85,10 +86,8 @@ public class FollowRepository {
                         WHERE f.followed_id = :followedId AND f.state = 'accepted' AND NOT a.is_local
                         """)
                 .param("followedId", followedId)
-                .query(String.class)
-                .stream()
-                .map(URI::create)
-                .toList();
+                .query((rs, row) -> URI.create(rs.getString(1)))
+                .list();
     }
 
     /**
@@ -104,10 +103,8 @@ public class FollowRepository {
                         """)
                 .param("followedId", followedId)
                 .param("time", time(time))
-                .query(String.class)
-                .stream()
-                .map(URI::create)
-                .toList();
+                .query((rs, row) -> URI.create(rs.getString(1)))
+                .list();
     }
 
     public long countFollowers(UUID followedId) {
@@ -125,6 +122,7 @@ public class FollowRepository {
                 .param("followerId", followerId)
                 .param("activityUri", activityUri)
                 .query(UUID.class)
+                .list()
                 .stream()
                 .findFirst();
     }

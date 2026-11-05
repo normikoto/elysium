@@ -82,12 +82,14 @@ next run, and its failures, and **History** shows why it failed. A job only hold
   gaps, up to 6 hours apart, for 3 days.
 - **Giving up:** After 3 days, or straight away if trying again can't help, a job is set aside for 30 days. It stays in the
   list as failed so that you can retry or delete it, and it's removed without running after that. If you retry one and it
-  fails again, it's set aside for another 30 days.
+  fails again, it's set aside for another 30 days. Activities are kept for 34 days, so retrying a job that's older than that
+  can fail with "Its activity is gone", because there's nothing left to send or process.
 - **Servers that keep failing:** After 3 failures in a row, the server waits before sending to that server again, starting
   at 1 minute and going up to 6 hours, or longer if the other server asks with `Retry-After`, up to the same limit. Jobs
   waiting for this aren't failing, so they show as scheduled. If you run several copies of the server, they share this.
-- **Limits:** Each copy of the server sends at most 4 requests at a time to another server, so the real limit is 4 times
-  the number of copies.
+- **Limits:** Each copy of the server sends at most 3 activities at a time to another server, leaving a connection for
+  fetching its keys, so the real limit is 3 times the number of copies. Jobs waiting for their turn show as scheduled, and
+  each copy starts about 3 of them a second for one server, so a large backlog for one server drains at about 180 a minute.
 - **History:** Successful runs are kept for 7 days, and failed ones for 30.
 
 Commands such as `create-user` never run jobs, so they're safe to use while the server is running.

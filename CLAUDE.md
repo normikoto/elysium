@@ -17,6 +17,7 @@ follow anyone.
 ./gradlew test --tests '*StatusesIntegrationTests'                  # One class
 ./gradlew test --tests '*StatusesIntegrationTests.someMethodName'   # One method
 ./gradlew test --tests '*ModularityTests'        # Module boundaries only, with no Docker needed
+./gradlew loadTest                               # Measures delivery under load, and prints the numbers. Takes minutes
 ./gradlew bootJar                                # Builds build/libs/elysium.jar
 ./gradlew bootBuildImage                         # Builds elysium:latest. -PbindDockerHostToBuilder=false for Docker Desktop or Colima
 federation/smoke.sh gotosocial                   # Or mastodon, or misskey. Needs Docker, jq, and a fresh bootBuildImage
@@ -99,12 +100,17 @@ all share the same retry and parking behavior.
 - Jobs have no order, so a handler can run before the job for an earlier activity. `InboundActivity`'s times say which
   arrived first, and `FollowService` explains how `undone_follow` and `undone_follow_pair` use them.
 - Job data only holds IDs. The admin UI at `/admin/db-scheduler` shows it.
+- `HostGate` spaces out jobs waiting for a host to suit `db-scheduler.polling-interval`, since all the jobs due at a poll run
+  within moments. Rerun `./gradlew loadTest` after changing how jobs wait.
+- `activitypub.http.HostRequests` counts key fetches and deliveries per host. Deliveries count both and stop one short of the
+  client's connections, and fetches only count each other, so that a fan-out can't refuse a server's own key fetches.
 
 ### Persistence
 
 There's no ORM. Repositories use `JdbcClient` with hand-written SQL, and the schema comes from Flyway migrations in
 `src/main/resources/db/migration`. These run at startup, and when CLI commands run. IDs are UUIDs, and `actor.Ids.parse` is
-the strict way to read them from a request.
+the strict way to read them from a request. Read queries with `.list()` or `.optional()`, not `.stream()`, which
+holds a connection until it's closed. `DatabaseStreamsTests` enforces this.
 
 ### CLI commands
 
