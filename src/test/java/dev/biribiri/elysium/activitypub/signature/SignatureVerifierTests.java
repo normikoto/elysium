@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +42,7 @@ class SignatureVerifierTests {
 
     private final PublicKeyResolver keys = mock();
     private final DomainBlocks blocks = mock();
+    private final ActorService actors = mock();
     private final ResolvedKey key = new ResolvedKey(KEY_ID, OWNER, SignatureFixtures.publicKey());
 
     @BeforeEach
@@ -207,7 +209,7 @@ class SignatureVerifierTests {
     }
 
     private SignatureVerifier verifier(SignatureScheme... schemes) {
-        return new SignatureVerifier(List.of(schemes), keys, INSTANCE, blocks, Clock.fixed(NOW, ZoneOffset.UTC));
+        return new SignatureVerifier(List.of(schemes), keys, INSTANCE, blocks, actors, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private void assertFails(SignatureVerifier verifier, Failure failure) {

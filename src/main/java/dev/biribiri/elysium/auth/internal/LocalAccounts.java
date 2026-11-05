@@ -10,7 +10,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.Collection;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -28,6 +30,18 @@ class LocalAccounts implements UserDetailsService {
      * locks are shared by the whole database, so this is just an arbitrary number that nothing else uses.
      */
     private static final long FIRST_ACCOUNT_LOCK = 7_391_046_215L;
+
+    /**
+     * Identifies the advisory lock that's held while deciding whether an account can be suspended or deleted, so that two
+     * admins can't each remove the other.
+     */
+    private static final long LAST_ADMIN_LOCK = 7_391_046_216L;
+
+    private static final String ACTIVE_ADMINS = """
+            account_credential c
+            JOIN actor a ON a.id = c.actor_id
+            WHERE c.role = 'ADMIN' AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+            """;
 
     private final ActorService actors;
     private final JdbcClient jdbc;
@@ -127,7 +141,7 @@ class LocalAccounts implements UserDetailsService {
                     .param("role", role.name())
                     .update() > 0;
             var revoked = changed && revokeAdminGrants(actorId);
-            var adminsRemain = jdbc.sql("SELECT EXISTS (SELECT 1 FROM account_credential WHERE role = 'ADMIN')")
+            var adminsRemain = jdbc.sql("SELECT EXISTS (SELECT 1 FROM " + ACTIVE_ADMINS + ")")
                     .query(Boolean.class)
                     .single();
             return Optional.of(new RoleChange(changed, revoked, adminsRemain));
@@ -163,8 +177,9 @@ class LocalAccounts implements UserDetailsService {
             // them upgrading their locks could deadlock.
             jdbc.sql("SELECT pg_advisory_xact_lock(:key)").param("key", FIRST_ACCOUNT_LOCK).query(rs -> {
             });
-            // This includes the account being created.
-            var first = actors.countLocal() == 1;
+            // This includes the account being created. It also includes suspended accounts, since one of those isn't a reason
+            // to make a stranger an admin.
+            var first = actors.countExistingLocal() == 1;
             if (first && !mayBeFirst) {
                 throw new FirstAccountRefusedException();
             }
@@ -192,13 +207,67 @@ class LocalAccounts implements UserDetailsService {
                     .param("actorId", actorId)
                     .param("hash", hash)
                     .update();
-            jdbc.sql("DELETE FROM oauth2_authorization WHERE principal_name = :principalName")
-                    .param("principalName", actorId.toString())
-                    .update();
-            jdbc.sql("DELETE FROM oauth2_authorization_consent WHERE principal_name = :principalName")
-                    .param("principalName", actorId.toString())
-                    .update();
+            revokeGrants(actorId);
         });
+    }
+
+    private void revokeGrants(UUID actorId) {
+        jdbc.sql("DELETE FROM oauth2_authorization WHERE principal_name = :principalName")
+                .param("principalName", actorId.toString())
+                .update();
+        jdbc.sql("DELETE FROM oauth2_authorization_consent WHERE principal_name = :principalName")
+                .param("principalName", actorId.toString())
+                .update();
+    }
+
+    /**
+     * Removes an account's password, role, and everything its applications have, in the caller's transaction. The signing
+     * key stays, because an account's last activities still have to be signed.
+     */
+    void removeCredentials(UUID actorId) {
+        jdbc.sql("DELETE FROM account_credential WHERE actor_id = :actorId").param("actorId", actorId).update();
+        revokeGrants(actorId);
+    }
+
+    /**
+     * Makes other transactions wait here until this one ends, before they decide with {@link #isLastActiveAdmin}. This has to
+     * be a separate statement from that one, so that it sees whatever was committed while waiting.
+     */
+    void lockAdmins() {
+        jdbc.sql("SELECT pg_advisory_xact_lock(:key)").param("key", LAST_ADMIN_LOCK).query(rs -> {
+        });
+    }
+
+    /**
+     * Whether an account is an active admin, with no other one to take over from it.
+     */
+    boolean isLastActiveAdmin(UUID actorId) {
+        var activeAdmins = jdbc.sql("SELECT c.actor_id FROM " + ACTIVE_ADMINS).query(UUID.class).list();
+        return activeAdmins.size() == 1 && activeAdmins.contains(actorId);
+    }
+
+    /**
+     * @return which of these accounts have the admin role
+     */
+    Set<UUID> adminsAmong(Collection<UUID> actorIds) {
+        if (actorIds.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(jdbc.sql("SELECT actor_id FROM account_credential WHERE role = 'ADMIN' AND actor_id IN (:ids)")
+                .param("ids", actorIds)
+                .query(UUID.class)
+                .list());
+    }
+
+    /**
+     * Checks an account's password. This is slow, so it mustn't be called inside a transaction.
+     *
+     * @throws PasswordHashingBusyException if too many passwords are being checked already
+     */
+    boolean passwordMatches(UUID actorId, String password) {
+        return password != null && credential(actorId)
+                .filter(found -> passwordEncoder.matches(password, found.passwordHash()))
+                .isPresent();
     }
 
     private void insertCredential(UUID actorId, String hash, AccountRole role) {

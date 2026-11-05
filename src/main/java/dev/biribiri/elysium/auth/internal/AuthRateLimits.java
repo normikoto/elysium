@@ -60,6 +60,21 @@ class AuthRateLimits {
      * @return how long to wait, if the attempt isn't allowed
      */
     Optional<Duration> beginLogin(HttpServletRequest request) {
+        return begin(request, loginUsername(request));
+    }
+
+    /**
+     * Starts checking the password of an account that someone's already logged in to, which counts in the same way as trying to
+     * log in to it, so that a stolen session doesn't get around the limits on guessing its password. This finishes in the same
+     * ways as a login attempt.
+     *
+     * @return how long to wait, if the attempt isn't allowed
+     */
+    Optional<Duration> beginPasswordCheck(HttpServletRequest request, String username) {
+        return begin(request, Optional.of(username.toLowerCase(Locale.ROOT)));
+    }
+
+    private Optional<Duration> begin(HttpServletRequest request, Optional<String> username) {
         if (!enabled) {
             return Optional.empty();
         }
@@ -69,7 +84,6 @@ class AuthRateLimits {
         if (addressSlot.isEmpty()) {
             return Optional.of(loginsByAddress.timeUntilReset(address));
         }
-        var username = loginUsername(request);
         if (username.isEmpty()) {
             request.setAttribute(LOGIN_ATTEMPT_ATTRIBUTE, new LoginAttempt(addressSlot.get(), null, null));
             return Optional.empty();

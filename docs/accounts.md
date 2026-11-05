@@ -62,6 +62,43 @@ tokens, which don't belong to any user, even if the application registered with 
 revokes its applications that have admin scopes, along with the rest of their access to that account, so they'll need to
 be authorized again.
 
+## Suspending and deleting accounts
+To stop an account in a way that can be undone, an admin can suspend it at `/admin/accounts`, through the [API](api.md), or with
+a command, which works when the web server can't be reached. Commands run [the same way as `create-user`](#accounts-and-sign-ups):
+```shell
+java -jar elysium.jar suspend-account alice
+java -jar elysium.jar unsuspend-account alice
+java -jar elysium.jar suspend-account https://other.example/users/bob   # An account on another server, by its URI
+java -jar elysium.jar delete-account alice                              # Asks you to type the username, unless given --yes
+```
+
+These apply straight away, with no restart, but a command can leave telling other servers to the running server, which picks
+that up within about 10 minutes.
+
+**Suspending a local account** keeps its data, for as long as it stays suspended, with no time limit. While it's suspended:
+- It can't log in, its browser sessions end, and its applications' tokens are refused. The tokens work again if the suspension
+  ends, so if the account may be compromised, also run [`reset-password`](#accounts-and-sign-ups), which revokes them.
+- Its posts and profile aren't shown to anyone, and it isn't counted in the server's statistics.
+- Other servers [are told](../FEDERATION.md#suspended-and-deleted-accounts), and it keeps its followers. New posts still waiting
+  to be sent are dropped, and aren't sent later. Other things waiting to be sent, such as the deletion of a post, go out once the
+  suspension ends.
+- `reset-password` and `set-role` still work on it.
+
+**Suspending an account on another server** refuses everything from it and stops sending to it, and removes its follows, which
+don't come back if the suspension ends. Its own server isn't told. To stop a whole server, use a [domain block](#domain-blocks).
+
+**Deleting a local account** removes it for good, and can't be undone. Its password and applications' access go straight away,
+and its posts and follows are removed by a background job within moments, or about 10 minutes if a command did it. Other servers
+are asked to remove it too, which they may not do. Its username can't be used again, because other servers can still know it, so
+a row with its username and addresses is kept for good. Replies to its posts from other accounts stay. Accounts on other servers
+can't be deleted, because this server doesn't hold them, so suspend them instead.
+
+People can delete their own account at `/settings/delete-account`, by entering their password. Admins can too, as long as
+another admin remains.
+
+Nobody can suspend or delete the server's last admin, including with a command, so [choose another](#admins) first. Admins also
+can't suspend or delete themselves from the admin page or the API. A suspended admin doesn't count as another admin.
+
 ## Domain blocks
 Admins can cut off another server at `/admin/domain-blocks`, or through the
 [API](api.md). A block covers the domain's subdomains too, and applies straight away, with no restart. Nothing more is
@@ -75,7 +112,7 @@ removed, so followers on that server have to follow again.
 ## Job queue
 Admins can see the background job queue at `/admin/db-scheduler`. It has a job for each activity received from another
 server, a job for each activity being sent to another server's inbox, jobs that remove what's stored from a server that's
-been blocked, and its own daily cleanup job. Each job shows what it's for, when it'll
+been blocked, jobs that remove what's stored for an account that's been deleted or suspended, and its own daily cleanup job. Each job shows what it's for, when it'll
 next run, and its failures, and **History** shows why it failed. A job only holds IDs, so private posts aren't shown.
 
 - **Retries:** A job that fails for a temporary reason, like a server being down, is tried again with longer and longer

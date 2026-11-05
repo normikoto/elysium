@@ -4,6 +4,7 @@ import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,8 +21,11 @@ class InboundActivityTask {
     private final StoredActivities stored;
     private final Map<String, InboundActivityHandler> handlers;
     private final DomainBlocks blocks;
+    private final ActorService actors;
 
-    InboundActivityTask(StoredActivities stored, List<InboundActivityHandler> handlers, DomainBlocks blocks) {
+    InboundActivityTask(
+            StoredActivities stored, List<InboundActivityHandler> handlers, DomainBlocks blocks, ActorService actors) {
+        this.actors = actors;
         this.stored = stored;
         this.handlers = handlers.stream()
                 .collect(Collectors.toUnmodifiableMap(InboundActivityHandler::type, Function.identity()));
@@ -34,8 +38,8 @@ class InboundActivityTask {
     }
 
     /**
-     * An activity can have been queued before its server was blocked, so this checks again. This only covers the activity's
-     * actor, so a handler has to check any other actor or object that it fetches or stores.
+     * An activity can have been queued before its server was blocked or its actor suspended, so this checks again. This only
+     * covers the activity's actor, so a handler has to check any other actor or object that it fetches or stores.
      */
     private CompletionHandler<InboundJob> run(InboundJob job) {
         var activity = stored.find(job.activityId());
@@ -50,17 +54,22 @@ class InboundActivityTask {
     }
 
     private void process(InboundActivityHandler handler, InboundActivity activity) {
-        var host = URI.create(activity.actorUri()).getHost();
-        if (blocks.isBlocked(host)) {
+        var uri = URI.create(activity.actorUri());
+        if (isRefused(uri)) {
             return;
         }
         try {
             handler.handle(activity);
         } catch (PermanentJobFailure e) {
-            // A block landing during this job makes fetching the actor fail, which isn't a problem for an admin to look at.
-            if (!blocks.isBlocked(host)) {
+            // A block or suspension landing during this job makes fetching the actor fail, which isn't a problem for an admin
+            // to look at.
+            if (!isRefused(uri)) {
                 throw e;
             }
         }
+    }
+
+    private boolean isRefused(URI actor) {
+        return blocks.isBlocked(actor.getHost()) || actors.isSuspended(actor);
     }
 }

@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.jobs;
 import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
 import com.github.kagkarlsson.scheduler.task.schedule.FixedDelay;
+import dev.biribiri.elysium.actor.ActorService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -27,9 +28,14 @@ class JobCleanupTask {
     private static final Duration FAILED_HISTORY_KEPT = RetryPolicy.PARKED_FOR;
 
     @Bean
-    Task<Void> jobCleanup(JdbcClient jdbc) {
+    Task<Void> jobCleanup(JdbcClient jdbc, ActorService actors) {
         return Tasks.recurring("job-cleanup", FixedDelay.of(Duration.ofDays(1)))
-                .execute((instance, context) -> removeOldRows(jdbc, Instant.now()));
+                .execute((instance, context) -> {
+                    var now = Instant.now();
+                    removeOldRows(jdbc, now);
+                    // Only once their last activities can't be sent any more, including by an admin retrying one.
+                    actors.removeKeysOfDeleted(now.minus(Jobs.ACTIVITIES_KEPT));
+                });
     }
 
     /**

@@ -229,6 +229,75 @@ delete_from_elysium() {
     [[ $status == 404 ]] || fail "Fetching a deleted followers-only status got a $status, not a 404"
 }
 
+# Waits for the jobs that send an activity to finish. A refused delivery is kept as a failed job, so this also means that the
+# other server accepted it.
+expect_delivered() {
+    local queued jobs
+    echo "Waiting for $1 to be delivered"
+    for _ in $(seq 1 60); do
+        queued=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM outbound_activity WHERE activity_id LIKE '$1'")
+        jobs=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM scheduled_tasks
+             WHERE task_name = 'activity-delivery'
+               AND convert_from(task_data, 'UTF8')::json ->> 'activityId' LIKE '$1'")
+        if [[ $queued -ge 1 && $jobs -eq 0 ]]; then
+            return
+        fi
+        sleep 2
+    done
+    fail "$1 wasn't delivered: $queued activities and $jobs unfinished jobs. Check /admin/db-scheduler"
+}
+
+# An admin can't suspend their own account, and alice is the only admin, so this makes another. Each step waits for the last one's delivery,
+# since jobs have no order and each activity only says what's true now.
+moderate_from_elysium() {
+    local moderator_token alice_id status actor
+    printf '%s\n' "$password" | docker compose run --rm -T elysium create-user moderator
+    docker compose run --rm -T elysium set-role moderator admin
+    moderator_token=$(driver sh /federation/elysium-token.sh moderator "$password" admin:write:accounts)
+    [[ -n $moderator_token ]] || fail "Couldn't get a moderator's access token"
+    alice_id=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT id FROM actor WHERE username = 'alice' AND is_local")
+
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/admin/accounts/$alice_id/action" \
+        -H "Authorization: Bearer $moderator_token" --data-urlencode 'type=suspend'
+    actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
+    [[ $(jq -r .suspended <<<"$actor") == true ]] || fail "A suspended actor doesn't say so: $actor"
+    expect_delivered "$expected_actor#suspended/%"
+    [[ $target != mastodon ]] || mastodon_expect_suspended true
+
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/admin/accounts/$alice_id/unsuspend" \
+        -H "Authorization: Bearer $moderator_token"
+    actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
+    [[ $(jq -r .suspended <<<"$actor") == null ]] || fail "An unsuspended actor still says it's suspended: $actor"
+    expect_delivered "$expected_actor#unsuspended/%"
+    [[ $target != mastodon ]] || mastodon_expect_suspended false
+
+    driver curl -fsS -o /dev/null -X DELETE "https://elysium.test/api/v1/admin/accounts/$alice_id" \
+        -H "Authorization: Bearer $moderator_token"
+    status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$expected_actor")
+    [[ $status == 410 ]] || fail "Fetching a deleted actor got a $status, not a 410"
+    expect_delivered "$expected_actor#delete"
+    [[ $target != mastodon ]] || mastodon_expect_suspended removed
+}
+
+# true or false for whether it's suspended, or removed, which is what Mastodon does with an actor that's been deleted.
+mastodon_expect_suspended() {
+    local output
+    output=$(docker compose exec -T -e ACTOR_URI="$expected_actor" -e EXPECTED="$1" mastodon-web bin/rails runner '
+        matched = false
+        60.times do
+            account = Account.uncached { Account.find_by(uri: ENV["ACTOR_URI"]) }
+            matched = (account.nil? ? "removed" : account.suspended?.to_s) == ENV["EXPECTED"]
+            break if matched
+            sleep 2
+        end
+        puts "MATCHED #{matched}"')
+    echo "$output"
+    grep -qxF 'MATCHED true' <<<"$output" || fail "Mastodon's copy of alice didn't become: $1"
+}
+
 mastodon_expect_statuses() {
     local output
     output=$(docker compose exec -T -e PUBLIC_URI="$public_uri" -e PRIVATE_URI="$private_uri" mastodon-web bin/rails runner '
@@ -527,6 +596,7 @@ case "$target" in
         gotosocial_expect_statuses
         delete_from_elysium
         gotosocial_expect_deleted
+        moderate_from_elysium
         ;;
     mastodon)
         resolve_from_mastodon
@@ -536,6 +606,7 @@ case "$target" in
         mastodon_expect_statuses
         delete_from_elysium
         mastodon_expect_deleted
+        moderate_from_elysium
         ;;
     misskey)
         resolve_from_misskey
@@ -545,7 +616,8 @@ case "$target" in
         misskey_expect_statuses
         delete_from_elysium
         misskey_expect_deleted
+        moderate_from_elysium
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, and receive its statuses"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, receive its statuses, and accept its suspension and deletion"

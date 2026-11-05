@@ -36,5 +36,22 @@ full block, so these differ from Mastodon:
 - `private_comment` can be up to 1000 characters.
 - A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one that's already blocked.
 
+Accounts follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/accounts/), under `/api/v1/admin/accounts`,
+with the `admin:read:accounts` and `admin:write:accounts` scopes, and these differ from Mastodon:
+
+- Only `GET /api/v1/admin/accounts` and `/:id`, `POST /:id/action`, `POST /:id/unsuspend`, and `DELETE /:id` exist. There's no
+  `/api/v2/admin/accounts`.
+- `GET /api/v1/admin/accounts` only filters by `local`, `remote`, `suspended`, `username`, which matches the start of the
+  username, and `by_domain`. Accounts are ordered by their random IDs, not by age, and deleted accounts aren't listed.
+- An account only has `id`, `username`, `domain`, `created_at`, `role`, `suspended`, and `account`, and `role` only has a `name`,
+  of `Admin` or `User`, or is null for a remote account.
+- `type` has to be `suspend`, and other values get a 422, rather than doing more than an admin meant. Other parameters are
+  ignored.
+- `DELETE` doesn't need the account to be suspended first. It's only for local accounts, and gets a 403 for a remote one.
+- Suspending or deleting yourself, or the server's last admin, gets a 403, with the reason in `error`.
+
+There's no API for people to delete their own accounts, so that an application can't do it with a token. It's only on the
+`/settings/delete-account` page.
+
 API documentation is public, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs` or
 `/api-docs.yaml`.

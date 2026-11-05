@@ -33,7 +33,14 @@ class CommandRunnerTests {
     @Test
     void findsCommandsOnTheClasspath() {
         assertThat(CommandRunner.commandLine().getSubcommands())
-                .containsOnlyKeys("create-user", "reset-password", "set-role", "help");
+                .containsOnlyKeys(
+                        "create-user",
+                        "reset-password",
+                        "set-role",
+                        "suspend-account",
+                        "unsuspend-account",
+                        "delete-account",
+                        "help");
     }
 
     @Test

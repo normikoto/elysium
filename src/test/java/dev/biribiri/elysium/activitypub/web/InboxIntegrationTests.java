@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.signature.CavageRequestSigner;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -232,6 +233,30 @@ class InboxIntegrationTests {
 
         assertThat(outcome).isEqualTo(Inbox.Outcome.FORBIDDEN);
         assertThat(stored(id)).isZero();
+    }
+
+    @Test
+    void refusesAnActivityFromASuspendedActorThatGetsPastTheSignatureCheck() {
+        var domain = "suspended-" + UUID.randomUUID() + ".example";
+        var actor = URI.create("https://" + domain + "/users/bob");
+        var stored = actors.upsertRemote(new RemoteActorProfile(actor, "bob", domain, URI.create(actor + "/inbox"), null, null, null));
+        actors.suspend(stored.id());
+        var id = "https://" + domain + "/activities/" + UUID.randomUUID();
+
+        var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", actor), bytes(activity(id, actor.toString())));
+
+        assertThat(outcome).isEqualTo(Inbox.Outcome.FORBIDDEN);
+        assertThat(stored(id)).isZero();
+    }
+
+    @Test
+    void refusesAKeyOfASuspendedActorWithoutFetchingIt() throws Exception {
+        var domain = "suspended-key-" + UUID.randomUUID() + ".example";
+        var actor = URI.create("https://" + domain + "/users/bob");
+        var stored = actors.upsertRemote(new RemoteActorProfile(actor, "bob", domain, URI.create(actor + "/inbox"), null, null, null));
+        actors.suspend(stored.id());
+
+        send(signedWithKeyId(actor + "#main-key", alice()), newAddress()).andExpect(status().isForbidden());
     }
 
     /**

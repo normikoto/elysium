@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.vocab;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * The URIs and media types that ActivityPub documents and requests are identified by.
@@ -36,6 +37,15 @@ public final class ActivityStreams {
      * The {@code @context} of an actor document, which includes the terms for its {@code publicKey}.
      */
     static final List<String> ACTOR_CONTEXT = List.of(CONTEXT, "https://w3id.org/security/v1");
+
+    /**
+     * The {@code @context} of an actor document or activity saying that the actor is suspended, which adds Mastodon's term for
+     * that.
+     */
+    static final List<Object> SUSPENDED_ACTOR_CONTEXT = List.of(
+            CONTEXT,
+            "https://w3id.org/security/v1",
+            Map.of("toot", "http://joinmastodon.org/ns#", "suspended", "toot:suspended"));
 
     private ActivityStreams() {
     }

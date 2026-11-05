@@ -151,6 +151,14 @@ public class StatusService {
     }
 
     /**
+     * Removes all of an account's statuses, for when it's being deleted. No {@link StatusDeleted} is published for them,
+     * because other servers are told about the account instead, which covers its statuses.
+     */
+    public void removeAllBy(UUID authorId) {
+        statuses.removeAllBy(authorId);
+    }
+
+    /**
      * Finds what's left of a deleted status of this author's, if it's one that anyone could see.
      */
     public Optional<DeletedStatus> findTombstone(UUID id, UUID authorId) {

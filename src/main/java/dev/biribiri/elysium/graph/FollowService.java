@@ -167,6 +167,13 @@ public class FollowService {
         } while (actorIds.size() == REMOVAL_BATCH_SIZE);
     }
 
+    /**
+     * Removes all follows to and from an actor.
+     */
+    public void removeForActor(UUID actorId) {
+        follows.deleteForActors(List.of(actorId));
+    }
+
     private Optional<Removed> cover(String followerUri, UUID followedId, Instant arrivedBy) {
         follows.markPairUndone(followerUri, followedId, arrivedBy);
         return actors.findByUri(URI.create(followerUri))

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.StatusPage;
@@ -59,6 +60,30 @@ final class RequestParameters {
     static DomainBlockPage domainBlockPage(String limit, String maxId, String sinceId, String minId) {
         return new DomainBlockPage(
                 limit(limit, DomainBlockPage.DEFAULT_LIMIT),
+                cursor("max_id", maxId),
+                cursor("since_id", sinceId),
+                cursor("min_id", minId));
+    }
+
+    /**
+     * @param local whether to only list local accounts, if the request also asks for remote ones then both are listed
+     */
+    static AccountFilter accountFilter(
+            boolean local,
+            boolean remote,
+            boolean suspended,
+            String username,
+            String domain,
+            String limit,
+            String maxId,
+            String sinceId,
+            String minId) {
+        return new AccountFilter(
+                local == remote ? null : Boolean.valueOf(local),
+                suspended,
+                username == null || username.isEmpty() ? null : username,
+                domain == null || domain.isEmpty() ? null : domain,
+                limit(limit, AccountFilter.DEFAULT_LIMIT),
                 cursor("max_id", maxId),
                 cursor("since_id", sinceId),
                 cursor("min_id", minId));

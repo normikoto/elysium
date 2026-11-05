@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.activitypub.http.HostHeader;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,8 +25,10 @@ public class Inbox {
     private final InboundActivities activities;
     private final JsonMapper json;
     private final DomainBlocks blocks;
+    private final ActorService actors;
 
-    Inbox(InboundActivities activities, JsonMapper json, DomainBlocks blocks) {
+    Inbox(InboundActivities activities, JsonMapper json, DomainBlocks blocks, ActorService actors) {
+        this.actors = actors;
         this.activities = activities;
         this.json = json;
         this.blocks = blocks;
@@ -48,6 +51,11 @@ public class Inbox {
         // The signature check has already refused keys on a blocked server, but a block can have been added since then.
         if (blocks.isBlocked(signer.owner().getHost())) {
             log.debug("Refusing activity {} from {}, whose server is blocked", envelope.id(), signer.owner());
+            return Outcome.FORBIDDEN;
+        }
+        // Like a block, a suspension can have been added since the signature was checked.
+        if (actors.isSuspended(signer.owner())) {
+            log.debug("Refusing activity {} from {}, who is suspended", envelope.id(), signer.owner());
             return Outcome.FORBIDDEN;
         }
         URI id;

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.actor.internal;
 
+import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import org.springframework.jdbc.core.RowMapper;
@@ -9,10 +10,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.sql.Types;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -21,13 +25,26 @@ public class ActorRepository {
 
     private static final String COLUMNS = """
             actor.id, actor.uri, actor.username, actor.domain, actor.inbox_uri, actor.outbox_uri, actor.shared_inbox_uri,
-            actor.public_key_pem, actor.created_at, actor.updated_at
+            actor.public_key_pem, actor.created_at, actor.updated_at, actor.suspended_at, actor.deleted_at
             """;
 
-    private static final String SELECT_LOCAL = "SELECT " + COLUMNS + """
+    private static final String ACTIVE = "actor.suspended_at IS NULL AND actor.deleted_at IS NULL";
+
+    /**
+     * Local actors that are neither suspended nor deleted. This is what nearly everything should use, so that something new
+     * can't serve a suspended account by forgetting to check.
+     */
+    private static final String SELECT_ACTIVE_LOCAL = "SELECT " + COLUMNS + """
             FROM actor
             JOIN local_account ON local_account.actor_id = actor.id
-            """;
+            WHERE
+            """ + " " + ACTIVE + " AND ";
+
+    /**
+     * Local actors in any state. A row in {@code local_account} isn't needed, because one that was deleted long enough ago
+     * has lost it.
+     */
+    private static final String SELECT_ANY_LOCAL = "SELECT " + COLUMNS + "FROM actor WHERE is_local AND ";
 
     private static final RowMapper<Actor> ACTOR_MAPPER = (rs, rowNum) -> {
         var outbox = rs.getString("outbox_uri");
@@ -42,8 +59,14 @@ public class ActorRepository {
                 sharedInbox == null ? null : URI.create(sharedInbox),
                 rs.getString("public_key_pem"),
                 rs.getObject("created_at", OffsetDateTime.class).toInstant(),
-                rs.getObject("updated_at", OffsetDateTime.class).toInstant());
+                rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
+                instant(rs.getObject("suspended_at", OffsetDateTime.class)),
+                instant(rs.getObject("deleted_at", OffsetDateTime.class)));
     };
+
+    private static Instant instant(OffsetDateTime time) {
+        return time == null ? null : time.toInstant();
+    }
 
     private final JdbcClient jdbc;
 
@@ -52,7 +75,7 @@ public class ActorRepository {
     }
 
     public Optional<Actor> findLocal(String username, String domain) {
-        return jdbc.sql(SELECT_LOCAL + "WHERE lower(username) = lower(:username) AND domain = :domain AND is_local")
+        return jdbc.sql(SELECT_ACTIVE_LOCAL + "lower(username) = lower(:username) AND domain = :domain AND is_local")
                 .param("username", username)
                 .param("domain", domain)
                 .query(ACTOR_MAPPER)
@@ -60,10 +83,159 @@ public class ActorRepository {
     }
 
     public Optional<Actor> findLocalByUri(URI uri) {
-        return jdbc.sql(SELECT_LOCAL + "WHERE uri = :uri")
+        return jdbc.sql(SELECT_ACTIVE_LOCAL + "uri = :uri")
                 .param("uri", uri.toString())
                 .query(ACTOR_MAPPER)
                 .optional();
+    }
+
+    public Optional<Actor> findAnyLocal(String username, String domain) {
+        return jdbc.sql(SELECT_ANY_LOCAL + "lower(username) = lower(:username) AND domain = :domain")
+                .param("username", username)
+                .param("domain", domain)
+                .query(ACTOR_MAPPER)
+                .optional();
+    }
+
+    public Optional<Actor> findAnyLocalByUri(URI uri) {
+        return jdbc.sql(SELECT_ANY_LOCAL + "uri = :uri").param("uri", uri.toString()).query(ACTOR_MAPPER).optional();
+    }
+
+    public Optional<Actor> findAnyLocalById(UUID id) {
+        return jdbc.sql(SELECT_ANY_LOCAL + "id = :id").param("id", id).query(ACTOR_MAPPER).optional();
+    }
+
+    /**
+     * Finds a local or remote actor in any state.
+     */
+    public Optional<Actor> findById(UUID id) {
+        return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE id = :id").param("id", id).query(ACTOR_MAPPER).optional();
+    }
+
+    public boolean isSuspended(URI uri) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM actor WHERE uri = :uri AND suspended_at IS NOT NULL)")
+                .param("uri", uri.toString())
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * Finds which of these inboxes only suspended actors use. Some servers give all of their actors the same inbox, so one
+     * that an active actor also uses doesn't count.
+     */
+    public List<String> findSuspendedInboxes(Collection<String> inboxes) {
+        if (inboxes.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("""
+                        SELECT DISTINCT s.inbox_uri FROM actor s
+                        WHERE s.suspended_at IS NOT NULL
+                          AND s.inbox_uri IN (:inboxes)
+                          AND NOT EXISTS (
+                              SELECT 1 FROM actor o
+                              WHERE o.suspended_at IS NULL
+                                AND o.deleted_at IS NULL
+                                AND (o.inbox_uri = s.inbox_uri OR o.shared_inbox_uri = s.inbox_uri))
+                        """)
+                .param("inboxes", inboxes)
+                .query(String.class)
+                .list();
+    }
+
+    /**
+     * @return when it was suspended, or empty if there's nothing to do, because it doesn't exist, it's already suspended, or
+     * it's been deleted
+     */
+    public Optional<Instant> markSuspended(UUID id) {
+        return jdbc.sql("""
+                        UPDATE actor SET suspended_at = now()
+                        WHERE id = :id AND suspended_at IS NULL AND deleted_at IS NULL
+                        RETURNING suspended_at
+                        """)
+                .param("id", id)
+                .query((rs, rowNum) -> rs.getObject("suspended_at", OffsetDateTime.class).toInstant())
+                .optional();
+    }
+
+    /**
+     * @return when its suspension ended, or empty if it isn't suspended
+     */
+    public Optional<Instant> markUnsuspended(UUID id) {
+        return jdbc.sql("""
+                        UPDATE actor SET suspended_at = NULL
+                        WHERE id = :id AND suspended_at IS NOT NULL AND deleted_at IS NULL
+                        RETURNING now() AS at
+                        """)
+                .param("id", id)
+                .query((rs, rowNum) -> rs.getObject("at", OffsetDateTime.class).toInstant())
+                .optional();
+    }
+
+    /**
+     * @return whether this deleted it, which it won't have if it isn't local, or was deleted already
+     */
+    public boolean markDeleted(UUID id) {
+        return jdbc.sql("UPDATE actor SET deleted_at = now() WHERE id = :id AND is_local AND deleted_at IS NULL")
+                .param("id", id)
+                .update() > 0;
+    }
+
+    /**
+     * Removes the keys of actors deleted before this time. Nothing is left that could sign as them, and the row only reserves
+     * the username and URI from then on.
+     */
+    @Transactional
+    public void removeKeysOfDeleted(Instant before) {
+        var time = before.atOffset(ZoneOffset.UTC);
+        jdbc.sql("""
+                        DELETE FROM local_account USING actor
+                        WHERE local_account.actor_id = actor.id AND actor.deleted_at < :before
+                        """)
+                .param("before", time)
+                .update();
+        jdbc.sql("UPDATE actor SET public_key_pem = NULL WHERE deleted_at < :before AND public_key_pem IS NOT NULL")
+                .param("before", time)
+                .update();
+    }
+
+    public List<Actor> list(AccountFilter filter) {
+        var sql = new StringBuilder("SELECT ").append(COLUMNS).append("FROM actor WHERE deleted_at IS NULL");
+        var parameters = new HashMap<String, Object>();
+        if (filter.local() != null) {
+            sql.append(filter.local() ? " AND is_local" : " AND NOT is_local");
+        }
+        if (filter.suspendedOnly()) {
+            sql.append(" AND suspended_at IS NOT NULL");
+        }
+        if (filter.usernamePrefix() != null) {
+            sql.append(" AND lower(username) LIKE :prefix ESCAPE '\\'");
+            parameters.put("prefix", escapeLike(filter.usernamePrefix().toLowerCase(Locale.ROOT)) + "%");
+        }
+        if (filter.domain() != null) {
+            sql.append(" AND lower(domain) = :domain");
+            parameters.put("domain", filter.domain().toLowerCase(Locale.ROOT));
+        }
+        if (filter.maxId() != null) {
+            sql.append(" AND id < :maxId");
+            parameters.put("maxId", filter.maxId());
+        }
+        // Predicates are only added when needed, because PostgreSQL can't determine the type of a null parameter.
+        var ascending = filter.minId() != null;
+        if (ascending) {
+            sql.append(" AND id > :minId");
+            parameters.put("minId", filter.minId());
+        } else if (filter.sinceId() != null) {
+            sql.append(" AND id > :sinceId");
+            parameters.put("sinceId", filter.sinceId());
+        }
+        sql.append(ascending ? " ORDER BY id ASC" : " ORDER BY id DESC").append(" LIMIT :limit");
+        parameters.put("limit", filter.limit());
+        var found = jdbc.sql(sql.toString()).params(parameters).query(ACTOR_MAPPER).list();
+        return ascending ? found.reversed() : found;
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     public Optional<Actor> findByUri(URI uri) {
@@ -106,7 +278,7 @@ public class ActorRepository {
     }
 
     public Optional<Actor> findLocalById(UUID id) {
-        return jdbc.sql(SELECT_LOCAL + "WHERE id = :id")
+        return jdbc.sql(SELECT_ACTIVE_LOCAL + "id = :id")
                 .param("id", id)
                 .query(ACTOR_MAPPER)
                 .optional();
@@ -116,7 +288,7 @@ public class ActorRepository {
         if (ids.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql(SELECT_LOCAL + "WHERE id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
+        return jdbc.sql(SELECT_ACTIVE_LOCAL + "id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
     }
 
     /**
@@ -129,12 +301,40 @@ public class ActorRepository {
                 .optional();
     }
 
+    /**
+     * Counts the accounts that the public can see.
+     */
     public long countLocal() {
-        return jdbc.sql("SELECT count(*) FROM local_account").query(Long.class).single();
+        return jdbc.sql("""
+                        SELECT count(*) FROM local_account
+                        JOIN actor ON actor.id = local_account.actor_id
+                        WHERE\s""" + ACTIVE)
+                .query(Long.class)
+                .single();
+    }
+
+    /**
+     * Counts the accounts that exist, which includes suspended ones, because they can come back.
+     */
+    public long countExistingLocal() {
+        return jdbc.sql("""
+                        SELECT count(*) FROM local_account
+                        JOIN actor ON actor.id = local_account.actor_id
+                        WHERE actor.deleted_at IS NULL
+                        """)
+                .query(Long.class)
+                .single();
     }
 
     public boolean hasLocalAccounts() {
-        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM local_account)").query(Boolean.class).single();
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM local_account
+                            JOIN actor ON actor.id = local_account.actor_id
+                            WHERE actor.deleted_at IS NULL)
+                        """)
+                .query(Boolean.class)
+                .single();
     }
 
     /**

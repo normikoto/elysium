@@ -36,7 +36,8 @@ class ResetPasswordCommand implements Callable<Integer> {
     public Integer call() {
         var out = spec.commandLine().getOut();
         var err = spec.commandLine().getErr();
-        var actor = actors.findLocalByUsername(username);
+        // Including a suspended account, which may be suspended because it's compromised.
+        var actor = actors.findAnyLocalByUsername(username).filter(found -> !found.isDeleted());
         if (actor.isEmpty()) {
             err.println("There's no local account named " + username);
             return 1;

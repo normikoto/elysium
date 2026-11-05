@@ -41,11 +41,18 @@ record AccountResponse(
     private static final String PLACEHOLDER_IMAGE_PATH = "/images/missing.png";
 
     static AccountResponse from(Actor actor, AccountStats stats, InstanceProperties instance) {
+        return from(actor, actor.username(), stats, instance);
+    }
+
+    /**
+     * @param acct the username for a local account, and the username and domain for a remote one
+     */
+    static AccountResponse from(Actor actor, String acct, AccountStats stats, InstanceProperties instance) {
         var placeholder = instance.resolve(PLACEHOLDER_IMAGE_PATH).toString();
         return new AccountResponse(
                 actor.id().toString(),
                 actor.username(),
-                actor.username(),
+                acct,
                 actor.username(),
                 false,
                 false,
