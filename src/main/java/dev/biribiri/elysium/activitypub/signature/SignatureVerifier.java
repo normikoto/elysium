@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,12 +33,17 @@ public class SignatureVerifier {
     private final PublicKeyResolver keys;
     private final InstanceProperties instance;
     private final DomainBlocks blocks;
+    private final ActorService actors;
     private final Clock clock;
 
     @Autowired
     SignatureVerifier(
-            List<SignatureScheme> schemes, PublicKeyResolver keys, InstanceProperties instance, DomainBlocks blocks) {
-        this(schemes, keys, instance, blocks, Clock.systemUTC());
+            List<SignatureScheme> schemes,
+            PublicKeyResolver keys,
+            InstanceProperties instance,
+            DomainBlocks blocks,
+            ActorService actors) {
+        this(schemes, keys, instance, blocks, actors, Clock.systemUTC());
     }
 
     SignatureVerifier(
@@ -45,11 +51,13 @@ public class SignatureVerifier {
             PublicKeyResolver keys,
             InstanceProperties instance,
             DomainBlocks blocks,
+            ActorService actors,
             Clock clock) {
         this.schemes = schemes;
         this.keys = keys;
         this.instance = instance;
         this.blocks = blocks;
+        this.actors = actors;
         this.clock = clock;
     }
 
@@ -76,6 +84,10 @@ public class SignatureVerifier {
         if (!keyId.local() && blocks.isBlocked(keyId.host())) {
             throw new SignatureVerificationException(Failure.DOMAIN_BLOCKED, "Key is on a blocked server: " + claim.keyId());
         }
+        // Most servers' key IDs lead to the actor's own document, so this usually avoids fetching a suspended actor's key.
+        if (!keyId.local() && actors.isSuspended(keyId.document())) {
+            throw suspended(claim.keyId());
+        }
         var key = keys.resolve(keyId, budget);
         if (!matches(claim, key)) {
             // The sender may have changed its key since this server fetched it.
@@ -83,6 +95,9 @@ public class SignatureVerifier {
                     .filter(refreshed -> matches(claim, refreshed))
                     .orElseThrow(() -> new SignatureVerificationException(
                             Failure.REJECTED, "Signature doesn't match the key " + claim.keyId()));
+        }
+        if (!keyId.local() && actors.isSuspended(key.owner())) {
+            throw suspended(claim.keyId());
         }
         return new VerifiedSignature(key.keyId(), key.owner());
     }
@@ -103,6 +118,10 @@ public class SignatureVerifier {
 
     private static boolean matches(SignatureClaim claim, ResolvedKey key) {
         return claim.algorithm().verify(key.key(), claim.signatureBase(), claim.signature());
+    }
+
+    private static SignatureVerificationException suspended(String keyId) {
+        return new SignatureVerificationException(Failure.ACTOR_SUSPENDED, "Key belongs to a suspended actor: " + keyId);
     }
 
     private static SignatureVerificationException expired(String message) {

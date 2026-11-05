@@ -1,10 +1,11 @@
 #!/bin/sh
 # Prints an access token for an Elysium user, by going through the login pages like a browser, since there's no other way to
-# get one. Runs inside the driver service, with the username and password as arguments.
+# get one. Runs inside the driver service, with the username, the password, and optionally one scope as arguments.
 set -eu
 
 username=$1
 password=$2
+scope=${3:-write}
 base=https://elysium.test
 oob=urn:ietf:wg:oauth:2.0:oob
 jar=$(mktemp)
@@ -17,7 +18,7 @@ field() {
 app=$(curl -fsS "$base/api/v1/apps" \
     --data-urlencode 'client_name=federation-lab' \
     --data-urlencode "redirect_uris=$oob" \
-    --data-urlencode 'scopes=write')
+    --data-urlencode "scopes=$scope")
 client_id=$(printf '%s' "$app" | sed -n 's/.*"client_id":"\([^"]*\)".*/\1/p')
 client_secret=$(printf '%s' "$app" | sed -n 's/.*"client_secret":"\([^"]*\)".*/\1/p')
 
@@ -26,7 +27,7 @@ page=$(curl -fsS -L -b "$jar" -c "$jar" -G "$base/oauth/authorize" \
     --data-urlencode "client_id=$client_id" \
     --data-urlencode "redirect_uri=$oob" \
     --data-urlencode 'response_type=code' \
-    --data-urlencode 'scope=write')
+    --data-urlencode "scope=$scope")
 csrf=$(field "$page" _csrf)
 
 # Logging in leads back to the request, which asks for consent.
@@ -41,7 +42,7 @@ state=$(field "$page" state)
 page=$(curl -fsS -L -b "$jar" -c "$jar" "$base/oauth/authorize" \
     --data-urlencode "client_id=$client_id" \
     --data-urlencode "state=$state" \
-    --data-urlencode 'scope=write')
+    --data-urlencode "scope=$scope")
 code=$(printf '%s' "$page" | tr -d '\n' | sed -n 's/.*<code>\([^<]*\)<\/code>.*/\1/p')
 if [ -z "$code" ]; then
     echo 'No authorization code on the page after authorizing' >&2

@@ -40,7 +40,7 @@ class DeliveryTaskBlockTests {
     @BeforeEach
     void clientRefuses() throws Exception {
         Actor actor = mock();
-        when(actors.findLocalById(ACTIVITY.actorId())).thenReturn(Optional.of(actor));
+        when(actors.findAnyLocalById(ACTIVITY.actorId())).thenReturn(Optional.of(actor));
         when(keys.forActor(actor)).thenReturn(Optional.of(mock(SigningKey.class)));
         when(sender.post(any(), any(), any())).thenThrow(mock(BlockedTargetException.class));
     }

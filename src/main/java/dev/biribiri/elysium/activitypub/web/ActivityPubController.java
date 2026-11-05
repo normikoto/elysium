@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URI;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -45,8 +46,16 @@ public class ActivityPubController {
     }
 
     @GetMapping(path = "/users/{username}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
-    ResponseEntity<Person> actor(@PathVariable String username) {
-        return ResponseEntity.of(actors.findLocalByUsername(username).map(Person::from));
+    ResponseEntity<?> actor(@PathVariable String username) {
+        var actor = actors.findAnyLocalByUsername(username);
+        if (actor.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        if (actor.get().isDeleted()) {
+            return ResponseEntity.status(HttpStatus.GONE).body(Tombstone.from(actor.get()));
+        }
+        // Not an error, because other servers take any answer that isn't this document as the actor being gone or broken.
+        return ResponseEntity.ok(actor.get().isSuspended() ? Person.suspended(actor.get()) : Person.from(actor.get()));
     }
 
     /**
@@ -56,8 +65,12 @@ public class ActivityPubController {
     @CrossOrigin
     @GetMapping(path = "/users/{username}/followers", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     ResponseEntity<OrderedCollection> followers(@PathVariable String username) {
-        return ResponseEntity.of(actors.findLocalByUsername(username).map(actor ->
-                OrderedCollection.ofSize(Person.followersOf(actor), follows.countFollowers(actor.id()))));
+        var actor = actors.findAnyLocalByUsername(username);
+        if (actor.filter(found -> !found.isActive()).isPresent()) {
+            return ResponseEntity.status(actor.get().isDeleted() ? HttpStatus.GONE : HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.of(actor.map(found ->
+                OrderedCollection.ofSize(Person.followersOf(found), follows.countFollowers(found.id()))));
     }
 
     /**
@@ -72,10 +85,18 @@ public class ActivityPubController {
 
     @GetMapping(path = "/users/{username}/statuses/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     ResponseEntity<?> note(@PathVariable String username, @PathVariable String id) {
-        var author = actors.findLocalByUsername(username);
+        var author = actors.findAnyLocalByUsername(username);
         var statusId = Ids.parse(id);
         if (author.isEmpty() || statusId.isEmpty()) {
             return ResponseEntity.notFound().build();
+        }
+        if (author.get().isDeleted()) {
+            var uri = URI.create(author.get().uri() + "/statuses/" + statusId.get());
+            return ResponseEntity.status(HttpStatus.GONE).body(Tombstone.ofStatus(uri, author.get()));
+        }
+        // Not a 404 or 410, which other servers can take as the status having been deleted, when this can be undone.
+        if (author.get().isSuspended()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         var status = statuses.findVisible(statusId.get(), ANONYMOUS)
                 // Otherwise any account's URL could serve this status.

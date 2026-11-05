@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
@@ -25,6 +26,7 @@ import org.springframework.security.web.authentication.Http403ForbiddenEntryPoin
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -49,6 +51,7 @@ class SecurityConfig {
     static final String CONSENT_PATH = "/oauth/consent";
     static final String LOGIN_PATH = "/login";
     static final String SIGNUP_PATH = "/signup";
+    static final String DELETE_ACCOUNT_PATH = "/settings/delete-account";
 
     private static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
     private static final String APP_REGISTRATION_PATH = "/api/v1/apps";
@@ -94,10 +97,15 @@ class SecurityConfig {
     @Bean
     @Order(1)
     SecurityFilterChain authorizationServerChain(
-            HttpSecurity http, InstanceProperties instance, OAuthResponses responses, AdminAccess adminAccess)
+            HttpSecurity http,
+            InstanceProperties instance,
+            OAuthResponses responses,
+            AdminAccess adminAccess,
+            ActorService actors)
             throws Exception {
         return http
                 .securityMatcher(authorizationServerRequests())
+                .addFilterAfter(new ActiveAccountFilter(actors), SecurityContextHolderFilter.class)
                 .cors(cors -> cors.configurationSource(clientCors()))
                 .oauth2AuthorizationServer(server -> configure(server, instance, responses, adminAccess))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
@@ -157,16 +165,21 @@ class SecurityConfig {
     @Bean
     @Order(4)
     SecurityFilterChain defaultChain(
-            HttpSecurity http, AuthRateLimits limits, AdminAccess adminAccess, InstanceProperties instance)
+            HttpSecurity http,
+            AuthRateLimits limits,
+            AdminAccess adminAccess,
+            InstanceProperties instance,
+            ActorService actors)
             throws Exception {
-        var adminPages = adminPageRequests();
+        var pagesNeedingLogin = new OrRequestMatcher(
+                adminPageRequests(), pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH));
 
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
-        // can't lose a pending authorization. It only saves an admin page if nothing is waiting, so that logging in can
-        // return to that page.
+        // can't lose a pending authorization. It only saves a page if nothing is waiting, so that logging in can return to
+        // that page.
         var requestCache = new HttpSessionRequestCache();
         requestCache.setRequestMatcher(
-                request -> adminPages.matches(request) && requestCache.getRequest(request, null) == null);
+                request -> pagesNeedingLogin.matches(request) && requestCache.getRequest(request, null) == null);
 
         var loginFailure = new ExceptionMappingAuthenticationFailureHandler();
         loginFailure.setDefaultFailureUrl(LOGIN_PATH + "?error");
@@ -177,6 +190,7 @@ class SecurityConfig {
         loginSuccess.setRequestCache(requestCache);
 
         return http
+                .addFilterAfter(new ActiveAccountFilter(actors), SecurityContextHolderFilter.class)
                 // Runs after the CSRF filter, so requests without a valid token don't use up anyone's attempts.
                 .addFilterBefore(new LoginRateLimitFilter(limits), UsernamePasswordAuthenticationFilter.class)
                 // Applies Spring MVC's CORS settings, including to preflight requests: @CrossOrigin on controllers, and
@@ -191,6 +205,8 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, SIGNUP_PATH).permitAll()
                         .requestMatchers(HttpMethod.POST, SIGNUP_PATH).permitAll()
                         .requestMatchers(HttpMethod.GET, CONSENT_PATH).authenticated()
+                        .requestMatchers(HttpMethod.GET, DELETE_ACCOUNT_PATH).authenticated()
+                        .requestMatchers(HttpMethod.POST, DELETE_ACCOUNT_PATH).authenticated()
                         // Not hasRole: see AdminAccess.
                         .requestMatchers(ADMIN_PATHS).access(adminAccess)
                         .anyRequest().denyAll())
@@ -215,7 +231,7 @@ class SecurityConfig {
                 // Sessions don't survive a restart, so an admin who reloads a page needs a way back in. Other requests get
                 // a bare 403. The job UI's API calls are among them, because they couldn't use a login page as a response.
                 .exceptionHandling(exceptions -> exceptions
-                        .defaultAuthenticationEntryPointFor(new LoginUrlAuthenticationEntryPoint(LOGIN_PATH), adminPages)
+                        .defaultAuthenticationEntryPointFor(new LoginUrlAuthenticationEntryPoint(LOGIN_PATH), pagesNeedingLogin)
                         .defaultAuthenticationEntryPointFor(new Http403ForbiddenEntryPoint(), request -> true))
                 .build();
     }

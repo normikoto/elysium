@@ -22,6 +22,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -91,6 +92,10 @@ class DeliveryTask {
                 // It was queued before the block. This comes before backing off, which could end with it failing.
                 return Jobs.done();
             }
+            if (isRefused(activity.get(), inbox)) {
+                // It was queued before a suspension or deletion, and isn't sent later if a suspension ends.
+                return Jobs.done();
+            }
             var backingOff = gate.backingOffUntil(host, now);
             if (backingOff.isPresent()) {
                 if (job.isOverdue(now)) {
@@ -106,6 +111,12 @@ class DeliveryTask {
         } finally {
             gate.release(host);
         }
+    }
+
+    private boolean isRefused(OutboundActivity activity, URI inbox) {
+        var signerGone = !activity.aboutAccount()
+                && actors.findAnyLocalById(activity.actorId()).filter(signer -> !signer.isActive()).isPresent();
+        return signerGone || !actors.suspendedInboxes(List.of(inbox)).isEmpty();
     }
 
     /**
@@ -127,15 +138,19 @@ class DeliveryTask {
     }
 
     private Optional<OutboundActivity> find(DeliveryJob job) {
-        return jdbc.sql("SELECT actor_id, body FROM outbound_activity WHERE activity_id = :id")
+        return jdbc.sql("SELECT actor_id, body, about_account FROM outbound_activity WHERE activity_id = :id")
                 .param("id", job.activityId())
                 .query((rs, row) -> new OutboundActivity(
-                        job.activityId(), rs.getObject("actor_id", UUID.class), rs.getString("body")))
+                        job.activityId(),
+                        rs.getObject("actor_id", UUID.class),
+                        rs.getString("body"),
+                        rs.getBoolean("about_account")))
                 .optional();
     }
 
     void send(OutboundActivity activity, URI inbox, String host) {
-        var key = actors.findLocalById(activity.actorId())
+        // In any state, because an actor has to be able to sign what says that it's been suspended or deleted.
+        var key = actors.findAnyLocalById(activity.actorId())
                 .flatMap(keys::forActor)
                 .orElseThrow(() -> new PermanentJobFailure("The activity's actor no longer has a local key"));
         Response response;

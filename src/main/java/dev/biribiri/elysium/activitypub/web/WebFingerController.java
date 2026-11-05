@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -43,6 +44,10 @@ public class WebFingerController {
             return ResponseEntity.badRequest().build();
         }
 
+        if (isDeleted(uri)) {
+            return ResponseEntity.status(HttpStatus.GONE).build();
+        }
+
         Optional<JsonResourceDescriptor> descriptor;
         switch (uri.getScheme().toLowerCase(Locale.ROOT)) {
             case "acct" -> {
@@ -62,6 +67,21 @@ public class WebFingerController {
         return ResponseEntity.of(descriptor);
     }
 
+    private boolean isDeleted(URI resource) {
+        var scheme = resource.getScheme().toLowerCase(Locale.ROOT);
+        Optional<Actor> actor = Optional.empty();
+        if (scheme.equals("acct")) {
+            var account = resource.getSchemeSpecificPart();
+            var separator = account.lastIndexOf('@');
+            if (separator > 0 && account.substring(separator + 1).equalsIgnoreCase(instance.domain())) {
+                actor = actors.findAnyLocalByUsername(account.substring(0, separator));
+            }
+        } else if (scheme.equals("http") || scheme.equals("https")) {
+            actor = actors.findAnyLocalByUri(resource);
+        }
+        return actor.filter(Actor::isDeleted).isPresent();
+    }
+
     /**
      * Mastodon looks up {@code acct:{preferredUsername}@{domain}} before it accepts a new actor, so the instance actor
      * has to be found here for Mastodon to accept its signatures.
@@ -70,14 +90,14 @@ public class WebFingerController {
         if (username.equalsIgnoreCase(InstanceActor.USERNAME)) {
             return Optional.of(descriptor(actors.instanceActor()));
         }
-        return actors.findLocalByUsername(username).map(WebFingerController::descriptor);
+        return actors.findAnyLocalByUsername(username).map(WebFingerController::descriptor);
     }
 
     private Optional<JsonResourceDescriptor> findByUri(URI uri) {
         if (uri.equals(instance.resolve(InstanceActor.PATH))) {
             return Optional.of(descriptor(actors.instanceActor()));
         }
-        return actors.findLocalByUri(uri).map(WebFingerController::descriptor);
+        return actors.findAnyLocalByUri(uri).map(WebFingerController::descriptor);
     }
 
     private static JsonResourceDescriptor descriptor(Actor actor) {

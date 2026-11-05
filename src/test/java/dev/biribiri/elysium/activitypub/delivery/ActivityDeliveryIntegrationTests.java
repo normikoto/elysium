@@ -11,6 +11,7 @@ import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.LoopbackClients;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.RemoteActorProfile;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -142,6 +143,84 @@ class ActivityDeliveryIntegrationTests {
 
         await().atMost(WAIT).until(() -> receivedBy(host).size() == 1);
         await().atMost(WAIT).until(() -> publications(activity) == 0);
+    }
+
+    // Suspended and deleted accounts
+
+    @Test
+    void anActivityFromASuspendedActorIsFinishedWithoutSending() {
+        var signer = newSigner();
+        var activity = new OutboundActivity("https://elysium.example/activities/" + UUID.randomUUID(), signer, "{}");
+        var host = newHost();
+        actors.suspend(signer);
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).isEmpty();
+    }
+
+    @Test
+    void anActivityAboutTheAccountIsSentWhileItsActorIsSuspendedOrDeleted() {
+        var signer = newSigner();
+        actors.suspend(signer);
+        var host = newHost();
+        var suspended = new OutboundActivity("https://elysium.example/activities/" + UUID.randomUUID(), signer, "{}", true);
+
+        enqueue(suspended, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && jobs(suspended) == 0);
+
+        actors.markDeleted(signer);
+        var deleted = new OutboundActivity("https://elysium.example/activities/" + UUID.randomUUID(), signer, "{}", true);
+
+        enqueue(deleted, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 2 && jobs(deleted) == 0);
+        assertThat(receivedBy(host).getLast().header("Signature")).contains("#main-key");
+    }
+
+    @Test
+    void nothingIsSentToASuspendedActorsInbox() {
+        var host = newHost();
+        var inbox = inboxOn(host);
+        var other = newHost();
+        var actor = actors.upsertRemote(new RemoteActorProfile(
+                URI.create("https://" + host + "/users/bob"), "bob", host, inbox, null, null, null));
+        var queuedBefore = activity();
+        enqueue(queuedBefore, inbox);
+        actors.suspend(actor.id());
+        var queuedAfter = activity();
+
+        enqueue(queuedAfter, inbox, inboxOn(other));
+
+        await().atMost(WAIT).until(() -> receivedBy(other).size() == 1 && jobs(queuedAfter) == 0);
+        await().atMost(WAIT).until(() -> jobs(queuedBefore) == 0);
+        // The first can have started before the suspension. The second can't.
+        assertThat(receivedBy(host).stream().filter(request -> request.body().equals(queuedAfter.body()))).isEmpty();
+    }
+
+    @Test
+    void anInboxThatAnActiveActorAlsoUsesStillGetsActivities() {
+        var host = newHost();
+        var inbox = inboxOn(host);
+        var suspended = actors.upsertRemote(new RemoteActorProfile(
+                URI.create("https://" + host + "/users/bob"), "bob", host, inbox, null, null, null));
+        actors.upsertRemote(new RemoteActorProfile(
+                URI.create("https://" + host + "/users/carol"), "carol", host, inbox, null, null, null));
+        actors.suspend(suspended.id());
+        var activity = activity();
+
+        enqueue(activity, inbox);
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1);
+    }
+
+    private UUID newSigner() {
+        var name = "s" + UUID.randomUUID().toString().replace("-", "").substring(0, 25);
+        actors.createLocalIfAbsent(name, actor -> {
+        });
+        return actors.findLocalByUsername(name).orElseThrow().id();
     }
 
     // Sending

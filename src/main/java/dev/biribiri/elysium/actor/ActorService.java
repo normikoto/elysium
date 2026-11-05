@@ -3,6 +3,7 @@ package dev.biribiri.elysium.actor;
 import dev.biribiri.elysium.actor.internal.ActorRepository;
 import dev.biribiri.elysium.actor.internal.InstanceActorKeys;
 import dev.biribiri.elysium.actor.internal.RsaKeys;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -14,8 +15,10 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 @Service
 public class ActorService {
@@ -24,12 +27,15 @@ public class ActorService {
     private final InstanceActorKeys instanceActorKeys;
     private final InstanceProperties instance;
     private final TransactionTemplate transaction;
+    private final ApplicationEventPublisher events;
 
     ActorService(
             ActorRepository actors,
             InstanceActorKeys instanceActorKeys,
             InstanceProperties instance,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            ApplicationEventPublisher events) {
+        this.events = events;
         this.actors = actors;
         this.instanceActorKeys = instanceActorKeys;
         this.instance = instance;
@@ -55,7 +61,8 @@ public class ActorService {
     }
 
     /**
-     * Finds a local actor. Usernames are matched case-insensitively.
+     * Finds a local actor that's neither suspended nor deleted, as the other {@code findLocal} methods also do. Usernames are
+     * matched case-insensitively.
      */
     public Optional<Actor> findLocalByUsername(String username) {
         if (!Actor.isValidLocalUsername(username)) {
@@ -77,10 +84,121 @@ public class ActorService {
     }
 
     /**
-     * Finds a local or remote actor.
+     * Finds a local actor in any state, for what has to tell a suspended or deleted account apart from one that never existed,
+     * or has to go on working for one. Check the state of what this returns.
+     */
+    public Optional<Actor> findAnyLocalByUsername(String username) {
+        if (!Actor.isValidLocalUsername(username)) {
+            return Optional.empty();
+        }
+        return actors.findAnyLocal(username, instance.domain());
+    }
+
+    /**
+     * Like {@link #findAnyLocalByUsername}.
+     */
+    public Optional<Actor> findAnyLocalByUri(URI uri) {
+        return actors.findAnyLocalByUri(uri);
+    }
+
+    /**
+     * Like {@link #findAnyLocalByUsername}.
+     */
+    public Optional<Actor> findAnyLocalById(UUID id) {
+        return actors.findAnyLocalById(id);
+    }
+
+    /**
+     * Finds a local or remote actor. This can return one that's suspended or deleted, so check its state.
      */
     public Optional<Actor> findByUri(URI uri) {
         return actors.findByUri(uri);
+    }
+
+    /**
+     * Finds a local or remote actor. This can return one that's suspended or deleted, so check its state.
+     */
+    public Optional<Actor> findById(UUID id) {
+        return actors.findById(id);
+    }
+
+    /**
+     * Whether an actor is on this server. An actor from another server can't be stored with this server's domain.
+     */
+    public boolean isLocal(Actor actor) {
+        return actor.domain().equals(instance.domain());
+    }
+
+    /**
+     * Whether this URI is the URI of a suspended actor. An actor that isn't stored can't be.
+     */
+    public boolean isSuspended(URI uri) {
+        return actors.isSuspended(uri);
+    }
+
+    /**
+     * @return which of these inboxes shouldn't be delivered to, because only suspended actors use them
+     */
+    public Set<URI> suspendedInboxes(Collection<URI> inboxes) {
+        return actors.findSuspendedInboxes(inboxes.stream().map(URI::toString).toList())
+                .stream()
+                .map(URI::create)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Lists accounts, for admins.
+     */
+    public List<Actor> list(AccountFilter filter) {
+        return actors.list(filter);
+    }
+
+    /**
+     * Suspends a local or remote actor, keeping what's stored about it.
+     *
+     * @return whether this suspended it, which it won't have if it doesn't exist, was already suspended, or has been deleted
+     */
+    public boolean suspend(UUID id) {
+        return Boolean.TRUE.equals(transaction.execute(status -> {
+            var at = actors.markSuspended(id);
+            at.ifPresent(time -> events.publishEvent(new AccountSuspended(id, time)));
+            return at.isPresent();
+        }));
+    }
+
+    /**
+     * Ends an actor's suspension.
+     *
+     * @return whether this ended it, which it won't have if the actor isn't suspended
+     */
+    public boolean unsuspend(UUID id) {
+        return Boolean.TRUE.equals(transaction.execute(status -> {
+            var at = actors.markUnsuspended(id);
+            at.ifPresent(time -> events.publishEvent(new AccountUnsuspended(id, time)));
+            return at.isPresent();
+        }));
+    }
+
+    /**
+     * Marks a local actor as permanently deleted. Listeners for {@link AccountDeleted} remove what's stored about it.
+     *
+     * @return whether this deleted it, which it won't have if it isn't local, or was deleted already
+     */
+    public boolean markDeleted(UUID id) {
+        return Boolean.TRUE.equals(transaction.execute(status -> {
+            var deleted = actors.markDeleted(id);
+            if (deleted) {
+                events.publishEvent(new AccountDeleted(id));
+            }
+            return deleted;
+        }));
+    }
+
+    /**
+     * Removes the keys of actors deleted before this time, once nothing can still need to sign as them.
+     */
+    public void removeKeysOfDeleted(Instant before) {
+        actors.removeKeysOfDeleted(before);
     }
 
     /**
@@ -97,8 +215,18 @@ public class ActorService {
         return actors.upsertRemote(profile);
     }
 
+    /**
+     * Counts the accounts that the public can see, leaving out suspended and deleted ones.
+     */
     public long countLocal() {
         return actors.countLocal();
+    }
+
+    /**
+     * Counts the accounts that exist, which includes suspended ones, because they can come back.
+     */
+    public long countExistingLocal() {
+        return actors.countExistingLocal();
     }
 
     public boolean hasLocalAccounts() {

@@ -30,6 +30,8 @@ public class SignatureVerificationException extends RuntimeException {
         REJECTED(401),
         /** The key is on a server that's been blocked, so it's never looked up. This tells the sender not to try again. */
         DOMAIN_BLOCKED(403),
+        /** The key's actor has been suspended, so it isn't looked up or accepted. */
+        ACTOR_SUSPENDED(403),
         /** The sender's key can't be fetched right now, so the sender should try again later. */
         KEY_UNAVAILABLE(503),
         /** Checking this signature needs a key fetch, and the sender has caused too many. */

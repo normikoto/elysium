@@ -1,0 +1,15 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Delete your account', ~{::content})}">
+<th:block th:fragment="content">
+    <p>
+        This permanently deletes your account and your posts, and asks other servers to remove them too. It can't be undone,
+        and your username can't be used again.
+    </p>
+    <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+    <form method="post" th:action="@{/settings/delete-account}">
+        <label for="password">Your password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required autofocus>
+        <button type="submit">Delete my account</button>
+    </form>
+</th:block>
+</html>

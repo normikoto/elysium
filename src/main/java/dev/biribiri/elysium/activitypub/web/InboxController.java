@@ -59,8 +59,13 @@ class InboxController {
 
     @PostMapping(path = "/users/{username}/inbox", consumes = {ACTIVITY_JSON, ANY_LD_JSON})
     ResponseEntity<Void> personalInbox(@PathVariable String username, HttpServletRequest request) throws IOException {
-        if (actors.findLocalByUsername(username).isEmpty()) {
+        // A suspended actor can still be sent things, such as an Undo of a Follow, or it could lose followers it should keep.
+        var actor = actors.findAnyLocalByUsername(username);
+        if (actor.isEmpty()) {
             return ResponseEntity.notFound().build();
+        }
+        if (actor.get().isDeleted()) {
+            return ResponseEntity.status(HttpStatus.GONE).build();
         }
         return receive(request);
     }

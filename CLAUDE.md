@@ -5,14 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Elysium is an experimental ActivityPub server (Java 25, Spring Boot 4, Spring Modulith, PostgreSQL) aiming for
 compatibility with Mastodon and other common implementations. It can't fully federate yet: other servers can discover its
 users, fetch actors and `Note` objects, deliver activities to its inboxes, follow and unfollow its users, which sends an
-`Accept`, and receive its new and deleted statuses as `Create` and `Delete`. Other activities are ignored, and its users can't
-follow anyone.
+`Accept`, and receive its new and deleted statuses as `Create` and `Delete`, and its suspended and deleted accounts as `Update`
+and `Delete`. Other activities are ignored, and its users can't follow anyone.
 
 ## Commands
 
 ```shell
 ./gradlew bootRun                                # Run locally: dev profile, starts PostgreSQL through compose.dev.yaml
-./gradlew bootRun --args='create-user alice'     # Run a CLI command (also reset-password, set-role, help)
+./gradlew bootRun --args='create-user alice'     # Run a CLI command (see `help` for the others)
 ./gradlew test                                   # All tests. Most need Docker, for Testcontainers
 ./gradlew test --tests '*StatusesIntegrationTests'                  # One class
 ./gradlew test --tests '*StatusesIntegrationTests.someMethodName'   # One method
@@ -59,7 +59,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 
 Only part of this is live. `InboxController` receives activities and queues them, and only `Follow` and `Undo` have an
 `InboundActivityHandler`, so other types are stored and ignored. `FollowHandler` and `StatusDeliveries` use
-`activitypub.delivery`, and `StatusPublished`, `StatusDeleted`, and `DomainBlocked` are the only application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
+`activitypub.delivery`, and `StatusPublished`, `StatusDeleted`, `DomainBlocked`, `AccountSuspended`, `AccountUnsuspended`, and `AccountDeleted` are the only application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
 feature is live.
 
 - **Inbound:** `InboxController` does the HTTP and signature steps, and `Inbox` decides whether to keep an activity. Who an
@@ -86,6 +86,13 @@ feature is live.
   `Inbox`, `InboundActivityTask`, `FollowHandler`, `FederationHttpClient`, `ActivityDeliveries`, and `DeliveryTask`. `InboundActivityTask` only
   checks an activity's actor, so a handler has to check any other actor or object that it fetches or stores. New remote data
   also has to be removed by `DomainBlockCleanupTask`.
+- **Account state:** `actor.suspended_at` and `deleted_at` say whether an actor is active. `ActorService.findLocal*` and
+  `StatusRepository`'s queries only find active ones, so that something new can't serve a suspended account by forgetting to
+  check. Use `findAnyLocal*` only for what has to tell these apart or keep working for them, such as actor documents and signing.
+  `findByUri` and `findById` find any actor, so check its state. `auth.AccountActions` decides who can be suspended or deleted.
+  A deleted local actor keeps its row, which reserves its username and URI. `AccountCleanup` tells other servers and queues the
+  removal of its data. Activities with `about_account` are the only ones sent while their actor is suspended or deleted.
+  New remote or account data also has to be removed by `AccountCleanupTask`.
 - **Outbound HTTP:** Use `activitypub.http.FederationHttpClient`, which refuses private addresses, including through its
   own DNS resolver. The lab gets around this with `elysium.federation.allowed-private-networks`, and `federation/README.md`
   rules out an on/off switch or plain HTTP.

@@ -1,0 +1,17 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Delete an account', ~{::content})}">
+<th:block th:fragment="content">
+    <p>
+        This permanently deletes <strong th:text="${account.handle()}"></strong> and its posts, and asks other servers to remove
+        them too. It can't be undone, and the username can't be used again. To stop an account in a way that can be undone,
+        suspend it instead.
+    </p>
+    <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+    <form method="post" th:action="@{/admin/accounts/{id}/delete(id=${account.id()})}">
+        <label for="username">Type the username to confirm</label>
+        <input type="text" id="username" name="username" autocomplete="off" required autofocus>
+        <button type="submit">Delete permanently</button>
+    </form>
+    <p><a href="/admin/accounts">Back to accounts</a></p>
+</th:block>
+</html>

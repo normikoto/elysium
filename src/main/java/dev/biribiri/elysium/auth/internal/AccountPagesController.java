@@ -37,6 +37,7 @@ class AccountPagesController {
             @RequestParam(required = false) String logout,
             @RequestParam(required = false) String registered,
             @RequestParam(required = false) String busy,
+            @RequestParam(required = false) String deleted,
             CsrfToken csrf,
             Model model) {
         addCsrf(model, csrf);
@@ -44,6 +45,7 @@ class AccountPagesController {
         model.addAttribute("busy", busy != null);
         model.addAttribute("loggedOut", logout != null);
         model.addAttribute("registered", registered != null);
+        model.addAttribute("deleted", deleted != null);
         model.addAttribute("registrationEnabled", registration.enabled());
         return "login";
     }

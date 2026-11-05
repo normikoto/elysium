@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -15,6 +16,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 /**
@@ -29,11 +31,13 @@ public class ActivityDeliveries {
     private final JdbcClient jdbc;
     private final SchedulerClient scheduler;
     private final DomainBlocks blocks;
+    private final ActorService actors;
 
     /**
      * @param scheduler lazy because the scheduler needs every task, and tasks need handlers, which queue activities here
      */
-    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler, DomainBlocks blocks) {
+    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler, DomainBlocks blocks, ActorService actors) {
+        this.actors = actors;
         this.jdbc = jdbc;
         this.scheduler = scheduler;
         this.blocks = blocks;
@@ -95,24 +99,26 @@ public class ActivityDeliveries {
     }
 
     /**
-     * Leaves out inboxes on blocked servers. One with no host stays in, so that its job fails where an admin can see it.
+     * Leaves out inboxes on blocked servers, and those of suspended actors. One with no host stays in, so that its job fails where an admin can see it.
      */
     private Set<URI> allowed(Collection<URI> inboxes) {
         var blocked = blocks.blockedHosts(inboxes.stream().map(URI::getHost).toList());
         var allowed = new LinkedHashSet<>(inboxes);
         allowed.removeIf(inbox -> inbox.getHost() != null && blocked.contains(inbox.getHost()));
+        allowed.removeAll(actors.suspendedInboxes(allowed));
         return allowed;
     }
 
     private void store(OutboundActivity activity) {
         jdbc.sql("""
-                        INSERT INTO outbound_activity (activity_id, actor_id, body)
-                        VALUES (:id, :actorId, :body)
+                        INSERT INTO outbound_activity (activity_id, actor_id, body, about_account)
+                        VALUES (:id, :actorId, :body, :aboutAccount)
                         ON CONFLICT (activity_id) DO UPDATE SET created_at = now()
                         """)
                 .param("id", activity.id())
                 .param("actorId", activity.actorId())
                 .param("body", activity.body())
+                .param("aboutAccount", activity.aboutAccount())
                 .update();
     }
 
@@ -122,5 +128,15 @@ public class ActivityDeliveries {
      */
     public void cancel(String activityId) {
         jdbc.sql("DELETE FROM outbound_activity WHERE activity_id = :id").param("id", activityId).update();
+    }
+
+    /**
+     * Stops any further sending of an actor's activities, and removes what they said, for when the actor has been deleted.
+     * This leaves activities that say what's happened to the account. A listener running again mustn't cancel its own.
+     */
+    public void cancelAllBy(UUID actorId) {
+        jdbc.sql("DELETE FROM outbound_activity WHERE actor_id = :actorId AND NOT about_account")
+                .param("actorId", actorId)
+                .update();
     }
 }

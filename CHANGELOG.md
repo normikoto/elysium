@@ -62,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Domain blocks, for admins to cut off another server and its subdomains, at `/admin/domain-blocks` and
   `/api/v1/admin/domain_blocks`. Blocked servers get a `403`, nothing is fetched from them or sent to them, and their follows
   are removed. See `docs/accounts.md` and `FEDERATION.md`.
+- Suspending accounts, for admins to stop one local or remote account in a way that can be undone, and deleting local accounts
+  for good. These are at `/admin/accounts`, `GET /api/v1/admin/accounts`, `GET /api/v1/admin/accounts/:id`,
+  `POST /api/v1/admin/accounts/:id/action`, `POST /api/v1/admin/accounts/:id/unsuspend`, and
+  `DELETE /api/v1/admin/accounts/:id`, and the `suspend-account`, `unsuspend-account`, and `delete-account` commands
+- `/settings/delete-account`, for people to delete their own account with their password
+- `Update` activities when a local account is suspended or unsuspended, and a `Delete` when one is deleted
 
 ### Changed
 

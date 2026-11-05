@@ -8,7 +8,9 @@ import java.net.URI;
 import java.util.List;
 
 /**
- * Tells other servers to remove a status they were sent.
+ * Tells other servers to remove a status they were sent, or an actor and everything of its.
+ *
+ * @param object a {@link Tombstone} for a status, or the URI of an actor, as Mastodon sends and expects
  */
 public record Delete(
         @JsonProperty("@context") String context,
@@ -17,7 +19,7 @@ public record Delete(
         URI actor,
         List<String> to,
         List<String> cc,
-        Tombstone object
+        Object object
 ) {
 
     /**
@@ -34,5 +36,17 @@ public record Delete(
                 audience.to(),
                 audience.cc(),
                 Tombstone.inActivity(statusUri));
+    }
+
+    public static Delete of(Actor actor) {
+        var audience = Audience.of(Visibility.PUBLIC, actor, List.of());
+        return new Delete(
+                ActivityStreams.CONTEXT,
+                URI.create(actor.uri() + "#delete"),
+                "Delete",
+                actor.uri(),
+                audience.to(),
+                audience.cc(),
+                actor.uri());
     }
 }

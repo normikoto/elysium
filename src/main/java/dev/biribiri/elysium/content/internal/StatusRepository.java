@@ -30,10 +30,18 @@ public class StatusRepository {
 
     private static final String COUNT_REPLIES = """
             SELECT count(*) FROM status r
+            JOIN actor replier ON replier.id = r.actor_id AND replier.suspended_at IS NULL AND replier.deleted_at IS NULL
             WHERE r.in_reply_to_id = %s AND r.visibility IN ('public', 'unlisted')""";
 
+    /**
+     * Only finds statuses of accounts that are neither suspended nor deleted, so that those of a suspended account aren't
+     * served by anything, and aren't left to be filtered out after a page of them has been chosen.
+     */
     private static final String SELECT = "SELECT " + COLUMNS + ", (" + COUNT_REPLIES.formatted("s.id")
-            + ") AS replies_count FROM status s ";
+            + ") AS replies_count FROM status s "
+            + "JOIN actor author ON author.id = s.actor_id AND author.suspended_at IS NULL AND author.deleted_at IS NULL ";
+
+    private static final int REMOVAL_BATCH_SIZE = 1000;
 
     /**
      * Excludes replies to other accounts, but keeps an account's replies to itself.
@@ -130,6 +138,24 @@ public class StatusRepository {
                 .optional();
     }
 
+    /**
+     * Removes all of an actor's statuses and tombstones. Each batch commits by itself, so that removing a lot of them doesn't
+     * hold one long transaction.
+     */
+    public void removeAllBy(UUID actorId) {
+        int removed;
+        do {
+            removed = jdbc.sql("""
+                            DELETE FROM status
+                            WHERE id IN (SELECT id FROM status WHERE actor_id = :actorId LIMIT :limit)
+                            """)
+                    .param("actorId", actorId)
+                    .param("limit", REMOVAL_BATCH_SIZE)
+                    .update();
+        } while (removed == REMOVAL_BATCH_SIZE);
+        jdbc.sql("DELETE FROM status_tombstone WHERE actor_id = :actorId").param("actorId", actorId).update();
+    }
+
     public void insertTombstone(Status status, Instant deletedAt) {
         jdbc.sql("""
                         INSERT INTO status_tombstone (status_id, uri, actor_id, deleted_at)
@@ -197,7 +223,11 @@ public class StatusRepository {
     }
 
     public long countExcludingDirect() {
-        return jdbc.sql("SELECT coalesce(sum(statuses_count), 0)::bigint FROM actor_status_count")
+        return jdbc.sql("""
+                        SELECT coalesce(sum(c.statuses_count), 0)::bigint FROM actor_status_count c
+                        JOIN actor ON actor.id = c.actor_id
+                        WHERE actor.suspended_at IS NULL AND actor.deleted_at IS NULL
+                        """)
                 .query(Long.class)
                 .single();
     }

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.signature;
 
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.actor.signing.SigningKey;
@@ -186,6 +187,6 @@ class CavageRequestSignerTests {
         when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(
                 KEY_ID, URI.create("https://remote.example/users/bob"), SignatureFixtures.publicKey()));
         return new SignatureVerifier(
-                List.of(new CavageSignatureScheme(instance)), keys, instance, mock(DomainBlocks.class), Clock.fixed(NOW, ZoneOffset.UTC));
+                List.of(new CavageSignatureScheme(instance)), keys, instance, mock(DomainBlocks.class), mock(ActorService.class), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 }

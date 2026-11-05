@@ -32,7 +32,8 @@ An actor's `followers` is an `OrderedCollection` at `/users/{username}/followers
 served as `application/activity+json` or `application/ld+json` with any profile, including for `*/*` or no `Accept` header,
 and any origin can read it through CORS. There's no web page at this URL, so a request that only accepts HTML gets a 406.
 
-Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively.
+Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively. A deleted account's username
+can't be used again, because other servers can still know its URI.
 
 ### Instance actor
 
@@ -265,6 +266,37 @@ again with the same `id`.
 - The `outbox` that the instance actor advertises isn't implemented yet.
 - Fetching actors and objects from this server doesn't need a signature, and any signature on those requests is ignored.
 
+### Suspended and deleted accounts
+
+Admins can [suspend or delete an account](docs/accounts.md#suspending-and-deleting-accounts). Other servers get these answers
+for a local account:
+
+| Request                 | Suspended                                       | Deleted                                         |
+|-------------------------|-------------------------------------------------|-------------------------------------------------|
+| Actor document          | `200`, with `suspended: true` and the same key  | `410`, with a `Tombstone` (`formerType: Person`) |
+| `Note`                  | `403`                                           | `410`, with a `Tombstone` (`formerType: Note`)  |
+| Followers collection    | `403`                                           | `410`                                           |
+| WebFinger               | `200`                                           | `410`                                           |
+| Personal inbox          | As usual                                        | `410`                                           |
+| Profile and status page | `404`                                           | `404`                                           |
+
+`suspended` is `toot:suspended` (`http://joinmastodon.org/ns#suspended`), and the `@context` only defines it on a document
+that has it. A suspension isn't a `404` or `410`, so that other servers don't take it as the actor or its statuses being gone
+for good. A deleted account's `Note`s all get the same answer, whatever their ID, so this doesn't say which ones existed.
+
+- **Suspending a local account:** Its followers' servers get an `Update` of the actor with `suspended: true`, and an `Update`
+  without it if the suspension ends, each signed by the actor, with its own ID. Followers are kept. Activities from it that
+  were still queued finish without being sent, and aren't sent if the suspension ends. A `Follow` of a suspended account
+  gets no answer, and an `Undo` of one works as usual.
+- **Deleting a local account:** Its followers' servers get a `Delete` signed by the actor, whose `object` is the actor's URI, with
+  the ID `{actor-uri}#delete`. No `Delete` is sent for each status. The actor's key stays stored until the jobs that send this
+  can't run any more, 34 days later, but the actor document answers `410` straight away, so a server has to have kept the key.
+  Who's told comes from who follows the account then, so a server whose followers have all left keeps its copy.
+- **Suspending a remote actor:** A delivery signed with its key gets a `403`, and its activities are refused, including any
+  still queued. Its document isn't fetched or refreshed. Its follows are removed, and aren't restored if the suspension ends, so
+  it would have to follow again. Nothing more is sent to its personal inbox, but a shared inbox still gets activities for
+  other followers. Its own server isn't told. Only an actor that's already stored can be suspended.
+
 ### Domain blocks
 
 Admins can [block a domain](docs/accounts.md#domain-blocks), which also covers its subdomains and every port. Domains are
@@ -295,7 +327,7 @@ GoToSocial answer the same way.
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures. The only requests this
-server makes are fetches of keys and actor documents, and deliveries of `Accept`, `Create`, and `Delete`.
+server makes are fetches of keys and actor documents, and deliveries of `Accept`, `Create`, `Update`, and `Delete`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

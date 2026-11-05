@@ -14,7 +14,11 @@ import java.util.Map;
  * Security, which turns them into the API's 403 response.
  */
 @RestControllerAdvice(assignableTypes = {
-        AccountsController.class, DomainBlocksController.class, StatusesController.class, TimelinesController.class})
+        AccountsController.class,
+        AdminAccountsController.class,
+        DomainBlocksController.class,
+        StatusesController.class,
+        TimelinesController.class})
 class StatusApiErrors {
 
     @ExceptionHandler

@@ -70,7 +70,9 @@ class UndoHandler implements InboundActivityHandler {
     }
 
     /**
-     * Misskey uses the same ID for each {@code Undo} between two actors, with a new ID for each {@code Follow}, so a repeat
+     * Local actors are looked up in any state, because someone can stop following a suspended account.
+     *
+     * <p>Misskey uses the same ID for each {@code Undo} between two actors, with a new ID for each {@code Follow}, so a repeat
      * can undo a new follow. The {@code Follow} it embeds has an ID that's never sent, so it matches on the two actors.
      */
     @Override
@@ -98,14 +100,14 @@ class UndoHandler implements InboundActivityHandler {
         var followedUri = follow.flatMap(found -> ActivityObject.of(found.body(), json))
                 .map(ActivityObject::id)
                 .or(() -> Optional.ofNullable(object.object()));
-        var followed = followedUri.flatMap(ActivityObject::parseUri).flatMap(actors::findLocalByUri).map(Actor::id);
+        var followed = followedUri.flatMap(ActivityObject::parseUri).flatMap(actors::findAnyLocalByUri).map(Actor::id);
         transaction.executeWithoutResult(status ->
                 follows.undo(actorUri, followed, followId, follow.map(InboundActivity::arrival), activity.receivedAt())
                         .ifPresent(this::cancelAccept));
     }
 
     private void undoByPair(InboundActivity activity, String followedUri) {
-        ActivityObject.parseUri(followedUri).flatMap(actors::findLocalByUri).ifPresent(followed ->
+        ActivityObject.parseUri(followedUri).flatMap(actors::findAnyLocalByUri).ifPresent(followed ->
                 transaction.executeWithoutResult(status ->
                         follows.undoPair(activity.actorUri(), followed.id(), activity.receivedAt())
                                 .ifPresent(this::cancelAccept)));
@@ -115,7 +117,7 @@ class UndoHandler implements InboundActivityHandler {
      * The other server has withdrawn the request, so it shouldn't get an answer if one is still waiting to be sent.
      */
     private void cancelAccept(FollowService.Removed removed) {
-        actors.findLocalById(removed.followedId()).ifPresent(followed ->
+        actors.findAnyLocalById(removed.followedId()).ifPresent(followed ->
                 deliveries.cancel(Accept.idFor(followed.uri(), removed.activityUri())));
     }
 
