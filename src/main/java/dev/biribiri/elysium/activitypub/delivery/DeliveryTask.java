@@ -8,6 +8,8 @@ import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.SignedSender;
+import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -36,6 +38,7 @@ class DeliveryTask {
 
     private static final Duration BACKOFF_SPREAD = Duration.ofSeconds(10);
     private static final Duration BEHIND_DELAY = Duration.ofSeconds(5);
+    private static final Duration SUSPENDED_DELAY = Duration.ofMinutes(10);
 
     private final JdbcClient jdbc;
     private final ActorService actors;
@@ -92,8 +95,16 @@ class DeliveryTask {
                 // It was queued before the block. This comes before backing off, which could end with it failing.
                 return Jobs.done();
             }
-            if (isRefused(activity.get(), inbox)) {
-                // It was queued before a suspension or deletion, and isn't sent later if a suspension ends.
+            var signer = actors.findAnyLocalById(activity.get().actorId());
+            var whileSuspended = activity.get().whileSuspended();
+            if (whileSuspended != WhileSuspended.SEND && signer.filter(found -> !found.isActive()).isPresent()) {
+                // It was queued before a suspension or deletion.
+                if (signer.get().isDeleted() || whileSuspended == WhileSuspended.DROP || Jobs.hasOutlivedItsActivity(job)) {
+                    return Jobs.done();
+                }
+                return at(now.plus(SUSPENDED_DELAY));
+            }
+            if (!actors.suspendedInboxes(List.of(inbox)).isEmpty()) {
                 return Jobs.done();
             }
             var backingOff = gate.backingOffUntil(host, now);
@@ -106,17 +117,11 @@ class DeliveryTask {
             if (job.staysBehind() != null && isRunningFor(job.staysBehind(), host)) {
                 return at(now.plus(BEHIND_DELAY));
             }
-            send(activity.get(), inbox, host);
+            send(activity.get(), signer, inbox, host);
             return Jobs.done();
         } finally {
             gate.release(host);
         }
-    }
-
-    private boolean isRefused(OutboundActivity activity, URI inbox) {
-        var signerGone = !activity.aboutAccount()
-                && actors.findAnyLocalById(activity.actorId()).filter(signer -> !signer.isActive()).isPresent();
-        return signerGone || !actors.suspendedInboxes(List.of(inbox)).isEmpty();
     }
 
     /**
@@ -138,20 +143,22 @@ class DeliveryTask {
     }
 
     private Optional<OutboundActivity> find(DeliveryJob job) {
-        return jdbc.sql("SELECT actor_id, body, about_account FROM outbound_activity WHERE activity_id = :id")
+        return jdbc.sql("SELECT actor_id, body, while_suspended FROM outbound_activity WHERE activity_id = :id")
                 .param("id", job.activityId())
                 .query((rs, row) -> new OutboundActivity(
                         job.activityId(),
                         rs.getObject("actor_id", UUID.class),
                         rs.getString("body"),
-                        rs.getBoolean("about_account")))
+                        WhileSuspended.valueOf(rs.getString("while_suspended"))))
                 .optional();
     }
 
-    void send(OutboundActivity activity, URI inbox, String host) {
-        // In any state, because an actor has to be able to sign what says that it's been suspended or deleted.
-        var key = actors.findAnyLocalById(activity.actorId())
-                .flatMap(keys::forActor)
+    /**
+     * @param signer the activity's actor in any state, because an actor has to be able to sign what says that it's been
+     *               suspended or deleted
+     */
+    void send(OutboundActivity activity, Optional<Actor> signer, URI inbox, String host) {
+        var key = signer.flatMap(keys::forActor)
                 .orElseThrow(() -> new PermanentJobFailure("The activity's actor no longer has a local key"));
         Response response;
         try {

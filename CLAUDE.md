@@ -91,7 +91,8 @@ feature is live.
   check. Use `findAnyLocal*` only for what has to tell these apart or keep working for them, such as actor documents and signing.
   `findByUri` and `findById` find any actor, so check its state. `auth.AccountActions` decides who can be suspended or deleted.
   A deleted local actor keeps its row, which reserves its username and URI. `AccountCleanup` tells other servers and queues the
-  removal of its data. Activities with `about_account` are the only ones sent while their actor is suspended or deleted.
+  removal of its data. `OutboundActivity.WhileSuspended` says what happens to a queued activity while its actor is suspended, and only
+  `SEND` goes out once its actor is deleted.
   New remote or account data also has to be removed by `AccountCleanupTask`.
 - **Outbound HTTP:** Use `activitypub.http.FederationHttpClient`, which refuses private addresses, including through its
   own DNS resolver. The lab gets around this with `elysium.federation.allowed-private-networks`, and `federation/README.md`

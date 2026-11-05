@@ -44,60 +44,49 @@ public class WebFingerController {
             return ResponseEntity.badRequest().build();
         }
 
-        if (isDeleted(uri)) {
-            return ResponseEntity.status(HttpStatus.GONE).build();
-        }
-
-        Optional<JsonResourceDescriptor> descriptor;
-        switch (uri.getScheme().toLowerCase(Locale.ROOT)) {
+        return switch (uri.getScheme().toLowerCase(Locale.ROOT)) {
             case "acct" -> {
                 var account = uri.getSchemeSpecificPart();
                 var separator = account.lastIndexOf('@');
                 if (separator <= 0 || separator == account.length() - 1) {
-                    return ResponseEntity.badRequest().build();
+                    yield ResponseEntity.badRequest().build();
                 }
                 var domain = account.substring(separator + 1);
-                descriptor = domain.equalsIgnoreCase(instance.domain())
+                yield domain.equalsIgnoreCase(instance.domain())
                         ? findByUsername(account.substring(0, separator))
-                        : Optional.empty();
+                        : ResponseEntity.notFound().build();
             }
-            case "http", "https" -> descriptor = findByUri(uri);
-            default -> descriptor = Optional.empty();
-        }
-        return ResponseEntity.of(descriptor);
-    }
-
-    private boolean isDeleted(URI resource) {
-        var scheme = resource.getScheme().toLowerCase(Locale.ROOT);
-        Optional<Actor> actor = Optional.empty();
-        if (scheme.equals("acct")) {
-            var account = resource.getSchemeSpecificPart();
-            var separator = account.lastIndexOf('@');
-            if (separator > 0 && account.substring(separator + 1).equalsIgnoreCase(instance.domain())) {
-                actor = actors.findAnyLocalByUsername(account.substring(0, separator));
-            }
-        } else if (scheme.equals("http") || scheme.equals("https")) {
-            actor = actors.findAnyLocalByUri(resource);
-        }
-        return actor.filter(Actor::isDeleted).isPresent();
+            case "http", "https" -> findByUri(uri);
+            default -> ResponseEntity.notFound().build();
+        };
     }
 
     /**
      * Mastodon looks up {@code acct:{preferredUsername}@{domain}} before it accepts a new actor, so the instance actor
      * has to be found here for Mastodon to accept its signatures.
      */
-    private Optional<JsonResourceDescriptor> findByUsername(String username) {
+    private ResponseEntity<JsonResourceDescriptor> findByUsername(String username) {
         if (username.equalsIgnoreCase(InstanceActor.USERNAME)) {
-            return Optional.of(descriptor(actors.instanceActor()));
+            return ResponseEntity.ok(descriptor(actors.instanceActor()));
         }
-        return actors.findAnyLocalByUsername(username).map(WebFingerController::descriptor);
+        return answer(actors.findAnyLocalByUsername(username));
     }
 
-    private Optional<JsonResourceDescriptor> findByUri(URI uri) {
+    private ResponseEntity<JsonResourceDescriptor> findByUri(URI uri) {
         if (uri.equals(instance.resolve(InstanceActor.PATH))) {
-            return Optional.of(descriptor(actors.instanceActor()));
+            return ResponseEntity.ok(descriptor(actors.instanceActor()));
         }
-        return actors.findAnyLocalByUri(uri).map(WebFingerController::descriptor);
+        return answer(actors.findAnyLocalByUri(uri));
+    }
+
+    /**
+     * A suspended actor is still found, because it can come back.
+     */
+    private static ResponseEntity<JsonResourceDescriptor> answer(Optional<Actor> actor) {
+        if (actor.filter(Actor::isDeleted).isPresent()) {
+            return ResponseEntity.status(HttpStatus.GONE).build();
+        }
+        return ResponseEntity.of(actor.map(WebFingerController::descriptor));
     }
 
     private static JsonResourceDescriptor descriptor(Actor actor) {

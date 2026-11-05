@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -241,6 +242,27 @@ class RateLimitIntegrationTests {
 
         Mockito.reset(passwordEncoder);
         signUp("errorsignup", PASSWORD, address).andExpect(redirectedUrl("/login?registered"));
+    }
+
+    @Test
+    void wrongPasswordsOnTheDeletePageCountAgainstTheAccount() throws Exception {
+        var username = "deletelimit" + nextAddress.incrementAndGet();
+        createAccount(username);
+        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
+        var address = newAddress();
+
+        for (var i = 0; i < 5; i++) {
+            mockMvc.perform(from(address, post("/settings/delete-account")).session(session).with(csrf())
+                            .param("password", WRONG_PASSWORD))
+                    .andExpect(status().isUnprocessableContent());
+        }
+
+        mockMvc.perform(from(address, post("/settings/delete-account")).session(session).with(csrf())
+                        .param("password", PASSWORD))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
+        logIn(username, PASSWORD, address).andExpect(status().isTooManyRequests());
+        assertThat(actors.findLocalByUsername(username)).isPresent();
     }
 
     private void createAccount(String username) throws Exception {

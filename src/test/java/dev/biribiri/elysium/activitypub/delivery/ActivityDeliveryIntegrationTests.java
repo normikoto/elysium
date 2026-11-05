@@ -10,6 +10,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.LoopbackClients;
+import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import org.junit.jupiter.api.AfterEach;
@@ -148,11 +149,60 @@ class ActivityDeliveryIntegrationTests {
     // Suspended and deleted accounts
 
     @Test
-    void anActivityFromASuspendedActorIsFinishedWithoutSending() {
+    void anActivityThatCanBeDroppedIsFinishedWithoutSendingWhileItsActorIsSuspended() {
         var signer = newSigner();
-        var activity = new OutboundActivity("https://elysium.example/activities/" + UUID.randomUUID(), signer, "{}");
+        var activity = activityBy(signer, WhileSuspended.DROP);
         var host = newHost();
         actors.suspend(signer);
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).isEmpty();
+    }
+
+    @Test
+    void anActivityThatWaitsIsSentOnceTheSuspensionEnds() {
+        var signer = newSigner();
+        var activity = activityBy(signer, WhileSuspended.WAIT);
+        var host = newHost();
+        actors.suspend(signer);
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> executionTime(activity).isAfter(Instant.now().plus(Duration.ofMinutes(1))));
+        assertThat(receivedBy(host)).isEmpty();
+        assertThat(jobs(activity)).isOne();
+        assertThat(failures(activity)).isZero();
+
+        actors.unsuspend(signer);
+        runNow(activity);
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && jobs(activity) == 0);
+    }
+
+    @Test
+    void anActivityThatWaitsGivesUpQuietlyOnceItsActivityCouldBeCleanedUp() {
+        var signer = newSigner();
+        var activity = activityBy(signer, WhileSuspended.WAIT);
+        var host = newHost();
+        actors.suspend(signer);
+        enqueue(activity, inboxOn(host));
+        await().atMost(WAIT).until(() -> executionTime(activity).isAfter(Instant.now().plus(Duration.ofMinutes(1))));
+
+        ageJob(activity, Duration.ofDays(40));
+        runNow(activity);
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).isEmpty();
+    }
+
+    @Test
+    void anActivityThatWaitsIsNotSentOnceItsActorIsDeleted() {
+        var signer = newSigner();
+        var activity = activityBy(signer, WhileSuspended.WAIT);
+        var host = newHost();
+        actors.markDeleted(signer);
 
         enqueue(activity, inboxOn(host));
 
@@ -165,14 +215,14 @@ class ActivityDeliveryIntegrationTests {
         var signer = newSigner();
         actors.suspend(signer);
         var host = newHost();
-        var suspended = new OutboundActivity("https://elysium.example/activities/" + UUID.randomUUID(), signer, "{}", true);
+        var suspended = activityBy(signer, WhileSuspended.SEND);
 
         enqueue(suspended, inboxOn(host));
 
         await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && jobs(suspended) == 0);
 
         actors.markDeleted(signer);
-        var deleted = new OutboundActivity("https://elysium.example/activities/" + UUID.randomUUID(), signer, "{}", true);
+        var deleted = activityBy(signer, WhileSuspended.SEND);
 
         enqueue(deleted, inboxOn(host));
 
@@ -214,6 +264,10 @@ class ActivityDeliveryIntegrationTests {
         enqueue(activity, inbox);
 
         await().atMost(WAIT).until(() -> receivedBy(host).size() == 1);
+    }
+
+    private static OutboundActivity activityBy(UUID signer, WhileSuspended whileSuspended) {
+        return new OutboundActivity("https://elysium.example/activities/" + UUID.randomUUID(), signer, "{}", whileSuspended);
     }
 
     private UUID newSigner() {

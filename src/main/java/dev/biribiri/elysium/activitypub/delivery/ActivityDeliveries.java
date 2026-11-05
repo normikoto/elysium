@@ -111,14 +111,14 @@ public class ActivityDeliveries {
 
     private void store(OutboundActivity activity) {
         jdbc.sql("""
-                        INSERT INTO outbound_activity (activity_id, actor_id, body, about_account)
-                        VALUES (:id, :actorId, :body, :aboutAccount)
+                        INSERT INTO outbound_activity (activity_id, actor_id, body, while_suspended)
+                        VALUES (:id, :actorId, :body, :whileSuspended)
                         ON CONFLICT (activity_id) DO UPDATE SET created_at = now()
                         """)
                 .param("id", activity.id())
                 .param("actorId", activity.actorId())
                 .param("body", activity.body())
-                .param("aboutAccount", activity.aboutAccount())
+                .param("whileSuspended", activity.whileSuspended().name())
                 .update();
     }
 
@@ -132,11 +132,13 @@ public class ActivityDeliveries {
 
     /**
      * Stops any further sending of an actor's activities, and removes what they said, for when the actor has been deleted.
-     * This leaves activities that say what's happened to the account. A listener running again mustn't cancel its own.
+     *
+     * @param keptId the activity that says so, because a listener that runs again mustn't cancel its own
      */
-    public void cancelAllBy(UUID actorId) {
-        jdbc.sql("DELETE FROM outbound_activity WHERE actor_id = :actorId AND NOT about_account")
+    public void cancelAllBy(UUID actorId, String keptId) {
+        jdbc.sql("DELETE FROM outbound_activity WHERE actor_id = :actorId AND activity_id <> :keptId")
                 .param("actorId", actorId)
+                .param("keptId", keptId)
                 .update();
     }
 }

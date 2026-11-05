@@ -5,6 +5,8 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.auth.AccountActionRefusedException;
 import dev.biribiri.elysium.auth.AccountActions;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Collection;
@@ -19,10 +21,12 @@ class AccountModeration implements AccountActions {
     private final LocalAccounts accounts;
     private final TransactionTemplate transaction;
 
-    AccountModeration(ActorService actors, LocalAccounts accounts, TransactionTemplate transaction) {
+    AccountModeration(ActorService actors, LocalAccounts accounts, PlatformTransactionManager transactionManager) {
         this.actors = actors;
         this.accounts = accounts;
-        this.transaction = transaction;
+        this.transaction = new TransactionTemplate(transactionManager);
+        // Whatever the database's default is, counting admins has to see what's been committed while waiting for the lock.
+        this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
     @Override

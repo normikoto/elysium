@@ -16,6 +16,7 @@ import picocli.CommandLine;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.URI;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,6 +32,8 @@ class AccountCommandsTests {
     private ActorService actors;
     @Autowired
     private AccountActions accounts;
+    @Autowired
+    private LocalAccounts localAccounts;
     @Autowired
     private JdbcClient jdbc;
 
@@ -91,6 +94,48 @@ class AccountCommandsTests {
     }
 
     @Test
+    void aSuspendedAccountsPasswordAndRoleCanStillBeChanged() {
+        var name = account();
+        var id = actors.findLocalByUsername(name).orElseThrow().id();
+        new CommandLine(wired(new SuspendAccountCommand())).execute(name);
+        var reset = new ResetPasswordCommand();
+        reset.wire(actors, localAccounts, () -> "a long enough password");
+        var setRole = new SetRoleCommand();
+        setRole.wire(actors, localAccounts);
+
+        assertThat(new CommandLine(reset).setErr(new PrintWriter(err)).execute(name)).isZero();
+        assertThat(new CommandLine(setRole).setErr(new PrintWriter(err)).execute(name, "admin")).isZero();
+
+        assertThat(localAccounts.passwordMatches(id, "a long enough password")).isTrue();
+        assertThat(localAccounts.isAdmin(id)).isTrue();
+        jdbc.sql("UPDATE account_credential SET role = 'USER' WHERE actor_id = :id").param("id", id).update();
+    }
+
+    @Test
+    void aDeletedAccountsPasswordCannotBeSet() {
+        var name = account();
+        accounts.delete(actors.findLocalByUsername(name).orElseThrow().id(), Optional.empty());
+        var reset = new ResetPasswordCommand();
+        reset.wire(actors, localAccounts, () -> "a long enough password");
+
+        assertThat(new CommandLine(reset).setErr(new PrintWriter(err)).execute(name)).isOne();
+    }
+
+    @Test
+    void createUserSaysASuspendedOrDeletedUsernameIsTakenBeforeAskingForAPassword() {
+        var name = account();
+        accounts.suspend(actors.findLocalByUsername(name).orElseThrow().id(), Optional.empty());
+        var create = new CreateUserCommand();
+        create.wire(actors, localAccounts, () -> {
+            throw new AssertionError("Shouldn't ask for a password");
+        });
+
+        assertThat(new CommandLine(create).setErr(new PrintWriter(err)).execute(name)).isOne();
+
+        assertThat(err.toString()).contains("taken");
+    }
+
+    @Test
     void refusesTheLastAdmin() {
         var name = account();
         var id = actors.findLocalByUsername(name).orElseThrow().id();
@@ -118,6 +163,11 @@ class AccountCommandsTests {
         var command = new UnsuspendAccountCommand();
         command.wire(actors, accounts);
         return new CommandLine(command).setOut(new PrintWriter(out)).setErr(new PrintWriter(err)).execute(account);
+    }
+
+    private SuspendAccountCommand wired(SuspendAccountCommand command) {
+        command.wire(actors, accounts);
+        return command;
     }
 
     private DeleteAccountCommand wired(DeleteAccountCommand command) {

@@ -43,7 +43,8 @@ class CreateUserCommand implements Callable<Integer> {
             err.println("Usernames must be 1 to 30 letters, digits, or underscores");
             return 1;
         }
-        if (actors.findLocalByUsername(username).isPresent()) {
+        // Suspended and deleted accounts keep their usernames.
+        if (actors.findAnyLocalByUsername(username).isPresent()) {
             err.println("The username " + username + " is taken");
             return 1;
         }

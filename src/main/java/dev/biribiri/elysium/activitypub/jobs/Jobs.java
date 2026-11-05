@@ -51,11 +51,19 @@ public final class Jobs {
      * @throws PermanentJobFailure if the job is old enough that its activity could have been cleaned up
      */
     public static <T extends QueuedJob> CompletionHandler<T> activityGone(T job) {
-        if (Duration.between(job.queuedAt(), Instant.now()).compareTo(RetryPolicy.LONGEST_LIFE) > 0) {
+        if (hasOutlivedItsActivity(job)) {
             throw new PermanentJobFailure("Its activity is gone, so there's nothing to do. Activities are kept for "
                     + ACTIVITIES_KEPT.toDays() + " days, and one being sent can also have been cancelled");
         }
         return done();
+    }
+
+    /**
+     * Whether a job has been waiting for so long that its activity could have been cleaned up, for one that's waiting on purpose
+     * and should give up rather than fail in {@link #activityGone}.
+     */
+    public static boolean hasOutlivedItsActivity(QueuedJob job) {
+        return Duration.between(job.queuedAt(), Instant.now()).compareTo(RetryPolicy.LONGEST_LIFE) > 0;
     }
 
     /**

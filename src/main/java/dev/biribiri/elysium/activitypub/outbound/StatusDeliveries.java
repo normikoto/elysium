@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.outbound;
 
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
+import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.activitypub.vocab.Create;
 import dev.biribiri.elysium.activitypub.vocab.Delete;
 import dev.biribiri.elysium.actor.ActorService;
@@ -69,12 +70,15 @@ public class StatusDeliveries {
         }
         var create = Create.of(notes.of(status.get(), author.get()));
         deliveries.enqueue(
-                new OutboundActivity(create.id().toString(), author.get().id(), json.writeValueAsString(create)), inboxes);
+                new OutboundActivity(
+                        create.id().toString(), author.get().id(), json.writeValueAsString(create), WhileSuspended.DROP),
+                inboxes);
     }
 
     /**
      * Stops any further sending of the status, and tells followers to remove it, after any {@code Create} still being sent.
-     * Who was sent the status isn't kept, so this goes to current followers, as {@link #inboxes} decides.
+     * Who was sent the status isn't kept, so this goes to current followers, as {@link #inboxes} decides. An author who's been
+     * suspended since can come back, and this waits for that, so that followers don't keep what was deleted.
      */
     @ApplicationModuleListener
     public void on(StatusDeleted event) {
@@ -83,7 +87,7 @@ public class StatusDeliveries {
         }
         var create = Create.idFor(event.statusUri());
         deliveries.cancel(create);
-        var author = actors.findLocalById(event.authorId());
+        var author = actors.findAnyLocalById(event.authorId()).filter(found -> !found.isDeleted());
         if (author.isEmpty()) {
             return;
         }

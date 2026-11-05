@@ -79,8 +79,10 @@ that up within about 10 minutes.
 - It can't log in, its browser sessions end, and its applications' tokens are refused. The tokens work again if the suspension
   ends, so if the account may be compromised, also run [`reset-password`](#accounts-and-sign-ups), which revokes them.
 - Its posts and profile aren't shown to anyone, and it isn't counted in the server's statistics.
-- Other servers [are told](../FEDERATION.md#suspended-and-deleted-accounts), and it keeps its followers. Posts still waiting to
-  be sent are dropped, and aren't sent later.
+- Other servers [are told](../FEDERATION.md#suspended-and-deleted-accounts), and it keeps its followers. New posts still waiting
+  to be sent are dropped, and aren't sent later. Other things waiting to be sent, such as the deletion of a post, go out once the
+  suspension ends.
+- `reset-password` and `set-role` still work on it.
 
 **Suspending an account on another server** refuses everything from it and stops sending to it, and removes its follows, which
 don't come back if the suspension ends. Its own server isn't told. To stop a whole server, use a [domain block](#domain-blocks).

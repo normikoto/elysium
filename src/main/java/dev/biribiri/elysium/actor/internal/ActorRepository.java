@@ -327,7 +327,14 @@ public class ActorRepository {
     }
 
     public boolean hasLocalAccounts() {
-        return countExistingLocal() > 0;
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM local_account
+                            JOIN actor ON actor.id = local_account.actor_id
+                            WHERE actor.deleted_at IS NULL)
+                        """)
+                .query(Boolean.class)
+                .single();
     }
 
     /**

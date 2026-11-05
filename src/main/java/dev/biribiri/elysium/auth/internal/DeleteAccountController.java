@@ -1,6 +1,8 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.auth.AccountActionRefusedException;
+import dev.biribiri.elysium.ratelimit.RateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
@@ -12,22 +14,24 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import dev.biribiri.elysium.ratelimit.RateLimiter;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 
 /**
  * Lets someone delete their own account. There's no API for this, so that an application can't do it with a token. Needing
- * the password means that a browser left logged in isn't enough either. Wrong passwords count toward the login limits, since
- * this could otherwise be used to guess one.
+ * the password means that a browser left logged in isn't enough either. Wrong passwords count toward the account's login
+ * limits, since this could otherwise be used to guess one.
  */
 @Controller
 class DeleteAccountController {
 
+    private final ActorService actors;
     private final AccountModeration moderation;
     private final AuthRateLimits limits;
 
-    DeleteAccountController(AccountModeration moderation, AuthRateLimits limits) {
+    DeleteAccountController(ActorService actors, AccountModeration moderation, AuthRateLimits limits) {
+        this.actors = actors;
         this.moderation = moderation;
         this.limits = limits;
     }
@@ -46,7 +50,8 @@ class DeleteAccountController {
             HttpServletResponse response) {
         // A logged in user's name is their actor ID: see LocalAccounts.loadUserByUsername.
         var accountId = UUID.fromString(authentication.getName());
-        var wait = limits.beginLogin(request);
+        var account = actors.findLocalById(accountId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        var wait = limits.beginPasswordCheck(request, account.username());
         if (wait.isPresent()) {
             response.setHeader(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(wait.get()));
             return failed(HttpStatus.TOO_MANY_REQUESTS, "Too many attempts. Try again later.", model, response);

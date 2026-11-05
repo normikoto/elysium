@@ -35,12 +35,11 @@ class DeliveryTaskBlockTests {
     private final ActorSigningKeys keys = mock();
     private final SignedSender sender = mock();
     private final DomainBlocks blocks = mock();
+    private final Actor actor = mock();
     private final DeliveryTask task = new DeliveryTask(mock(JdbcClient.class), actors, keys, sender, mock(HostGate.class), blocks);
 
     @BeforeEach
     void clientRefuses() throws Exception {
-        Actor actor = mock();
-        when(actors.findAnyLocalById(ACTIVITY.actorId())).thenReturn(Optional.of(actor));
         when(keys.forActor(actor)).thenReturn(Optional.of(mock(SigningKey.class)));
         when(sender.post(any(), any(), any())).thenThrow(mock(BlockedTargetException.class));
     }
@@ -49,11 +48,11 @@ class DeliveryTaskBlockTests {
     void finishesIfTheServerWasBlockedSinceTheJobChecked() {
         when(blocks.isBlocked("blocked.test")).thenReturn(true);
 
-        assertThatCode(() -> task.send(ACTIVITY, INBOX, "blocked.test")).doesNotThrowAnyException();
+        assertThatCode(() -> task.send(ACTIVITY, Optional.of(actor), INBOX, "blocked.test")).doesNotThrowAnyException();
     }
 
     @Test
     void stillFailsForOtherRefusals() {
-        assertThatThrownBy(() -> task.send(ACTIVITY, INBOX, "blocked.test")).isInstanceOf(PermanentJobFailure.class);
+        assertThatThrownBy(() -> task.send(ACTIVITY, Optional.of(actor), INBOX, "blocked.test")).isInstanceOf(PermanentJobFailure.class);
     }
 }

@@ -285,9 +285,12 @@ that has it. A suspension isn't a `404` or `410`, so that other servers don't ta
 for good. A deleted account's `Note`s all get the same answer, whatever their ID, so this doesn't say which ones existed.
 
 - **Suspending a local account:** Its followers' servers get an `Update` of the actor with `suspended: true`, and an `Update`
-  without it if the suspension ends, each signed by the actor, with its own ID. Followers are kept. Activities from it that
-  were still queued finish without being sent, and aren't sent if the suspension ends. A `Follow` of a suspended account
-  gets no answer, and an `Undo` of one works as usual.
+  without it if the suspension ends, each signed by the actor, with its own ID. Jobs have no order, so if a server is down
+  through a quick suspension and its end, the older `Update` can arrive last, and that server has it wrong until it next
+  refreshes the actor. Followers are kept. A `Create` still queued is dropped, and isn't sent if the suspension ends. Other
+  activities still queued, such as a status's `Delete` or a follow's `Accept`, wait and are sent within 10 minutes of the
+  suspension ending, unless that takes more than 33 days. A `Follow` of a suspended account gets no answer, and an `Undo`
+  of one works as usual.
 - **Deleting a local account:** Its followers' servers get a `Delete` signed by the actor, whose `object` is the actor's URI, with
   the ID `{actor-uri}#delete`. No `Delete` is sent for each status. The actor's key stays stored until the jobs that send this
   can't run any more, 34 days later, but the actor document answers `410` straight away, so a server has to have kept the key.

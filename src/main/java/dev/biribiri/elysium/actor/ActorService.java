@@ -245,7 +245,8 @@ public class ActorService {
         if (!Actor.isValidLocalUsername(username)) {
             throw new IllegalArgumentException("Local usernames must be 1 to 30 letters, digits, or underscores");
         }
-        if (findLocalByUsername(username).isPresent()) {
+        // Suspended and deleted accounts keep their usernames.
+        if (findAnyLocalByUsername(username).isPresent()) {
             return Optional.empty();
         }
 

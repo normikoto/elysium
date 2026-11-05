@@ -4,6 +4,7 @@ import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
+import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.vocab.Delete;
 import dev.biribiri.elysium.activitypub.vocab.Person;
@@ -29,7 +30,8 @@ import java.util.UUID;
  *
  * <p>This can run again for the same event, which is safe as the jobs are identified by the event, and other servers ignore an
  * {@code id} they've already seen. The events can also run in any order, so each one looks at the account's state now, and only
- * says what's still true.
+ * says what's still true. That only covers queuing: an {@code Update}'s jobs have no order, so if a server is down through a
+ * quick suspension and its end, the older one can arrive last, until that server next refreshes the actor.
  */
 @Service
 public class AccountCleanup {
@@ -69,7 +71,7 @@ public class AccountCleanup {
      */
     @ApplicationModuleListener
     public void on(AccountSuspended event) {
-        var actor = actors.findById(event.actorId()).filter(Actor::isSuspended);
+        var actor = actors.findById(event.actorId()).filter(found -> found.isSuspended() && !found.isDeleted());
         if (actor.isEmpty()) {
             return;
         }
@@ -90,12 +92,13 @@ public class AccountCleanup {
 
     /**
      * This all happens in one transaction, before the jobs can run, because who to tell comes from the follows they remove.
+     * This also cancels any {@code Update} about the account, which can't still be true.
      */
     @ApplicationModuleListener
     public void on(AccountDeleted event) {
-        deliveries.cancelAllBy(event.actorId());
         actors.findById(event.actorId()).ifPresent(actor -> {
             var delete = Delete.of(actor);
+            deliveries.cancelAllBy(actor.id(), delete.id().toString());
             send(actor, delete.id().toString(), json.writeValueAsString(delete));
         });
         sweep(event.actorId(), "deleted");
@@ -106,7 +109,7 @@ public class AccountCleanup {
     }
 
     private void send(Actor actor, String id, String body) {
-        deliveries.enqueue(new OutboundActivity(id, actor.id(), body, true), follows.followerInboxes(actor.id()));
+        deliveries.enqueue(new OutboundActivity(id, actor.id(), body, WhileSuspended.SEND), follows.followerInboxes(actor.id()));
     }
 
     private void sweep(UUID actorId, String occasion) {

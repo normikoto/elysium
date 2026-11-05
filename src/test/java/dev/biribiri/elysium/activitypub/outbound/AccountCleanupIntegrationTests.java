@@ -5,14 +5,17 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
@@ -43,6 +46,10 @@ class AccountCleanupIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private JsonMapper json;
+    @Autowired
+    private TransactionTemplate transactions;
+    @Autowired
+    private ApplicationEventPublisher events;
 
     private Actor local;
 
@@ -153,6 +160,46 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAccountCancelsAnUpdateAboutIt() {
+        follow(remote(), local);
+        actors.suspend(local.id());
+        await().atMost(WAIT).until(() -> !activities(local, "%#suspended/%").isEmpty());
+
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() -> !activities(local, local.uri() + "#delete").isEmpty());
+        assertThat(activities(local, "%#suspended/%")).isEmpty();
+    }
+
+    /**
+     * The listener can run after its author is suspended, and followers shouldn't keep what was deleted if that ends.
+     */
+    @Test
+    void aStatusDeletedJustBeforeItsAuthorIsSuspendedStillHasItsDeleteQueued() {
+        follow(remote(), local);
+        var status = statuses.create(local.id(), draft());
+        actors.suspend(local.id());
+
+        transactions.executeWithoutResult(tx -> events.publishEvent(new StatusDeleted(
+                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt())));
+
+        await().atMost(WAIT).until(() -> !activities(local, status.uri() + "#delete").isEmpty());
+    }
+
+    @Test
+    void aStatusOfADeletedAuthorGetsNoDeleteOfItsOwn() {
+        follow(remote(), local);
+        var status = statuses.create(local.id(), draft());
+        actors.markDeleted(local.id());
+
+        transactions.executeWithoutResult(tx -> events.publishEvent(new StatusDeleted(
+                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt())));
+
+        await().atMost(WAIT).until(() -> publications() == 0);
+        assertThat(activities(local, status.uri() + "#delete")).isEmpty();
+    }
+
+    @Test
     void aStatusOfOtherAccountsReplyingToADeletedOneStays() {
         var replier = newLocal();
         var parent = statuses.create(local.id(), draft());
@@ -225,6 +272,10 @@ class AccountCleanupIntegrationTests {
                 .param("pattern", idPattern)
                 .query(String.class)
                 .list();
+    }
+
+    private long publications() {
+        return jdbc.sql("SELECT count(*) FROM event_publication WHERE completion_date IS NULL").query(Long.class).single();
     }
 
     private long jobs(Actor actor) {
