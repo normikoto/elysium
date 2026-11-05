@@ -1,7 +1,10 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.actor.Ids;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,6 +16,9 @@ import org.springframework.core.serializer.support.SerializingConverter;
 import org.springframework.session.config.SessionRepositoryCustomizer;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.session.jdbc.PostgreSqlJdbcIndexedSessionRepositoryCustomizer;
+import org.springframework.session.web.http.CookieSerializer;
+
+import java.util.List;
 
 /**
  * Login sessions are stored in the database by Spring Session, so that commands can end them, and they survive restarts and are
@@ -77,6 +83,20 @@ class LoginSessionConfig {
     }
 
     /**
+     * Session IDs are UUIDs, so a cookie with anything else in it isn't a session. Without this, it would go to the database, which
+     * refuses text with a zero byte in it, so that request would get an error rather than being treated as logged out.
+     */
+    @Bean
+    static BeanPostProcessor ignoringCookiesThatArentSessionIds() {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean, String beanName) {
+                return bean instanceof CookieSerializer cookies ? new SessionIdCookies(cookies) : bean;
+            }
+        };
+    }
+
+    /**
      * Spring Session's usual conversions, except that an attribute that can't be read counts as missing. Attributes are Java
      * serialized, so upgrading Spring Security can leave old ones unreadable. The session is read on every page for anyone with a
      * cookie, including public pages, so otherwise those people would get an error everywhere until the session expired. This
@@ -95,9 +115,23 @@ class LoginSessionConfig {
             try {
                 return deserializer.convert(bytes);
             } catch (SerializationFailedException e) {
-                log.warn("Ignoring a login session attribute that can't be read", e);
+                // Not the whole stack trace, because this can happen for every request from everyone logged in after an upgrade.
+                log.warn("Ignoring a login session attribute that can't be read: {}", e.getMostSpecificCause().toString());
                 return null;
             }
         };
+    }
+
+    private record SessionIdCookies(CookieSerializer delegate) implements CookieSerializer {
+
+        @Override
+        public void writeCookieValue(CookieValue cookieValue) {
+            delegate.writeCookieValue(cookieValue);
+        }
+
+        @Override
+        public List<String> readCookieValues(HttpServletRequest request) {
+            return delegate.readCookieValues(request).stream().filter(value -> Ids.parse(value).isPresent()).toList();
+        }
     }
 }

@@ -9,6 +9,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.session.Session;
+import org.springframework.session.SessionRepository;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -17,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -50,6 +53,9 @@ class LoginSessionCookieIntegrationTests {
     @Autowired
     private JdbcClient jdbc;
 
+    @Autowired
+    private SessionRepository<? extends Session> sessions;
+
     @Test
     void theCookieCantBeReadByScriptsAndLoggingInAndResettingWork() throws Exception {
         TestAccounts.makeSureAnAccountExists(actors);
@@ -66,11 +72,7 @@ class LoginSessionCookieIntegrationTests {
         var page = HttpRequest.newBuilder(uri("/settings/delete-account")).header("Accept", "text/html").GET();
         assertThat(send(page, value(firstCookie)).statusCode()).isEqualTo(302);
 
-        var login = send(HttpRequest.newBuilder(uri("/login"))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString("username=" + username
-                        + "&password=" + URLEncoder.encode(PASSWORD, StandardCharsets.UTF_8)
-                        + "&_csrf=" + URLEncoder.encode(token.group(1), StandardCharsets.UTF_8))), value(firstCookie));
+        var login = logIn(username, token.group(1), value(firstCookie));
         assertThat(login.statusCode()).isEqualTo(302);
         assertThat(login.headers().firstValue("Location").orElseThrow()).doesNotContain("error");
         var loggedIn = setCookie(login);
@@ -93,6 +95,43 @@ class LoginSessionCookieIntegrationTests {
         assertThat(afterReset.headers().firstValue("Location").orElseThrow()).endsWith("/login");
     }
 
+    /**
+     * A request that read the session before the login finished writes the session back afterward, with the ID it knows. Someone who
+     * planted that ID could keep sending requests to get there, so that ID mustn't become logged in.
+     */
+    @Test
+    void aRequestOverlappingALoginCantBringBackTheOldId() throws Exception {
+        TestAccounts.makeSureAnAccountExists(actors);
+        var username = "u" + UUID.randomUUID().toString().replace("-", "").substring(0, 25);
+        accounts.createAccount(username, PASSWORD).orElseThrow();
+
+        var loginPage = send(HttpRequest.newBuilder(uri("/login")).GET(), null);
+        var plantedCookie = value(setCookie(loginPage));
+        var token = CSRF_TOKEN.matcher(loginPage.body());
+        assertThat(token.find()).isTrue();
+        var plantedId = new String(
+                Base64.getDecoder().decode(plantedCookie.substring(plantedCookie.indexOf('=') + 1)), StandardCharsets.UTF_8);
+
+        var overlapping = overlappingRequest(sessions, plantedId);
+        var login = logIn(username, token.group(1), plantedCookie);
+        assertThat(login.headers().firstValue("Location").orElseThrow()).doesNotContain("error");
+        overlapping.run();
+
+        var page = HttpRequest.newBuilder(uri("/settings/delete-account")).header("Accept", "text/html").GET();
+        var response = send(page, plantedCookie);
+        assertThat(response.statusCode()).isEqualTo(302);
+        assertThat(response.headers().firstValue("Location").orElseThrow()).endsWith("/login");
+    }
+
+    /**
+     * @return what finishing a request that's read this session already does, which is to save it
+     */
+    private static <S extends Session> Runnable overlappingRequest(SessionRepository<S> sessions, String id) {
+        var session = sessions.findById(id);
+        session.setLastAccessedTime(Instant.now());
+        return () -> sessions.save(session);
+    }
+
     @Test
     void aMalformedCookieIsJustNotASession() throws Exception {
         var encoder = Base64.getEncoder();
@@ -100,6 +139,7 @@ class LoginSessionCookieIntegrationTests {
                 encoder.encodeToString("\\xZZ".getBytes(StandardCharsets.UTF_8)),
                 encoder.encodeToString("it's; --".getBytes(StandardCharsets.UTF_8)),
                 encoder.encodeToString(new byte[]{(byte) 0xff, (byte) 0xfe}),
+                encoder.encodeToString(new byte[]{'a', 0, 'b'}),
                 "not base64!")) {
             assertThat(send(HttpRequest.newBuilder(uri("/")).GET(), "SESSION=" + cookie).statusCode()).isEqualTo(200);
         }
@@ -130,6 +170,14 @@ class LoginSessionCookieIntegrationTests {
                     .query(Long.class)
                     .single()).isZero();
         }
+    }
+
+    private HttpResponse<String> logIn(String username, String csrfToken, String cookie) throws Exception {
+        return send(HttpRequest.newBuilder(uri("/login"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString("username=" + username
+                        + "&password=" + URLEncoder.encode(PASSWORD, StandardCharsets.UTF_8)
+                        + "&_csrf=" + URLEncoder.encode(csrfToken, StandardCharsets.UTF_8))), cookie);
     }
 
     private HttpResponse<String> send(HttpRequest.Builder request, String cookie) throws Exception {

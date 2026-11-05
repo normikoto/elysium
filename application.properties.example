@@ -21,6 +21,9 @@ spring.datasource.password=
 # doesn't affect existing statuses.
 #elysium.statuses.max-characters=5000
 
+# How long a login session lasts without a request.
+#server.servlet.session.timeout=30m
+
 # This should not normally be set. Lets requests to other servers reach these private networks, as a comma-separated list
 # in CIDR form. It's only for federating with servers on a private network, because anyone can make this server send
 # requests to any host, and could then reach anything on these networks.

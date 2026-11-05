@@ -202,9 +202,7 @@ class LocalAccounts implements UserDetailsService {
                             INSERT INTO account_credential (actor_id, password_hash)
                             VALUES (:actorId, :hash)
                             ON CONFLICT (actor_id) DO UPDATE
-                            SET password_hash = EXCLUDED.password_hash,
-                                password_generation = account_credential.password_generation + 1,
-                                updated_at = now()
+                            SET password_hash = EXCLUDED.password_hash, updated_at = now()
                             """)
                     .param("actorId", actorId)
                     .param("hash", hash)
@@ -215,29 +213,33 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
-     * Logs an account out of every browser, in the caller's transaction. A session's principal name is the actor ID: see
+     * Logs an account out of every browser, in the caller's transaction, including any login that's in progress, which is why this
+     * also moves on its generation: see {@link LoginGenerationFilter}. A session's principal name is the actor ID: see
      * {@link #loadUserByUsername}. Attributes go with it through the foreign key.
      */
     void endSessions(UUID actorId) {
+        jdbc.sql("UPDATE account_credential SET login_generation = login_generation + 1 WHERE actor_id = :actorId")
+                .param("actorId", actorId)
+                .update();
         jdbc.sql("DELETE FROM spring_session WHERE principal_name = :principalName")
                 .param("principalName", actorId.toString())
                 .update();
     }
 
     /**
-     * @return which password a login by this username would be checked against, if the account can log in
+     * @return the generation that a login by this username would belong to, if the account can log in
      * @see LoginGenerationFilter
      */
-    Optional<Long> passwordGeneration(String username) {
-        return actors.findLocalByUsername(username).flatMap(actor -> passwordGeneration(actor.id()));
+    Optional<Long> loginGeneration(String username) {
+        return actors.findLocalByUsername(username).flatMap(actor -> loginGeneration(actor.id()));
     }
 
     /**
-     * @return how many times this account's password has been replaced, if it has one
+     * @return how many times this account's sessions have been ended, if it has a password
      * @see LoginGenerationFilter
      */
-    Optional<Long> passwordGeneration(UUID actorId) {
-        return jdbc.sql("SELECT password_generation FROM account_credential WHERE actor_id = :actorId")
+    Optional<Long> loginGeneration(UUID actorId) {
+        return jdbc.sql("SELECT login_generation FROM account_credential WHERE actor_id = :actorId")
                 .param("actorId", actorId)
                 .query(Long.class)
                 .optional();

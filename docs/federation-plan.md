@@ -126,6 +126,7 @@ These don't belong to one milestone, but each has a point where it stops being o
 | Check real delivery on a public deployment, not only the lab | Before any public server | Comment on #39 |
 | Limit inbox requests that don't start a key fetch, or document relying on a proxy | Before any public server | PR #57 known limits |
 | Email verification and sign-up approval | Before any public server | #35, #17, and the warning in `docs/accounts.md` |
+| Stop each anonymous visit to a page with a form storing a login session, which has no limit | Before any public server | Code review of PR #84, and `docs/accounts.md` |
 | Handling a `Delete` that arrives before its `Create` | Milestone 4 | #53 left ordering to the callers |
 | Report GoToSocial's stuck home timeline upstream, after confirming the cause | When someone can look into it, since it doesn't block federation | PR #72 |
 

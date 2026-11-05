@@ -27,7 +27,7 @@ CREATE TABLE spring_session_attributes
         REFERENCES spring_session (primary_id) ON DELETE CASCADE
 );
 
--- Goes up each time a password is replaced, so that a login that was checking the old password at that moment can be told apart
--- from one that checked the new password. See LoginGenerationFilter.
+-- Goes up each time an account's sessions are ended, so that a login that was in progress at that moment can be told apart from one
+-- that started afterward. See LoginGenerationFilter.
 ALTER TABLE account_credential
-    ADD COLUMN password_generation BIGINT NOT NULL DEFAULT 0;
+    ADD COLUMN login_generation BIGINT NOT NULL DEFAULT 0;

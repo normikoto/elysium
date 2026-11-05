@@ -121,6 +121,25 @@ class LoginSessionsIntegrationTests {
     }
 
     @Test
+    void aLoginCheckingThePasswordDuringASuspensionDoesNotSurviveIt() throws Exception {
+        var username = newUsername();
+        var actorId = account(username);
+        Mockito.doAnswer(invocation -> {
+            var matches = invocation.callRealMethod();
+            Mockito.doCallRealMethod().when(passwordEncoder).matches(any(), any());
+            moderation.suspend(actorId, Optional.empty());
+            moderation.unsuspend(actorId);
+            return matches;
+        }).when(passwordEncoder).matches(any(), any());
+
+        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
+
+        assertThat(sessions(actorId)).isOne();
+        assertLoggedOut(session);
+        assertThat(sessions(actorId)).isZero();
+    }
+
+    @Test
     void endingASuspensionDoesNotBringBackASession() throws Exception {
         var username = newUsername();
         var actorId = account(username);

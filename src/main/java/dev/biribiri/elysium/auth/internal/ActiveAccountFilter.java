@@ -17,8 +17,8 @@ import java.util.UUID;
 /**
  * Ends a login session that outlived what it depends on: an account that's since been suspended or deleted, or a password that's
  * since been replaced. Those all delete the account's sessions, but a login that's still in progress at that moment saves its
- * session afterward, so this looks at the database on each request. Only requests with a session pay for this, and those are
- * only for a few pages.
+ * session afterward, so this looks at the database on each request. It also ends a session that's lost the ID it logged in with:
+ * see {@link LoginGenerationFilter}. Only requests with a session pay for this, and those are only for a few pages.
  *
  * <p>Not a bean, because Spring Boot would then also run it outside of the security filter chains.
  */
@@ -53,7 +53,7 @@ class ActiveAccountFilter extends OncePerRequestFilter {
             return true;
         }
         var session = request.getSession(false);
-        return session != null && !Objects.equals(
-                LoginGenerationFilter.generationOf(session), accounts.passwordGeneration(actorId).orElse(null));
+        return session != null && (!LoginGenerationFilter.hasLoginId(session) || !Objects.equals(
+                LoginGenerationFilter.generationOf(session), accounts.loginGeneration(actorId).orElse(null)));
     }
 }
