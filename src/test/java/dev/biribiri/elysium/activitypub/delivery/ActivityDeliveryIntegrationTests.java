@@ -222,6 +222,8 @@ class ActivityDeliveryIntegrationTests {
         await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && jobs(suspended) == 0);
 
         actors.markDeleted(signer);
+        // The listener for this cancels the actor's activities, other than its Delete, so this has to be queued after it's run.
+        await().atMost(WAIT).until(() -> publicationsAbout(signer) == 0);
         var deleted = activityBy(signer, WhileSuspended.SEND);
 
         enqueue(deleted, inboxOn(host));
@@ -1010,6 +1012,13 @@ class ActivityDeliveryIntegrationTests {
     private long publications(OutboundActivity activity) {
         return jdbc.sql("SELECT count(*) FROM event_publication WHERE serialized_event LIKE :id")
                 .param("id", "%" + activity.id() + "%")
+                .query(Long.class)
+                .single();
+    }
+
+    private long publicationsAbout(UUID actorId) {
+        return jdbc.sql("SELECT count(*) FROM event_publication WHERE serialized_event LIKE :id")
+                .param("id", "%" + actorId + "%")
                 .query(Long.class)
                 .single();
     }
