@@ -20,8 +20,8 @@ import org.springframework.security.oauth2.server.authorization.authentication.C
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.introspection.OpaqueTokenIntrospector;
+import org.springframework.security.web.DefaultRedirectStrategy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.ExceptionMappingAuthenticationFailureHandler;
 import org.springframework.security.web.authentication.Http403ForbiddenEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
@@ -35,7 +35,6 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import static org.springframework.security.config.Customizer.withDefaults;
@@ -101,11 +100,12 @@ class SecurityConfig {
             InstanceProperties instance,
             OAuthResponses responses,
             AdminAccess adminAccess,
-            ActorService actors)
+            ActorService actors,
+            LocalAccounts accounts)
             throws Exception {
         return http
                 .securityMatcher(authorizationServerRequests())
-                .addFilterAfter(new ActiveAccountFilter(actors), SecurityContextHolderFilter.class)
+                .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
                 .cors(cors -> cors.configurationSource(clientCors()))
                 .oauth2AuthorizationServer(server -> configure(server, instance, responses, adminAccess))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
@@ -169,7 +169,8 @@ class SecurityConfig {
             AuthRateLimits limits,
             AdminAccess adminAccess,
             InstanceProperties instance,
-            ActorService actors)
+            ActorService actors,
+            LocalAccounts accounts)
             throws Exception {
         var pagesNeedingLogin = new OrRequestMatcher(
                 adminPageRequests(), pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH));
@@ -181,18 +182,18 @@ class SecurityConfig {
         requestCache.setRequestMatcher(
                 request -> pagesNeedingLogin.matches(request) && requestCache.getRequest(request, null) == null);
 
-        var loginFailure = new ExceptionMappingAuthenticationFailureHandler();
-        loginFailure.setDefaultFailureUrl(LOGIN_PATH + "?error");
-        loginFailure.setExceptionMappings(Map.of(PasswordHashingBusyException.class.getName(), LOGIN_PATH + "?busy"));
+        var redirects = new DefaultRedirectStrategy();
 
         // Setting a success handler replaces Spring's default one, which is also what it would give this request cache.
         var loginSuccess = new SavedRequestAwareAuthenticationSuccessHandler();
         loginSuccess.setRequestCache(requestCache);
 
         return http
-                .addFilterAfter(new ActiveAccountFilter(actors), SecurityContextHolderFilter.class)
+                .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
                 // Runs after the CSRF filter, so requests without a valid token don't use up anyone's attempts.
                 .addFilterBefore(new LoginRateLimitFilter(limits), UsernamePasswordAuthenticationFilter.class)
+                // After the rate limit, as filters at the same position run in the order they're added.
+                .addFilterBefore(new LoginGenerationFilter(accounts), UsernamePasswordAuthenticationFilter.class)
                 // Applies Spring MVC's CORS settings, including to preflight requests: @CrossOrigin on controllers, and
                 // the mappings in WebMvcConfigurer classes.
                 .cors(withDefaults())
@@ -215,6 +216,7 @@ class SecurityConfig {
                         .loginPage(LOGIN_PATH)
                         .successHandler((request, response, authentication) -> {
                             limits.loginSucceeded(request);
+                            LoginGenerationFilter.loggedIn(request);
                             loginSuccess.onAuthenticationSuccess(request, response, authentication);
                         })
                         .failureHandler((request, response, failure) -> {
@@ -224,11 +226,14 @@ class SecurityConfig {
                             } else {
                                 limits.loginNotCounted(request);
                             }
-                            loginFailure.onAuthenticationFailure(request, response, failure);
+                            // Not one of Spring's failure handlers, which keep the exception in the session. It has the
+                            // submitted password in it, and sessions are stored in the database.
+                            redirects.sendRedirect(request, response, LOGIN_PATH
+                                    + (failure instanceof PasswordHashingBusyException ? "?busy" : "?error"));
                         })
                         .permitAll())
                 .logout(withDefaults())
-                // Sessions don't survive a restart, so an admin who reloads a page needs a way back in. Other requests get
+                // Sessions expire, so an admin who reloads a page needs a way back in. Other requests get
                 // a bare 403. The job UI's API calls are among them, because they couldn't use a login page as a response.
                 .exceptionHandling(exceptions -> exceptions
                         .defaultAuthenticationEntryPointFor(new LoginUrlAuthenticationEntryPoint(LOGIN_PATH), pagesNeedingLogin)

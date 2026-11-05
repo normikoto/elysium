@@ -12,7 +12,8 @@ import java.util.concurrent.Callable;
 @Command(
         name = "reset-password",
         mixinStandardHelpOptions = true,
-        description = "Replaces a local account's password and revokes its applications' access. Asks for the password.")
+        description = "Replaces a local account's password, logs it out of every browser, and revokes its applications' access. "
+                + "Asks for the password.")
 class ResetPasswordCommand implements Callable<Integer> {
 
     private ActorService actors;
@@ -49,9 +50,8 @@ class ResetPasswordCommand implements Callable<Integer> {
             err.println(e.getMessage());
             return 1;
         }
-        out.println("Changed the password for " + username + " and revoked its applications' access.");
-        // Sessions are in the server's memory, which this process can't reach.
-        out.println("Anyone already logged in through a browser stays logged in until the server restarts.");
+        out.println("Changed the password for " + username + ", logged it out of every browser, and revoked its "
+                + "applications' access.");
         return 0;
     }
 }

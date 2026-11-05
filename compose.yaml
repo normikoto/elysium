@@ -20,6 +20,7 @@ services:
       # Only passed on if it's set in .env. Otherwise the default built into the JAR applies.
       ELYSIUM_REGISTRATION_ENABLED:
       ELYSIUM_RATELIMIT_ENABLED:
+      SERVER_SERVLET_SESSION_TIMEOUT:
       # This should not normally be set. See .env.example.
       ELYSIUM_FEDERATION_ALLOWED_PRIVATE_NETWORKS:
       # The server trusts forwarded headers, which is why the port below is only published on the loopback interface.

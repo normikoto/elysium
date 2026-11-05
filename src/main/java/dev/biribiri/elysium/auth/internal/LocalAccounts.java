@@ -108,8 +108,8 @@ class LocalAccounts implements UserDetailsService {
 
     /**
      * Whether an account is an admin right now. Access checks have to use this, rather than the authorities of a login
-     * session or a stored authorization. Those are copies from when they were created, and commands run in a separate
-     * process that can't reach sessions, so a copy can't be updated when the role changes.
+     * session or a stored authorization. Those are copies from when they were created, and a session's copy is serialized,
+     * so a command can't update it when the role changes.
      */
     boolean isAdmin(UUID actorId) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM account_credential WHERE actor_id = :actorId AND role = 'ADMIN')")
@@ -190,8 +190,8 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
-     * Sets an actor's password, replacing any existing one, and revokes its applications' access: their tokens, pending
-     * authorization codes, and the consent that would let them get new codes without asking.
+     * Sets an actor's password, replacing any existing one, ends its login sessions, and revokes its applications' access: their
+     * tokens, pending authorization codes, and the consent that would let them get new codes without asking.
      */
     void resetPassword(UUID actorId, String password) {
         requireValidPassword(password);
@@ -207,8 +207,42 @@ class LocalAccounts implements UserDetailsService {
                     .param("actorId", actorId)
                     .param("hash", hash)
                     .update();
+            endSessions(actorId);
             revokeGrants(actorId);
         });
+    }
+
+    /**
+     * Logs an account out of every browser, in the caller's transaction, including any login that's in progress, which is why this
+     * also moves on its generation: see {@link LoginGenerationFilter}. A session's principal name is the actor ID: see
+     * {@link #loadUserByUsername}. Attributes go with it through the foreign key.
+     */
+    void endSessions(UUID actorId) {
+        jdbc.sql("UPDATE account_credential SET login_generation = login_generation + 1 WHERE actor_id = :actorId")
+                .param("actorId", actorId)
+                .update();
+        jdbc.sql("DELETE FROM spring_session WHERE principal_name = :principalName")
+                .param("principalName", actorId.toString())
+                .update();
+    }
+
+    /**
+     * @return the generation that a login by this username would belong to, if the account can log in
+     * @see LoginGenerationFilter
+     */
+    Optional<Long> loginGeneration(String username) {
+        return actors.findLocalByUsername(username).flatMap(actor -> loginGeneration(actor.id()));
+    }
+
+    /**
+     * @return how many times this account's sessions have been ended, if it has a password
+     * @see LoginGenerationFilter
+     */
+    Optional<Long> loginGeneration(UUID actorId) {
+        return jdbc.sql("SELECT login_generation FROM account_credential WHERE actor_id = :actorId")
+                .param("actorId", actorId)
+                .query(Long.class)
+                .optional();
     }
 
     private void revokeGrants(UUID actorId) {
@@ -221,11 +255,12 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
-     * Removes an account's password, role, and everything its applications have, in the caller's transaction. The signing
+     * Removes an account's password, role, login sessions, and everything its applications have, in the caller's transaction. The signing
      * key stays, because an account's last activities still have to be signed.
      */
     void removeCredentials(UUID actorId) {
         jdbc.sql("DELETE FROM account_credential WHERE actor_id = :actorId").param("actorId", actorId).update();
+        endSessions(actorId);
         revokeGrants(actorId);
     }
 

@@ -148,10 +148,10 @@ class SetRoleCommandTests {
         account("sessions");
 
         assertThat(run("sessions", "admin")).isZero();
-        assertThat(out.toString()).doesNotContain("restart");
+        assertThat(out.toString()).doesNotContain("reset-password");
 
         assertThat(run("sessions", "user")).isZero();
-        assertThat(out.toString()).contains("restart the server before giving it back");
+        assertThat(out.toString()).contains("run reset-password before giving it back");
     }
 
     @Test

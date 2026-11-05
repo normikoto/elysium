@@ -14,7 +14,7 @@ import java.util.function.Supplier;
 
 /**
  * Allows only admins, going by their current role. {@code hasRole("ADMIN")} would use the authorities a login session was
- * created with, so someone whose role was removed would keep access until the server restarted.
+ * created with, so someone whose role was removed would keep access for as long as that session lasts.
  */
 @Component
 class AdminAccess implements AuthorizationManager<RequestAuthorizationContext> {

@@ -87,6 +87,7 @@ class CommandRunnerTests {
         assertThat(environment.getProperty("server.port")).isEqualTo("-1");
         assertThat(environment.getProperty("management.server.port")).isEqualTo("-1");
         assertThat(environment.getProperty("elysium.jobs.worker-enabled")).isEqualTo("false");
+        assertThat(environment.getProperty("spring.session.jdbc.cleanup-cron")).isEqualTo("-");
         assertThat(started.get().isActive()).isFalse();
     }
 

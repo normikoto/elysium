@@ -64,10 +64,8 @@ class SetRoleCommand implements Callable<Integer> {
                 out.println("Applications that had admin scopes on this account lost their access, and need authorizing again.");
             }
             if (role == AccountRole.USER) {
-                // Sessions are in the server's memory, which this process can't reach.
-                out.println("Anyone already logged in through a browser stays logged in until the server restarts, and "
-                        + "would be an admin again if the role comes back. If the account may be compromised, restart "
-                        + "the server before giving it back.");
+                out.println("Anyone already logged in through a browser stays logged in, and would be an admin again if "
+                        + "the role comes back. If the account may be compromised, run reset-password before giving it back.");
             }
         } else {
             out.println(username + " is already " + name + ".");
