@@ -125,7 +125,7 @@ These don't belong to one milestone, but each has a point where it stops being o
 | Remove a follower when its actor is deleted | Milestone 4, with receiving #59 | Left out of PR #70 |
 | Check real delivery on a public deployment, not only the lab | Before any public server | Comment on #39 |
 | Limit inbox requests that don't start a key fetch, or document relying on a proxy | Before any public server | PR #57 known limits |
-| Email verification, sign-up approval and session storage | Before any public server | #35, #17, #31, and the warning in `docs/accounts.md` |
+| Email verification and sign-up approval | Before any public server | #35, #17, and the warning in `docs/accounts.md` |
 | Handling a `Delete` that arrives before its `Create` | Milestone 4 | #53 left ordering to the callers |
 | Report GoToSocial's stuck home timeline upstream, after confirming the cause | When someone can look into it, since it doesn't block federation | PR #72 |
 

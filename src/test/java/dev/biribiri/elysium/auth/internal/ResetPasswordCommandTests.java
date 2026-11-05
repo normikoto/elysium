@@ -63,7 +63,7 @@ class ResetPasswordCommandTests {
         assertThat(passwordWorks("replaced", NEW_PASSWORD)).isTrue();
         assertThat(passwordWorks("replaced", OLD_PASSWORD)).isFalse();
         assertThat(updatedAt(actorId)).isAfter(updatedBefore);
-        assertThat(out.toString()).contains("restarts").doesNotContain(NEW_PASSWORD);
+        assertThat(out.toString()).contains("logged it out of every browser").doesNotContain(NEW_PASSWORD);
         assertThat(err.toString()).doesNotContain(NEW_PASSWORD);
     }
 

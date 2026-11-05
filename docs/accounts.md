@@ -36,9 +36,8 @@ With Docker Compose, the image also prints some JVM startup messages and a memor
 They don't mean anything went wrong.
 
 People can't change their own passwords yet, and sign-ups have no email confirmation. To replace someone's password, run
-`reset-password alice`. It also revokes the access of all their applications, so they'll need to authorize them again.
-Anyone already logged in through a browser stays logged in until the server restarts, and could authorize an application
-until then, so restart the server if the account may be compromised.
+`reset-password alice`. It also logs them out of every browser straight away, with no restart, and revokes the access of all
+their applications, so they'll need to authorize them again.
 
 ## Admins
 The server's first account becomes an admin, and later accounts are regular users. If sign-ups are turned on, `/signup`
@@ -53,9 +52,9 @@ java -jar elysium.jar set-role alice user
 ```
 
 Changes apply straight away, with no restart, including to anyone who's already logged in. If an admin's account may be
-compromised, remove the role first, because [`reset-password`](#accounts-and-sign-ups) doesn't end their browser sessions.
-Those sessions stay logged in without admin access, and giving the role back would restore it to them, so restart the
-server before you do. You can remove the last admin, and use the same command to choose another.
+compromised, remove the role and run [`reset-password`](#accounts-and-sign-ups). Removing the role doesn't end their browser
+sessions by itself. Those stay logged in without admin access, and giving the role back would restore it to them. You can
+remove the last admin, and use the same command to choose another.
 
 Applications only get admin scopes from an admin. A regular user can't approve them, and they have no effect on app
 tokens, which don't belong to any user, even if the application registered with them. Changing an account's role also
@@ -161,6 +160,13 @@ this reason, it's _strongly recommended_ to not use this software on a public fa
 
 ## Login sessions
 
-Login sessions are stored in memory, so restarting logs people out of the login page. Applications' access tokens are
-stored in the database and aren't affected. If you run more than one instance, your load balancer needs to keep each
-browser on the same instance.
+Login sessions are stored in the database, so they survive restarts, and if you run more than one instance, any of them can
+serve any browser. A session ends after 30 minutes without a request, which you can change with
+`server.servlet.session.timeout`, and each instance removes expired ones every minute. Restarting doesn't log anyone out, so
+to end someone's sessions use [`reset-password`](#accounts-and-sign-ups).
+
+Applications' access tokens are separate from sessions, and are stored in the database too.
+
+Visitors who aren't logged in can have a session too, because login and sign-up forms keep their CSRF token in one. Each
+visit from a browser without a cookie adds rows until it expires, and nothing limits how quickly, so if you're watching your
+database's size, look at `spring_session`.

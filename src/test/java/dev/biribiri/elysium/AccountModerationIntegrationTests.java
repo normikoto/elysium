@@ -512,7 +512,12 @@ class AccountModerationIntegrationTests {
         mockMvc.perform(post("/settings/delete-account").session(session).with(csrf()).param("password", PASSWORD))
                 .andExpect(redirectedUrl("/login?deleted"));
         assertThat(actors.findById(user.id()).orElseThrow().isDeleted()).isTrue();
-        assertThat(session.isInvalid()).isTrue();
+        assertThat(jdbc.sql("SELECT count(*) FROM spring_session WHERE principal_name = :id")
+                .param("id", user.id().toString())
+                .query(Long.class)
+                .single()).isZero();
+        mockMvc.perform(get("/settings/delete-account").session(session).accept(MediaType.TEXT_HTML))
+                .andExpect(redirectedUrl("/login"));
     }
 
     @Test

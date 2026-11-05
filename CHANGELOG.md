@@ -71,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Login sessions are now stored in the database. `reset-password` logs the account out of every browser straight away, with no
+  restart, and so does suspending an account. Sessions survive restarts, and multiple instances no longer need sticky sessions.
+  The cookie is now `SESSION` instead of `JSESSIONID`, so everyone is logged out once when upgrading. If your proxy or load
+  balancer has any rule for `JSESSIONID`, such as sticky sessions, it can be removed. Restarting no longer ends sessions, so
+  run `reset-password` for an account that may be compromised.
 - `/users/:username` now returns the actor document only to requests that ask for an ActivityPub type. Requests that
   accept HTML, including `Accept: */*` or no `Accept` header, get the profile page.
 - `/users/:username` now accepts `application/ld+json` with any profile.

@@ -108,8 +108,8 @@ class LocalAccounts implements UserDetailsService {
 
     /**
      * Whether an account is an admin right now. Access checks have to use this, rather than the authorities of a login
-     * session or a stored authorization. Those are copies from when they were created, and commands run in a separate
-     * process that can't reach sessions, so a copy can't be updated when the role changes.
+     * session or a stored authorization. Those are copies from when they were created, and a session's copy is serialized,
+     * so a command can't update it when the role changes.
      */
     boolean isAdmin(UUID actorId) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM account_credential WHERE actor_id = :actorId AND role = 'ADMIN')")
@@ -190,8 +190,8 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
-     * Sets an actor's password, replacing any existing one, and revokes its applications' access: their tokens, pending
-     * authorization codes, and the consent that would let them get new codes without asking.
+     * Sets an actor's password, replacing any existing one, ends its login sessions, and revokes its applications' access: their
+     * tokens, pending authorization codes, and the consent that would let them get new codes without asking.
      */
     void resetPassword(UUID actorId, String password) {
         requireValidPassword(password);
@@ -202,13 +202,45 @@ class LocalAccounts implements UserDetailsService {
                             INSERT INTO account_credential (actor_id, password_hash)
                             VALUES (:actorId, :hash)
                             ON CONFLICT (actor_id) DO UPDATE
-                            SET password_hash = EXCLUDED.password_hash, updated_at = now()
+                            SET password_hash = EXCLUDED.password_hash,
+                                password_generation = account_credential.password_generation + 1,
+                                updated_at = now()
                             """)
                     .param("actorId", actorId)
                     .param("hash", hash)
                     .update();
+            endSessions(actorId);
             revokeGrants(actorId);
         });
+    }
+
+    /**
+     * Logs an account out of every browser, in the caller's transaction. A session's principal name is the actor ID: see
+     * {@link #loadUserByUsername}. Attributes go with it through the foreign key.
+     */
+    void endSessions(UUID actorId) {
+        jdbc.sql("DELETE FROM spring_session WHERE principal_name = :principalName")
+                .param("principalName", actorId.toString())
+                .update();
+    }
+
+    /**
+     * @return which password a login by this username would be checked against, if the account can log in
+     * @see LoginGenerationFilter
+     */
+    Optional<Long> passwordGeneration(String username) {
+        return actors.findLocalByUsername(username).flatMap(actor -> passwordGeneration(actor.id()));
+    }
+
+    /**
+     * @return how many times this account's password has been replaced, if it has one
+     * @see LoginGenerationFilter
+     */
+    Optional<Long> passwordGeneration(UUID actorId) {
+        return jdbc.sql("SELECT password_generation FROM account_credential WHERE actor_id = :actorId")
+                .param("actorId", actorId)
+                .query(Long.class)
+                .optional();
     }
 
     private void revokeGrants(UUID actorId) {
@@ -221,11 +253,12 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
-     * Removes an account's password, role, and everything its applications have, in the caller's transaction. The signing
+     * Removes an account's password, role, login sessions, and everything its applications have, in the caller's transaction. The signing
      * key stays, because an account's last activities still have to be signed.
      */
     void removeCredentials(UUID actorId) {
         jdbc.sql("DELETE FROM account_credential WHERE actor_id = :actorId").param("actorId", actorId).update();
+        endSessions(actorId);
         revokeGrants(actorId);
     }
 

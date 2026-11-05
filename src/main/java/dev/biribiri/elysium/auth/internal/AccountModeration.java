@@ -39,6 +39,8 @@ class AccountModeration implements AccountActions {
         transaction.executeWithoutResult(status -> {
             refuseIfLastAdmin(accountId, "This server's last admin can't be suspended. Choose another admin first.");
             actors.suspend(accountId);
+            // Otherwise a session that isn't used during the suspension would work again once it ends.
+            accounts.endSessions(accountId);
         });
         return true;
     }

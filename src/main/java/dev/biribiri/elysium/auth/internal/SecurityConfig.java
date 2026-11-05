@@ -101,11 +101,12 @@ class SecurityConfig {
             InstanceProperties instance,
             OAuthResponses responses,
             AdminAccess adminAccess,
-            ActorService actors)
+            ActorService actors,
+            LocalAccounts accounts)
             throws Exception {
         return http
                 .securityMatcher(authorizationServerRequests())
-                .addFilterAfter(new ActiveAccountFilter(actors), SecurityContextHolderFilter.class)
+                .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
                 .cors(cors -> cors.configurationSource(clientCors()))
                 .oauth2AuthorizationServer(server -> configure(server, instance, responses, adminAccess))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
@@ -169,7 +170,8 @@ class SecurityConfig {
             AuthRateLimits limits,
             AdminAccess adminAccess,
             InstanceProperties instance,
-            ActorService actors)
+            ActorService actors,
+            LocalAccounts accounts)
             throws Exception {
         var pagesNeedingLogin = new OrRequestMatcher(
                 adminPageRequests(), pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH));
@@ -190,9 +192,11 @@ class SecurityConfig {
         loginSuccess.setRequestCache(requestCache);
 
         return http
-                .addFilterAfter(new ActiveAccountFilter(actors), SecurityContextHolderFilter.class)
+                .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
                 // Runs after the CSRF filter, so requests without a valid token don't use up anyone's attempts.
                 .addFilterBefore(new LoginRateLimitFilter(limits), UsernamePasswordAuthenticationFilter.class)
+                // After the rate limit, as filters at the same position run in the order they're added.
+                .addFilterBefore(new LoginGenerationFilter(accounts), UsernamePasswordAuthenticationFilter.class)
                 // Applies Spring MVC's CORS settings, including to preflight requests: @CrossOrigin on controllers, and
                 // the mappings in WebMvcConfigurer classes.
                 .cors(withDefaults())
@@ -215,6 +219,7 @@ class SecurityConfig {
                         .loginPage(LOGIN_PATH)
                         .successHandler((request, response, authentication) -> {
                             limits.loginSucceeded(request);
+                            LoginGenerationFilter.loggedIn(request);
                             loginSuccess.onAuthenticationSuccess(request, response, authentication);
                         })
                         .failureHandler((request, response, failure) -> {
@@ -228,7 +233,7 @@ class SecurityConfig {
                         })
                         .permitAll())
                 .logout(withDefaults())
-                // Sessions don't survive a restart, so an admin who reloads a page needs a way back in. Other requests get
+                // Sessions expire, so an admin who reloads a page needs a way back in. Other requests get
                 // a bare 403. The job UI's API calls are among them, because they couldn't use a login page as a response.
                 .exceptionHandling(exceptions -> exceptions
                         .defaultAuthenticationEntryPointFor(new LoginUrlAuthenticationEntryPoint(LOGIN_PATH), pagesNeedingLogin)
