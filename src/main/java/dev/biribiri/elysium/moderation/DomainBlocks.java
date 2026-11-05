@@ -46,8 +46,9 @@ public class DomainBlocks {
     @Transactional
     public DomainBlock create(String domain, String comment) {
         var name = DomainName.parse(domain);
-        var ownHost = instance.baseUrl().getHost();
-        if (ownHost.equals(name) || ownHost.endsWith("." + name)) {
+        // Empty for an IP address, which parse has already refused to block.
+        var ownHost = DomainName.normalizeHost(instance.baseUrl().getHost());
+        if (ownHost.isPresent() && (ownHost.get().equals(name) || ownHost.get().endsWith("." + name))) {
             throw new InvalidDomainBlockException("This server can't block itself.");
         }
         var covering = blocks.findBroadest(DomainName.suffixes(name));
