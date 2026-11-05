@@ -1,9 +1,10 @@
 -- These tables are Spring Session's, from its schema-postgresql.sql. They're created here because Spring Boot only creates them
--- itself for embedded databases.
+-- itself for embedded databases. session_id holds a hash, as LoginSessionConfig explains, so it's TEXT rather than CHAR(36). It
+-- has to be TEXT and not a longer CHAR, because comparing a CHAR with the hash, which is TEXT, couldn't use the index.
 CREATE TABLE spring_session
 (
     primary_id            CHAR(36) NOT NULL,
-    session_id            CHAR(36) NOT NULL,
+    session_id            TEXT     NOT NULL,
     creation_time         BIGINT   NOT NULL,
     last_access_time      BIGINT   NOT NULL,
     max_inactive_interval INT      NOT NULL,

@@ -16,6 +16,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -58,6 +62,10 @@ class LoginSessionCookieIntegrationTests {
         var token = CSRF_TOKEN.matcher(loginPage.body());
         assertThat(token.find()).isTrue();
 
+        // This saves the request to return to after logging in, with its cookie in it.
+        var page = HttpRequest.newBuilder(uri("/settings/delete-account")).header("Accept", "text/html").GET();
+        assertThat(send(page, value(firstCookie)).statusCode()).isEqualTo(302);
+
         var login = send(HttpRequest.newBuilder(uri("/login"))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString("username=" + username
@@ -75,14 +83,53 @@ class LoginSessionCookieIntegrationTests {
                 .query(Integer.class)
                 .single()).isEqualTo(7200);
 
-        var page = HttpRequest.newBuilder(uri("/settings/delete-account")).header("Accept", "text/html").GET();
         assertThat(send(page, value(loggedIn)).statusCode()).isEqualTo(200);
+        assertOnlyTheHashIsStored(actorId, value(loggedIn), page);
 
         accounts.resetPassword(actorId, "another long enough password");
 
         var afterReset = send(page, value(loggedIn));
         assertThat(afterReset.statusCode()).isEqualTo(302);
         assertThat(afterReset.headers().firstValue("Location").orElseThrow()).endsWith("/login");
+    }
+
+    @Test
+    void aMalformedCookieIsJustNotASession() throws Exception {
+        var encoder = Base64.getEncoder();
+        for (var cookie : List.of(
+                encoder.encodeToString("\\xZZ".getBytes(StandardCharsets.UTF_8)),
+                encoder.encodeToString("it's; --".getBytes(StandardCharsets.UTF_8)),
+                encoder.encodeToString(new byte[]{(byte) 0xff, (byte) 0xfe}),
+                "not base64!")) {
+            assertThat(send(HttpRequest.newBuilder(uri("/")).GET(), "SESSION=" + cookie).statusCode()).isEqualTo(200);
+        }
+    }
+
+    /**
+     * Someone who can read the database or a backup shouldn't be able to use what's there to take over a session.
+     */
+    private void assertOnlyTheHashIsStored(UUID actorId, String cookie, HttpRequest.Builder page) throws Exception {
+        var encodedId = cookie.substring(cookie.indexOf('=') + 1);
+        var id = new String(Base64.getDecoder().decode(encodedId), StandardCharsets.UTF_8);
+        var stored = jdbc.sql("SELECT session_id FROM spring_session WHERE principal_name = :id")
+                .param("id", actorId.toString())
+                .query(String.class)
+                .single();
+        assertThat(stored).isNotEqualTo(id).isEqualTo(HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(id.getBytes(StandardCharsets.UTF_8))));
+
+        var fromTheDatabase = Base64.getEncoder().encodeToString(stored.getBytes(StandardCharsets.UTF_8));
+        assertThat(send(page, "SESSION=" + fromTheDatabase).statusCode()).isEqualTo(302);
+
+        for (var secret : List.of(id, encodedId)) {
+            assertThat(jdbc.sql("""
+                            SELECT count(*) FROM spring_session_attributes
+                            WHERE position(:secret IN attribute_bytes) > 0
+                            """)
+                    .param("secret", secret.getBytes(StandardCharsets.UTF_8))
+                    .query(Long.class)
+                    .single()).isZero();
+        }
     }
 
     private HttpResponse<String> send(HttpRequest.Builder request, String cookie) throws Exception {

@@ -163,7 +163,9 @@ this reason, it's _strongly recommended_ to not use this software on a public fa
 Login sessions are stored in the database, so they survive restarts, and if you run more than one instance, any of them can
 serve any browser. A session ends after 30 minutes without a request, which you can change with
 `server.servlet.session.timeout`, and each instance removes expired ones every minute. Restarting doesn't log anyone out, so
-to end someone's sessions use [`reset-password`](#accounts-and-sign-ups).
+to end someone's sessions use [`reset-password`](#accounts-and-sign-ups). Only a hash of each session's ID is stored, so what's
+in the database or a backup can't be used to take over a session. If you log PostgreSQL statements with their parameters, those
+logs do contain the IDs, so keep them private.
 
 Applications' access tokens are separate from sessions, and are stored in the database too.
 
