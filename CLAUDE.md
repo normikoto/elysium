@@ -99,7 +99,8 @@ all share the same retry and parking behavior.
 
 There's no ORM. Repositories use `JdbcClient` with hand-written SQL, and the schema comes from Flyway migrations in
 `src/main/resources/db/migration`. These run at startup, and when CLI commands run. IDs are UUIDs, and `actor.Ids.parse` is
-the strict way to read them from a request.
+the strict way to read them from a request. Read queries with `.list()` or `.optional()`, not `.stream()`, which
+holds a connection until it's closed. `DatabaseStreamsTests` enforces this.
 
 ### CLI commands
 
