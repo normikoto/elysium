@@ -41,8 +41,7 @@ authorize them again.
 The server's first account becomes an admin, and later accounts are regular users. If sign-ups are turned on, `/signup`
 refuses to create the first account until `create-user` has been run, so that a stranger can't become the admin.
 
-If your server had accounts before this role was added, they stay regular users, so choose an admin with `set-role`. It
-also removes the role:
+To give or remove the role:
 ```shell
 java -jar elysium.jar set-role alice admin
 java -jar elysium.jar set-role alice user
