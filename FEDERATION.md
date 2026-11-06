@@ -147,7 +147,8 @@ so a forwarded activity can't stop the real one from being accepted.
 It's dropped, still with a `202`, unless its `id` is an HTTPS URL on the same host and port as its `actor`, on another
 server than this one, that isn't [blocked](#domain-blocks). Each counts against the signer's server's
 [limits](#inboxes), because that's the server causing the fetch, and a `429` can be sent for one. A repeat of an `id` that's
-already been accepted, or already queued, isn't fetched again.
+already been accepted, or already queued, isn't fetched again. It counts as arriving when the first forwarded copy did,
+not when it's fetched, so an `Undo` that arrives in between still covers a forwarded `Follow`.
 
 What the origin serves is only accepted if it's an activity whose `id` is exactly the one fetched, with one `actor` on the
 same host and port. That actor is the one believed, even if the forwarded copy named another. A `404`, `410`, or another

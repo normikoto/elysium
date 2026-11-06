@@ -4,6 +4,8 @@ import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
+import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,6 +51,14 @@ class ForwardedActivitiesIntegrationTests {
     private InboundActivities inbound;
     @Autowired
     private DomainBlocks blocks;
+    @Autowired
+    private StoredActivities stored;
+    @Autowired
+    private FollowHandler followHandler;
+    @Autowired
+    private UndoHandler undoHandler;
+    @Autowired
+    private ActorService actors;
     @Autowired
     private JdbcClient jdbc;
     @Autowired
@@ -90,7 +102,7 @@ class ForwardedActivitiesIntegrationTests {
         receive(activity(id, actor, "forwarded"));
         serve(activity(id, actor, "origin"));
 
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         assertThat(storedBody()).contains("origin").doesNotContain("forwarded");
         assertThat(storedActor()).isEqualTo(actor);
@@ -98,11 +110,66 @@ class ForwardedActivitiesIntegrationTests {
     }
 
     @Test
+    void storesWhenTheForwardedCopyArrived() throws Exception {
+        var arrivedAt = now().minusSeconds(60);
+        serve(activity(id, actor, "origin"));
+
+        forwarded.fetch(id, arrivedAt);
+
+        var activity = stored.find(id).orElseThrow();
+        assertThat(activity.firstReceivedAt()).isEqualTo(arrivedAt);
+        assertThat(activity.receivedAt()).isEqualTo(arrivedAt);
+    }
+
+    @Test
+    void queuesTheFetchWithWhenTheForwardArrived() {
+        var before = now();
+
+        receive(activity(id, actor, "forwarded"));
+
+        var data = jdbc.sql("""
+                        SELECT convert_from(task_data, 'UTF8') FROM scheduled_tasks
+                        WHERE task_name = 'forwarded-activity' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + id + "%")
+                .query(String.class)
+                .single();
+        var queuedAt = Instant.parse(json.readTree(data).path("queuedAt").stringValue());
+        assertThat(queuedAt).isBetween(before, now());
+    }
+
+    /**
+     * The {@code Undo} arrives after the forwarded {@code Follow}, but before the {@code Follow} is fetched. It covers the
+     * {@code Follow}, which would otherwise look newer and follow again.
+     */
+    @Test
+    void anUndoThatArrivesWhileAForwardedFollowWaitsStillCoversIt() throws Exception {
+        var followed = local();
+        var followerDocument = "{\"id\":\"%s\",\"type\":\"Person\",\"preferredUsername\":\"a\",\"inbox\":\"%s/inbox\"}"
+                .formatted(actor, actor);
+        when(documents.fetch(URI.create(actor))).thenReturn(json.readTree(followerDocument));
+        var follow = "{\"id\":\"%s\",\"type\":\"Follow\",\"actor\":\"%s\",\"object\":\"%s\"}"
+                .formatted(id, actor, followed.uri());
+        var forwardedAt = now().minusSeconds(60);
+        var undoId = "https://" + origin + "/activities/" + UUID.randomUUID();
+        var undo = "{\"id\":\"%s\",\"type\":\"Undo\",\"actor\":\"%s\",\"object\":{\"type\":\"Follow\",\"actor\":\"%s\",\"object\":\"%s\"}}"
+                .formatted(undoId, actor, actor, followed.uri());
+
+        undoHandler.handle(new InboundActivity(undoId, actor, "Undo", undo, forwardedAt.plusSeconds(30)));
+        serve(follow);
+        forwarded.fetch(id, forwardedAt);
+        followHandler.handle(stored.find(id).orElseThrow());
+
+        assertThat(jdbc.sql("SELECT count(*) FROM follow WHERE followed_id = :id").param("id", followed.id())
+                .query(Long.class).single()).isZero();
+    }
+
+    @Test
     void believesTheOriginAboutWhoTheActorIs() throws Exception {
         var other = "https://" + origin + "/users/b";
         serve(activity(id, other, "origin"));
 
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         assertThat(storedActor()).isEqualTo(other);
     }
@@ -111,7 +178,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsWhatTheOriginServesUnderAnotherId() throws Exception {
         serve(activity("https://" + origin + "/activities/other", actor, "origin"));
 
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         assertThat(stored()).isZero();
     }
@@ -120,7 +187,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsWhatTheOriginSaysIsFromAnotherServer() throws Exception {
         serve(activity(id, "https://elsewhere.test/users/a", "origin"));
 
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         assertThat(stored()).isZero();
     }
@@ -129,7 +196,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsWhatTheOriginSaysHasSeveralActors() throws Exception {
         serve("{\"id\":\"" + id + "\",\"type\":\"Create\",\"actor\":[\"" + actor + "\",\"" + actor + "2\"]}");
 
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         assertThat(stored()).isZero();
     }
@@ -138,7 +205,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsWhatTheOriginSaysIsFromAnActorWithNoHost() throws Exception {
         serve(activity(id, "urn:x:y", "origin"));
 
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         assertThat(stored()).isZero();
     }
@@ -147,7 +214,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsAnActivityThatIsGoneOrRefused() throws Exception {
         when(documents.fetch(URI.create(id))).thenThrow(DocumentFetchException.gone("gone"));
 
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         assertThat(stored()).isZero();
     }
@@ -156,7 +223,7 @@ class ForwardedActivitiesIntegrationTests {
     void triesAgainWhenTheOriginCannotBeReached() throws Exception {
         when(documents.fetch(URI.create(id))).thenThrow(DocumentFetchException.temporary("down", null));
 
-        assertThatThrownBy(() -> forwarded.fetch(id)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> forwarded.fetch(id, now())).isInstanceOf(IllegalStateException.class);
         assertThat(stored()).isZero();
     }
 
@@ -165,7 +232,7 @@ class ForwardedActivitiesIntegrationTests {
         inbound.accept(new InboundActivity(id, actor, "Create", activity(id, actor, "direct")));
 
         assertThat(receive(activity(id, actor, "forwarded")).outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         assertThat(forwardedJobs()).isZero();
         verify(documents, never()).fetch(any());
@@ -177,7 +244,7 @@ class ForwardedActivitiesIntegrationTests {
         receive(activity(id, actor, "forwarded"));
         blocks.create(origin, null);
 
-        forwarded.fetch(id);
+        forwarded.fetch(id, now());
 
         verify(documents, never()).fetch(any());
     }
@@ -237,6 +304,16 @@ class ForwardedActivitiesIntegrationTests {
         assertThat(result.outcome()).isEqualTo(Inbox.Outcome.RATE_LIMITED);
         assertThat(result.retryAfter()).isPositive();
         assertThat(forwardedJobs()).isZero();
+    }
+
+    private static Instant now() {
+        return Instant.now().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    private Actor local() {
+        var name = "u" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        return actors.createLocalIfAbsent(name, created -> {
+        }).orElseThrow();
     }
 
     private Inbox.Result receive(String body) {

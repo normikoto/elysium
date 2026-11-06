@@ -21,7 +21,7 @@ class ForwardedActivityTask {
     @Bean
     Task<ForwardedJob> forwardedActivity() {
         return Jobs.task(ForwardedActivities.TASK, job -> {
-            forwarded.fetch(job.activityId());
+            forwarded.fetch(job.activityId(), job.queuedAt());
             return Jobs.done();
         });
     }

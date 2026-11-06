@@ -15,6 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 /**
  * Handles activities that were signed by someone other than their actor, which is what forwarding looks like: Mastodon
@@ -63,16 +64,21 @@ class ForwardedActivities {
      * @param id an ID that {@link Inbox} has checked
      */
     void queue(String id) {
-        Jobs.schedule(scheduler, TASK, new ForwardedJob(id, Instant.now()), "forwarded", id);
+        // PostgreSQL stores microseconds, so this matches what a later read of the activity returns.
+        var arrivedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Jobs.schedule(scheduler, TASK, new ForwardedJob(id, arrivedAt), "forwarded", id);
     }
 
     /**
      * Fetches the activity, and stores it if the origin vouches for it. This has to be called with no transaction open,
      * because it waits on another server.
      *
+     * @param arrivedAt when the forwarded copy arrived, which is stored as when the activity did. Handlers order activities
+     *                  by arrival, so the time of the fetch would put this after anything that arrived while it waited, such
+     *                  as an {@code Undo} of a forwarded {@code Follow}.
      * @throws IllegalStateException if the origin couldn't be reached, which is worth trying again
      */
-    void fetch(String id) {
+    void fetch(String id, Instant arrivedAt) {
         // It can have been delivered by its own actor since this was queued.
         if (stored.exists(id)) {
             return;
@@ -114,7 +120,7 @@ class ForwardedActivities {
         }
         InboundActivity activity;
         try {
-            activity = new InboundActivity(id, envelope.get().actor(), envelope.get().type(), envelope.get().body());
+            activity = new InboundActivity(id, envelope.get().actor(), envelope.get().type(), envelope.get().body(), arrivedAt);
         } catch (IllegalArgumentException e) {
             return;
         }
