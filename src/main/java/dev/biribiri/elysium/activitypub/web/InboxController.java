@@ -85,12 +85,13 @@ class InboxController {
         var data = HttpRequestData.from(request, body);
         try {
             var signer = verifier.verify(data, budgets.forAddress(address));
-            return switch (inbox.receive(signer, body)) {
+            var result = inbox.receive(signer, body);
+            return switch (result.outcome()) {
                 case ACCEPTED, IGNORED -> ResponseEntity.accepted().build();
                 case INVALID -> ResponseEntity.badRequest().build();
                 case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
                 case RATE_LIMITED -> ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                        .header(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(inbox.retryAfter(signer)))
+                        .header(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(result.retryAfter()))
                         .build();
             };
         } catch (SignatureVerificationException e) {

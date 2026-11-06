@@ -111,10 +111,10 @@ Each server can also deliver at most 120 activities a minute, with bodies adding
 Admins can change these, and remove them for servers they trust, as described in
 [Configuration](docs/configuration.md#inbox-limits). A server is the registrable domain of the signing key's actor, from the
 [Public Suffix List](https://publicsuffix.org/), so `a.example.com` and `b.example.com` share one limit, but `a.github.io`
-and `b.github.io` don't. An IP address counts as itself. Only activities that pass every other check count, including
+and `b.github.io` don't. An IP address counts as itself, and an IPv6 address by its /64 network. Only activities that pass every other check count, including
 repeats of an `id` that's already been accepted, and one that gets a `429` doesn't count. Each minute and hour is a fixed
-window, so a burst at the end of one and the start of the next can reach twice the limit. `Retry-After` gives the longer of
-the two waits, so it can be later than needed. Counts are kept in memory, and restarting resets them.
+window, so a burst at the end of one and the start of the next can reach twice the limit. `Retry-After` says when the limit
+that was reached has room again. Counts are kept in memory, and restarting resets them.
 
 ### Activities
 

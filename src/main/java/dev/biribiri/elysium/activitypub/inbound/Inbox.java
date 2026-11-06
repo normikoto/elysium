@@ -52,55 +52,55 @@ public class Inbox {
      * @param signer who signed the request
      * @param body   the request's body
      */
-    public Outcome receive(VerifiedSignature signer, byte[] body) {
+    public Result receive(VerifiedSignature signer, byte[] body) {
         var parsed = ActivityEnvelope.parse(body, json);
         if (parsed.isEmpty()) {
-            return Outcome.INVALID;
+            return Result.of(Outcome.INVALID);
         }
         var envelope = parsed.get();
         if (!signer.owner().toString().equals(envelope.actor())) {
             log.debug("Ignoring activity {} from {}, signed by {}", envelope.id(), envelope.actor(), signer.owner());
-            return Outcome.IGNORED;
+            return Result.of(Outcome.IGNORED);
         }
         // The signature check has already refused keys on a blocked server, but a block can have been added since then.
         if (blocks.isBlocked(signer.owner().getHost())) {
             log.debug("Refusing activity {} from {}, whose server is blocked", envelope.id(), signer.owner());
-            return Outcome.FORBIDDEN;
+            return Result.of(Outcome.FORBIDDEN);
         }
         // Like a block, a suspension can have been added since the signature was checked.
         if (actors.isSuspended(signer.owner())) {
             log.debug("Refusing activity {} from {}, who is suspended", envelope.id(), signer.owner());
-            return Outcome.FORBIDDEN;
+            return Result.of(Outcome.FORBIDDEN);
         }
         URI id;
         try {
             id = new URI(envelope.id());
         } catch (URISyntaxException e) {
-            return Outcome.INVALID;
+            return Result.of(Outcome.INVALID);
         }
         if (!isOnActorsServer(id, signer.owner())) {
             log.debug("Refusing activity {} from {}, which is on another server", envelope.id(), signer.owner());
-            return Outcome.FORBIDDEN;
+            return Result.of(Outcome.FORBIDDEN);
         }
         InboundActivity activity;
         try {
             activity = new InboundActivity(envelope.id(), envelope.actor(), envelope.type(), envelope.body());
         } catch (IllegalArgumentException e) {
-            return Outcome.INVALID;
+            return Result.of(Outcome.INVALID);
         }
-        if (!limits.tryAccept(signer.owner(), body.length)) {
+        var admission = limits.tryAdmit(signer.owner(), body.length);
+        if (admission instanceof ServerActivityLimits.Admission.Refused(var retryAfter)) {
             log.debug("Refusing activity {} from {}, whose server is over its limit", envelope.id(), signer.owner());
-            return Outcome.RATE_LIMITED;
+            return new Result(Outcome.RATE_LIMITED, retryAfter);
         }
-        activities.accept(activity);
-        return Outcome.ACCEPTED;
-    }
-
-    /**
-     * @return how long a signer that got {@link Outcome#RATE_LIMITED} should wait before trying again
-     */
-    public Duration retryAfter(VerifiedSignature signer) {
-        return limits.timeUntilReset(signer.owner());
+        try {
+            activities.accept(activity);
+        } catch (RuntimeException e) {
+            // The sender will try again, and shouldn't find its limit used up by attempts that weren't stored.
+            ((ServerActivityLimits.Admission.Admitted) admission).release().run();
+            throw e;
+        }
+        return Result.of(Outcome.ACCEPTED);
     }
 
     /**
@@ -112,6 +112,16 @@ public class Inbox {
                 && id.getRawUserInfo() == null
                 && HostHeader.value(id.getScheme(), id.getHost(), id.getPort())
                 .equals(HostHeader.value(actor.getScheme(), actor.getHost(), actor.getPort()));
+    }
+
+    /**
+     * @param retryAfter for {@link Outcome#RATE_LIMITED}, how long to wait before trying again, and otherwise zero
+     */
+    public record Result(Outcome outcome, Duration retryAfter) {
+
+        static Result of(Outcome outcome) {
+            return new Result(outcome, Duration.ZERO);
+        }
     }
 
     public enum Outcome {

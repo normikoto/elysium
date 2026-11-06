@@ -67,7 +67,7 @@ class InboxLimitIntegrationTests {
         var id = alice.uri() + "/activities/" + UUID.randomUUID();
         send(id, alice.uri().toString(), alice)
                 .andExpect(status().isTooManyRequests())
-                .andExpect(header().string("Retry-After", matchesPattern("[1-9][0-9]*")));
+                .andExpect(header().string("Retry-After", matchesPattern("[1-9]|[1-5][0-9]|60")));
 
         assertThat(stored(id)).isZero();
     }
@@ -108,7 +108,7 @@ class InboxLimitIntegrationTests {
         var signature = new VerifiedSignature(actor + "#main-key", URI.create(actor));
         for (var i = 0; i < 5; i++) {
             var elsewhere = "https://other.example/activities/" + UUID.randomUUID();
-            assertThat(inbox.receive(signature, bytes(activity(elsewhere, actor, ""))))
+            assertThat(inbox.receive(signature, bytes(activity(elsewhere, actor, ""))).outcome())
                     .isEqualTo(Inbox.Outcome.FORBIDDEN);
         }
 
@@ -122,7 +122,8 @@ class InboxLimitIntegrationTests {
     private Inbox.Outcome receive(String host, String padding) {
         var actor = "https://" + host + "/users/bob";
         var id = "https://" + host + "/activities/" + UUID.randomUUID();
-        return inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor, padding)));
+        return inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor, padding)))
+                .outcome();
     }
 
     private ResultActions send(String id, String actor, Actor signedBy)

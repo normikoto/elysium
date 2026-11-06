@@ -42,6 +42,13 @@ public class ClientAddresses {
             return remoteAddress;
         }
         warnIfBehindMisconfiguredProxy(address);
+        return keyFor(address);
+    }
+
+    /**
+     * @return the key to count anything from this address under, which is the same for every spelling of it
+     */
+    public static String keyFor(InetAddress address) {
         if (address instanceof Inet6Address) {
             // One host usually controls a whole /64, so counting each address separately wouldn't limit it.
             var network = Arrays.copyOf(address.getAddress(), IPV6_NETWORK_BYTES);
