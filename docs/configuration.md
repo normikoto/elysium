@@ -13,7 +13,7 @@ Set these in your `application.properties`:
 | `elysium.rate-limit.enabled`       | Optional. Set to `false` to turn off the limits on logins and sign-ups, if you enforce your own elsewhere. Defaults to `true`. See [Rate limits](accounts.md#rate-limits). |
 | `elysium.statuses.max-characters`  | Optional. The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Defaults to `5000`. Lowering it doesn't affect existing statuses. |
 | `server.servlet.session.timeout`   | Optional. How long a login session lasts without a request. Defaults to `30m`. See [Login sessions](accounts.md#login-sessions). |
-| `elysium.federation.allowed-private-networks` | Optional, and should not normally be set. A comma-separated list of networks in CIDR form, such as `172.30.0.0/24`, that requests to other servers may reach. It's only for federating with servers on a private network, because anyone can make this server send requests to any host, and could then reach anything on these networks. Defaults to none. |
+| `elysium.federation.allowed-private-networks` | Optional, and should not normally be set. A comma-separated list of private networks, such as `172.30.0.0/24`, that requests to other servers may reach. Anyone can make the server send requests, so this would let them reach anything on these networks. Only for testing with servers on a private network. |
 
 You also need to point `spring.datasource.*` at your PostgreSQL database. Migrations run automatically on startup.
 
@@ -39,7 +39,6 @@ every request. Check all of these:
 - **The proxy must connect from a private or loopback address**, because those are the only ones trusted by default. If
   it doesn't, add its address to `server.tomcat.remoteip.internal-proxies`, which replaces the default list.
 
-If the server gets a login, sign-up, or inbox request from a private or loopback address while its base URL is public, it logs
-a warning once. That usually means it's seeing the proxy's address instead of the client's. It's expected if you're
-testing from the same host or network. The warning can't detect made-up addresses, because they look like any other
-client's.
+If the server logs a warning about requests from a private or loopback address, it's probably seeing the proxy's address
+instead of the client's. That's expected if you're testing from the same host or network. It can't warn about made-up
+addresses.

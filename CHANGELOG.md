@@ -44,19 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deleting a public, unlisted, or followers-only status stops any `Create` that hasn't started sending, and sends a `Delete` to
   followers on other servers. For a followers-only status, this only goes to those already following when it was posted. A
   `Delete` waits for a `Create` that's being sent to the same server. See `FEDERATION.md`.
-- A deleted public or unlisted status now answers ActivityPub requests with a `410` and a `Tombstone`, rather than a 404. This
-  adds a table through a migration. Its web page and the client API still answer with a 404.
+- A deleted public or unlisted status now tells other servers it's gone, with a `410`, rather than a 404.
 - Actor documents link to a `followers` collection at `/users/:username/followers`, which only gives the number of followers.
-- A background job queue stored in PostgreSQL, for sending and receiving activities. It adds tables through a migration,
-  and needs no new services. Admins can see, retry, and delete jobs at `/admin/db-scheduler`. Retrying a job that's outlived
-  its activity fails with the reason, rather than looking like it worked. It checks for jobs every second, which
-  `db-scheduler.polling-interval` can change, and sends at most 3 activities at a time to another server. See
-  `docs/accounts.md`.
-- Inboxes at `/users/:username/inbox`, `/actor/inbox`, and `/inbox`, which check HTTP Signatures and queue activities from
-  other servers. Nothing acts on those activities yet. Checking a signature makes this server fetch the sender's key, so it now makes
-  requests to other servers. Addresses that cause too many of these fetches get a `429`, which
-  `elysium.rate-limit.enabled` doesn't turn off. Behind a reverse proxy, this limit needs the same setup as the others.
-  See `FEDERATION.md` and `docs/configuration.md`.
+- A background job queue stored in PostgreSQL, for sending and receiving activities, which needs no new services. Admins can
+  see, retry, and delete jobs at `/admin/db-scheduler`. See `docs/accounts.md`.
+- Inboxes for activities from other servers, which now makes this server send requests to other servers. Inboxes have a
+  rate limit that `elysium.rate-limit.enabled` doesn't turn off, and behind a reverse proxy it needs the same setup as the
+  others. See `FEDERATION.md` and `docs/configuration.md`.
 - `elysium.federation.allowed-private-networks`, which lets requests to other servers reach the private networks it lists.
   It should not normally be set: it's only for servers on a private network, such as the federation test lab.
 - Domain blocks, for admins to cut off another server and its subdomains, at `/admin/domain-blocks` and
@@ -77,11 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The cookie is now `SESSION` instead of `JSESSIONID`, so everyone is logged out once when upgrading. If your proxy or load
   balancer has any rule for `JSESSIONID`, such as sticky sessions, it can be removed. Restarting no longer ends sessions, so
   run `reset-password` for an account that may be compromised.
-- `/users/:username` now returns the actor document only to requests that ask for an ActivityPub type. Requests that
-  accept HTML, including `Accept: */*` or no `Accept` header, get the profile page.
-- `/users/:username` now accepts `application/ld+json` with any profile.
-- `/users/:username/statuses/:id` now returns a `Note` object for public and unlisted statuses to requests that ask for an
-  ActivityPub type, instead of a 406.
+- Other servers can now fetch public and unlisted statuses, and browsers visiting `/users/:username` get the profile page.
 - Public and unlisted statuses in the API now have a `url`, which links to their page.
 - Actor documents now have a `url`, and WebFinger responses now have a `http://webfinger.net/rel/profile-page` link.
 - Your config now only needs the settings you want to change, and the rest come from the defaults built into the JAR.

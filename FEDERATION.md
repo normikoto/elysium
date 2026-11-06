@@ -7,7 +7,7 @@ what's implemented today.
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
-  activities at an inbox, receiving `Follow` and `Undo` of a `Follow`, and sending `Create` and `Delete` of a `Note`
+  activities at an inbox, receiving `Follow` and `Undo` of a `Follow`, and sending `Accept`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -51,8 +51,7 @@ page. These are served the same way as actor documents: the same `Accept` types 
 get the page, and any origin can read both through CORS. Private and direct statuses get a 404.
 
 Once a public or unlisted status is deleted, a request for the object gets a `410` with a `Tombstone`, and a request for the
-page gets a 404. A deleted private or direct status still gets a 404, the same as one that never existed. So does a status
-that was deleted before tombstones were added.
+page gets a 404. A deleted private or direct status still gets a 404, the same as one that never existed.
 
 ```json
 {
@@ -190,7 +189,7 @@ unless an `Undo` covers it. It's then treated as a retry, so a new request to fo
 When a local user posts a public, unlisted, or followers-only status, it's sent to their followers on other servers, signed as
 the user. Each server's shared inbox is used for its followers that have one, so that they share one delivery, and other
 followers' `inbox` is used otherwise. Direct statuses aren't sent, since they have no audience without mentions. Followers are
-worked out shortly after posting, and statuses from before this feature, or from before someone followed, aren't sent. A
+worked out shortly after posting, and statuses from before someone followed aren't sent. A
 followers-only status only goes to those who were already following when it was posted.
 
 ```json
@@ -285,15 +284,15 @@ that has it. A suspension isn't a `404` or `410`, so that other servers don't ta
 for good. A deleted account's `Note`s all get the same answer, whatever their ID, so this doesn't say which ones existed.
 
 - **Suspending a local account:** Its followers' servers get an `Update` of the actor with `suspended: true`, and an `Update`
-  without it if the suspension ends, each signed by the actor, with its own ID. Jobs have no order, so if a server is down
+  without it if the suspension ends, each signed by the actor, with its own ID. They aren't ordered, so if a server is down
   through a quick suspension and its end, the older `Update` can arrive last, and that server has it wrong until it next
   refreshes the actor. Followers are kept. A `Create` still queued is dropped, and isn't sent if the suspension ends. Other
   activities still queued, such as a status's `Delete` or a follow's `Accept`, wait and are sent within 10 minutes of the
   suspension ending, unless that takes more than 33 days. A `Follow` of a suspended account gets no answer, and an `Undo`
   of one works as usual.
 - **Deleting a local account:** Its followers' servers get a `Delete` signed by the actor, whose `object` is the actor's URI, with
-  the ID `{actor-uri}#delete`. No `Delete` is sent for each status. The actor's key stays stored until the jobs that send this
-  can't run any more, 34 days later, but the actor document answers `410` straight away, so a server has to have kept the key.
+  the ID `{actor-uri}#delete`. No `Delete` is sent for each status. The actor document answers `410` straight away, so a server has
+  to verify the `Delete` with a key it already has. Deliveries can be retried for up to 34 days.
   Who's told comes from who follows the account then, so a server whose followers have all left keeps its copy.
 - **Suspending a remote actor:** A delivery signed with its key gets a `403`, and its activities are refused, including any
   still queued. Its document isn't fetched or refreshed. Its follows are removed, and aren't restored if the suspension ends, so
@@ -312,8 +311,7 @@ compared in lowercase ASCII, without a trailing dot. A block is only ever a full
 - **Fetching:** Keys and actors are never fetched from a blocked domain.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
-- **Existing data:** Follows to and from its actors are removed by a job, and run again 5 minutes later for any that were
-  being saved at the time. Its actors are kept.
+- **Existing data:** Follows to and from its actors are removed. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
   status posted before then, and it keeps any copy it has.
