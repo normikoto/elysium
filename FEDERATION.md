@@ -1,8 +1,10 @@
 # Federation
 
-Elysium is an early work in progress and can't fully federate yet. Other servers can discover its users, deliver activities
-to them, follow them, be followed by them, and receive their new and deleted statuses, but statuses from other servers are
-ignored. This file only describes what's implemented today.
+Elysium is an early work in progress and can't fully federate yet. Other servers can discover its users, fetch their actors,
+statuses, and followers and following collections, deliver activities to them, and follow them. Its users can find accounts
+on other servers by `username@domain` or URL, and follow and unfollow them. Other servers are sent its users' new and deleted
+statuses, and are told when an account is suspended or deleted. Activities from other servers are ignored, apart from follows
+and the answers to them, so statuses from other servers aren't shown. This file only describes what's implemented today.
 
 ## Supported federation protocols and standards
 
