@@ -2,34 +2,34 @@
 
 ## Where things stand
 
-Other servers can discover Elysium's users, deliver signed activities to them, follow them, be followed by them, and receive their new and deleted posts, but Elysium ignores posts from other servers, so it can't fully federate yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
+Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new and deleted posts, and are told when an account is suspended or deleted. Elysium's users can find and follow accounts on other servers, but Elysium ignores posts from other servers, so following someone there doesn't show anything yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
 
 | Area | State | Notes |
 | --- | --- | --- |
 | WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon, GoToSocial and Misskey resolve users in the federation lab |
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
 | Inboxes | Live, partly | `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a `Follow` are acted on, and other types are stored and ignored. #39 stays open for forwarded activities, `sharedInbox` and normalizing |
-| Delivery and signed `POST` | Live, partly | `Accept`, `Create` and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
+| Delivery and signed `POST` | Live, partly | `Follow`, `Undo`, `Accept`, `Create`, `Update` of an actor, and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
 | Job queue and backoff | Live | Load tested on one node with `./gradlew loadTest`, and not with several nodes or a real server |
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
-| Sending follows | Live, not yet checked in the lab | Local users can follow local and remote users, found through WebFinger or a URL, with `Accept`, `Reject` and `Undo` handled. #44 |
-| Followers and following collections | Live | Both are paged, and users can hide what's in them. #43 |
+| Sending follows | Live | Local users can follow local and remote users, found through WebFinger or a URL, with `Accept`, `Reject` and `Undo` handled. Checked on all three lab servers. Merged in PR #89, #44 |
+| Followers and following collections | Live | Both are paged, and users can hide what's in them. Merged in PR #89, #43 |
 | Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Receiving is in #41, and the outbox is in #40 |
 | Likes, boosts, edits, polls, receiving deletes | Missing | #60, #61, #62, #59, with polls only listed on #1 |
-| Moderation and server policy | Partly | Domain blocks are in #64. The rest is under #37 |
+| Moderation and server policy | Live, partly | Domain blocks (#64, PR #82), suspending and deleting accounts (#65, PR #83), and limits on what each server can have stored (#66, PR #88). Reports and the rest are under #37 |
 
 ## Roadmap
 
-Milestone 3 is done, so the next step is milestone 4. It's the riskiest, because it stores other servers' posts, so it waits on moderation.
+Milestone 3 and basic moderation are done, and so is following remote users, the first part of milestone 4. What's left of milestone 4 is reading activities fully and storing other servers' posts, which is the riskiest step.
 
 ```mermaid
 flowchart TD
     m1["<b>1. Inbox and signatures (done)</b><br/>Servers discover users and deliver signed activities.<br/>PR #57 and earlier"]
     m2["<b>2. Receive follows (done)</b><br/>A remote user follows a local user and gets an Accept.<br/>PR #70, #44 receiving half"]
     m3["<b>3. Posts reach followers (done)</b><br/>Send Create and Delete, and serve followers collections.<br/>#41 sending, #43, #59 sending"]
-    m4["<b>4. Follow out and remote posts</b><br/>Follow remote users, and store and show their posts.<br/>#44 sending, #41, #59 and #60 receiving, rest of #39"]
+    m4["<b>4. Follow out and remote posts (in progress)</b><br/>Follow remote users (done), and store and show their posts.<br/>#41, #59 and #60 receiving, rest of #39"]
     m5["<b>5. Interactions</b><br/>Mentions, likes, boosts, edits and notifications.<br/>#28, #61, #62, #60 sending"]
-    mod["<b>Basic moderation</b><br/>Domain and actor blocks, needed before remote posts.<br/>#64, #65, #66"]
+    mod["<b>Basic moderation (done)</b><br/>Domain blocks, suspensions and per-server limits.<br/>#64, #65, #66"]
     m6["<b>6. Completeness</b><br/>Outbox, RFC 9421, polls, quotes.<br/>#40, #5, #9, #63"]
 
     m1 --> m2 --> m3 --> m4 --> m5
@@ -84,23 +84,26 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
   - replies haven't reached a remote server, because parents are always local until milestone 4
   - three `Create`s weren't stored on GoToSocial within about 30 seconds during testing, for a reason that wasn't found, though four timed runs took 5-6 seconds (PR #72)
 
-### 4. Follow out and remote posts
+### 4. Follow out and remote posts (in progress)
 
-This is the largest step, and the first where other servers' content is stored and shown to users. Basic moderation has to land first.
+This is the largest step, and the first where other servers' content is stored and shown to users. Basic moderation, which had to land first, is done.
 
-- **Issues:** the sending half of #44, the receiving half of #41, the rest of #39, and the receiving halves of #59 and #60.
+- **Issues:** the receiving half of #41, the rest of #39, and the receiving halves of #59 and #60. The sending half of #44 is done.
 - **Delivers:**
-  - client follow endpoints, and resolving remote accounts
+  - client follow endpoints, and resolving remote accounts (done)
   - remote statuses with sanitized HTML, which `Status` currently assumes is safe
   - a home timeline
   - `to` and `cc` normalizing and local recipients from #39, forwarded activities fetched from their origin, and `sharedInbox` advertised
 - **Done when:** a local user follows a remote user and reads their posts, including replies forwarded by a third server.
+- **Following out:** merged in PR #89. Local users find remote accounts through WebFinger or a URL, and follow and unfollow them. The `Accept` or `Reject` is matched by the `Follow`'s ID, which is new for each request, or by the two actors. Deleting an account sends an `Undo` for each of its follows. `federation/smoke.sh` has the lab user accept and drop a follow from Elysium on all three servers, approving it by hand on GoToSocial.
+- **Next, in order:** the rest of #39, since storing posts depends on knowing who they're for. Then receiving `Create` with sanitized HTML and a home timeline, possibly as two PRs. Then receiving `Delete` and `Update`.
 
-### Basic moderation
+### Basic moderation (done)
 
-- **Issues:** #64, #65 and #66, under #37. #67 and #68 are also under #37, but don't block milestone 4.
+- **Issues:** #64, #65 and #66, under #37, merged in PRs #82, #83 and #88. #67 and #68 are also under #37, but don't block milestone 4.
 - **Delivers:** blocking a domain or an actor, checked on inbound activities and on delivery. Per-server limits on stored activities also fit here, closing the gap noted on PR #57.
 - **Done when:** a blocked server's deliveries are refused, and it receives nothing from this server.
+- **Result:** a domain block refuses its deliveries and key fetches, sends it nothing, and removes follows to and from its actors. Suspending a remote actor does the same for that actor. A local account can be suspended, which other servers are told with an `Update`, or deleted, which sends a `Delete`. `federation/smoke.sh` checks that all three servers receive these. Each server can deliver a limited number of activities and bytes, which admins can change.
 
 ### 5. Interactions
 
