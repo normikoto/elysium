@@ -166,7 +166,8 @@ unknown ones are ignored. A server that renames them with its own `@context` is 
 - `content` and `summary` can be sent only in `contentMap` and `summaryMap`. A value with the language `und` is used first,
   and then the first one given.
 
-Who an activity is for is worked out from its addressing and that of its embedded `object`: the local users named in any
+Who an activity is for is worked out from its addressing, along with that of the `object` embedded in a `Create` or
+`Update`: the local users named in any
 of the properties above, local users who follow its actor when the actor's `followers` collection is addressed, and the
 `object` of a `Follow`. Only the actor's own `followers` collection is recognized, as given in its actor document, and
 collections of other actors aren't fetched.

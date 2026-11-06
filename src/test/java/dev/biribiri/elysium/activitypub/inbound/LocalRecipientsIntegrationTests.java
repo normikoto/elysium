@@ -46,10 +46,25 @@ class LocalRecipientsIntegrationTests {
     @Test
     void findsLocalAccountsAddressedInAnyProperty() {
         var body = """
-                {"to":"%s","object":{"cc":[{"id":"%s"}],"bcc":"https://elsewhere.test/users/x"}}"""
+                {"type":"Create","to":"%s","object":{"cc":[{"id":"%s"}],"bcc":"https://elsewhere.test/users/x"}}"""
                 .formatted(alice.uri(), bob.uri());
 
         assertThat(recipients.of(activity("Create", body))).containsExactlyInAnyOrder(alice.id(), bob.id());
+    }
+
+    @Test
+    void doesNotFindAccountsAddressedOnlyInTheObjectOfAnAnnounce() {
+        var body = "{\"to\":\"%s\",\"object\":{\"to\":\"%s\"}}".formatted(alice.uri(), bob.uri());
+
+        assertThat(recipients.of(activity("Announce", body))).containsExactly(alice.id());
+    }
+
+    @Test
+    void skipsAddressesWithNoSchemeOrHost() {
+        var body = "{\"to\":[\"//recipients.example%s\",\"urn:x:y\",\"/users/x\",\"%s\"]}"
+                .formatted(alice.uri().getPath(), bob.uri());
+
+        assertThat(recipients.of(activity("Create", body))).containsExactly(bob.id());
     }
 
     @Test

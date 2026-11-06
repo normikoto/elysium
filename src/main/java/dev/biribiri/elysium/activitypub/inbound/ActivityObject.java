@@ -51,7 +51,15 @@ record ActivityObject(
      * @return the activity's {@code object}, or empty if it doesn't have just one with something to identify it
      */
     static Optional<ActivityObject> of(String body, JsonMapper json) {
-        var node = json.readTree(body).path("object");
+        return of(json.readTree(body));
+    }
+
+    /**
+     * @param activity the activity's JSON, for a caller that has already parsed it
+     * @return the activity's {@code object}, or empty if it doesn't have just one with something to identify it
+     */
+    static Optional<ActivityObject> of(JsonNode activity) {
+        var node = activity.path("object");
         if (node.isArray()) {
             if (node.size() != 1) {
                 return Optional.empty();

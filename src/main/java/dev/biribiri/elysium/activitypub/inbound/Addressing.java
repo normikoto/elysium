@@ -39,13 +39,19 @@ record Addressing(Set<String> to, Set<String> cc, Set<String> bto, Set<String> b
     }
 
     /**
-     * Reads an activity's addressing along with its embedded {@code object}'s, because some servers only address one of them.
-     * Mastodon copies the object's onto its {@code Create}, for example, and others don't.
+     * Reads an activity's addressing, along with its embedded {@code object}'s for a {@code Create} or {@code Update}, because
+     * some servers only address one of them. Mastodon copies the object's onto its {@code Create}, for example, and others
+     * don't. Other types can embed someone else's object, such as an {@code Announce} of another actor's post, whose
+     * addressing isn't the activity's.
      *
      * @param activity the activity's JSON
      */
     static Addressing ofActivity(JsonNode activity) {
         var addressing = of(activity);
+        var types = ActivityJson.types(activity.path("type"));
+        if (!types.contains("Create") && !types.contains("Update")) {
+            return addressing;
+        }
         var object = activity.path("object");
         if (object.isArray() && object.size() == 1) {
             object = object.path(0);

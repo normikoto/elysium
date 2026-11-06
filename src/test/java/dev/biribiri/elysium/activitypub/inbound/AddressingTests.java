@@ -36,15 +36,35 @@ class AddressingTests {
     @Test
     void includesTheEmbeddedObjectsAddressing() {
         var addressing = Addressing.ofActivity(JSON.readTree("""
-                {"to":"https://a.test/1","object":[{"to":"https://a.test/2","cc":"Public"}]}"""));
+                {"type":"Create","to":"https://a.test/1","object":[{"to":"https://a.test/2","cc":"Public"}]}"""));
 
         assertThat(addressing.to()).containsExactlyInAnyOrder("https://a.test/1", "https://a.test/2");
         assertThat(addressing.cc()).containsExactly(PUBLIC);
     }
 
     @Test
+    void includesAnUpdatedObjectsAddressing() {
+        var addressing = Addressing.ofActivity(JSON.readTree("""
+                {"type":["Update"],"object":{"to":"https://a.test/2"}}"""));
+
+        assertThat(addressing.to()).containsExactly("https://a.test/2");
+    }
+
+    /**
+     * An {@code Announce} can embed another actor's post, which was addressed to people the {@code Announce} wasn't.
+     */
+    @Test
+    void leavesOutTheObjectsAddressingForOtherTypes() {
+        var addressing = Addressing.ofActivity(JSON.readTree("""
+                {"type":"Announce","to":"https://a.test/1","object":{"to":"https://a.test/2"}}"""));
+
+        assertThat(addressing.all()).containsExactly("https://a.test/1");
+    }
+
+    @Test
     void ignoresAnObjectSentAsAnId() {
-        var addressing = Addressing.ofActivity(JSON.readTree("{\"to\":\"https://a.test/1\",\"object\":\"https://a.test/2\"}"));
+        var addressing = Addressing.ofActivity(JSON.readTree(
+                "{\"type\":\"Create\",\"to\":\"https://a.test/1\",\"object\":\"https://a.test/2\"}"));
 
         assertThat(addressing.all()).containsExactly("https://a.test/1");
     }

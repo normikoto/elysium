@@ -7,6 +7,8 @@ import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -133,6 +135,15 @@ class ForwardedActivitiesIntegrationTests {
     }
 
     @Test
+    void dropsWhatTheOriginSaysIsFromAnActorWithNoHost() throws Exception {
+        serve(activity(id, "urn:x:y", "origin"));
+
+        forwarded.fetch(id);
+
+        assertThat(stored()).isZero();
+    }
+
+    @Test
     void dropsAnActivityThatIsGoneOrRefused() throws Exception {
         when(documents.fetch(URI.create(id))).thenThrow(DocumentFetchException.gone("gone"));
 
@@ -177,6 +188,23 @@ class ForwardedActivitiesIntegrationTests {
 
         assertThat(result.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
         assertThat(forwardedJobs("https://elsewhere.test/activities/1")).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"urn:x:y", "//elsewhere.test/users/a", "/users/a"})
+    void ignoresAnActorWithNoSchemeOrHost(String actor) {
+        assertThat(receive(activity(id, actor, "forwarded")).outcome()).isEqualTo(Inbox.Outcome.IGNORED);
+        assertThat(forwardedJobs()).isZero();
+    }
+
+    /**
+     * The forwarder is only passing it on, so it isn't told that its request was wrong.
+     */
+    @Test
+    void ignoresAnIdThatIsNotAUri() {
+        var result = receive(activity("https://" + origin + "/has space", actor, "forwarded"));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
     }
 
     @Test

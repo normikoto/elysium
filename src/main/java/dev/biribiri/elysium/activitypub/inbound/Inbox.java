@@ -85,14 +85,15 @@ public class Inbox {
             log.debug("Refusing activity {} from {}, who is suspended", envelope.id(), signer.owner());
             return Result.of(Outcome.FORBIDDEN);
         }
+        // Before the ID is read, because a forwarder isn't to blame for what's in the activity it passes on.
+        if (!signer.owner().toString().equals(envelope.actor())) {
+            return forwarded(signer, envelope, body.length);
+        }
         URI id;
         try {
             id = new URI(envelope.id());
         } catch (URISyntaxException e) {
             return Result.of(Outcome.INVALID);
-        }
-        if (!signer.owner().toString().equals(envelope.actor())) {
-            return forwarded(signer, envelope, id, body.length);
         }
         if (!isOnActorsServer(id, signer.owner())) {
             log.debug("Refusing activity {} from {}, which is on another server", envelope.id(), signer.owner());
@@ -112,13 +113,15 @@ public class Inbox {
      * instead, which only depends on what the activity says, since the signer may only be passing it on. The fetches count
      * against the signer's limits, since it's the one causing them.
      */
-    private Result forwarded(VerifiedSignature signer, ActivityEnvelope envelope, URI id, int bodyBytes) {
+    private Result forwarded(VerifiedSignature signer, ActivityEnvelope envelope, int bodyBytes) {
+        var parsedId = ActivityObject.parseUri(envelope.id());
         var actor = ActivityObject.parseUri(envelope.actor());
-        if (actor.isEmpty()
-                || !isOnActorsServer(id, actor.get())
+        if (parsedId.isEmpty()
+                || actor.isEmpty()
+                || !isOnActorsServer(parsedId.get(), actor.get())
                 || !InboundActivity.isStorableId(envelope.id())
-                || RemoteActorDocument.domainOf(id).equals(instance.domain())
-                || blocks.isBlocked(id.getHost())
+                || RemoteActorDocument.isOnDomain(parsedId.get(), instance.domain())
+                || blocks.isBlocked(parsedId.get().getHost())
                 || actors.isSuspended(actor.get())) {
             log.debug("Ignoring activity {} from {}, signed by {}, which can't be fetched from its origin",
                     envelope.id(), envelope.actor(), signer.owner());
@@ -151,12 +154,15 @@ public class Inbox {
     }
 
     /**
+     * @param actor can come from another server, so it can be a relative reference or have no host
      * @return whether the actor can speak for this ID, because the two are on the same server
      */
     static boolean isOnActorsServer(URI id, URI actor) {
         return "https".equalsIgnoreCase(id.getScheme())
                 && id.getHost() != null
                 && id.getRawUserInfo() == null
+                && actor.getScheme() != null
+                && actor.getHost() != null
                 && HostHeader.value(id.getScheme(), id.getHost(), id.getPort())
                 .equals(HostHeader.value(actor.getScheme(), actor.getHost(), actor.getPort()));
     }

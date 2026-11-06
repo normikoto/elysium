@@ -98,7 +98,7 @@ This is the largest step, and the first where other servers' content is stored a
 - **Following out:** merged in PR #89. Local users find remote accounts through WebFinger or a URL, and follow and unfollow them. The `Accept` or `Reject` is matched by the `Follow`'s ID, which is new for each request, or by the two actors. Deleting an account sends an `Undo` for each of its follows. `federation/smoke.sh` has the lab user accept and drop a follow from Elysium on all three servers, approving it by hand on GoToSocial.
 - **Reading activities:** the rest of #39. Forwarded activities are fetched from their `id`'s origin in a job, and only the origin's copy is stored. `LocalRecipients` works out who an activity is for from its addressing, the sender's `followers` collection, now stored for remote actors, and a `Follow`'s `object`. Actor documents advertise `/inbox` as `endpoints.sharedInbox`.
   - Left open: forwarded activities that their origin doesn't serve are lost, which includes Mastodon's `Delete`s, whose IDs have a fragment. The `Delete` and `Create` handlers should check the object instead, by fetching it or its `Tombstone`.
-  - Left open: fetches of forwarded activities aren't counted by `HostRequests`, like actor fetches.
+  - Left open: fetches of forwarded activities aren't limited per target host, or counted by `HostRequests`, like actor fetches, so a forwarder can aim them at any host within its own limits (#94).
   - Left open: the check of real deliveries on a public deployment, from the comment on #39.
 - **Next, in order:** receiving `Create` with sanitized HTML and a home timeline, possibly as two PRs. Then receiving `Delete` and `Update`.
 

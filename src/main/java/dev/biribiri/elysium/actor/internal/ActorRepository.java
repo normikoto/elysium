@@ -280,9 +280,9 @@ public class ActorRepository {
     /**
      * @return a remote actor's followers collection, if it has one stored
      */
-    public Optional<URI> findFollowersUri(UUID id) {
-        return jdbc.sql("SELECT followers_uri FROM actor WHERE id = :id AND followers_uri IS NOT NULL")
-                .param("id", id)
+    public Optional<URI> findFollowersUri(URI actor) {
+        return jdbc.sql("SELECT followers_uri FROM actor WHERE uri = :uri AND NOT is_local AND followers_uri IS NOT NULL")
+                .param("uri", actor.toString())
                 .query((rs, row) -> URI.create(rs.getString(1)))
                 .optional();
     }

@@ -28,6 +28,14 @@ final class RemoteActorDocument {
     }
 
     /**
+     * @param uri can come from another server, so it can be a relative reference or have no host
+     * @return whether the URI is on this domain, as {@link #domainOf} gives it
+     */
+    static boolean isOnDomain(URI uri, String domain) {
+        return uri.getScheme() != null && uri.getHost() != null && domainOf(uri).equals(domain);
+    }
+
+    /**
      * @param uri      the actor being looked up, which was named by a valid signature
      * @param document what its server answered with
      * @throws PermanentJobFailure if the document can't be used

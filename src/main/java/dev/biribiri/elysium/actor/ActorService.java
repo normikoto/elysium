@@ -140,8 +140,8 @@ public class ActorService {
      * @return a remote actor's followers collection, from its document, or empty if it doesn't have one. Local actors' aren't
      * stored, since they're derived from their URIs.
      */
-    public Optional<URI> findFollowersUri(UUID actorId) {
-        return actors.findFollowersUri(actorId);
+    public Optional<URI> findFollowersUri(URI actor) {
+        return actors.findFollowersUri(actor);
     }
 
     /**

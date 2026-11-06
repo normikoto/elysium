@@ -328,8 +328,8 @@ public class FollowService {
     /**
      * @return the local accounts that follow an actor and are neither suspended nor deleted
      */
-    public List<UUID> localFollowerIds(UUID followedId) {
-        return follows.findLocalFollowerIds(followedId);
+    public List<UUID> localFollowerIds(URI followedUri) {
+        return follows.findLocalFollowerIds(followedUri);
     }
 
     /**
