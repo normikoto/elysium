@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Inboxes for activities from other servers, which now makes this server send requests to other servers. Inboxes have a
   rate limit that `elysium.rate-limit.enabled` doesn't turn off, and behind a reverse proxy it needs the same setup as the
   others. See `FEDERATION.md` and `docs/configuration.md`.
+- Limits on how many activities, and how much data, each other server can deliver: 120 activities a minute and 20 MiB an
+  hour by default, counting subdomains as the same server. Change them with `elysium.federation.inbox-limits.*`, or stop
+  limiting servers you trust with `elysium.federation.inbox-limits.exempt-domains`. See `docs/configuration.md`.
+- A public server needs a reverse proxy that limits requests to the inboxes, since the server doesn't limit ones that
+  aren't signed or have a wrong signature. If you run one, add this limit to your proxy. See `docs/configuration.md`.
 - `elysium.federation.allowed-private-networks`, which lets requests to other servers reach the private networks it lists.
   It should not normally be set: it's only for servers on a private network, such as the federation test lab.
 - Domain blocks, for admins to cut off another server and its subdomains, at `/admin/domain-blocks` and

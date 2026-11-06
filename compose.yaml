@@ -21,12 +21,15 @@ services:
       ELYSIUM_REGISTRATION_ENABLED:
       ELYSIUM_RATELIMIT_ENABLED:
       SERVER_SERVLET_SESSION_TIMEOUT:
+      ELYSIUM_FEDERATION_INBOXLIMITS_ACTIVITIESPERMINUTE:
+      ELYSIUM_FEDERATION_INBOXLIMITS_DATAPERHOUR:
+      ELYSIUM_FEDERATION_INBOXLIMITS_EXEMPTDOMAINS:
       # This should not normally be set. See .env.example.
       ELYSIUM_FEDERATION_ALLOWED_PRIVATE_NETWORKS:
       # The server trusts forwarded headers, which is why the port below is only published on the loopback interface.
       # Keep it that way, with a reverse proxy on this host handling HTTPS, unless you also remove this setting. The proxy
       # must add the client's address to X-Forwarded-For, or clients can get around the rate limits by making up their
-      # addresses. nginx needs configuring to do this: see docs/configuration.md.
+      # addresses, and must limit requests to the inboxes. nginx needs configuring to do this: see docs/configuration.md.
       SERVER_FORWARD_HEADERS_STRATEGY: native
     ports:
       - '127.0.0.1:8080:8080'

@@ -11,8 +11,11 @@ import java.util.regex.Pattern;
 /**
  * Puts domains in the one form that blocks are stored and compared in: lowercase ASCII, with no port or trailing dot. This
  * doesn't use {@code HostHeader}, which defines the {@code Host} header that signatures cover, and keeps the port.
+ *
+ * <p>Other modules use this for any other list of domains that covers their subdomains, so that they all read domains and
+ * match hosts the same way that blocks do.
  */
-final class DomainName {
+public final class DomainName {
 
     private static final int MAX_LENGTH = 253;
 
@@ -35,12 +38,12 @@ final class DomainName {
     }
 
     /**
-     * Reads a domain that an admin wants to block.
+     * Reads a domain that an admin entered, such as one to block. The exception's messages are written for blocks.
      *
      * @return the domain in the form that's stored
      * @throws InvalidDomainBlockException if it isn't a domain that can be blocked
      */
-    static String parse(String value) {
+    public static String parse(String value) {
         if (value == null || value.isBlank()) {
             throw new InvalidDomainBlockException("Enter a domain to block.");
         }
@@ -87,7 +90,7 @@ final class DomainName {
      *
      * @return the host in the form that's stored, or empty if a block can't apply to it, such as for an IP address
      */
-    static Optional<String> normalizeHost(String host) {
+    public static Optional<String> normalizeHost(String host) {
         if (host == null || host.isEmpty() || host.startsWith("[")) {
             return Optional.empty();
         }
@@ -108,7 +111,7 @@ final class DomainName {
      * @param domain a domain in the form that's stored
      * @return the domain and each domain above it that a block could be on, which leaves out the top level
      */
-    static List<String> suffixes(String domain) {
+    public static List<String> suffixes(String domain) {
         var suffixes = new ArrayList<String>();
         // Starts from the top level, so that the cap can only leave out the longest ones.
         var dot = domain.lastIndexOf('.');

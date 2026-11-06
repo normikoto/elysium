@@ -8,18 +8,22 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Counts attempts per key in fixed time windows, so a burst across the end of a window can reach twice the limit. Counts
+ * Counts attempts per key in fixed time windows. An attempt can weigh more than one, such as when counting bytes.
+ * Counting is in fixed windows, so a burst across the end of a window can reach twice the limit. Counts
  * are kept in memory, so they're lost on restart and aren't shared between instances. The number of keys is bounded
  * because callers can be made to track attacker-chosen values, so a flood of new keys can evict old ones.
  */
 public final class RateLimiter {
 
-    private final int limit;
+    private final long limit;
     private final long windowNanos;
     private final Ticker ticker;
     private final Cache<String, Window> windows;
 
-    public RateLimiter(int limit, Duration window, long maxKeys, Ticker ticker) {
+    public RateLimiter(long limit, Duration window, long maxKeys, Ticker ticker) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("The limit has to be at least 1");
+        }
         this.limit = limit;
         this.windowNanos = window.toNanos();
         this.ticker = ticker;
@@ -38,15 +42,29 @@ public final class RateLimiter {
      * @return the slot, or empty if there's none left
      */
     public Optional<Slot> tryAcquire(String key) {
+        return tryAcquire(key, 1);
+    }
+
+    /**
+     * Takes this much of what's left for the key, if there's enough. Like {@link #tryAcquire(String)}, an attempt that's
+     * turned away doesn't use any, even if some is left.
+     *
+     * @param weight how much this attempt counts for, which has to be at least 1
+     * @return the slot, or empty if there isn't enough left
+     */
+    public Optional<Slot> tryAcquire(String key, long weight) {
+        if (weight < 1) {
+            throw new IllegalArgumentException("An attempt has to weigh at least 1");
+        }
         var acquired = new Slot[1];
         windows.asMap().compute(key, (ignored, current) -> {
             var now = ticker.read();
             var active = current == null || hasEnded(current, now) ? new Window(now, 0) : current;
-            if (active.count() >= limit) {
+            if (weight > limit - active.count()) {
                 return active;
             }
-            acquired[0] = new Slot(key, active.start());
-            return new Window(active.start(), active.count() + 1);
+            acquired[0] = new Slot(key, active.start(), weight);
+            return new Window(active.start(), active.count() + weight);
         });
         return Optional.ofNullable(acquired[0]);
     }
@@ -79,7 +97,7 @@ public final class RateLimiter {
         return now - window.start() >= windowNanos;
     }
 
-    private record Window(long start, int count) {
+    private record Window(long start, long count) {
     }
 
     /**
@@ -89,10 +107,12 @@ public final class RateLimiter {
 
         private final String key;
         private final long windowStart;
+        private final long weight;
 
-        private Slot(String key, long windowStart) {
+        private Slot(String key, long windowStart, long weight) {
             this.key = key;
             this.windowStart = windowStart;
+            this.weight = weight;
         }
 
         /**
@@ -101,7 +121,7 @@ public final class RateLimiter {
          */
         public void release() {
             windows.asMap().computeIfPresent(key, (ignored, current) -> current.start() == windowStart
-                    ? new Window(current.start(), Math.max(0, current.count() - 1))
+                    ? new Window(current.start(), Math.max(0, current.count() - weight))
                     : current);
         }
 

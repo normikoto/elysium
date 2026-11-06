@@ -68,8 +68,11 @@ feature is live.
   add an `InboundActivityHandler`, or for another type of `Undo`, extend `UndoHandler`, since each type has one handler.
   A repeated ID is dropped unless the handler's `processesRepeats` says otherwise, since some servers reuse IDs for new requests.
   Anything a handler reads from a body that it then stores, such as an ID in an `Undo`, hasn't been through the inbox's
-  checks. The inbox's only limit is on the key fetches an address can cause (`KeyFetchBudget`),
-  and `SignatureVerifier.verify` needs one, so that every caller has to decide who pays for fetches. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and `ActivityObject` normalizes `object`. The other
+  checks. The inbox limits the key fetches an address can cause (`KeyFetchBudget`),
+  and `SignatureVerifier.verify` needs one, so that every caller has to decide who pays for fetches. `Inbox` also counts
+  activities and bytes per server through `ServerActivityLimits`, after every other check and just before `accept`, keyed
+  by the signer's registrable domain from httpclient5's public suffix list. Unsigned requests and bad signatures aren't
+  limited, which is left to the reverse proxy. `RateLimiter.tryAcquire` takes a weight for counting bytes. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and `ActivityObject` normalizes `object`. The other
   properties still need the handling described in issue #39.
 - **Remote actors:** `RemoteActors` fetches and stores them, and `RemoteActorDocument` decides what to believe. Remote rows
   in `actor` have no `local_account`, and can have a null `outbox_uri` and `public_key_pem`. Usernames are only unique for

@@ -231,7 +231,7 @@ class InboxIntegrationTests {
 
         var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor)));
 
-        assertThat(outcome).isEqualTo(Inbox.Outcome.FORBIDDEN);
+        assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.FORBIDDEN);
         assertThat(stored(id)).isZero();
     }
 
@@ -245,7 +245,7 @@ class InboxIntegrationTests {
 
         var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", actor), bytes(activity(id, actor.toString())));
 
-        assertThat(outcome).isEqualTo(Inbox.Outcome.FORBIDDEN);
+        assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.FORBIDDEN);
         assertThat(stored(id)).isZero();
     }
 
@@ -275,7 +275,7 @@ class InboxIntegrationTests {
         var outcome = inbox.receive(
                 new VerifiedSignature(realActor + "#main-key", URI.create(realActor)), bytes(activity(id, realActor)));
 
-        assertThat(outcome).isEqualTo(Inbox.Outcome.ACCEPTED);
+        assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
         assertThat(storedActor(id)).isEqualTo(realActor);
     }
 

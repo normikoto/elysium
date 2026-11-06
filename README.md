@@ -8,7 +8,8 @@ public server unless you really know what you're doing.** For example,
 [sign-ups have no email confirmation](docs/accounts.md).
 
 ## Documentation
-- [Installation](docs/installation.md): building and running the server, with Docker Compose or as a systemd service
+- [Installation](docs/installation.md): building and running the server, with Docker Compose or as a systemd service,
+  behind the reverse proxy that a public server needs
 - [Configuration](docs/configuration.md): settings, the database, and reverse proxies
 - [Accounts and sign-ups](docs/accounts.md): creating accounts, resetting passwords, login sessions, and the job queue
 - [Using the API](docs/api.md): OAuth, statuses, and how they differ from Mastodon

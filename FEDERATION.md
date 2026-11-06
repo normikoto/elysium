@@ -100,12 +100,21 @@ plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
 | `404`  | The user doesn't exist                                                                                       |
 | `413`  | The body is too large                                                                                        |
 | `415`  | The `Content-Type` isn't one of those above                                                                  |
-| `429`  | This address has caused too many key fetches, and `Retry-After` says when to try again                       |
+| `429`  | This address has caused too many key fetches, or the signer's server has delivered too much, and `Retry-After` says when to try again |
 | `503`  | The sender's key can't be fetched right now                                                                  |
 
-The only limit is on key fetches: requests from one address can start 30 a minute, with 4 running at once. A request only
+Key fetches are limited by address: requests from one address can start 30 a minute, with 4 running at once. A request only
 counts if it starts a fetch, so one signed with a key this server already has isn't limited, and neither is one waiting on
 a fetch that's already running. IPv6 addresses are counted by their /64 network.
+
+Each server can also deliver at most 120 activities a minute, with bodies adding up to at most 20 MiB an hour, by default.
+Admins can change these, and remove them for servers they trust, as described in
+[Configuration](docs/configuration.md#inbox-limits). A server is the registrable domain of the signing key's actor, from the
+[Public Suffix List](https://publicsuffix.org/), so `a.example.com` and `b.example.com` share one limit, but `a.github.io`
+and `b.github.io` don't. An IP address counts as itself, and an IPv6 address by its /64 network. Only activities that pass every other check count, including
+repeats of an `id` that's already been accepted, and one that gets a `429` doesn't count. Each minute and hour is a fixed
+window, so a burst at the end of one and the start of the next can reach twice the limit. `Retry-After` says when the limit
+that was reached has room again. Counts are kept in memory, and restarting resets them.
 
 ### Activities
 
