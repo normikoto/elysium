@@ -148,3 +148,11 @@ change. New settings an operator would use also belong in `application.propertie
 
 User-facing changes go in the `[Unreleased]` section of `CHANGELOG.md`, with upgrade steps when an operator has to do
 something. Federation behavior goes in `FEDERATION.md`, and API differences from Mastodon in `docs/api.md`.
+
+`README.md`, `CHANGELOG.md`, `FEDERATION.md`, and `docs/` are for instance admins setting up and running the server. Only
+write what an admin needs to install, configure, operate, or understand the server's visible behavior: settings, commands,
+what happens to their users and data, limits they may hit, and security pitfalls they have to avoid. Leave out how it's
+built, such as class names, tables, job internals, the order things happen in, exact retention times, and edge cases an
+admin won't notice. Those belong in code comments, `package-info.java`, or this file. Keep each fact short, and put it in
+one place, linking to it from elsewhere. `federation/README.md` and `docs/federation-plan.md` are for contributors, and are
+the exception.
