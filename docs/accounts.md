@@ -123,7 +123,7 @@ If the server is behind a reverse proxy, it has to be [set up correctly](configu
 clients can share one limit, or clients can get around the limits by making up their addresses.
 
 To turn the limits off, because you enforce your own elsewhere, set `elysium.rate-limit.enabled=false`. This doesn't turn off
-the [limit on inboxes](../FEDERATION.md#inboxes-and-follows), which can't be replaced by one elsewhere.
+the [limit on inboxes](../FEDERATION.md#inboxes), which can't be replaced by one elsewhere.
 
 **Warning:** These limits only slow down abuse from a small number of addresses, and there's still no email confirmation,
 approval queue, or invite system for sign-ups. For this reason, it's _strongly recommended_ to not use this software on a
