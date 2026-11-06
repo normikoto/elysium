@@ -34,7 +34,8 @@ public record Status(
 ) {
 
     /**
-     * Follows don't exist yet, so private and direct statuses can only be seen by their author.
+     * Whether a viewer can see this status without knowing who follows whom. Use {@link StatusService#isVisible}, which also
+     * lets followers see followers-only statuses, unless the viewer is anonymous or is the author.
      */
     public boolean isVisibleTo(Optional<UUID> viewer) {
         return visibility == Visibility.PUBLIC

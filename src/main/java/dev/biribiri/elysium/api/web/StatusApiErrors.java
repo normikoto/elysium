@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.InvalidStatusException;
 import dev.biribiri.elysium.content.ReplyParentNotFoundException;
 import org.springframework.http.HttpStatus;
@@ -17,6 +18,7 @@ import java.util.Map;
         AccountsController.class,
         AdminAccountsController.class,
         DomainBlocksController.class,
+        SearchController.class,
         StatusesController.class,
         TimelinesController.class})
 class StatusApiErrors {
@@ -35,6 +37,11 @@ class StatusApiErrors {
     @ExceptionHandler(RequestTooLargeException.class)
     ResponseEntity<Map<String, String>> requestTooLarge() {
         return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).body(Map.of("error", "Request body is too large"));
+    }
+
+    @ExceptionHandler(RemoteActorResolver.ResolveLimitException.class)
+    ResponseEntity<Map<String, String>> tooManyLookups(RemoteActorResolver.ResolveLimitException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of("error", e.getMessage()));
     }
 
     @ExceptionHandler({RecordNotFoundException.class, ReplyParentNotFoundException.class})

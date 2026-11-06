@@ -6,6 +6,7 @@ import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRenderer;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusUrls;
+import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -40,6 +41,7 @@ public class StatusService {
     private final StatusProperties properties;
     private final TransactionTemplate transaction;
     private final ApplicationEventPublisher events;
+    private final FollowService follows;
 
     StatusService(
             StatusRepository statuses,
@@ -47,9 +49,11 @@ public class StatusService {
             InstanceProperties instance,
             StatusProperties properties,
             PlatformTransactionManager transactionManager,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            FollowService follows) {
         this.statuses = statuses;
         this.actors = actors;
+        this.follows = follows;
         this.instance = instance;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -77,7 +81,7 @@ public class StatusService {
             var parent = draft.inReplyToId() == null
                     ? Optional.<Status>empty()
                     : Optional.of(statuses.findByIdAndLock(draft.inReplyToId())
-                    .filter(candidate -> candidate.isVisibleTo(Optional.of(authorId)))
+                    .filter(candidate -> isVisible(candidate, Optional.of(authorId)))
                     .orElseThrow(ReplyParentNotFoundException::new));
 
             // Clients poll for statuses newer than the last ID they saw, so a status must never become visible after one
@@ -115,7 +119,18 @@ public class StatusService {
      * Finds a status, if this viewer is allowed to see it.
      */
     public Optional<Status> findVisible(UUID id, Optional<UUID> viewer) {
-        return statuses.findById(id).filter(status -> status.isVisibleTo(viewer));
+        return statuses.findById(id).filter(status -> isVisible(status, viewer));
+    }
+
+    /**
+     * Whether this viewer is allowed to see a status. Besides what {@link Status#isVisibleTo} allows, a followers-only status
+     * can be seen by an account that follows its author. Mentions don't exist yet, so a direct status can still only be seen
+     * by its author.
+     */
+    public boolean isVisible(Status status, Optional<UUID> viewer) {
+        return status.isVisibleTo(viewer)
+                || (status.visibility() == Visibility.PRIVATE
+                && viewer.filter(id -> follows.isFollowing(id, status.actorId())).isPresent());
     }
 
     /**
@@ -176,8 +191,12 @@ public class StatusService {
      * Lists the statuses of one account that this viewer is allowed to see.
      */
     public List<Status> findByAccount(UUID actorId, Optional<UUID> viewer, boolean excludeReplies, StatusPage page) {
-        var ownAccount = viewer.filter(actorId::equals).isPresent();
-        return statuses.findByAccount(actorId, ownAccount, excludeReplies, page);
+        var visibilities = viewer.filter(actorId::equals).isPresent()
+                ? Set.of(Visibility.values())
+                : viewer.filter(id -> follows.isFollowing(id, actorId)).isPresent()
+                ? Set.of(Visibility.PUBLIC, Visibility.UNLISTED, Visibility.PRIVATE)
+                : Set.of(Visibility.PUBLIC, Visibility.UNLISTED);
+        return statuses.findByAccount(actorId, visibilities, excludeReplies, page);
     }
 
     /**

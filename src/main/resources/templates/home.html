@@ -6,7 +6,7 @@
         <p>
             <a href="/login" th:if="${showLogin}">Log in</a>
             <a href="/signup" th:if="${registrationEnabled}">Create an account</a>
-            <a href="/settings/delete-account" th:unless="${showLogin}">Delete your account</a>
+            <a href="/settings" th:unless="${showLogin}">Settings</a>
         </p>
         <h2>Recent posts</h2>
         <p th:if="${#lists.isEmpty(statuses)}">No posts yet.</p>

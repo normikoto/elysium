@@ -80,7 +80,11 @@ don't come back if the suspension ends. To cut off a whole server, use a [domain
 too, which they may not do. Its username can't be used again, because other servers can still know it. Accounts on other
 servers can't be deleted, so suspend them instead.
 
-People can delete their own account at `/settings/delete-account`, with their password.
+People can delete their own account at `/settings/delete-account`, with their password. At `/settings`, they can also hide
+who follows them and who they follow, from other people and other servers, which still see how many there are.
+
+When someone looks up an account on another server, this server asks that server about it. Each person can make 30 of these
+lookups a minute, so that nobody can use this server to flood another one with requests.
 
 Nobody can suspend or delete the server's last admin, so [choose another](#admins) first. Admins also can't suspend or delete
 themselves from the admin page or the API.

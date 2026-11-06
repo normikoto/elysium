@@ -1,14 +1,20 @@
 package dev.biribiri.elysium.graph;
 
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.internal.FollowRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +26,10 @@ import java.util.UUID;
  * arrived. An {@code Undo} covers its {@code Follow}, and any that first arrived before it. It's remembered for a while,
  * because a job or a retry of one of those can still come afterward. A {@code Follow} that first arrives later is a new
  * request, so it stands.
+ *
+ * <p>A local account's follow of a remote account is identified by the {@code Follow} sent for it, which has a new ID for each
+ * request. Answers come from the followed actor, and only name that ID or the two actors, so none of the timing above is
+ * needed: an answer to a request that's been withdrawn finds nothing to change.
  */
 @Service
 public class FollowService {
@@ -28,10 +38,194 @@ public class FollowService {
 
     private final FollowRepository follows;
     private final ActorService actors;
+    private final ApplicationEventPublisher events;
 
-    FollowService(FollowRepository follows, ActorService actors) {
+    FollowService(FollowRepository follows, ActorService actors, ApplicationEventPublisher events) {
         this.follows = follows;
         this.actors = actors;
+        this.events = events;
+    }
+
+    /**
+     * Makes a local account follow another account. A local account is followed straight away, since nobody can approve
+     * followers by hand yet. An account on another server has to answer first, so the follow waits for that, and
+     * {@link FollowRequested} is published so that it's asked. Asking again while it's waiting publishes that again, as its
+     * server may have lost the request. Following an account already followed does nothing.
+     *
+     * <p>The caller checks that both accounts can take part, since this has no view of domain blocks.
+     *
+     * @param follower a local account
+     * @param followed any other account
+     */
+    @Transactional
+    public void follow(Actor follower, Actor followed) {
+        if (follower.id().equals(followed.id())) {
+            throw new IllegalArgumentException("An account can't follow itself");
+        }
+        follows.lock(pairKey(follower.uri().toString(), followed.id()));
+        var existing = follows.findByPair(follower.id(), followed.id());
+        if (existing.isPresent()) {
+            // Only a follow of a remote account waits for an answer.
+            if (!existing.get().accepted()) {
+                events.publishEvent(new FollowRequested(
+                        follower.id(), followed.id(), existing.get().activityUri(), Instant.now()));
+            }
+            return;
+        }
+        var id = UUID.randomUUID();
+        if (actors.isLocal(followed)) {
+            follows.insertOutgoing(id, follower.id(), followed.id(), null);
+            return;
+        }
+        var activityUri = followActivityUri(follower, id);
+        follows.insertOutgoing(id, follower.id(), followed.id(), activityUri);
+        events.publishEvent(new FollowRequested(follower.id(), followed.id(), activityUri, Instant.now()));
+    }
+
+    /**
+     * The {@code id} of the {@code Follow} sent for a follow. Each follow gets a new one, so that an answer to an earlier
+     * request can't be taken for an answer to this one.
+     */
+    private static String followActivityUri(Actor follower, UUID followId) {
+        return follower.uri() + "#follows/" + followId;
+    }
+
+    /**
+     * Stops a local account following another account, or withdraws its request to. For an account on another server, this
+     * publishes {@link FollowWithdrawn}, so that its server is told.
+     *
+     * @return whether there was a follow or request to remove
+     */
+    @Transactional
+    public boolean unfollow(Actor follower, UUID followedId) {
+        follows.lock(pairKey(follower.uri().toString(), followedId));
+        var removed = follows.deletePair(follower.id(), followedId);
+        // Only follows of remote accounts have an activity behind them, when the follower is local.
+        removed.filter(row -> row.activityUri() != null).ifPresent(row ->
+                events.publishEvent(new FollowWithdrawn(follower.id(), followedId, row.activityUri())));
+        return removed.isPresent();
+    }
+
+    /**
+     * Whether a follow by a local account still has this activity behind it, so that a {@code Follow} queued for an earlier
+     * request isn't sent.
+     */
+    public boolean isRequestCurrent(UUID followerId, UUID followedId, String activityUri) {
+        return follows.existsOutgoing(followerId, followedId, activityUri);
+    }
+
+    /**
+     * Applies an {@code Accept} from an account on another server, of a {@code Follow} sent from here.
+     *
+     * @param followedId the remote account that sent the {@code Accept}
+     * @param activityUri the {@code Follow} it names
+     * @return whether a follow was waiting for this
+     */
+    @Transactional
+    public boolean acceptRequest(UUID followedId, String activityUri) {
+        return follows.acceptOutgoing(followedId, activityUri);
+    }
+
+    /**
+     * Like {@link #acceptRequest(UUID, String)}, for an {@code Accept} that doesn't say which {@code Follow} it's for.
+     */
+    @Transactional
+    public boolean acceptRequestFrom(UUID followerId, UUID followedId) {
+        return follows.acceptOutgoing(followerId, followedId);
+    }
+
+    /**
+     * Applies a {@code Reject} from an account on another server, which removes the follow, whether or not it was accepted.
+     *
+     * @param followedId  the remote account that sent the {@code Reject}
+     * @param activityUri the {@code Follow} it names
+     * @return whether a follow was removed
+     */
+    @Transactional
+    public boolean rejectRequest(UUID followedId, String activityUri) {
+        return follows.deleteOutgoing(followedId, activityUri);
+    }
+
+    /**
+     * Like {@link #rejectRequest(UUID, String)}, for a {@code Reject} that doesn't say which {@code Follow} it's for.
+     */
+    @Transactional
+    public boolean rejectRequestFrom(Actor follower, UUID followedId) {
+        follows.lock(pairKey(follower.uri().toString(), followedId));
+        return follows.deletePair(follower.id(), followedId).isPresent();
+    }
+
+    /**
+     * Lists a local account's follows of accounts on other servers, and its requests to follow them, so that they can be
+     * withdrawn when the account is deleted.
+     */
+    public List<SentFollow> sentBy(UUID followerId) {
+        return follows.findSent(followerId);
+    }
+
+    /**
+     * Whether one account follows another, and has been accepted.
+     */
+    public boolean isFollowing(UUID followerId, UUID followedId) {
+        return follows.isFollowing(followerId, followedId);
+    }
+
+    /**
+     * @return how the viewer is related to each of these accounts, in the same order
+     */
+    public List<Relationship> relationships(UUID viewerId, List<UUID> otherIds) {
+        var outgoing = new HashMap<UUID, Boolean>();
+        var followedBy = new HashSet<UUID>();
+        for (var pair : follows.findPairsWith(viewerId, otherIds)) {
+            if (pair.followerId().equals(viewerId)) {
+                outgoing.put(pair.followedId(), pair.accepted());
+            } else if (pair.accepted()) {
+                followedBy.add(pair.followerId());
+            }
+        }
+        return otherIds.stream().map(other -> new Relationship(
+                other,
+                Boolean.TRUE.equals(outgoing.get(other)),
+                Boolean.FALSE.equals(outgoing.get(other)),
+                followedBy.contains(other))).toList();
+    }
+
+    /**
+     * Lists an account's accepted followers, newest first, leaving out suspended and deleted ones.
+     */
+    public List<FollowEntry> followers(UUID actorId, FollowPage page) {
+        return follows.findPage(actorId, true, page);
+    }
+
+    /**
+     * Lists the accounts that an account follows and has been accepted by, newest first, leaving out suspended and deleted
+     * ones.
+     */
+    public List<FollowEntry> following(UUID actorId, FollowPage page) {
+        return follows.findPage(actorId, false, page);
+    }
+
+    /**
+     * Counts accepted follows to and from each of these accounts, leaving out suspended and deleted actors.
+     *
+     * @return an entry for each account
+     */
+    public Map<UUID, FollowCounts> countsFor(Collection<UUID> actorIds) {
+        return follows.countFor(actorIds);
+    }
+
+    /**
+     * Counts an account's accepted followers, leaving out suspended and deleted ones.
+     */
+    public long countFollowers(UUID actorId) {
+        return follows.count(List.of(actorId), true).getOrDefault(actorId, 0L);
+    }
+
+    /**
+     * Counts the accounts that an account follows and has been accepted by, leaving out suspended and deleted ones.
+     */
+    public long countFollowing(UUID actorId) {
+        return follows.count(List.of(actorId), false).getOrDefault(actorId, 0L);
     }
 
     /**
@@ -136,10 +330,6 @@ public class FollowService {
      */
     public List<URI> followerInboxesAsOf(UUID followedId, Instant time) {
         return follows.findFollowerInboxesAsOf(followedId, time);
-    }
-
-    public long countFollowers(UUID followedId) {
-        return follows.countFollowers(followedId);
     }
 
     /**

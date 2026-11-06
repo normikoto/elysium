@@ -292,6 +292,58 @@ public class ActorRepository {
     }
 
     /**
+     * Finds the remote actor with this username on this domain, refreshed most recently. Usernames aren't unique for remote
+     * actors, because a server can give one to a new actor while an old copy of the last one to have it is stored here.
+     *
+     * @param domain in lowercase, as remote actors' domains are stored, so that the domain's index is used
+     */
+    public Optional<Actor> findRemoteByAcct(String username, String domain) {
+        return jdbc.sql("SELECT " + COLUMNS + """
+                        FROM actor
+                        WHERE NOT is_local AND domain = :domain AND lower(username) = lower(:username)
+                        ORDER BY updated_at DESC
+                        LIMIT 1
+                        """)
+                .param("username", username)
+                .param("domain", domain)
+                .query(ACTOR_MAPPER)
+                .optional();
+    }
+
+    /**
+     * Finds local and remote actors in any state.
+     */
+    public List<Actor> findByIds(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("SELECT " + COLUMNS + " FROM actor WHERE id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
+    }
+
+    /**
+     * @return the local accounts among these that hide what's in their followers and following collections
+     */
+    public List<UUID> findHidingCollections(Collection<UUID> actorIds) {
+        if (actorIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("SELECT actor_id FROM local_account WHERE hide_collections AND actor_id IN (:ids)")
+                .param("ids", actorIds)
+                .query(UUID.class)
+                .list();
+    }
+
+    /**
+     * @return whether the account exists to be changed
+     */
+    public boolean setHidesCollections(UUID actorId, boolean hide) {
+        return jdbc.sql("UPDATE local_account SET hide_collections = :hide WHERE actor_id = :actorId")
+                .param("hide", hide)
+                .param("actorId", actorId)
+                .update() > 0;
+    }
+
+    /**
      * Reads an actor's private key. Actor queries leave this column out, so the key can't end up in an {@link Actor}.
      */
     public Optional<String> findPrivateKeyPem(UUID actorId) {

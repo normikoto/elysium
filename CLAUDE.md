@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Elysium is an experimental ActivityPub server (Java 25, Spring Boot 4, Spring Modulith, PostgreSQL) aiming for
 compatibility with Mastodon and other common implementations. It can't fully federate yet: other servers can discover its
-users, fetch actors and `Note` objects, deliver activities to its inboxes, follow and unfollow its users, which sends an
-`Accept`, and receive its new and deleted statuses as `Create` and `Delete`, and its suspended and deleted accounts as `Update`
-and `Delete`. Other activities are ignored, and its users can't follow anyone.
+users, fetch actors, `Note` objects, and paged followers and following collections, deliver activities to its inboxes, follow
+and unfollow its users, which sends an `Accept`, and receive its new and deleted statuses as `Create` and `Delete`, and its
+suspended and deleted accounts as `Update` and `Delete`. Its users can follow and unfollow remote users, found through
+WebFinger or a URL, which sends a `Follow` or `Undo` and acts on the `Accept` or `Reject`. Other activities, including remote
+statuses, are ignored.
 
 ## Commands
 
@@ -40,7 +42,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `actor`       | Local and remote actors, profiles, keys    | nothing                                        |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, OAuth, HTTP security configuration | `actor`, `ratelimit`                           |
-| `content`     | Posts and related records                  | `actor`                                        |
+| `content`     | Posts and related records                  | `actor`, `graph`                               |
 | `graph`       | Follows (blocks and mutes to come)         | `actor`                                        |
 | `moderation`  | Domain blocks                              | `actor`                                        |
 | `timeline`    | Home and public feeds                      | `actor`, `content`, `graph`                    |
@@ -57,9 +59,10 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 
 ### Federation code
 
-Only part of this is live. `InboxController` receives activities and queues them, and only `Follow` and `Undo` have an
-`InboundActivityHandler`, so other types are stored and ignored. `FollowHandler` and `StatusDeliveries` use
-`activitypub.delivery`, and `StatusPublished`, `StatusDeleted`, `DomainBlocked`, `AccountSuspended`, `AccountUnsuspended`, and `AccountDeleted` are the only application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
+Only part of this is live. `InboxController` receives activities and queues them, and only `Follow`, `Undo`, `Accept`, and
+`Reject` have an `InboundActivityHandler`, so other types are stored and ignored. `FollowHandler`, `StatusDeliveries`, and
+`FollowDeliveries` use `activitypub.delivery`, and `StatusPublished`, `StatusDeleted`, `FollowRequested`, `FollowWithdrawn`,
+`DomainBlocked`, `AccountSuspended`, `AccountUnsuspended`, and `AccountDeleted` are the only application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
 feature is live.
 
 - **Inbound:** `InboxController` does the HTTP and signature steps, and `Inbox` decides whether to keep an activity. Who an
@@ -74,7 +77,9 @@ feature is live.
   by the signer's registrable domain from httpclient5's public suffix list. Unsigned requests and bad signatures aren't
   limited, which is left to the reverse proxy. `RateLimiter.tryAcquire` takes a weight for counting bytes. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and `ActivityObject` normalizes `object`. The other
   properties still need the handling described in issue #39.
-- **Remote actors:** `RemoteActors` fetches and stores them, and `RemoteActorDocument` decides what to believe. Remote rows
+- **Remote actors:** `RemoteActors` fetches and stores them, and `RemoteActorDocument` decides what to believe. Other
+  modules find new ones through `actor.RemoteActorResolver`, an interface that `activitypub.resolve.RemoteActorLookup`
+  implements with WebFinger or a URL, so that they don't depend on `activitypub`. It limits lookups per local account. Remote rows
   in `actor` have no `local_account`, and can have a null `outbox_uri` and `public_key_pem`. Usernames are only unique for
   local accounts, through `actor.is_local`, since a remote actor's identity is its URI.
 - **Signatures:** `SignatureVerifier`, `PublicKeyResolver`, and `SignedFetcher` are independent of the signature format.
@@ -85,6 +90,13 @@ feature is live.
   which can't be looked up once the row is gone, and never has a status's text, because events are stored. Listeners have to be safe to repeat and shouldn't
   fail for what's since been deleted, because `EventRetries` runs a failed one again every 5 minutes, and an event only stays
   stored until its listeners finish. `Notes` builds `Note` objects, so that fetched and delivered ones match.
+- **Outgoing follows:** `FollowService.follow` accepts a local target at once, and stores a remote one as `pending` with
+  `activity_uri` set to a new `{actor-uri}#follows/{row-id}`, so that answers to an earlier request can't match a re-follow.
+  `AcceptHandler` and `RejectHandler` go through `FollowAnswers`, which only trusts the signer as the followed actor. An
+  incoming follow's `activity_uri` is the remote `Follow`'s ID instead, and its follower is remote, so the two never mix.
+- **Collections:** `hide_collections` on `local_account` hides the items, not the counts, in the AP collections and the API's
+  lists, except to the owner. Lists and counts leave out suspended and deleted actors, and page by `(created_at, id)` with the
+  follow's ID as the cursor.
 - **Domain blocks:** `moderation.DomainBlocks` decides what's blocked, and `activitypub` enforces it at `SignatureVerifier`,
   `Inbox`, `InboundActivityTask`, `FollowHandler`, `FederationHttpClient`, `ActivityDeliveries`, and `DeliveryTask`. `InboundActivityTask` only
   checks an activity's actor, so a handler has to check any other actor or object that it fetches or stores. New remote data

@@ -183,17 +183,16 @@ public class StatusRepository {
     }
 
     /**
-     * @param includeAll whether to include private and direct statuses, for the account's own view
+     * @param visibilities which statuses the viewer can see
      */
-    public List<Status> findByAccount(UUID actorId, boolean includeAll, boolean excludeReplies, StatusPage page) {
-        var filter = new StringBuilder("s.actor_id = :actorId");
-        if (!includeAll) {
-            filter.append(" AND s.visibility IN ('public', 'unlisted')");
-        }
+    public List<Status> findByAccount(
+            UUID actorId, Collection<Visibility> visibilities, boolean excludeReplies, StatusPage page) {
+        var filter = new StringBuilder("s.actor_id = :actorId AND s.visibility IN (:visibilities)");
         if (excludeReplies) {
             filter.append(" AND ").append(NOT_A_REPLY_TO_OTHERS);
         }
-        return findPage(filter.toString(), Map.of("actorId", actorId), page);
+        var names = visibilities.stream().map(Visibility::value).toList();
+        return findPage(filter.toString(), Map.of("actorId", actorId, "visibilities", names), page);
     }
 
     /**

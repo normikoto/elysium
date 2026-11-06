@@ -20,7 +20,7 @@ import java.util.Optional;
  * Keeps a copy of actors from other servers, fetching their documents when there's no copy or the copy is old.
  */
 @Component
-class RemoteActors {
+public class RemoteActors {
 
     private static final Logger log = LoggerFactory.getLogger(RemoteActors.class);
 
@@ -43,7 +43,7 @@ class RemoteActors {
      * @return the stored actor
      * @throws PermanentJobFailure if the actor can never be stored. Anything else thrown is worth trying again.
      */
-    Actor fetchOrRefresh(URI uri) {
+    public Actor fetchOrRefresh(URI uri) {
         if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
             throw new PermanentJobFailure("The actor " + uri + " isn't an HTTPS URL");
         }
@@ -58,13 +58,20 @@ class RemoteActors {
         if (existing.filter(Actor::isSuspended).isPresent()) {
             throw new PermanentJobFailure("The actor " + uri + " is suspended");
         }
-        if (existing.isPresent() && existing.get().updatedAt().isAfter(Instant.now().minus(KEPT_FOR))) {
+        if (existing.filter(RemoteActors::isFresh).isPresent()) {
             return existing.get();
         }
         var document = fetch(uri, existing.isPresent());
         return document.map(fetched -> actors.upsertRemote(RemoteActorDocument.read(uri, fetched)))
                 .or(() -> existing)
                 .orElseThrow();
+    }
+
+    /**
+     * Whether a stored copy is recent enough that {@link #fetchOrRefresh} would use it without fetching.
+     */
+    public static boolean isFresh(Actor actor) {
+        return actor.updatedAt().isAfter(Instant.now().minus(KEPT_FOR));
     }
 
     /**

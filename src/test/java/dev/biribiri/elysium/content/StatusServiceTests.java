@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.internal.StatusRepository;
+import dev.biribiri.elysium.graph.FollowService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -44,7 +45,8 @@ class StatusServiceTests {
                 new InstanceProperties(BASE_URL),
                 new StatusProperties(10),
                 mock(PlatformTransactionManager.class),
-                mock(ApplicationEventPublisher.class));
+                mock(ApplicationEventPublisher.class),
+                mock(FollowService.class));
     }
 
     private static NewStatus draft(String text, String spoilerText) {
@@ -150,7 +152,8 @@ class StatusServiceTests {
                 new InstanceProperties(BASE_URL),
                 new StatusProperties(25),
                 mock(PlatformTransactionManager.class),
-                mock(ApplicationEventPublisher.class));
+                mock(ApplicationEventPublisher.class),
+                mock(FollowService.class));
         var url = "https://a.example/" + "x".repeat(100);
         assertThat(wider.create(AUTHOR, draft(url + " a", null)).text()).startsWith(url);
         assertThatThrownBy(() -> wider.create(AUTHOR, draft(url + " ab", null)))
