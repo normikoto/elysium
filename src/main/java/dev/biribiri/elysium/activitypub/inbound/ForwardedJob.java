@@ -1,0 +1,14 @@
+package dev.biribiri.elysium.activitypub.inbound;
+
+import dev.biribiri.elysium.activitypub.jobs.QueuedJob;
+
+import java.time.Instant;
+
+/**
+ * Fetches a forwarded activity from its origin, through {@link ForwardedActivities}.
+ *
+ * @param activityId the activity's {@code id}, which is where it's fetched from
+ * @param queuedAt   when the first forwarded copy arrived, which is also stored as when the activity did
+ */
+record ForwardedJob(String activityId, Instant queuedAt) implements QueuedJob {
+}

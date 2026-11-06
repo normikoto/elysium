@@ -22,7 +22,7 @@ class RemoteActorDocumentTests {
         var profile = RemoteActorDocument.read(ACTOR, json("""
                 {"id":"https://remote.test/ap/users/1","type":"Person","preferredUsername":"bob",
                  "inbox":"https://remote.test/ap/users/1/inbox","outbox":"https://remote.test/ap/users/1/outbox",
-                 "endpoints":{"sharedInbox":"https://remote.test/inbox"},
+                 "endpoints":{"sharedInbox":"https://remote.test/inbox"},"followers":"https://remote.test/ap/users/1/followers",
                  "publicKey":{"id":"https://remote.test/ap/users/1#main-key","publicKeyPem":"PEM"}}
                 """));
 
@@ -33,6 +33,7 @@ class RemoteActorDocumentTests {
         assertThat(profile.outboxUri()).hasToString("https://remote.test/ap/users/1/outbox");
         assertThat(profile.sharedInboxUri()).hasToString("https://remote.test/inbox");
         assertThat(profile.publicKeyPem()).isEqualTo("PEM");
+        assertThat(profile.followersUri()).hasToString("https://remote.test/ap/users/1/followers");
     }
 
     @Test
@@ -42,6 +43,7 @@ class RemoteActorDocumentTests {
         assertThat(profile.outboxUri()).isNull();
         assertThat(profile.sharedInboxUri()).isNull();
         assertThat(profile.publicKeyPem()).isNull();
+        assertThat(profile.followersUri()).isNull();
     }
 
     @Test
@@ -166,6 +168,14 @@ class RemoteActorDocumentTests {
         assertThatThrownBy(() -> RemoteActorDocument.read(ACTOR, document))
                 .isInstanceOf(PermanentJobFailure.class)
                 .hasMessageNotContaining("secret");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://remote.test/f", "https://other.test/f", "https://remote.test:8443/f", "/f"})
+    void leavesOutAFollowersCollectionThatIsNotHttpsOnTheActorsHost(String followers) {
+        var profile = RemoteActorDocument.read(ACTOR, document(",\"followers\":\"" + followers + "\""));
+
+        assertThat(profile.followersUri()).isNull();
     }
 
     private static void assertRefused(JsonNode document) {

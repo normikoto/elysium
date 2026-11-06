@@ -72,6 +72,8 @@ class AccountCleanupIntegrationTests {
         assertThat(update.get("actor").asString()).isEqualTo(local.uri().toString());
         assertThat(update.get("object").get("suspended").asBoolean()).isTrue();
         assertThat(update.get("object").has("@context")).isFalse();
+        assertThat(update.get("object").get("endpoints").get("sharedInbox").asString())
+                .isEqualTo(local.uri().resolve("/inbox").toString());
         assertThat(follows(local)).isEqualTo(1);
         assertThat(count("SELECT count(*) FROM status WHERE id = :id", status.id())).isOne();
 

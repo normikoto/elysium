@@ -75,12 +75,20 @@ feature is live.
   and `SignatureVerifier.verify` needs one, so that every caller has to decide who pays for fetches. `Inbox` also counts
   activities and bytes per server through `ServerActivityLimits`, after every other check and just before `accept`, keyed
   by the signer's registrable domain from httpclient5's public suffix list. Unsigned requests and bad signatures aren't
-  limited, which is left to the reverse proxy. `RateLimiter.tryAcquire` takes a weight for counting bytes. `ActivityEnvelope` only normalizes `id`, `type`, and `actor`, and `ActivityObject` normalizes `object`. The other
-  properties still need the handling described in issue #39.
+  limited, which is left to the reverse proxy. `RateLimiter.tryAcquire` takes a weight for counting bytes.
+- **Reading activities:** `ActivityJson` has the helpers for the different forms of the same data, and the parsers use it:
+  `ActivityEnvelope` reads `id`, `type`, and `actor`, `ActivityObject` reads `object` and, when it's embedded, its content,
+  tags, and addressing, and `Addressing` reads `to`, `cc`, `bto`, `bcc`, and `audience`. A handler that stores something for
+  its recipients should get them from `LocalRecipients`, which only matches an actor's own `followers`, from
+  `actor.followers_uri`.
+- **Forwarded activities:** an activity signed by someone other than its `actor` is never stored as sent. `Inbox` checks
+  its `id` and counts it against the signer's limits, and `ForwardedActivities` fetches the `id` in a job and stores the
+  origin's copy through `accept`.
 - **Remote actors:** `RemoteActors` fetches and stores them, and `RemoteActorDocument` decides what to believe. Other
   modules find new ones through `actor.RemoteActorResolver`, an interface that `activitypub.resolve.RemoteActorLookup`
   implements with WebFinger or a URL, so that they don't depend on `activitypub`. It limits lookups per local account. Remote rows
-  in `actor` have no `local_account`, and can have a null `outbox_uri` and `public_key_pem`. Usernames are only unique for
+  in `actor` have no `local_account`, and can have a null `outbox_uri`, `public_key_pem`, and `followers_uri`. Local rows have a
+  null `shared_inbox_uri` and `followers_uri`, which are derived instead (`InstanceProperties.sharedInboxUri`). Usernames are only unique for
   local accounts, through `actor.is_local`, since a remote actor's identity is its URI.
 - **Signatures:** `SignatureVerifier`, `PublicKeyResolver`, and `SignedFetcher` are independent of the signature format.
   Each format supplies a `SignatureScheme` and a `RequestSigner`. Only draft-cavage is implemented. The reasoning for
@@ -98,7 +106,7 @@ feature is live.
   lists, except to the owner. Lists and counts leave out suspended and deleted actors, and page by `(created_at, id)` with the
   follow's ID as the cursor.
 - **Domain blocks:** `moderation.DomainBlocks` decides what's blocked, and `activitypub` enforces it at `SignatureVerifier`,
-  `Inbox`, `InboundActivityTask`, `FollowHandler`, `FederationHttpClient`, `ActivityDeliveries`, and `DeliveryTask`. `InboundActivityTask` only
+  `Inbox`, `InboundActivityTask`, `ForwardedActivities`, `FollowHandler`, `FederationHttpClient`, `ActivityDeliveries`, and `DeliveryTask`. `InboundActivityTask` only
   checks an activity's actor, so a handler has to check any other actor or object that it fetches or stores. New remote data
   also has to be removed by `DomainBlockCleanupTask`.
 - **Account state:** `actor.suspended_at` and `deleted_at` say whether an actor is active. `ActorService.findLocal*` and

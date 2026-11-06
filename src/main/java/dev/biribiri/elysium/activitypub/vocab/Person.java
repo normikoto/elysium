@@ -24,6 +24,7 @@ public record Person(
         URI outbox,
         URI followers,
         URI following,
+        Endpoints endpoints,
         PublicKey publicKey,
         Boolean suspended
 ) {
@@ -42,7 +43,10 @@ public record Person(
         return URI.create(actor.uri() + "/following");
     }
 
-    public static Person from(Actor actor) {
+    /**
+     * @param sharedInbox this server's shared inbox
+     */
+    public static Person from(Actor actor, URI sharedInbox) {
         return new Person(
                 ActivityStreams.ACTOR_CONTEXT,
                 actor.uri(),
@@ -54,6 +58,7 @@ public record Person(
                 actor.outboxUri(),
                 followersOf(actor),
                 followingOf(actor),
+                new Endpoints(sharedInbox),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
                 null);
     }
@@ -63,8 +68,8 @@ public record Person(
      * saying this, and so that the actor is still there to come back. An actor has no other details to hide yet, but any added
      * later shouldn't be shown here.
      */
-    public static Person suspended(Actor actor) {
-        var person = from(actor);
+    public static Person suspended(Actor actor, URI sharedInbox) {
+        var person = from(actor, sharedInbox);
         return new Person(
                 ActivityStreams.SUSPENDED_ACTOR_CONTEXT,
                 person.id(),
@@ -75,6 +80,7 @@ public record Person(
                 person.outbox(),
                 person.followers(),
                 person.following(),
+                person.endpoints(),
                 person.publicKey(),
                 true);
     }
@@ -83,6 +89,7 @@ public record Person(
      * This document as part of an activity, which has the {@code @context} for both.
      */
     Person withoutContext() {
-        return new Person(null, id, type, preferredUsername, url, inbox, outbox, followers, following, publicKey, suspended);
+        return new Person(
+                null, id, type, preferredUsername, url, inbox, outbox, followers, following, endpoints, publicKey, suspended);
     }
 }

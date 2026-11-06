@@ -28,6 +28,14 @@ final class RemoteActorDocument {
     }
 
     /**
+     * @param uri can come from another server, so it can be a relative reference or have no host
+     * @return whether the URI is on this domain, as {@link #domainOf} gives it
+     */
+    static boolean isOnDomain(URI uri, String domain) {
+        return uri.getScheme() != null && uri.getHost() != null && domainOf(uri).equals(domain);
+    }
+
+    /**
      * @param uri      the actor being looked up, which was named by a valid signature
      * @param document what its server answered with
      * @throws PermanentJobFailure if the document can't be used
@@ -51,6 +59,9 @@ final class RemoteActorDocument {
         }
         // Nothing sends to this yet, so a bad one is a reason to leave it out rather than to lose the actor.
         var sharedInbox = inboxOnSameHost(uri, document.path("endpoints").path("sharedInbox").stringValue(null));
+        // Only used to see who an activity is addressed to, so a bad one is left out too. One on another host could make
+        // an activity look addressed to the followers of someone else.
+        var followers = inboxOnSameHost(uri, document.path("followers").stringValue(null));
         return new RemoteActorProfile(
                 uri,
                 username,
@@ -58,12 +69,13 @@ final class RemoteActorDocument {
                 inbox,
                 outbox(document.path("outbox").stringValue(null)),
                 sharedInbox,
-                publicKeyPem(document.path("publicKey")));
+                publicKeyPem(document.path("publicKey")),
+                followers);
     }
 
     /**
      * Inboxes are where this server sends requests when it's told to, so one on another host would let any server aim this
-     * one at a third party.
+     * one at a third party. Followers collections are checked the same way.
      *
      * @return the inbox, or null if there isn't one that can be used
      */

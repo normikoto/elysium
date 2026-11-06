@@ -75,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DELETE /api/v1/admin/accounts/:id`, and the `suspend-account`, `unsuspend-account`, and `delete-account` commands
 - `/settings/delete-account`, for people to delete their own account with their password, linked from `/settings`
 - `Update` activities when a local account is suspended or unsuspended, and a `Delete` when one is deleted
+- Actor documents now give `/inbox` as their shared inbox, so other servers can send one copy of an activity for all
+  your users instead of one each.
+- Activities that another server forwards, such as replies sent on to the followers of the account being replied to, are
+  now fetched from the server they came from, instead of being dropped. Each one counts against the forwarding server's
+  inbox limits. See `FEDERATION.md`.
 
 ### Changed
 

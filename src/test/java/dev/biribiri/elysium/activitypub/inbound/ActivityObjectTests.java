@@ -30,14 +30,46 @@ class ActivityObjectTests {
         var object = parse("""
                 {"id":"https://a.test/1","type":["Follow","Other"],"actor":{"id":"https://a.test/u"},"object":["https://b.test/v"]}""");
 
-        assertThat(object).contains(new ActivityObject(ID, "Follow", "https://a.test/u", "https://b.test/v"));
+        assertThat(object).get().extracting(
+                        ActivityObject::id, ActivityObject::type, ActivityObject::actor, ActivityObject::object)
+                .containsExactly(ID, "Follow", "https://a.test/u", "https://b.test/v");
     }
 
     @Test
     void readsAnEmbeddedObjectWithoutAnId() {
         var object = parse("{\"type\":\"Follow\",\"object\":\"https://b.test/v\"}");
 
-        assertThat(object).contains(new ActivityObject(null, "Follow", null, "https://b.test/v"));
+        assertThat(object).get().extracting(
+                        ActivityObject::id, ActivityObject::type, ActivityObject::actor, ActivityObject::object)
+                .containsExactly(null, "Follow", null, "https://b.test/v");
+    }
+
+    @Test
+    void hasOnlyTheIdOfAnObjectSentAsOne() {
+        var object = parse("\"https://a.test/1\"").orElseThrow();
+
+        assertThat(object.attributedTo()).isEmpty();
+        assertThat(object.content()).isNull();
+        assertThat(object.sensitive()).isFalse();
+        assertThat(object.tags()).isEmpty();
+        assertThat(object.addressing().all()).isEmpty();
+    }
+
+    @Test
+    void readsTheContentOfAnEmbeddedObject() {
+        var object = parse("""
+                {"id":"https://a.test/1","type":"Note","attributedTo":[{"id":"https://a.test/u"},"https://a.test/g"],
+                 "contentMap":{"en":"<p>Hi</p>"},"summary":"cw","sensitive":true,
+                 "tag":{"type":"Mention","href":"https://b.test/v","name":"@v@b.test"},
+                 "to":"as:Public","cc":["https://a.test/u/followers"]}""").orElseThrow();
+
+        assertThat(object.attributedTo()).containsExactly("https://a.test/u", "https://a.test/g");
+        assertThat(object.content()).isEqualTo("<p>Hi</p>");
+        assertThat(object.summary()).isEqualTo("cw");
+        assertThat(object.sensitive()).isTrue();
+        assertThat(object.tags()).containsExactly(new ActivityJson.Tag("Mention", "https://b.test/v", "@v@b.test"));
+        assertThat(object.addressing().to()).containsExactly("https://www.w3.org/ns/activitystreams#Public");
+        assertThat(object.addressing().cc()).containsExactly("https://a.test/u/followers");
     }
 
     @ParameterizedTest

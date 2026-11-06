@@ -119,6 +119,7 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.url").value(ACTOR_URI))
                 .andExpect(jsonPath("$.inbox").value(ACTOR_URI + "/inbox"))
                 .andExpect(jsonPath("$.outbox").value(ACTOR_URI + "/outbox"))
+                .andExpect(jsonPath("$.endpoints.sharedInbox").value("https://elysium.example/inbox"))
                 .andExpect(jsonPath("$.publicKey.id").value(ACTOR_URI + "#main-key"))
                 .andExpect(jsonPath("$.publicKey.owner").value(ACTOR_URI))
                 .andReturn().getResponse().getContentAsString();
@@ -145,6 +146,7 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.inbox").value(INSTANCE_ACTOR_URI + "/inbox"))
                 .andExpect(jsonPath("$.outbox").value(INSTANCE_ACTOR_URI + "/outbox"))
                 .andExpect(jsonPath("$.manuallyApprovesFollowers").value(true))
+                .andExpect(jsonPath("$.endpoints.sharedInbox").value("https://elysium.example/inbox"))
                 .andExpect(jsonPath("$.publicKey.id").value(INSTANCE_ACTOR_URI + "#main-key"))
                 .andExpect(jsonPath("$.publicKey.owner").value(INSTANCE_ACTOR_URI))
                 .andExpect(jsonPath("$.publicKey.publicKeyPem").value(actors.instanceActor().publicKeyPem()))

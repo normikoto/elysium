@@ -52,6 +52,14 @@ public record InstanceProperties(URI baseUrl) {
     }
 
     /**
+     * The inbox that every actor here shares. It's built from the base URL rather than stored with each actor, so local
+     * actors' {@link Actor#sharedInboxUri} is null. Other servers store it, so it can't change.
+     */
+    public URI sharedInboxUri() {
+        return resolve("/inbox");
+    }
+
+    /**
      * Resolves an absolute path against the base URL.
      */
     public URI resolve(String path) {

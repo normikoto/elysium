@@ -251,14 +251,17 @@ public class ActorRepository {
      */
     public Actor upsertRemote(RemoteActorProfile profile) {
         return jdbc.sql("""
-                        INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, shared_inbox_uri, public_key_pem)
-                        VALUES (:id, :uri, :username, :domain, :inboxUri, :outboxUri, :sharedInboxUri, :publicKeyPem)
+                        INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, shared_inbox_uri, public_key_pem,
+                                           followers_uri)
+                        VALUES (:id, :uri, :username, :domain, :inboxUri, :outboxUri, :sharedInboxUri, :publicKeyPem,
+                                :followersUri)
                         ON CONFLICT (uri) DO UPDATE SET
                             username = EXCLUDED.username,
                             inbox_uri = EXCLUDED.inbox_uri,
                             outbox_uri = EXCLUDED.outbox_uri,
                             shared_inbox_uri = EXCLUDED.shared_inbox_uri,
                             public_key_pem = EXCLUDED.public_key_pem,
+                            followers_uri = EXCLUDED.followers_uri,
                             updated_at = now()
                         RETURNING\s""" + COLUMNS)
                 .param("id", UUID.randomUUID())
@@ -269,8 +272,19 @@ public class ActorRepository {
                 .param("outboxUri", text(profile.outboxUri()), Types.VARCHAR)
                 .param("sharedInboxUri", text(profile.sharedInboxUri()), Types.VARCHAR)
                 .param("publicKeyPem", profile.publicKeyPem(), Types.VARCHAR)
+                .param("followersUri", text(profile.followersUri()), Types.VARCHAR)
                 .query(ACTOR_MAPPER)
                 .single();
+    }
+
+    /**
+     * @return a remote actor's followers collection, if it has one stored
+     */
+    public Optional<URI> findFollowersUri(URI actor) {
+        return jdbc.sql("SELECT followers_uri FROM actor WHERE uri = :uri AND NOT is_local AND followers_uri IS NOT NULL")
+                .param("uri", actor.toString())
+                .query((rs, row) -> URI.create(rs.getString(1)))
+                .optional();
     }
 
     private static String text(URI uri) {
@@ -289,6 +303,20 @@ public class ActorRepository {
             return List.of();
         }
         return jdbc.sql(SELECT_ACTIVE_LOCAL + "id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
+    }
+
+    /**
+     * Takes the URIs as one array, since they can come from another server, and there can be more than a query can have
+     * parameters.
+     */
+    public List<Actor> findLocalByUris(Collection<String> uris) {
+        if (uris.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql(SELECT_ACTIVE_LOCAL + "uri = ANY(:uris)")
+                .param("uris", uris.toArray(String[]::new))
+                .query(ACTOR_MAPPER)
+                .list();
     }
 
     /**
