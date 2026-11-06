@@ -6,8 +6,6 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.AccountActionRefusedException;
 import dev.biribiri.elysium.auth.AccountActions;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.content.AccountStats;
-import dev.biribiri.elysium.content.StatusService;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
@@ -32,6 +30,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 /**
  * Follows Mastodon's admin API for accounts, as far as what's here can. Suspending is the only action, and an account doesn't
@@ -47,19 +46,19 @@ public class AdminAccountsController {
 
     private final ActorService actors;
     private final AccountActions accounts;
-    private final StatusService statuses;
     private final InstanceProperties instance;
     private final JsonBodies json;
+    private final AccountResponses accountResponses;
 
     AdminAccountsController(
             ActorService actors,
             AccountActions accounts,
-            StatusService statuses,
             InstanceProperties instance,
-            JsonBodies json) {
+            JsonBodies json,
+            AccountResponses accountResponses) {
+        this.accountResponses = accountResponses;
         this.actors = actors;
         this.accounts = accounts;
-        this.statuses = statuses;
         this.instance = instance;
         this.json = json;
     }
@@ -185,15 +184,17 @@ public class AdminAccountsController {
     }
 
     private List<AdminAccountResponse> responses(Collection<Actor> found) {
-        var ids = found.stream().map(Actor::id).toList();
-        var stats = statuses.statsFor(ids);
+        var ordered = List.copyOf(found);
+        var ids = ordered.stream().map(Actor::id).toList();
         var admins = accounts.adminsAmong(ids);
-        return found.stream().map(account -> from(account, stats.get(account.id()), admins.contains(account.id()))).toList();
+        var built = accountResponses.build(ordered);
+        return IntStream.range(0, ordered.size())
+                .mapToObj(i -> from(ordered.get(i), built.get(i), admins.contains(ordered.get(i).id())))
+                .toList();
     }
 
-    private AdminAccountResponse from(Actor account, AccountStats stats, boolean admin) {
+    private AdminAccountResponse from(Actor account, AccountResponse response, boolean admin) {
         var local = actors.isLocal(account);
-        var acct = local ? account.username() : account.username() + "@" + account.domain();
         return new AdminAccountResponse(
                 account.id().toString(),
                 account.username(),
@@ -201,6 +202,6 @@ public class AdminAccountsController {
                 ApiTimestamps.format(account.createdAt()),
                 local ? new AdminAccountResponse.Role(admin ? "Admin" : "User") : null,
                 !account.isActive(),
-                AccountResponse.from(account, acct, stats, instance));
+                response);
     }
 }

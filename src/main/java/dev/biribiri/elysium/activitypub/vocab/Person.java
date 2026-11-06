@@ -23,6 +23,7 @@ public record Person(
         URI inbox,
         URI outbox,
         URI followers,
+        URI following,
         PublicKey publicKey,
         Boolean suspended
 ) {
@@ -32,6 +33,13 @@ public record Person(
      */
     public static URI followersOf(Actor actor) {
         return URI.create(actor.uri() + "/followers");
+    }
+
+    /**
+     * @return the following collection of a local actor
+     */
+    public static URI followingOf(Actor actor) {
+        return URI.create(actor.uri() + "/following");
     }
 
     public static Person from(Actor actor) {
@@ -45,6 +53,7 @@ public record Person(
                 actor.inboxUri(),
                 actor.outboxUri(),
                 followersOf(actor),
+                followingOf(actor),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
                 null);
     }
@@ -65,6 +74,7 @@ public record Person(
                 person.inbox(),
                 person.outbox(),
                 person.followers(),
+                person.following(),
                 person.publicKey(),
                 true);
     }
@@ -73,6 +83,6 @@ public record Person(
      * This document as part of an activity, which has the {@code @context} for both.
      */
     Person withoutContext() {
-        return new Person(null, id, type, preferredUsername, url, inbox, outbox, followers, publicKey, suspended);
+        return new Person(null, id, type, preferredUsername, url, inbox, outbox, followers, following, publicKey, suspended);
     }
 }

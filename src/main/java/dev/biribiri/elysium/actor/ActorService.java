@@ -216,6 +216,40 @@ public class ActorService {
     }
 
     /**
+     * Finds a stored copy of a remote actor by its username and domain, without asking its server. If several stored actors
+     * have had that username, this is the one refreshed most recently. This can return one that's suspended, so check its
+     * state.
+     */
+    public Optional<Actor> findRemoteByAcct(String username, String domain) {
+        return actors.findRemoteByAcct(username, domain, 1).stream().findFirst();
+    }
+
+    /**
+     * Whether a local account hides who's in its followers and following collections. Their sizes are still shown.
+     */
+    public boolean hidesCollections(UUID actorId) {
+        return !actors.findHidingCollections(List.of(actorId)).isEmpty();
+    }
+
+    /**
+     * Like {@link #hidesCollections}, for several accounts at once.
+     *
+     * @return the local accounts among these that hide them
+     */
+    public Set<UUID> hidingCollections(Collection<UUID> actorIds) {
+        return Set.copyOf(actors.findHidingCollections(actorIds));
+    }
+
+    /**
+     * Sets whether a local account hides who's in its followers and following collections.
+     *
+     * @return whether the account exists to be changed
+     */
+    public boolean setHidesCollections(UUID actorId, boolean hide) {
+        return actors.setHidesCollections(actorId, hide);
+    }
+
+    /**
      * Counts the accounts that the public can see, leaving out suspended and deleted ones.
      */
     public long countLocal() {

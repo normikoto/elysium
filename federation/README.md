@@ -16,7 +16,7 @@ federation/smoke.sh gotosocial   # or mastodon, or misskey
 The script deletes any lab left over from an earlier run, starts a new one, and exits with an error if a check fails.
 Rebuild the image to test a change to Elysium, because the lab doesn't build it for you.
 
-The script checks seven things:
+The script checks eight things:
 
 - **Discovery:** Elysium serves its documents through the proxy, and the other server can resolve `@alice@elysium.test`.
 - **Refusing deliveries:** An unsigned `POST` to Elysium's inbox gets a `401`.
@@ -28,6 +28,10 @@ The script checks seven things:
   and following again has to work. Misskey goes through this twice and then follows once more, since it uses the same ID for
   each `Undo` between two actors, and a new one for each `Follow`. The script checks that `inbound_activity` has 3 `Follow`
   rows and 1 `Undo` row, so it fails if Misskey stops reusing the ID and the check stops testing that.
+- **Following out:** alice looks up `lab` on the other server through Elysium's client API, which makes Elysium use
+  WebFinger, and follows it. The other server has to accept the signed `Follow`, which Elysium shows as `following`. On
+  GoToSocial, whose users approve followers by hand by default, the request waits until `lab` approves it, which tests the
+  waiting state too. alice's `following` collection then has to list `lab`. alice then unfollows, and the other server has to take the `Undo`.
 - **Sending statuses:** alice posts a public and a followers-only status. The other server has to accept the signed `Create`
   for each and store it with the right visibility, though it can't fetch the followers-only one, which gets a `404`.
   GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in

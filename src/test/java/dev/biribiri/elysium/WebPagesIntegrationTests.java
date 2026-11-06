@@ -310,14 +310,14 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void followersCollectionOnlySaysHowManyThereAre() throws Exception {
+    void followersCollectionLinksToItsFirstPage() throws Exception {
         mockMvc.perform(get("/users/wanda/followers").accept(ACTIVITY_JSON))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(ACTIVITY_JSON))
                 .andExpect(jsonPath("$.id").value(wanda.uri() + "/followers"))
                 .andExpect(jsonPath("$.type").value("OrderedCollection"))
                 .andExpect(jsonPath("$.totalItems").value(0))
-                .andExpect(jsonPath("$.first").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.first").value(wanda.uri() + "/followers?page=true"))
                 .andExpect(jsonPath("$.orderedItems").doesNotHaveJsonPath());
     }
 

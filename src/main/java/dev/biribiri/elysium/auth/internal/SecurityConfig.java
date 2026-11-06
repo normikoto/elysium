@@ -51,6 +51,7 @@ class SecurityConfig {
     static final String LOGIN_PATH = "/login";
     static final String SIGNUP_PATH = "/signup";
     static final String DELETE_ACCOUNT_PATH = "/settings/delete-account";
+    static final String SETTINGS_PATH = "/settings";
 
     private static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
     private static final String APP_REGISTRATION_PATH = "/api/v1/apps";
@@ -67,15 +68,18 @@ class SecurityConfig {
 
     private static final String[] PUBLIC_PATHS = {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
-            "/users/*/followers", "/users/*/statuses/*", "/actor", "/actuator/health", "/actuator/health/**", "/images/*", "/api-docs/**",
+            "/users/*/followers", "/users/*/following", "/users/*/statuses/*", "/actor", "/actuator/health", "/actuator/health/**", "/images/*", "/api-docs/**",
             "/api-docs.yaml"
     };
 
     /**
-     * API endpoints that can be read without a token. A token is still checked if the request includes one.
+     * API endpoints that can be read without a token. A token is still checked if the request includes one. An account is
+     * matched by an ID's characters, so that paths such as {@code verify_credentials} still need a token.
      */
     private static final String[] PUBLIC_API_PATHS = {
-            "/api/v1/instance", "/api/v1/statuses/*", "/api/v1/accounts/*/statuses", "/api/v1/timelines/public"
+            "/api/v1/instance", "/api/v1/statuses/*", "/api/v1/accounts/*/statuses", "/api/v1/timelines/public",
+            "/api/v1/accounts/{id:[0-9a-fA-F-]+}", "/api/v1/accounts/{id:[0-9a-fA-F-]+}/followers",
+            "/api/v1/accounts/{id:[0-9a-fA-F-]+}/following", "/api/v1/accounts/lookup", "/api/v2/search"
     };
 
     /**
@@ -173,7 +177,9 @@ class SecurityConfig {
             LocalAccounts accounts)
             throws Exception {
         var pagesNeedingLogin = new OrRequestMatcher(
-                adminPageRequests(), pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH));
+                adminPageRequests(),
+                pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH),
+                pathPattern(HttpMethod.GET, SETTINGS_PATH));
 
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
         // can't lose a pending authorization. It only saves a page if nothing is waiting, so that logging in can return to
@@ -208,6 +214,8 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, CONSENT_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, DELETE_ACCOUNT_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, DELETE_ACCOUNT_PATH).authenticated()
+                        .requestMatchers(HttpMethod.GET, SETTINGS_PATH).authenticated()
+                        .requestMatchers(HttpMethod.POST, SETTINGS_PATH).authenticated()
                         // Not hasRole: see AdminAccess.
                         .requestMatchers(ADMIN_PATHS).access(adminAccess)
                         .anyRequest().denyAll())

@@ -1,15 +1,21 @@
 package dev.biribiri.elysium.graph.internal;
 
+import dev.biribiri.elysium.graph.FollowCounts;
+import dev.biribiri.elysium.graph.FollowEntry;
+import dev.biribiri.elysium.graph.FollowPage;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.net.URI;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,7 +25,13 @@ public class FollowRepository {
     private static final RowMapper<Row> ROW_MAPPER = (rs, rowNum) -> new Row(
             rs.getObject("followed_id", UUID.class),
             rs.getString("activity_uri"),
-            rs.getObject("activity_at", OffsetDateTime.class).toInstant());
+            rs.getObject("activity_at", OffsetDateTime.class).toInstant(),
+            "accepted".equals(rs.getString("state")));
+
+    /**
+     * Leaves out follows whose other actor, joined as {@code a}, is suspended or deleted.
+     */
+    private static final String ACTIVE_OTHER = "a.suspended_at IS NULL AND a.deleted_at IS NULL";
 
     private final JdbcClient jdbc;
 
@@ -39,7 +51,7 @@ public class FollowRepository {
 
     public Optional<Row> findByPair(UUID followerId, UUID followedId) {
         return jdbc.sql("""
-                        SELECT followed_id, activity_uri, activity_at FROM follow
+                        SELECT followed_id, activity_uri, activity_at, state FROM follow
                         WHERE follower_id = :followerId AND followed_id = :followedId
                         """)
                 .param("followerId", followerId)
@@ -50,7 +62,7 @@ public class FollowRepository {
 
     public Optional<Row> findByActivity(UUID followerId, String activityUri) {
         return jdbc.sql("""
-                        SELECT followed_id, activity_uri, activity_at FROM follow
+                        SELECT followed_id, activity_uri, activity_at, state FROM follow
                         WHERE follower_id = :followerId AND activity_uri = :activityUri
                         ORDER BY activity_at DESC, id
                         LIMIT 1
@@ -74,6 +86,216 @@ public class FollowRepository {
                 .param("activityUri", activityUri)
                 .param("activityAt", time(activityAt))
                 .update();
+    }
+
+    /**
+     * Inserts a follow by a local account, unless the two already have one.
+     *
+     * @param activityUri the {@code Follow} sent for it, or null for a follow of a local account
+     * @return whether it was inserted
+     */
+    public boolean insertOutgoing(UUID id, UUID followerId, UUID followedId, boolean accepted, String activityUri) {
+        return jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
+                        VALUES (:id, :followerId, :followedId, :state, :activityUri)
+                        ON CONFLICT (follower_id, followed_id) DO NOTHING
+                        """)
+                .param("id", id)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .param("state", accepted ? "accepted" : "pending")
+                .param("activityUri", activityUri, Types.VARCHAR)
+                .update() > 0;
+    }
+
+    /**
+     * @return the removed follow, if there was one
+     */
+    public Optional<Row> deletePair(UUID followerId, UUID followedId) {
+        return jdbc.sql("""
+                        DELETE FROM follow WHERE follower_id = :followerId AND followed_id = :followedId
+                        RETURNING followed_id, activity_uri, activity_at, state
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .query(ROW_MAPPER)
+                .optional();
+    }
+
+    /**
+     * Accepts a follow that's waiting for an answer from the actor followed.
+     *
+     * @return whether one was waiting
+     */
+    public boolean acceptOutgoing(UUID followedId, String activityUri) {
+        return jdbc.sql("""
+                        UPDATE follow SET state = 'accepted'
+                        WHERE followed_id = :followedId AND activity_uri = :activityUri AND state = 'pending'
+                        """)
+                .param("followedId", followedId)
+                .param("activityUri", activityUri)
+                .update() > 0;
+    }
+
+    /**
+     * Like {@link #acceptOutgoing(UUID, String)}, for whatever follow the two actors have.
+     */
+    public boolean acceptOutgoing(UUID followerId, UUID followedId) {
+        return jdbc.sql("""
+                        UPDATE follow SET state = 'accepted'
+                        WHERE follower_id = :followerId AND followed_id = :followedId AND state = 'pending'
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .update() > 0;
+    }
+
+    /**
+     * @return whether a follow was removed
+     */
+    public boolean deleteOutgoing(UUID followedId, String activityUri) {
+        return jdbc.sql("DELETE FROM follow WHERE followed_id = :followedId AND activity_uri = :activityUri")
+                .param("followedId", followedId)
+                .param("activityUri", activityUri)
+                .update() > 0;
+    }
+
+    /**
+     * @return whether a follow with this activity behind it exists, accepted or not
+     */
+    public boolean existsOutgoing(UUID followerId, UUID followedId, String activityUri) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM follow
+                            WHERE follower_id = :followerId AND followed_id = :followedId AND activity_uri = :activityUri
+                        )
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .param("activityUri", activityUri)
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * @return every follow, accepted or not, from the viewer to any of these accounts, or from any of them to the viewer
+     */
+    public List<Pair> findPairsWith(UUID viewerId, Collection<UUID> otherIds) {
+        if (otherIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("""
+                        SELECT follower_id, followed_id, state FROM follow
+                        WHERE (follower_id = :viewerId AND followed_id IN (:otherIds))
+                           OR (followed_id = :viewerId AND follower_id IN (:otherIds))
+                        """)
+                .param("viewerId", viewerId)
+                .param("otherIds", otherIds)
+                .query((rs, row) -> new Pair(
+                        rs.getObject("follower_id", UUID.class),
+                        rs.getObject("followed_id", UUID.class),
+                        "accepted".equals(rs.getString("state"))))
+                .list();
+    }
+
+    public boolean isFollowing(UUID followerId, UUID followedId) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM follow
+                            WHERE follower_id = :followerId AND followed_id = :followedId AND state = 'accepted'
+                        )
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * Lists an account's accepted followers, or the accounts it follows, leaving out suspended and deleted ones.
+     *
+     * @param followers true for its followers, and false for the accounts it follows
+     */
+    public List<FollowEntry> findPage(UUID actorId, boolean followers, FollowPage page) {
+        var self = followers ? "f.followed_id" : "f.follower_id";
+        var other = followers ? "f.follower_id" : "f.followed_id";
+        var sql = new StringBuilder("SELECT f.id, ").append(other).append(" AS other_id FROM follow f JOIN actor a ON a.id = ")
+                .append(other).append(" WHERE ").append(self).append(" = :actorId AND f.state = 'accepted' AND ")
+                .append(ACTIVE_OTHER);
+        var parameters = new HashMap<String, Object>();
+        parameters.put("actorId", actorId);
+        // A cursor whose follow has since been removed matches nothing, so its page is empty.
+        if (page.maxId() != null) {
+            sql.append(" AND (f.created_at, f.id) < (SELECT created_at, id FROM follow WHERE id = :maxId)");
+            parameters.put("maxId", page.maxId());
+        }
+        var ascending = page.minId() != null;
+        if (ascending) {
+            sql.append(" AND (f.created_at, f.id) > (SELECT created_at, id FROM follow WHERE id = :minId)");
+            parameters.put("minId", page.minId());
+        } else if (page.sinceId() != null) {
+            sql.append(" AND (f.created_at, f.id) > (SELECT created_at, id FROM follow WHERE id = :sinceId)");
+            parameters.put("sinceId", page.sinceId());
+        }
+        sql.append(ascending ? " ORDER BY f.created_at ASC, f.id ASC" : " ORDER BY f.created_at DESC, f.id DESC")
+                .append(" LIMIT :limit");
+        parameters.put("limit", page.limit());
+        var found = jdbc.sql(sql.toString())
+                .params(parameters)
+                .query((rs, row) -> new FollowEntry(rs.getObject("id", UUID.class), rs.getObject("other_id", UUID.class)))
+                .list();
+        return ascending ? found.reversed() : found;
+    }
+
+    /**
+     * @return the URIs of these actors, in the same order. Actors that are gone are left out.
+     */
+    public List<URI> findUris(List<UUID> actorIds) {
+        if (actorIds.isEmpty()) {
+            return List.of();
+        }
+        var uris = new HashMap<UUID, URI>();
+        jdbc.sql("SELECT id, uri FROM actor WHERE id IN (:ids)")
+                .param("ids", actorIds)
+                .query(rs -> {
+                    uris.put(rs.getObject("id", UUID.class), URI.create(rs.getString("uri")));
+                });
+        return actorIds.stream().filter(uris::containsKey).map(uris::get).toList();
+    }
+
+    /**
+     * Counts the accepted follows to and from each of these accounts, leaving out suspended and deleted actors.
+     *
+     * @return an entry for each account with any
+     */
+    public Map<UUID, FollowCounts> countFor(Collection<UUID> actorIds) {
+        if (actorIds.isEmpty()) {
+            return Map.of();
+        }
+        var followers = new HashMap<UUID, Long>();
+        var following = new HashMap<UUID, Long>();
+        jdbc.sql("SELECT f.followed_id AS id, count(*) AS n FROM follow f JOIN actor a ON a.id = f.follower_id"
+                        + " WHERE f.followed_id IN (:ids) AND f.state = 'accepted' AND " + ACTIVE_OTHER
+                        + " GROUP BY f.followed_id")
+                .param("ids", actorIds)
+                .query(rs -> {
+                    followers.put(rs.getObject("id", UUID.class), rs.getLong("n"));
+                });
+        jdbc.sql("SELECT f.follower_id AS id, count(*) AS n FROM follow f JOIN actor a ON a.id = f.followed_id"
+                        + " WHERE f.follower_id IN (:ids) AND f.state = 'accepted' AND " + ACTIVE_OTHER
+                        + " GROUP BY f.follower_id")
+                .param("ids", actorIds)
+                .query(rs -> {
+                    following.put(rs.getObject("id", UUID.class), rs.getLong("n"));
+                });
+        var counts = new HashMap<UUID, FollowCounts>();
+        for (var id : actorIds) {
+            var count = new FollowCounts(followers.getOrDefault(id, 0L), following.getOrDefault(id, 0L));
+            if (!count.equals(FollowCounts.NONE)) {
+                counts.put(id, count);
+            }
+        }
+        return counts;
     }
 
     /**
@@ -108,10 +330,7 @@ public class FollowRepository {
     }
 
     public long countFollowers(UUID followedId) {
-        return jdbc.sql("SELECT count(*) FROM follow WHERE followed_id = :followedId AND state = 'accepted'")
-                .param("followedId", followedId)
-                .query(Long.class)
-                .single();
+        return countFor(List.of(followedId)).getOrDefault(followedId, FollowCounts.NONE).followers();
     }
 
     /**
@@ -236,6 +455,15 @@ public class FollowRepository {
         return instant.atOffset(ZoneOffset.UTC);
     }
 
-    public record Row(UUID followedId, String activityUri, Instant activityAt) {
+    /**
+     * @param accepted whether the follow is accepted, rather than waiting for an answer
+     */
+    public record Row(UUID followedId, String activityUri, Instant activityAt, boolean accepted) {
+    }
+
+    /**
+     * @param accepted whether the follow is accepted, rather than waiting for an answer
+     */
+    public record Pair(UUID followerId, UUID followedId, boolean accepted) {
     }
 }

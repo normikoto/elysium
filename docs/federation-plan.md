@@ -2,18 +2,18 @@
 
 ## Where things stand
 
-Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new and deleted posts, but Elysium can't follow anyone, so it can't fully federate yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
+Other servers can discover Elysium's users, deliver signed activities to them, follow them, be followed by them, and receive their new and deleted posts, but Elysium ignores posts from other servers, so it can't fully federate yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
 
 | Area | State | Notes |
 | --- | --- | --- |
 | WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon, GoToSocial and Misskey resolve users in the federation lab |
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
-| Inboxes | Live, partly | `Follow` and `Undo` of a `Follow` are acted on, and other types are stored and ignored. #39 stays open for forwarded activities, `sharedInbox` and normalizing |
+| Inboxes | Live, partly | `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a `Follow` are acted on, and other types are stored and ignored. #39 stays open for forwarded activities, `sharedInbox` and normalizing |
 | Delivery and signed `POST` | Live, partly | `Accept`, `Create` and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
 | Job queue and backoff | Live | Load tested on one node with `./gradlew loadTest`, and not with several nodes or a real server |
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
-| Sending follows | Missing | #44 |
-| Followers and following collections | Live, partly | `followers` only gives its size. Its items and pages, and `following`, are in #43 |
+| Sending follows | Live, not yet checked in the lab | Local users can follow local and remote users, found through WebFinger or a URL, with `Accept`, `Reject` and `Undo` handled. #44 |
+| Followers and following collections | Live | Both are paged, and users can hide what's in them. #43 |
 | Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Receiving is in #41, and the outbox is in #40 |
 | Likes, boosts, edits, polls, receiving deletes | Missing | #60, #61, #62, #59, with polls only listed on #1 |
 | Moderation and server policy | Partly | Domain blocks are in #64. The rest is under #37 |
@@ -76,7 +76,6 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
 
 - **Other checks:** deliveries now count key fetches against their limit per host, and leave a connection for them (`HostRequests`). Fetches only count each other, so a fan-out can't refuse them, which means one can still wait a moment for a connection. Retrying a job that's outlived its activity fails with the reason (#55). A `Delete` waits while its cancelled `Create` is running for the same host, so that it can't overtake one being sent.
 - **Left open:**
-  - `followers` still only gives its size, and its items and pages stay in #43, along with the option to hide them
   - a host that answers slowly gets fewer deliveries than turns, so its waiting jobs keep running at about 3 a second. With a large backlog, that's about 259,000 runs a day, kept for 7 days as successful history rows. This comes from reading the code, not from measuring it
   - jobs waiting for a slot have no limit on their age, so a large enough backlog on a slow host can send activities days late. The 3-day limit only applies while a host is backing off
   - a `Delete` also waits for a `Create` job left running by a node that died, until another node notices
@@ -138,6 +137,6 @@ Basic moderation landing before milestone 4 is confirmed. The rest of the order 
 - [x] Should an actor's inbox have to be on the actor's own host? Answer: Yes, as merged in PR #70. A shared inbox on another host is only left out.
 - [ ] Should `Question` get an issue too? The activity types now have #59 to #63, but it's an object, so it's still only a checklist item on #1.
 - [ ] Should unlisted statuses be in the outbox? Open on #40.
-- [x] Should people be able to hide what's in their followers and following collections? Answer: Yes, as an option. It still has to be built, in #43, and until then `followers` only gives its size.
+- [x] Should people be able to hide what's in their followers and following collections? Answer: Yes, as an option. Built for #43, as one setting that covers both collections and the API's lists.
 - [ ] Should mentions of remote users show the domain? Open on #28.
 - [x] Can a follower left behind by a retried `Follow` receive followers-only statuses, or can the case be told apart from a re-follow? Answer: No. PR #71 ignores a repeat after an Undo as a retry, since Misskey, Sharkey and Mastodon make a new ID for each request.

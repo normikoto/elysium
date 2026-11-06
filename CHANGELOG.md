@@ -37,7 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An instance actor at `/actor`, which can be found through WebFinger as `instance.actor`. It's for signing requests that
   no user is behind.
 - Other servers' users can follow local users and unfollow them. Every request is accepted automatically, and an `Accept`
-  is sent back. Local users can't follow anyone yet. See `FEDERATION.md`.
+  is sent back. See `FEDERATION.md`.
+- Local users can follow and unfollow other local users, and users on other servers, which they can find by
+  `username@domain` or by URL. Following another server's user waits until that server accepts. Posts from other servers
+  aren't shown yet. Followers can see a local user's followers-only posts. This adds `GET /api/v1/accounts/:id`,
+  `GET /api/v1/accounts/lookup`, `GET /api/v1/accounts/relationships`, `POST /api/v1/accounts/:id/follow` and `/unfollow`,
+  `GET /api/v1/accounts/:id/followers` and `/following`, and `GET /api/v2/search`. See `docs/api.md` and `FEDERATION.md`.
 - New public, unlisted, and followers-only statuses are sent to followers on other servers, as a `Create`. Direct statuses
   aren't sent, and statuses from before this aren't sent. Followers-only statuses only go to those already following when
   they're posted. See `FEDERATION.md`.
@@ -45,7 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   followers on other servers. For a followers-only status, this only goes to those already following when it was posted. A
   `Delete` waits for a `Create` that's being sent to the same server. See `FEDERATION.md`.
 - A deleted public or unlisted status now tells other servers it's gone, with a `410`, rather than a 404.
-- Actor documents link to a `followers` collection at `/users/:username/followers`, which only gives the number of followers.
+- Actor documents link to `followers` and `following` collections, at `/users/:username/followers` and
+  `/users/:username/following`, which list accounts in pages.
+- A `/settings` page, and `PATCH /api/v1/accounts/update_credentials` with `hide_collections`, for people to hide who follows
+  them and who they follow. How many there are is still shown.
 - A background job queue stored in PostgreSQL, for sending and receiving activities, which needs no new services. Admins can
   see, retry, and delete jobs at `/admin/db-scheduler`. See `docs/accounts.md`.
 - Inboxes for activities from other servers, which now makes this server send requests to other servers. Inboxes have a
@@ -65,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for good. These are at `/admin/accounts`, `GET /api/v1/admin/accounts`, `GET /api/v1/admin/accounts/:id`,
   `POST /api/v1/admin/accounts/:id/action`, `POST /api/v1/admin/accounts/:id/unsuspend`, and
   `DELETE /api/v1/admin/accounts/:id`, and the `suspend-account`, `unsuspend-account`, and `delete-account` commands
-- `/settings/delete-account`, for people to delete their own account with their password
+- `/settings/delete-account`, for people to delete their own account with their password, linked from `/settings`
 - `Update` activities when a local account is suspended or unsuspended, and a `Delete` when one is deleted
 
 ### Changed

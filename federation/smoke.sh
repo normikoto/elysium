@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, and receive its statuses and their deletion.
+# and unfollow it, be followed and unfollowed by it, and receive its statuses and their deletion.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -163,6 +163,62 @@ follow_from_gotosocial() {
 
     echo 'Following again'
     gotosocial_follow
+}
+
+# Passing means that Elysium found the other server's lab user through WebFinger, sent it a Follow that it accepted, and sent
+# an Undo that it took. The second argument, if given, is a function that approves the request, for a server whose users
+# approve followers by hand.
+follow_from_elysium() {
+    local domain=$1 approve=${2:-} read_token write_token lab lab_id lab_uri following status
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write)
+    [[ -n $read_token && -n $write_token ]] || fail "Couldn't get Elysium access tokens"
+
+    lab=$(driver curl -fsS -G https://elysium.test/api/v1/accounts/lookup \
+        -H "Authorization: Bearer $read_token" --data-urlencode "acct=lab@$domain") \
+        || fail "Elysium couldn't find lab@$domain. Check its logs"
+    lab_id=$(jq -r .id <<<"$lab")
+    lab_uri=$(jq -r .uri <<<"$lab")
+    echo "Elysium found lab@$domain as $lab_uri"
+
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$lab_id/follow" \
+        -H "Authorization: Bearer $write_token"
+    [[ -z $approve ]] || "$approve"
+    echo "Waiting for lab@$domain to accept alice's Follow"
+    following=false
+    for _ in $(seq 1 60); do
+        following=$(driver curl -fsS -G https://elysium.test/api/v1/accounts/relationships \
+            -H "Authorization: Bearer $read_token" --data-urlencode "id[]=$lab_id" | jq -r '.[0].following')
+        [[ $following == true ]] && break
+        sleep 2
+    done
+    [[ $following == true ]] || fail "lab@$domain never accepted alice's Follow. Check /admin/db-scheduler"
+
+    local page
+    page=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/following?page=true")
+    jq -e --arg uri "$lab_uri" '.orderedItems == [$uri]' <<<"$page" >/dev/null \
+        || fail "alice's following collection doesn't list $lab_uri: $page"
+    echo "lab@$domain accepted, and alice's following collection lists it"
+
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$lab_id/unfollow" \
+        -H "Authorization: Bearer $write_token"
+    expect_delivered "$expected_actor#follows/%/undo"
+    status=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/following" | jq -r .totalItems)
+    [[ $status == 0 ]] || fail "alice's following collection still has $status items after unfollowing"
+    echo "lab@$domain took alice's Undo"
+}
+
+# GoToSocial's users approve followers by hand unless they change a setting, so alice's request waits for this.
+gotosocial_approve() {
+    local requests
+    echo "Waiting for GoToSocial to receive alice's Follow"
+    for _ in $(seq 1 60); do
+        requests=$(driver curl -fsS https://gts.test/api/v1/follow_requests -H "Authorization: Bearer $token")
+        jq -e --arg id "$alice_id" 'any(.[]; .id == $id)' <<<"$requests" >/dev/null && break
+        sleep 2
+    done
+    driver curl -fsS -o /dev/null -X POST "https://gts.test/api/v1/follow_requests/$alice_id/authorize" \
+        -H "Authorization: Bearer $token" || fail "GoToSocial never received alice's Follow"
 }
 
 # Leaves the URIs of a public and a followers-only status in public_uri and private_uri, for the other server to look for.
@@ -592,6 +648,7 @@ case "$target" in
         resolve_from_gotosocial
         deliver_from_gotosocial
         follow_from_gotosocial
+        follow_from_elysium gts.test gotosocial_approve
         post_from_elysium
         gotosocial_expect_statuses
         delete_from_elysium
@@ -602,6 +659,7 @@ case "$target" in
         resolve_from_mastodon
         deliver_from_mastodon
         follow_from_mastodon
+        follow_from_elysium mastodon.test
         post_from_elysium
         mastodon_expect_statuses
         delete_from_elysium
@@ -612,6 +670,7 @@ case "$target" in
         resolve_from_misskey
         deliver_from_misskey
         follow_from_misskey
+        follow_from_elysium misskey.test
         post_from_elysium
         misskey_expect_statuses
         delete_from_elysium
@@ -620,4 +679,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, receive its statuses, and accept its suspension and deletion"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, receive its statuses, and accept its suspension and deletion"

@@ -3,21 +3,26 @@ package dev.biribiri.elysium.activitypub.web;
 import dev.biribiri.elysium.activitypub.vocab.Application;
 import dev.biribiri.elysium.activitypub.outbound.Notes;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
+import dev.biribiri.elysium.activitypub.vocab.OrderedCollectionPage;
 import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.activitypub.vocab.Tombstone;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,6 +37,8 @@ public class ActivityPubController {
      * Requests aren't signed yet, so there's no way to tell who is asking. Everything is served as to an anonymous viewer.
      */
     private static final Optional<UUID> ANONYMOUS = Optional.empty();
+
+    private static final int COLLECTION_PAGE_SIZE = 40;
 
     private final ActorService actors;
     private final StatusService statuses;
@@ -59,18 +66,74 @@ public class ActivityPubController {
     }
 
     /**
-     * Only says how many followers there are, because whether people can hide who follows them is still undecided. There's
-     * no web page at this URL.
+     * There's no web page at this URL.
      */
     @CrossOrigin
     @GetMapping(path = "/users/{username}/followers", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
-    ResponseEntity<OrderedCollection> followers(@PathVariable String username) {
+    ResponseEntity<?> followers(
+            @PathVariable String username,
+            @RequestParam(required = false) String page,
+            @RequestParam(name = "max_id", required = false) String maxId) {
+        return collection(username, page, maxId, true);
+    }
+
+    /**
+     * Like {@link #followers}.
+     */
+    @CrossOrigin
+    @GetMapping(path = "/users/{username}/following", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    ResponseEntity<?> following(
+            @PathVariable String username,
+            @RequestParam(required = false) String page,
+            @RequestParam(name = "max_id", required = false) String maxId) {
+        return collection(username, page, maxId, false);
+    }
+
+    /**
+     * Serves the collection, with a link to its first page, or a page of it when {@code page} is given. The pages go from
+     * newest to oldest, and each links to the next by the last follow on it. An account that hides its collections only gets
+     * its size served, even when a page is asked for.
+     *
+     * @param followers true for the followers collection, and false for following
+     */
+    private ResponseEntity<?> collection(String username, String page, String maxId, boolean followers) {
         var actor = actors.findAnyLocalByUsername(username);
-        if (actor.filter(found -> !found.isActive()).isPresent()) {
+        if (actor.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!actor.get().isActive()) {
             return ResponseEntity.status(actor.get().isDeleted() ? HttpStatus.GONE : HttpStatus.FORBIDDEN).build();
         }
-        return ResponseEntity.of(actor.map(found ->
-                OrderedCollection.ofSize(Person.followersOf(found), follows.countFollowers(found.id()))));
+        var found = actor.get();
+        var uri = followers ? Person.followersOf(found) : Person.followingOf(found);
+        var counts = follows.countsFor(List.of(found.id())).get(found.id());
+        var total = followers ? counts.followers() : counts.following();
+        if (actors.hidesCollections(found.id())) {
+            return ResponseEntity.ok(OrderedCollection.ofSize(uri, total));
+        }
+        if (page == null) {
+            return ResponseEntity.ok(OrderedCollection.paged(uri, total, pageUri(uri, null)));
+        }
+        Optional<UUID> cursor = Optional.empty();
+        if (maxId != null) {
+            cursor = Ids.parse(maxId);
+            if (cursor.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+        }
+        var selection = new FollowPage(COLLECTION_PAGE_SIZE, cursor.orElse(null), null, null);
+        var entries = followers ? follows.followers(found.id(), selection) : follows.following(found.id(), selection);
+        var next = entries.size() == COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().followId()) : null;
+        return ResponseEntity.ok(OrderedCollectionPage.of(
+                pageUri(uri, cursor.orElse(null)), total, uri, next, follows.urisOf(entries)));
+    }
+
+    private static URI pageUri(URI collection, UUID maxId) {
+        var builder = UriComponentsBuilder.fromUri(collection).queryParam("page", "true");
+        if (maxId != null) {
+            builder.queryParam("max_id", maxId);
+        }
+        return builder.build().toUri();
     }
 
     /**

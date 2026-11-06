@@ -1,13 +1,14 @@
 # Federation
 
 Elysium is an early work in progress and can't fully federate yet. Other servers can discover its users, deliver activities
-to them, follow them, and receive their new and deleted statuses, but its users can't follow anyone. This file only describes
-what's implemented today.
+to them, follow them, be followed by them, and receive their new and deleted statuses, but statuses from other servers are
+ignored. This file only describes what's implemented today.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
-  activities at an inbox, receiving `Follow` and `Undo` of a `Follow`, and sending `Accept`, `Create`, `Update`, and `Delete`
+  activities at an inbox, receiving `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a `Follow`, and sending
+  `Follow`, `Undo` of a `Follow`, `Accept`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -28,9 +29,15 @@ document's `url` links to that page, which is at the same URL.
 
 Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`.
 
-An actor's `followers` is an `OrderedCollection` at `/users/{username}/followers`, with its `totalItems` and no items. It's
-served as `application/activity+json` or `application/ld+json` with any profile, including for `*/*` or no `Accept` header,
-and any origin can read it through CORS. There's no web page at this URL, so a request that only accepts HTML gets a 406.
+An actor's `followers` and `following` are `OrderedCollection`s at `/users/{username}/followers` and
+`/users/{username}/following`. They're served as `application/activity+json` or `application/ld+json` with any profile,
+including for `*/*` or no `Accept` header, and any origin can read them through CORS. There's no web page at these URLs, so a
+request that only accepts HTML gets a 406.
+
+Each collection has a `totalItems` and a `first` page, at `?page=true`. A page is an `OrderedCollectionPage` with `partOf`,
+up to 40 `orderedItems`, which are actor URIs, newest follow first, and a `next` page if there are more, at
+`?page=true&max_id={cursor}`. Only accepted follows are counted or listed, and suspended actors are left out. A user can hide
+who's in their collections, and then a collection, or any page of it, only has its `totalItems`, with no `first` or items.
 
 Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively. A deleted account's username
 can't be used again, because other servers can still know its URI.
@@ -119,7 +126,8 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 ### Activities
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
-one worked. Activities are processed in no particular order. Only `Follow` and `Undo` of a `Follow` are acted on, and other
+one worked. Activities are processed in no particular order. Only `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a
+`Follow` are acted on, and other
 types are ignored.
 
 An activity is only accepted if its `actor`, which can be an array of one, is the actor that signed the request. Otherwise
@@ -193,6 +201,56 @@ A `Follow` or `Undo` that repeats an `id` from the same actor is processed again
 `id` for each `Undo` between two actors, so a repeated `Undo` can undo a new follow. A repeated `Follow` gets another `Accept`,
 unless an `Undo` covers it. It's then treated as a retry, so a new request to follow needs a new `id`.
 
+### Following other actors
+
+A local user can follow an actor on another server, which they find by its `username@domain` or URL. This server looks up the
+address with an unsigned WebFinger request to `https://{domain}/.well-known/webfinger`, and takes the `self` link of type
+`application/activity+json`, or `application/ld+json` with the ActivityStreams profile. It then fetches the actor document as
+described in [Follows](#follows), with the same checks. A URL is fetched as an ActivityPub document, and if that's an actor
+whose `id` is a different URL, such as a profile page's, the actor is fetched again from its `id`.
+
+The follow then waits for an answer, and a `Follow` signed as the user is sent to the actor's `inbox`. Its `id` is
+`{actor-uri}#follows/{uuid}`, which is new each time the user follows, so an answer to an earlier request doesn't count for
+a new one. Asking to follow again while the request is waiting sends the same `Follow` again.
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice#follows/0f8e7c3a-5b1d-4c7e-9a2f-1d3e5b7c9a0b",
+  "type": "Follow",
+  "actor": "https://elysium.example/users/alice",
+  "object": "https://remote.example/users/bob"
+}
+```
+
+An `Accept` or `Reject` is only acted on if the actor that signed it is the one being followed, and its `object` names a
+`Follow` from here by its `id`, or embeds one with that `id`. An embedded `Follow` with no `id` counts for whatever follow there
+is between its `actor` and the signer, if its `object` is the signer or missing. An `Accept` makes the follow active, and a
+`Reject` removes it, whether it was waiting or already accepted. Repeats of either are processed again. Anything else is
+ignored, including an `Accept` or `Reject` of another type of activity.
+
+When the user unfollows, or withdraws a request that's still waiting, the `Follow` isn't sent if it hasn't been already. An
+`Undo` is sent either way, with the `id` `{follow-id}/undo`, and it waits until any request with the `Follow` to the same server
+has ended:
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice#follows/0f8e7c3a-5b1d-4c7e-9a2f-1d3e5b7c9a0b/undo",
+  "type": "Undo",
+  "actor": "https://elysium.example/users/alice",
+  "object": {
+    "id": "https://elysium.example/users/alice#follows/0f8e7c3a-5b1d-4c7e-9a2f-1d3e5b7c9a0b",
+    "type": "Follow",
+    "actor": "https://elysium.example/users/alice",
+    "object": "https://remote.example/users/bob"
+  }
+}
+```
+
+Nothing that the followed actor posts is acted on yet, so following them only changes the relationship and the collections.
+Following an actor on a [blocked domain](#domain-blocks) is refused.
+
 ### Statuses
 
 When a local user posts a public, unlisted, or followers-only status, it's sent to their followers on other servers, signed as
@@ -259,12 +317,11 @@ again with the same `id`.
 
 ### Notable differences
 
-- Local users can't follow other actors, or approve followers by hand. Actor documents don't include
-  `manuallyApprovesFollowers`.
+- Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
+- Statuses and other activities from followed actors are ignored.
 - `Reject` is never sent.
 - A follower stays stored when its actor is deleted, because `Delete` isn't acted on.
 - Actor documents advertise an `outbox`, but it isn't implemented yet.
-- Actor documents don't include a `following` collection, and `followers` doesn't list its items.
 - `Note` objects for replies don't include a `Mention` tag.
 - A reply's `inReplyTo` is left out if its parent is deleted or can't be shown, so it looks like it isn't a reply.
 - Followers-only statuses are only sent, and can't be fetched, even by a follower.
@@ -283,7 +340,7 @@ for a local account:
 |-------------------------|-------------------------------------------------|-------------------------------------------------|
 | Actor document          | `200`, with `suspended: true` and the same key  | `410`, with a `Tombstone` (`formerType: Person`) |
 | `Note`                  | `403`                                           | `410`, with a `Tombstone` (`formerType: Note`)  |
-| Followers collection    | `403`                                           | `410`                                           |
+| Followers and following | `403`                                           | `410`                                           |
 | WebFinger               | `200`                                           | `410`                                           |
 | Personal inbox          | As usual                                        | `410`                                           |
 | Profile and status page | `404`                                           | `404`                                           |
@@ -337,7 +394,8 @@ GoToSocial answer the same way.
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures. The only requests this
-server makes are fetches of keys and actor documents, and deliveries of `Accept`, `Create`, `Update`, and `Delete`.
+server makes are fetches of keys and actor documents, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`,
+`Accept`, `Create`, `Update`, and `Delete`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

@@ -1,0 +1,17 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Settings', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="status" th:if="${saved}">Your settings are saved.</p>
+    <form method="post" th:action="@{/settings}">
+        <label>
+            <input type="checkbox" name="hideCollections" value="true" th:checked="${hideCollections}">
+            Hide who follows you and who you follow
+        </label>
+        <p>
+            Other people and servers still see how many there are. You can always see your own lists.
+        </p>
+        <button type="submit">Save</button>
+    </form>
+    <p><a href="/settings/delete-account">Delete your account</a></p>
+</th:block>
+</html>
