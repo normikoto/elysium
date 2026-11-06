@@ -132,6 +132,47 @@ class RateLimiterTests {
         assertThat(limiter.trackedKeys()).isZero();
     }
 
+    @Test
+    void countsAnAttemptByItsWeight() {
+        var bytes = new RateLimiter(100, WINDOW, 100, now::get);
+
+        assertThat(bytes.tryAcquire("key", 60)).isPresent();
+        assertThat(bytes.tryAcquire("key", 40)).isPresent();
+        assertThat(bytes.tryAcquire("key", 1)).isEmpty();
+    }
+
+    @Test
+    void turnsAwayAnAttemptHeavierThanWhatsLeftWithoutUsingAny() {
+        var bytes = new RateLimiter(100, WINDOW, 100, now::get);
+        bytes.tryAcquire("key", 60);
+
+        assertThat(bytes.tryAcquire("key", 50)).isEmpty();
+        assertThat(bytes.tryAcquire("key", 40)).isPresent();
+    }
+
+    @Test
+    void releasingGivesBackAnAttemptsWholeWeight() {
+        var bytes = new RateLimiter(100, WINDOW, 100, now::get);
+        bytes.tryAcquire("key", 30);
+        var slot = bytes.tryAcquire("key", 70).orElseThrow();
+
+        slot.release();
+
+        assertThat(bytes.tryAcquire("key", 70)).isPresent();
+    }
+
+    @Test
+    void releasingAfterTheWindowEndsLeavesTheNextOneAlone() {
+        var bytes = new RateLimiter(100, WINDOW, 100, now::get);
+        var slot = bytes.tryAcquire("key", 70).orElseThrow();
+        advance(WINDOW);
+        bytes.tryAcquire("key", 70);
+
+        slot.release();
+
+        assertThat(bytes.tryAcquire("key", 31)).isEmpty();
+    }
+
     private void advance(Duration duration) {
         now.addAndGet(duration.toNanos());
     }

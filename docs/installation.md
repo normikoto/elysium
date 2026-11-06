@@ -1,5 +1,11 @@
 # Installation
 
+## Before going live
+A public server must run behind a reverse proxy, such as nginx or Caddy, that handles HTTPS and limits how many requests
+each address can send to the inboxes. The server doesn't limit inbox requests that aren't signed, or whose signature is
+wrong, so without the proxy's limit, anyone can keep it busy reading them. See [Reverse proxies](configuration.md#reverse-proxies)
+for what to set up, on the proxy and on the server.
+
 ## Building
 You'll need JDK 25 or later installed on your system. Run the following:
 ```shell
@@ -18,7 +24,7 @@ java -jar elysium.jar
 ```
 
 See [Configuration](configuration.md) for the settings you can change, and [Accounts and sign-ups](accounts.md) to create
-your first account.
+your first account. A public server also needs a [reverse proxy](#before-going-live).
 
 ## Running with Docker Compose
 `compose.yaml` runs the server and a PostgreSQL database. You'll need Docker, as well as JDK 25 or later to build the
@@ -36,14 +42,15 @@ If the image build can't connect to Docker, which can happen with Docker Desktop
 PostgreSQL isn't reachable from outside its Docker network, and its data is kept in the `postgres-data` volume. The
 server listens on `127.0.0.1:8080`, so you need a reverse proxy on the same host to handle HTTPS. Because the proxy is
 the only way to reach the server, `server.forward-headers-strategy=native` is already set. The proxy still needs to
-[set the forwarded headers itself](configuration.md#reverse-proxies), or clients may be able to get around the rate
-limits by making up their addresses.
+[set the forwarded headers itself and limit inbox requests](configuration.md#reverse-proxies). Otherwise clients may be
+able to get around the rate limits by making up their addresses, and anyone can keep the server busy with inbox requests.
 
 To upgrade, run `./gradlew bootBuildImage` again, then `docker compose up -d`.
 
 ## Running as a service
 If you're using a Linux distribution with systemd, you can use the `elysium.service` file to start the application on
-boot. It runs the server as a dedicated `elysium` user, in a sandbox. As root:
+boot. It runs the server as a dedicated `elysium` user, in a sandbox. Like any public server, it needs a
+[reverse proxy](#before-going-live) in front of it. As root:
 ```shell
 # Create the user and group
 useradd --system --user-group --home-dir /opt/elysium --shell /usr/sbin/nologin elysium

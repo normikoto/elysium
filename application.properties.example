@@ -24,6 +24,12 @@ spring.datasource.password=
 # How long a login session lasts without a request.
 #server.servlet.session.timeout=30m
 
+# Limits on what each other server can deliver to the inboxes. A server that reaches one gets a 429 and tries again later.
+# Subdomains count as the same server. To stop limiting a server you trust, list its domain in exempt-domains.
+#elysium.federation.inbox-limits.activities-per-minute=120
+#elysium.federation.inbox-limits.data-per-hour=20MB
+#elysium.federation.inbox-limits.exempt-domains=
+
 # This should not normally be set. Lets requests to other servers reach these private networks, as a comma-separated list
 # in CIDR form. It's only for federating with servers on a private network, because anyone can make this server send
 # requests to any host, and could then reach anything on these networks.

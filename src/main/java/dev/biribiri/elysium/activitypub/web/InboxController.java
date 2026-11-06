@@ -28,15 +28,14 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
  * Receives activities from other servers. All inboxes do the same thing, because who an activity is for comes from the
  * activity rather than the URL it was sent to.
  *
- * <p>The only thing limited here is the key fetches that an address can cause, through {@link AddressFetchBudgets}. Once a
- * server's keys are cached, it can deliver as much as it wants to.
+ * <p>Two things are limited: the key fetches that an address can cause, through {@link AddressFetchBudgets}, and the
+ * activities each server can have stored, which {@link Inbox} checks. Requests that are unsigned or fail their signature
+ * aren't limited, which is left to a reverse proxy.
  */
 @RestController
 class InboxController {
 
     private static final Logger log = LoggerFactory.getLogger(InboxController.class);
-
-    private static final int MAX_BODY_BYTES = 1024 * 1024;
 
     private final ActorService actors;
     private final Inbox inbox;
@@ -90,6 +89,9 @@ class InboxController {
                 case ACCEPTED, IGNORED -> ResponseEntity.accepted().build();
                 case INVALID -> ResponseEntity.badRequest().build();
                 case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                case RATE_LIMITED -> ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .header(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(inbox.retryAfter(signer)))
+                        .build();
             };
         } catch (SignatureVerificationException e) {
             log.debug("Refusing a delivery: {}", e.getMessage());
@@ -106,10 +108,10 @@ class InboxController {
      * @return the body, or null if it's over the limit
      */
     private static byte[] readBody(HttpServletRequest request) throws IOException {
-        if (request.getContentLengthLong() > MAX_BODY_BYTES) {
+        if (request.getContentLengthLong() > Inbox.MAX_BODY_BYTES) {
             return null;
         }
-        var body = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
-        return body.length > MAX_BODY_BYTES ? null : body;
+        var body = request.getInputStream().readNBytes(Inbox.MAX_BODY_BYTES + 1);
+        return body.length > Inbox.MAX_BODY_BYTES ? null : body;
     }
 }
