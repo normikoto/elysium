@@ -160,6 +160,26 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAccountWithdrawsItsFollowsOfOtherServers() {
+        var followed = remote();
+        var requested = remote();
+        var follower = remote();
+        var accepted = sentFollow(followed, "accepted");
+        var pending = sentFollow(requested, "pending");
+        follow(follower, local);
+
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() -> activities(local, "%/undo").size() == 2);
+        for (var follow : List.of(accepted, pending)) {
+            var undo = json.readTree(activities(local, follow + "/undo").getFirst());
+            assertThat(undo.get("type").asString()).isEqualTo("Undo");
+            assertThat(undo.get("actor").asString()).isEqualTo(local.uri().toString());
+            assertThat(undo.get("object").get("id").asString()).isEqualTo(follow);
+        }
+    }
+
+    @Test
     void deletingAnAccountCancelsAnUpdateAboutIt() {
         follow(remote(), local);
         actors.suspend(local.id());
@@ -256,6 +276,25 @@ class AccountCleanupIntegrationTests {
                 .param("followed", followed.id())
                 .param("activity", "https://example.test/activities/" + UUID.randomUUID())
                 .update();
+    }
+
+    /**
+     * @return the ID of the {@code Follow} sent for it
+     */
+    private String sentFollow(Actor followed, String state) {
+        var id = UUID.randomUUID();
+        var activity = local.uri() + "#follows/" + id;
+        jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
+                        VALUES (:id, :follower, :followed, :state, :activity)
+                        """)
+                .param("id", id)
+                .param("follower", local.id())
+                .param("followed", followed.id())
+                .param("state", state)
+                .param("activity", activity)
+                .update();
+        return activity;
     }
 
     private long follows(Actor actor) {

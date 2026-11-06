@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -14,7 +15,7 @@ import java.util.Optional;
  * Works out which follow an {@code Accept} or {@code Reject} answers. Only the actor being followed can answer, and that's
  * the actor that signed it. Most servers name the {@code Follow} by its ID, which is enough, because each request from here
  * has a new one, so an answer to an earlier request can't be taken for one to a newer request. Some embed the
- * {@code Follow} without its ID, so all that's left to go on is the two actors.
+ * {@code Follow} without its ID, or with one of their own, so all that's left to go on is the two actors.
  */
 @Component
 class FollowAnswers {
@@ -22,10 +23,12 @@ class FollowAnswers {
     private static final Logger log = LoggerFactory.getLogger(FollowAnswers.class);
 
     private final ActorService actors;
+    private final InstanceProperties instance;
     private final JsonMapper json;
 
-    FollowAnswers(ActorService actors, JsonMapper json) {
+    FollowAnswers(ActorService actors, InstanceProperties instance, JsonMapper json) {
         this.actors = actors;
+        this.instance = instance;
         this.json = json;
     }
 
@@ -44,7 +47,8 @@ class FollowAnswers {
             return Optional.empty();
         }
         var follow = object.get();
-        if (follow.id() != null) {
+        // An ID from here names the request. One that isn't from here was made up by the other server, so it can't.
+        if (follow.id() != null && follow.id().startsWith(instance.baseUrl() + "/")) {
             return Optional.of(new Answered(followed.get(), follow.id(), null));
         }
         // An embedded Follow of someone else can't be this actor's to answer.

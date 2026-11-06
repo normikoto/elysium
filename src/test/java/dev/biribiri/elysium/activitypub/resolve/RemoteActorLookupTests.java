@@ -88,6 +88,54 @@ class RemoteActorLookupTests {
     }
 
     @Test
+    void refusesAnActorWithADifferentAddress() throws Exception {
+        var other = URI.create("https://trusted.example/users/admin");
+        answerWebFinger("""
+                {"subject":"acct:bob@remote.example","links":[
+                  {"rel":"self","type":"application/activity+json","href":"https://trusted.example/users/admin"}]}
+                """);
+        var admin = new Actor(UUID.randomUUID(), other, "admin", "trusted.example", URI.create(other + "/inbox"), null, null,
+                null, Instant.now(), Instant.now());
+        when(remoteActors.fetchOrRefresh(other)).thenReturn(admin);
+        when(http.get(eq(URI.create("https://trusted.example/.well-known/webfinger?resource=acct:admin@trusted.example")),
+                anyString(), any())).thenReturn(jrd("""
+                {"subject":"acct:admin@trusted.example","links":[
+                  {"rel":"self","type":"application/activity+json","href":"https://trusted.example/users/admin"}]}
+                """));
+
+        assertThat(lookup.resolveAcct(REQUESTER, "bob", "remote.example")).isEmpty();
+    }
+
+    @Test
+    void acceptsAnActorOnAnotherDomainWhoseServerGivesTheAddress() throws Exception {
+        var social = URI.create("https://social.remote.example/users/bob");
+        answerWebFinger("""
+                {"subject":"acct:bob@remote.example","links":[
+                  {"rel":"self","type":"application/activity+json","href":"https://social.remote.example/users/bob"}]}
+                """);
+        var bob = new Actor(UUID.randomUUID(), social, "bob", "social.remote.example", URI.create(social + "/inbox"), null,
+                null, null, Instant.now(), Instant.now());
+        when(remoteActors.fetchOrRefresh(social)).thenReturn(bob);
+        var ownWebFinger = URI.create(
+                "https://social.remote.example/.well-known/webfinger?resource=acct:bob@social.remote.example");
+        when(http.get(eq(ownWebFinger), anyString(), any())).thenReturn(jrd("""
+                {"subject":"acct:bob@remote.example","links":[
+                  {"rel":"self","type":"application/activity+json","href":"https://social.remote.example/users/bob"}]}
+                """));
+
+        assertThat(lookup.resolveAcct(REQUESTER, "bob", "remote.example")).contains(bob);
+    }
+
+    @Test
+    void usesAnOlderCopyByUrlWhenTheServerCantBeReached() throws Exception {
+        var bob = actor(Instant.now().minus(Duration.ofDays(2)));
+        when(actors.findByUri(ACTOR)).thenReturn(Optional.of(bob));
+        when(remoteActors.fetchOrRefresh(ACTOR)).thenThrow(new IllegalStateException("down"));
+
+        assertThat(lookup.resolveUrl(REQUESTER, ACTOR)).contains(bob);
+    }
+
+    @Test
     void ignoresLinksThatArentActivityPubDocuments() throws Exception {
         answerWebFinger("""
                 {"links":[{"rel":"self","type":"text/html","href":"https://remote.example/users/bob"}]}
@@ -165,8 +213,11 @@ class RemoteActorLookupTests {
     }
 
     private void answerWebFinger(String body) throws IOException {
-        when(http.get(eq(WEBFINGER), anyString(), any())).thenReturn(new FederationHttpClient.Response(
-                200, "application/jrd+json", null, body.getBytes(StandardCharsets.UTF_8)));
+        when(http.get(eq(WEBFINGER), anyString(), any())).thenReturn(jrd(body));
+    }
+
+    private static FederationHttpClient.Response jrd(String body) {
+        return new FederationHttpClient.Response(200, "application/jrd+json", null, body.getBytes(StandardCharsets.UTF_8));
     }
 
     private static Actor actor(Instant updatedAt) {

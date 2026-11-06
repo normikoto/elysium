@@ -7,7 +7,9 @@ import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.vocab.Delete;
+import dev.biribiri.elysium.activitypub.vocab.Follow;
 import dev.biribiri.elysium.activitypub.vocab.Person;
+import dev.biribiri.elysium.activitypub.vocab.Undo;
 import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.actor.AccountDeleted;
 import dev.biribiri.elysium.actor.AccountSuspended;
@@ -15,6 +17,7 @@ import dev.biribiri.elysium.actor.AccountUnsuspended;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -22,7 +25,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Tells other servers when a local account is suspended, unsuspended, or deleted, and queues removing what shouldn't be kept.
@@ -92,7 +98,9 @@ public class AccountCleanup {
 
     /**
      * This all happens in one transaction, before the jobs can run, because who to tell comes from the follows they remove.
-     * This also cancels any {@code Update} about the account, which can't still be true.
+     * This also cancels any {@code Update} about the account, which can't still be true. Followers get a {@code Delete}, and
+     * each account it follows, or asked to, gets an {@code Undo} of the {@code Follow}, as if it had unfollowed, since
+     * servers can't all be relied on to stop sending to an actor that's deleted.
      */
     @ApplicationModuleListener
     public void on(AccountDeleted event) {
@@ -100,8 +108,29 @@ public class AccountCleanup {
             var delete = Delete.of(actor);
             deliveries.cancelAllBy(actor.id(), delete.id().toString());
             send(actor, delete.id().toString(), json.writeValueAsString(delete));
+            withdrawFollows(actor);
         });
         sweep(event.actorId(), "deleted");
+    }
+
+    /**
+     * Each {@code Undo} waits for any request still sending its {@code Follow}, as unfollowing does.
+     */
+    private void withdrawFollows(Actor actor) {
+        var sent = follows.sentBy(actor.id());
+        var followed = actors.findByIds(sent.stream().map(SentFollow::followedId).toList()).stream()
+                .collect(Collectors.toMap(Actor::id, Function.identity()));
+        for (var follow : sent) {
+            var target = followed.get(follow.followedId());
+            if (target == null) {
+                continue;
+            }
+            var undo = Undo.of(Follow.of(follow.activityUri(), actor.uri(), target.uri()));
+            deliveries.enqueueAfter(
+                    new OutboundActivity(undo.id(), actor.id(), json.writeValueAsString(undo), WhileSuspended.SEND),
+                    List.of(target.inboxUri()),
+                    follow.activityUri());
+        }
     }
 
     private void announce(Actor actor, Update update) {

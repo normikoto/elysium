@@ -206,7 +206,9 @@ unless an `Undo` covers it. It's then treated as a retry, so a new request to fo
 A local user can follow an actor on another server, which they find by its `username@domain` or URL. This server looks up the
 address with an unsigned WebFinger request to `https://{domain}/.well-known/webfinger`, and takes the `self` link of type
 `application/activity+json`, or `application/ld+json` with the ActivityStreams profile. It then fetches the actor document as
-described in [Follows](#follows), with the same checks. A URL is fetched as an ActivityPub document, and if that's an actor
+described in [Follows](#follows), with the same checks. The actor only counts if its `preferredUsername` and domain match
+the address, ignoring case in the username, or if a WebFinger request for it to its own domain gives the address looked up as
+the `subject`, as for a server whose accounts have a different domain from the server's own. A URL is fetched as an ActivityPub document, and if that's an actor
 whose `id` is a different URL, such as a profile page's, the actor is fetched again from its `id`.
 
 The follow then waits for an answer, and a `Follow` signed as the user is sent to the actor's `inbox`. Its `id` is
@@ -224,8 +226,8 @@ a new one. Asking to follow again while the request is waiting sends the same `F
 ```
 
 An `Accept` or `Reject` is only acted on if the actor that signed it is the one being followed, and its `object` names a
-`Follow` from here by its `id`, or embeds one with that `id`. An embedded `Follow` with no `id` counts for whatever follow there
-is between its `actor` and the signer, if its `object` is the signer or missing. An `Accept` makes the follow active, and a
+`Follow` from here by its `id`, or embeds one with that `id`. An embedded `Follow` with no `id`, or with an `id` that isn't from
+this server, counts for whatever follow there is between its `actor` and the signer, if its `object` is the signer or missing. An `Accept` makes the follow active, and a
 `Reject` removes it, whether it was waiting or already accepted. Repeats of either are processed again. Anything else is
 ignored, including an `Accept` or `Reject` of another type of activity.
 
@@ -359,7 +361,9 @@ for good. A deleted account's `Note`s all get the same answer, whatever their ID
 - **Deleting a local account:** Its followers' servers get a `Delete` signed by the actor, whose `object` is the actor's URI, with
   the ID `{actor-uri}#delete`. No `Delete` is sent for each status. The actor document answers `410` straight away, so a server has
   to verify the `Delete` with a key it already has. Deliveries can be retried for up to 34 days.
-  Who's told comes from who follows the account then, so a server whose followers have all left keeps its copy.
+  Who's told comes from who follows the account then, so a server whose followers have all left keeps its copy. Each account
+  on another server that it follows, or has asked to follow, also gets an `Undo` of the `Follow`, the same as for
+  [unfollowing](#following-other-actors).
 - **Suspending a remote actor:** A delivery signed with its key gets a `403`, and its activities are refused, including any
   still queued. Its document isn't fetched or refreshed. Its follows are removed, and aren't restored if the suspension ends, so
   it would have to follow again. Nothing more is sent to its personal inbox, but a shared inbox still gets activities for

@@ -76,6 +76,24 @@ class FollowAnswerIntegrationTests {
     }
 
     @Test
+    void anAcceptEmbeddingTheFollowWithAnIdOfItsOwnGoesByTheActors() {
+        follows.follow(local, remote);
+
+        acceptHandler.handle(answer("Accept", remote, embedded(remote.uri() + "#follows/77", local, remote)));
+
+        assertThat(state()).containsExactly("accepted");
+    }
+
+    @Test
+    void aRejectEmbeddingTheFollowWithAnIdOfItsOwnGoesByTheActors() {
+        follows.follow(local, remote);
+
+        rejectHandler.handle(answer("Reject", remote, embedded(remote.uri() + "#follows/77", local, remote)));
+
+        assertThat(state()).isEmpty();
+    }
+
+    @Test
     void anAcceptFromAnotherActorDoesNothing() {
         follows.follow(local, remote);
         var other = remote();

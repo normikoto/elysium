@@ -95,7 +95,27 @@ class RemoteActorLookup implements RemoteActorResolver {
             return stored.filter(Actor::isActive);
         }
         countLookup(requester);
-        return webFinger(username, normalized).flatMap(this::fetch).or(() -> stored).filter(Actor::isActive);
+        return webFinger(username, normalized)
+                .flatMap(answer -> fetch(answer.actor()))
+                .filter(found -> hasAddress(found, username, normalized))
+                .or(() -> stored)
+                .filter(Actor::isActive);
+    }
+
+    /**
+     * Whether an actor that a WebFinger answer pointed to really has the address looked up, since any server can point to
+     * any actor. An actor on another domain can still have it, when its server serves WebFinger for a domain that isn't its
+     * own, as Mastodon's {@code LOCAL_DOMAIN} does. Then its own server has to give the address as the actor's
+     * {@code subject}.
+     */
+    private boolean hasAddress(Actor actor, String username, String domain) {
+        if (actor.domain().equals(domain) && actor.username().equalsIgnoreCase(username)) {
+            return true;
+        }
+        var address = "acct:" + username + "@" + domain;
+        return webFinger(actor.username(), actor.domain())
+                .filter(answer -> answer.actor().equals(actor.uri()) && address.equalsIgnoreCase(answer.subject()))
+                .isPresent();
     }
 
     @Override
@@ -112,7 +132,8 @@ class RemoteActorLookup implements RemoteActorResolver {
         }
         countLookup(requester);
         if (stored.isPresent()) {
-            return fetch(url).filter(Actor::isActive);
+            // A copy that can't be refreshed for now is still better than nothing, as for a lookup by address.
+            return fetch(url).or(() -> stored).filter(Actor::isActive);
         }
         // A profile page can serve the actor at the same URL, with a different ID, which is then fetched from there.
         JsonNode document;
@@ -135,9 +156,9 @@ class RemoteActorLookup implements RemoteActorResolver {
     }
 
     /**
-     * @return the actor's ID, from the first link to an ActivityPub document
+     * @return the actor's ID, from the first link to an ActivityPub document, and the address the answer gives for it
      */
-    private Optional<URI> webFinger(String username, String domain) {
+    private Optional<WebFingerAnswer> webFinger(String username, String domain) {
         var url = UriComponentsBuilder.fromUriString("https://" + domain)
                 .path("/.well-known/webfinger")
                 .queryParam("resource", "acct:" + username + "@" + domain)
@@ -161,12 +182,14 @@ class RemoteActorLookup implements RemoteActorResolver {
         } catch (JacksonException e) {
             return Optional.empty();
         }
+        var subject = descriptor.path("subject").stringValue(null);
         return descriptor.path("links").valueStream()
                 .filter(link -> "self".equals(link.path("rel").stringValue(null)))
                 .filter(link -> ACTOR_LINK_TYPES.contains(link.path("type").stringValue("")))
                 .map(link -> link.path("href").stringValue(null))
                 .flatMap(href -> parse(href).stream())
-                .findFirst();
+                .findFirst()
+                .map(actor -> new WebFingerAnswer(subject, actor));
     }
 
     /**
@@ -195,6 +218,12 @@ class RemoteActorLookup implements RemoteActorResolver {
         } catch (java.net.URISyntaxException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * @param subject the address the answer gives, if any
+     */
+    private record WebFingerAnswer(String subject, URI actor) {
     }
 
     private static String hostOf(String domain) {

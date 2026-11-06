@@ -3,6 +3,7 @@ package dev.biribiri.elysium.graph.internal;
 import dev.biribiri.elysium.graph.FollowCounts;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
+import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -196,6 +197,19 @@ public class FollowRepository {
                         rs.getObject("follower_id", UUID.class),
                         rs.getObject("followed_id", UUID.class),
                         "accepted".equals(rs.getString("state"))))
+                .list();
+    }
+
+    /**
+     * @return the follows of remote accounts by a local account, accepted or not
+     */
+    public List<SentFollow> findSent(UUID followerId) {
+        return jdbc.sql("""
+                        SELECT f.followed_id, f.activity_uri FROM follow f JOIN actor a ON a.id = f.followed_id
+                        WHERE f.follower_id = :followerId AND NOT a.is_local AND f.activity_uri IS NOT NULL
+                        """)
+                .param("followerId", followerId)
+                .query((rs, row) -> new SentFollow(rs.getObject("followed_id", UUID.class), rs.getString("activity_uri")))
                 .list();
     }
 

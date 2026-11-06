@@ -44,7 +44,8 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   true. Each user can make 30 of those lookups a minute, and then gets a 429.
 - `search` only finds accounts. `statuses` and `hashtags` are always empty, and a `type` other than `accounts` returns nothing.
   A query that's a `username@domain` or an `https` URL finds that one account. Any other query matches the start of the
-  usernames this server knows, and `offset` can go up to 200 results in. `following`, `account_id`, `exclude_unreviewed`,
+  usernames this server knows. Only the first 200 matches can be paged through with `offset`, and an `offset` past them
+  returns no accounts. `following`, `account_id`, `exclude_unreviewed`,
   `min_id`, and `max_id` are ignored.
 - Statuses from other servers aren't stored yet, so following an account there doesn't add anything to a timeline.
 

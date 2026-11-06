@@ -55,7 +55,9 @@ public class SearchController {
         var shouldResolve = RequestParameters.flag(resolve);
         var query = q.strip();
         var pageSize = Math.clamp(RequestParameters.number("limit", limit, DEFAULT_LIMIT), 1, MAX_LIMIT);
-        var skipped = Math.clamp(RequestParameters.number("offset", offset, 0), 0, AccountFilter.MAX_LIMIT - pageSize);
+        // Only the first results can be paged through, and an offset past them gets an empty page, so that a client paging
+        // by offset sees the end rather than the last page again.
+        var skipped = Math.clamp(RequestParameters.number("offset", offset, 0), 0, AccountFilter.MAX_LIMIT);
 
         List<Actor> found;
         if (query.regionMatches(true, 0, "https://", 0, "https://".length())) {
@@ -71,6 +73,7 @@ public class SearchController {
     }
 
     private List<Actor> byUsernamePrefix(String prefix, int pageSize, int skipped) {
+        // The filter loads at most its maximum, which leaves nothing after a large offset.
         var filter = new AccountFilter(null, false, prefix, null, pageSize + skipped, null, null, null);
         return actors.list(filter).stream().filter(Actor::isActive).skip(skipped).limit(pageSize).toList();
     }

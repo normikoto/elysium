@@ -494,6 +494,10 @@ class FollowsIntegrationTests {
 
         mockMvc.perform(get("/api/v2/search").param("q", "ali"))
                 .andExpect(jsonPath("$.accounts[*].username", contains("alice")));
+        mockMvc.perform(get("/api/v2/search").param("q", "ali").param("offset", "1"))
+                .andExpect(jsonPath("$.accounts", empty()));
+        mockMvc.perform(get("/api/v2/search").param("q", "ali").param("limit", "40").param("offset", "500"))
+                .andExpect(jsonPath("$.accounts", empty()));
         mockMvc.perform(get("/api/v2/search").param("q", "ali").param("type", "statuses"))
                 .andExpect(jsonPath("$.accounts", empty()));
     }

@@ -156,6 +156,14 @@ public class FollowService {
     }
 
     /**
+     * Lists a local account's follows of accounts on other servers, and its requests to follow them, so that they can be
+     * withdrawn when the account is deleted.
+     */
+    public List<SentFollow> sentBy(UUID followerId) {
+        return follows.findSent(followerId);
+    }
+
+    /**
      * Whether one account follows another, and has been accepted.
      */
     public boolean isFollowing(UUID followerId, UUID followedId) {
