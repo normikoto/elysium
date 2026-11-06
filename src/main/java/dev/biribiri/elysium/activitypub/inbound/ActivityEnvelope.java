@@ -38,33 +38,14 @@ record ActivityEnvelope(String id, String type, String actor, String body) {
         if (!document.isObject()) {
             return Optional.empty();
         }
-        var id = text(document.path("id"));
-        var type = firstText(document.path("type"));
+        var id = ActivityJson.text(document.path("id"));
+        var type = ActivityJson.firstText(document.path("type"));
         var actorNode = document.path("actor");
         var hasSeveralActors = actorNode.isArray() && actorNode.size() > 1;
-        var actor = hasSeveralActors ? null : idOf(actorNode.isArray() ? actorNode.path(0) : actorNode);
+        var actor = hasSeveralActors ? null : ActivityJson.idOf(actorNode.isArray() ? actorNode.path(0) : actorNode);
         if (id == null || type == null || (actor == null && !hasSeveralActors)) {
             return Optional.empty();
         }
         return Optional.of(new ActivityEnvelope(id, type, actor, body));
-    }
-
-    static String firstText(JsonNode node) {
-        if (!node.isArray()) {
-            return text(node);
-        }
-        return node.valueStream().map(ActivityEnvelope::text).filter(value -> value != null).findFirst().orElse(null);
-    }
-
-    static String idOf(JsonNode node) {
-        return text(node.isObject() ? node.path("id") : node);
-    }
-
-    /**
-     * @return the string, or null if the node isn't one that can be stored. A JSON string can spell out a NUL as an escape.
-     */
-    static String text(JsonNode node) {
-        var value = node.stringValue(null);
-        return value == null || value.isEmpty() || value.indexOf('\0') != -1 ? null : value;
     }
 }

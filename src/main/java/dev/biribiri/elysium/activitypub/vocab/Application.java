@@ -18,10 +18,14 @@ public record Application(
         URI inbox,
         URI outbox,
         boolean manuallyApprovesFollowers,
+        Endpoints endpoints,
         PublicKey publicKey
 ) {
 
-    public static Application from(InstanceActor actor) {
+    /**
+     * @param sharedInbox this server's shared inbox
+     */
+    public static Application from(InstanceActor actor, URI sharedInbox) {
         return new Application(
                 ActivityStreams.ACTOR_CONTEXT,
                 actor.uri(),
@@ -32,6 +36,7 @@ public record Application(
                 actor.outboxUri(),
                 // Nobody should be following the server itself.
                 true,
+                new Endpoints(sharedInbox),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()));
     }
 }

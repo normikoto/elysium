@@ -9,6 +9,8 @@ import java.util.regex.Pattern;
  * A local or remote account. The URI is its global identity.
  *
  * @param outboxUri    its outbox. This can be null for a remote actor, whose document doesn't have to include one.
+ * @param sharedInboxUri its shared inbox, or null if it doesn't have one. It's always null for a local actor, whose shared
+ *                     inbox is {@link InstanceProperties#sharedInboxUri}.
  * @param publicKeyPem its public key. This can be null for a remote actor, whose document doesn't have to include one, and
  *                     for a local actor that was deleted long enough ago.
  * @param updatedAt    when this was last written, which for a remote actor says how old the copy is

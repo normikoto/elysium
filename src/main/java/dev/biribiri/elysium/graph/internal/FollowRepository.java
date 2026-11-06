@@ -319,6 +319,21 @@ public class FollowRepository {
     }
 
     /**
+     * @return the local accounts that follow an actor, leaving out suspended and deleted ones
+     */
+    public List<UUID> findLocalFollowerIds(UUID followedId) {
+        return jdbc.sql("""
+                        SELECT f.follower_id
+                        FROM follow f JOIN actor a ON a.id = f.follower_id
+                        WHERE f.followed_id = :followedId AND f.state = 'accepted' AND a.is_local
+                          AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        """)
+                .param("followedId", followedId)
+                .query(UUID.class)
+                .list();
+    }
+
+    /**
      * Like {@link #findFollowerInboxes}, leaving out followers who started following after this time. A newer {@code Follow}
      * from a follower updates the same row and keeps {@code created_at}, so that's when they started following.
      */

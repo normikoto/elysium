@@ -385,6 +385,7 @@ class AccountModerationIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.suspended").value(true))
                 .andExpect(jsonPath("$.publicKey.publicKeyPem").isString())
+                .andExpect(jsonPath("$.endpoints.sharedInbox").value("https://moderation.example/inbox"))
                 .andExpect(jsonPath("$['@context'][2].suspended").value("toot:suspended"));
         mockMvc.perform(get(path + "/statuses/" + status.id()).accept(ACTIVITY_JSON)).andExpect(status().isForbidden());
         mockMvc.perform(get(path + "/followers").accept(ACTIVITY_JSON)).andExpect(status().isForbidden());

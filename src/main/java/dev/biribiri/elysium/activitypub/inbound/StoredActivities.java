@@ -19,6 +19,13 @@ class StoredActivities {
         this.jdbc = jdbc;
     }
 
+    boolean exists(String id) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM inbound_activity WHERE activity_id = :id)")
+                .param("id", id)
+                .query(Boolean.class)
+                .single();
+    }
+
     Optional<InboundActivity> find(String id) {
         return jdbc.sql("""
                         SELECT actor_uri, type, body, first_received_at, received_at

@@ -5,19 +5,41 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.List;
 import java.util.Optional;
 
 /**
  * The {@code object} of an activity, which can be sent as an ID, an embedded object, or an array of one of those. Only the
- * ID is known when it's sent as an ID. The parts of an embedded object are whatever its sender says they are, so nothing
- * here has been checked.
+ * ID is known when it's sent as an ID, and the rest is then null or empty. The parts of an embedded object are whatever its
+ * sender says they are, so nothing here has been checked. {@link ActivityJson} says how each one is read.
  *
- * @param id     its {@code id}, or null if it's embedded without one
- * @param type   its {@code type}, or the first one if it has several, or null if it isn't known
- * @param actor  the ID of its {@code actor}, or null if it isn't known
- * @param object the ID of its own {@code object}, or null if it isn't known
+ * @param id           its {@code id}, or null if it's embedded without one
+ * @param type         its {@code type}, or the first one if it has several, or null if it isn't known
+ * @param actor        the ID of its {@code actor}, or null if it isn't known
+ * @param object       the ID of its own {@code object}, or null if it isn't known
+ * @param attributedTo the IDs in its {@code attributedTo}
+ * @param content      its {@code content}, or the one in {@code contentMap}, or null if it has none
+ * @param summary      its {@code summary}, or the one in {@code summaryMap}, or null if it has none
+ * @param sensitive    whether {@code sensitive} is true
+ * @param tags         what's in its {@code tag}
+ * @param addressing   who it's addressed to, which can differ from its activity's
  */
-record ActivityObject(String id, String type, String actor, String object) {
+record ActivityObject(
+        String id,
+        String type,
+        String actor,
+        String object,
+        List<String> attributedTo,
+        String content,
+        String summary,
+        boolean sensitive,
+        List<ActivityJson.Tag> tags,
+        Addressing addressing) {
+
+    ActivityObject {
+        attributedTo = List.copyOf(attributedTo);
+        tags = List.copyOf(tags);
+    }
 
     /**
      * Can't match any actor, for when an embedded object has an {@code actor} but it isn't one ID.
@@ -37,8 +59,8 @@ record ActivityObject(String id, String type, String actor, String object) {
             node = node.path(0);
         }
         if (!node.isObject()) {
-            var id = ActivityEnvelope.text(node);
-            return id == null ? Optional.empty() : Optional.of(new ActivityObject(id, null, null, null));
+            var id = ActivityJson.text(node);
+            return id == null ? Optional.empty() : Optional.of(onlyId(id));
         }
         var actorNode = node.path("actor");
         String actor = null;
@@ -47,10 +69,20 @@ record ActivityObject(String id, String type, String actor, String object) {
             actor = single == null ? NOT_ONE_ACTOR : single;
         }
         return Optional.of(new ActivityObject(
-                ActivityEnvelope.text(node.path("id")),
-                ActivityEnvelope.firstText(node.path("type")),
+                ActivityJson.text(node.path("id")),
+                ActivityJson.firstText(node.path("type")),
                 actor,
-                singleId(node.path("object"))));
+                singleId(node.path("object")),
+                ActivityJson.ids(node.path("attributedTo")),
+                ActivityJson.naturalText(node, "content"),
+                ActivityJson.naturalText(node, "summary"),
+                ActivityJson.flag(node.path("sensitive")),
+                ActivityJson.tags(node.path("tag")),
+                Addressing.of(node)));
+    }
+
+    private static ActivityObject onlyId(String id) {
+        return new ActivityObject(id, null, null, null, List.of(), null, null, false, List.of(), Addressing.NONE);
     }
 
     /**
@@ -73,8 +105,8 @@ record ActivityObject(String id, String type, String actor, String object) {
 
     private static String singleId(JsonNode node) {
         if (node.isArray()) {
-            return node.size() == 1 ? ActivityEnvelope.idOf(node.path(0)) : null;
+            return node.size() == 1 ? ActivityJson.idOf(node.path(0)) : null;
         }
-        return ActivityEnvelope.idOf(node);
+        return ActivityJson.idOf(node);
     }
 }

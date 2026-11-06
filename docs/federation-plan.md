@@ -8,7 +8,7 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 | --- | --- | --- |
 | WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon, GoToSocial and Misskey resolve users in the federation lab |
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
-| Inboxes | Live, partly | `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a `Follow` are acted on, and other types are stored and ignored. #39 stays open for forwarded activities, `sharedInbox` and normalizing |
+| Inboxes | Live, partly | `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a `Follow` are acted on, and other types are stored and ignored. Forwarded activities are fetched from their origin, `sharedInbox` is advertised, and local recipients are worked out, which finishes #39 |
 | Delivery and signed `POST` | Live, partly | `Follow`, `Undo`, `Accept`, `Create`, `Update` of an actor, and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
 | Job queue and backoff | Live | Load tested on one node with `./gradlew loadTest`, and not with several nodes or a real server |
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
@@ -27,7 +27,7 @@ flowchart TD
     m1["<b>1. Inbox and signatures (done)</b><br/>Servers discover users and deliver signed activities.<br/>PR #57 and earlier"]
     m2["<b>2. Receive follows (done)</b><br/>A remote user follows a local user and gets an Accept.<br/>PR #70, #44 receiving half"]
     m3["<b>3. Posts reach followers (done)</b><br/>Send Create and Delete, and serve followers collections.<br/>#41 sending, #43, #59 sending"]
-    m4["<b>4. Follow out and remote posts (in progress)</b><br/>Follow remote users (done), and store and show their posts.<br/>#41, #59 and #60 receiving, rest of #39"]
+    m4["<b>4. Follow out and remote posts (in progress)</b><br/>Follow remote users and read activities fully (done), and store and show their posts.<br/>#41, #59 and #60 receiving"]
     m5["<b>5. Interactions</b><br/>Mentions, likes, boosts, edits and notifications.<br/>#28, #61, #62, #60 sending"]
     mod["<b>Basic moderation (done)</b><br/>Domain blocks, suspensions and per-server limits.<br/>#64, #65, #66"]
     m6["<b>6. Completeness</b><br/>Outbox, RFC 9421, polls, quotes.<br/>#40, #5, #9, #63"]
@@ -88,15 +88,19 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
 
 This is the largest step, and the first where other servers' content is stored and shown to users. Basic moderation, which had to land first, is done.
 
-- **Issues:** the receiving half of #41, the rest of #39, and the receiving halves of #59 and #60. The sending half of #44 is done.
+- **Issues:** the receiving half of #41, and the receiving halves of #59 and #60. The sending half of #44 and the rest of #39 are done.
 - **Delivers:**
   - client follow endpoints, and resolving remote accounts (done)
   - remote statuses with sanitized HTML, which `Status` currently assumes is safe
   - a home timeline
-  - `to` and `cc` normalizing and local recipients from #39, forwarded activities fetched from their origin, and `sharedInbox` advertised
+  - `to` and `cc` normalizing and local recipients from #39, forwarded activities fetched from their origin, and `sharedInbox` advertised (done)
 - **Done when:** a local user follows a remote user and reads their posts, including replies forwarded by a third server.
 - **Following out:** merged in PR #89. Local users find remote accounts through WebFinger or a URL, and follow and unfollow them. The `Accept` or `Reject` is matched by the `Follow`'s ID, which is new for each request, or by the two actors. Deleting an account sends an `Undo` for each of its follows. `federation/smoke.sh` has the lab user accept and drop a follow from Elysium on all three servers, approving it by hand on GoToSocial.
-- **Next, in order:** the rest of #39, since storing posts depends on knowing who they're for. Then receiving `Create` with sanitized HTML and a home timeline, possibly as two PRs. Then receiving `Delete` and `Update`.
+- **Reading activities:** the rest of #39. Forwarded activities are fetched from their `id`'s origin in a job, and only the origin's copy is stored. `LocalRecipients` works out who an activity is for from its addressing, the sender's `followers` collection, now stored for remote actors, and a `Follow`'s `object`. Actor documents advertise `/inbox` as `endpoints.sharedInbox`.
+  - Left open: forwarded activities that their origin doesn't serve are lost, which includes Mastodon's `Delete`s, whose IDs have a fragment. The `Delete` and `Create` handlers should check the object instead, by fetching it or its `Tombstone`.
+  - Left open: fetches of forwarded activities aren't counted by `HostRequests`, like actor fetches.
+  - Left open: the check of real deliveries on a public deployment, from the comment on #39.
+- **Next, in order:** receiving `Create` with sanitized HTML and a home timeline, possibly as two PRs. Then receiving `Delete` and `Update`.
 
 ### Basic moderation (done)
 

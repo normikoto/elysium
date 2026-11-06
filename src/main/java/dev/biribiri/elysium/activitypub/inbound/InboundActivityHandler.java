@@ -1,7 +1,9 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 /**
- * Processes one type of activity from other servers. An activity of a type with no handler is ignored.
+ * Processes one type of activity from other servers. An activity of a type with no handler is ignored. A handler that stores
+ * something for the local accounts that an activity is for should find them through {@link LocalRecipients}, rather than
+ * the inbox it arrived at, which isn't known.
  */
 public interface InboundActivityHandler {
 

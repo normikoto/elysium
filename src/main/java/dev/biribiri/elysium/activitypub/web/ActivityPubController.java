@@ -9,6 +9,7 @@ import dev.biribiri.elysium.activitypub.vocab.Tombstone;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
+import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
@@ -44,8 +45,11 @@ public class ActivityPubController {
     private final StatusService statuses;
     private final FollowService follows;
     private final Notes notes;
+    private final InstanceProperties instance;
 
-    ActivityPubController(ActorService actors, StatusService statuses, FollowService follows, Notes notes) {
+    ActivityPubController(
+            ActorService actors, StatusService statuses, FollowService follows, Notes notes, InstanceProperties instance) {
+        this.instance = instance;
         this.actors = actors;
         this.statuses = statuses;
         this.follows = follows;
@@ -62,7 +66,10 @@ public class ActivityPubController {
             return ResponseEntity.status(HttpStatus.GONE).body(Tombstone.from(actor.get()));
         }
         // Not an error, because other servers take any answer that isn't this document as the actor being gone or broken.
-        return ResponseEntity.ok(actor.get().isSuspended() ? Person.suspended(actor.get()) : Person.from(actor.get()));
+        var sharedInbox = instance.sharedInboxUri();
+        return ResponseEntity.ok(actor.get().isSuspended()
+                ? Person.suspended(actor.get(), sharedInbox)
+                : Person.from(actor.get(), sharedInbox));
     }
 
     /**
@@ -142,7 +149,7 @@ public class ActivityPubController {
     @CrossOrigin
     @GetMapping(path = InstanceActor.PATH, produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     Application instanceActor() {
-        return Application.from(actors.instanceActor());
+        return Application.from(actors.instanceActor(), instance.sharedInboxUri());
     }
 
     @GetMapping(path = "/users/{username}/statuses/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})

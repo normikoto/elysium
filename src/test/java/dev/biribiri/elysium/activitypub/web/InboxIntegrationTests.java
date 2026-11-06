@@ -199,10 +199,11 @@ class InboxIntegrationTests {
     }
 
     /**
-     * This is what a forwarded activity looks like. Its sender did nothing wrong, so it isn't told to try again.
+     * This is what a forwarded activity looks like, but this server is its origin, so there's nothing to fetch. Its sender did
+     * nothing wrong, so it isn't told to try again. Fetching others is tested in {@code ForwardedActivitiesIntegrationTests}.
      */
     @Test
-    void dropsAnActivitySignedBySomeoneOtherThanItsActor() throws Exception {
+    void dropsAForwardedActivityClaimingToComeFromThisServer() throws Exception {
         var alice = alice();
         var id = newId(alice);
 

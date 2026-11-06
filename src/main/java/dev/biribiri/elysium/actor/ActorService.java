@@ -84,6 +84,13 @@ public class ActorService {
     }
 
     /**
+     * Like {@link #findLocalByUri}, for several actors at once, in no particular order. Ones that don't exist are left out.
+     */
+    public List<Actor> findLocalByUris(Collection<URI> uris) {
+        return actors.findLocalByUris(uris.stream().map(URI::toString).distinct().toList());
+    }
+
+    /**
      * Finds a local actor in any state, for what has to tell a suspended or deleted account apart from one that never existed,
      * or has to go on working for one. Check the state of what this returns.
      */
@@ -127,6 +134,14 @@ public class ActorService {
      */
     public List<Actor> findByIds(Collection<UUID> ids) {
         return actors.findByIds(ids);
+    }
+
+    /**
+     * @return a remote actor's followers collection, from its document, or empty if it doesn't have one. Local actors' aren't
+     * stored, since they're derived from their URIs.
+     */
+    public Optional<URI> findFollowersUri(UUID actorId) {
+        return actors.findFollowersUri(actorId);
     }
 
     /**

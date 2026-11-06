@@ -87,7 +87,7 @@ class InboxController {
             var signer = verifier.verify(data, budgets.forAddress(address));
             var result = inbox.receive(signer, body);
             return switch (result.outcome()) {
-                case ACCEPTED, IGNORED -> ResponseEntity.accepted().build();
+                case ACCEPTED, FORWARDED, IGNORED -> ResponseEntity.accepted().build();
                 case INVALID -> ResponseEntity.badRequest().build();
                 case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
                 case RATE_LIMITED -> ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)

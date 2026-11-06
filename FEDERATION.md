@@ -29,7 +29,8 @@ request has to ask for one of these types in its `Accept` header, and `applicati
 Requests that accept HTML instead, including `*/*` or no header, get the user's profile page, and others get a 406. The
 document's `url` links to that page, which is at the same URL.
 
-Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`.
+Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`, and
+`endpoints.sharedInbox`, which is the [shared inbox](#inboxes) at `/inbox`.
 
 An actor's `followers` and `following` are `OrderedCollection`s at `/users/{username}/followers` and
 `/users/{username}/following`. They're served as `application/activity+json` or `application/ld+json` with any profile,
@@ -50,7 +51,7 @@ The server itself is an `Application` actor at `/actor`, with the `preferredUser
 requests that no user is behind, which so far means fetching keys and actor documents. Its document is served as
 `application/activity+json` or `application/ld+json` with any profile, and any origin can read it through CORS. It never
 requires a signature. There's no web page at this URL, so its `url` links to the front page. Its key is identified as
-`{actor-uri}#main-key`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is ignored, with no
+`{actor-uri}#main-key`, its `endpoints.sharedInbox` is `/inbox`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is ignored, with no
 `Reject`.
 
 ### Objects
@@ -95,14 +96,15 @@ followers-only status.
 ### Inboxes
 
 Each local user has an inbox at `/users/{username}/inbox`, the instance actor has one at `/actor/inbox`, and there's a
-shared inbox at `/inbox`. They all work the same way, and the shared inbox isn't advertised in actor documents yet. They
-accept a `POST` with a `Content-Type` of
+shared inbox at `/inbox`, which every actor document gives as its `endpoints.sharedInbox`. They all work the same way, since
+who an activity is for comes from the activity rather than the inbox it was sent to. They accept a `POST` with a
+`Content-Type` of
 `application/activity+json`, or `application/ld+json` with any profile, and a body of up to 1 MiB. Activities are read as
 plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
 
 | Status | Meaning                                                                                                      |
 |--------|--------------------------------------------------------------------------------------------------------------|
-| `202`  | The activity is queued, it's a repeat of one with the same `id`, or it was dropped because of who signed it  |
+| `202`  | The activity is queued, it's a repeat of one with the same `id`, it was [forwarded](#forwarded-activities) and will be fetched from its origin, or it was dropped |
 | `400`  | The signature header can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, or the `id` isn't a valid URI or is over 2048 bytes |
 | `401`  | There's no signature in a supported format, or it isn't valid                                                |
 | `403`  | The activity's `id` is a valid URI, but not an HTTPS URL on the same host and port as its `actor`, or the signature's key is on a [blocked domain](#domain-blocks) |
@@ -132,9 +134,42 @@ one worked. Activities are processed in no particular order. Only `Follow`, `Und
 `Follow` are acted on, and other
 types are ignored.
 
-An activity is only accepted if its `actor`, which can be an array of one, is the actor that signed the request. Otherwise
-it's answered with a `202` and dropped, which includes activities forwarded by another server and activities with several
-actors. Linked Data Signatures aren't verified.
+An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
+One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
+
+#### Forwarded activities
+
+An activity signed by someone other than its `actor`, such as a reply that Mastodon forwards to the followers of the
+account being replied to, is answered with a `202`, and fetched later from its `id`, signed as the
+[instance actor](#instance-actor). Nothing from the forwarded copy is kept: the `id` isn't stored until the origin answers,
+so a forwarded activity can't stop the real one from being accepted.
+
+It's dropped, still with a `202`, unless its `id` is an HTTPS URL on the same host and port as its `actor`, on another
+server than this one, that isn't [blocked](#domain-blocks). Each counts against the signer's server's
+[limits](#inboxes), because that's the server causing the fetch, and a `429` can be sent for one. A repeat of an `id` that's
+already been accepted, or already queued, isn't fetched again.
+
+What the origin serves is only accepted if it's an activity whose `id` is exactly the one fetched, with one `actor` on the
+same host and port. That actor is the one believed, even if the forwarded copy named another. A `404`, `410`, or another
+refusal drops the activity, and a server error or timeout is tried again later. This means an activity that its origin
+doesn't serve is lost when it's forwarded, which includes Mastodon's `Delete`s, whose `id` has a fragment.
+
+#### Reading activities
+
+Activities are read as plain JSON, so properties are matched by their usual names, such as `content` or `sensitive`, and
+unknown ones are ignored. A server that renames them with its own `@context` is misread. These forms are treated the same:
+
+- `to`, `cc`, `bto`, `bcc`, `audience`, `attributedTo`, `type`, and `tag` can be one value or an array, and each address
+  can be an ID or an object with an `id`.
+- `actor` and `object` can be an ID, an embedded object, or an array of one of those.
+- The public collection can be `https://www.w3.org/ns/activitystreams#Public`, `as:Public`, or `Public`.
+- `content` and `summary` can be sent only in `contentMap` and `summaryMap`. A value with the language `und` is used first,
+  and then the first one given.
+
+Who an activity is for is worked out from its addressing and that of its embedded `object`: the local users named in any
+of the properties above, local users who follow its actor when the actor's `followers` collection is addressed, and the
+`object` of a `Follow`. Only the actor's own `followers` collection is recognized, as given in its actor document, and
+collections of other actors aren't fetched.
 
 ### Follows
 
@@ -150,8 +185,8 @@ is stored. If an older copy is stored, it's used when the fetch fails, unless th
 - Has a `preferredUsername` of up to 255 characters, with no control characters. Other actors on that server can have the
   same one, because an actor's URI is what identifies it.
 - Has an `inbox` that's an HTTPS URL on the same host and port as the actor, with no user info. This stops a document from
-  aiming this server's requests at another server. An `endpoints.sharedInbox` that isn't one is left out, without refusing
-  the actor.
+  aiming this server's requests at another server. An `endpoints.sharedInbox` or `followers` that isn't one is left out,
+  without refusing the actor.
 - Is on a different domain from this server.
 
 Each `Follow` that's stored gets an `Accept`, signed as the user being followed, and sent to the follower's `inbox`. This

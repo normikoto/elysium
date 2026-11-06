@@ -16,6 +16,7 @@ import dev.biribiri.elysium.actor.AccountSuspended;
 import dev.biribiri.elysium.actor.AccountUnsuspended;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.context.annotation.Lazy;
@@ -54,6 +55,7 @@ public class AccountCleanup {
     private final ActivityDeliveries deliveries;
     private final SchedulerClient scheduler;
     private final JsonMapper json;
+    private final InstanceProperties instance;
 
     /**
      * @param scheduler lazy like everywhere else it's used, so that this doesn't affect when the scheduler is created
@@ -63,7 +65,9 @@ public class AccountCleanup {
             FollowService follows,
             ActivityDeliveries deliveries,
             @Lazy SchedulerClient scheduler,
-            JsonMapper json) {
+            JsonMapper json,
+            InstanceProperties instance) {
+        this.instance = instance;
         this.actors = actors;
         this.follows = follows;
         this.deliveries = deliveries;
@@ -82,7 +86,7 @@ public class AccountCleanup {
             return;
         }
         if (actors.isLocal(actor.get())) {
-            announce(actor.get(), Update.of(Person.suspended(actor.get()), "suspended", event.at()));
+            announce(actor.get(), Update.of(Person.suspended(actor.get(), instance.sharedInboxUri()), "suspended", event.at()));
         } else {
             sweep(event.actorId(), event.at().toString());
         }
@@ -92,7 +96,7 @@ public class AccountCleanup {
     public void on(AccountUnsuspended event) {
         var actor = actors.findById(event.actorId()).filter(Actor::isActive);
         if (actor.isPresent() && actors.isLocal(actor.get())) {
-            announce(actor.get(), Update.of(Person.from(actor.get()), "unsuspended", event.at()));
+            announce(actor.get(), Update.of(Person.from(actor.get(), instance.sharedInboxUri()), "unsuspended", event.at()));
         }
     }
 
