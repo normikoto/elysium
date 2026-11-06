@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -69,8 +68,7 @@ class StatusResponses {
         var actorIds = found.stream().map(Status::actorId).collect(Collectors.toSet());
         var authors = actors.findLocalByIds(actorIds).stream()
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
-        var accountResponses = accounts.build(List.copyOf(authors.values())).stream()
-                .collect(Collectors.toMap(account -> UUID.fromString(account.id()), Function.identity()));
+        var accountResponses = accounts.byId(authors.values());
         return found.stream()
                 .filter(status -> authors.containsKey(status.actorId()))
                 .map(status -> StatusResponse.from(status, accountResponses.get(status.actorId()), includeText))

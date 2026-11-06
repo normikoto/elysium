@@ -5,6 +5,4 @@ package dev.biribiri.elysium.graph;
  * follows to and from local accounts.
  */
 public record FollowCounts(long followers, long following) {
-
-    public static final FollowCounts NONE = new FollowCounts(0, 0);
 }

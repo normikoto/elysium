@@ -123,6 +123,13 @@ public class ActorService {
     }
 
     /**
+     * Like {@link #findById}, for several actors at once, in no particular order. Ones that don't exist are left out.
+     */
+    public List<Actor> findByIds(Collection<UUID> ids) {
+        return actors.findByIds(ids);
+    }
+
+    /**
      * Whether an actor is on this server. An actor from another server can't be stored with this server's domain.
      */
     public boolean isLocal(Actor actor) {
@@ -219,9 +226,11 @@ public class ActorService {
      * Finds a stored copy of a remote actor by its username and domain, without asking its server. If several stored actors
      * have had that username, this is the one refreshed most recently. This can return one that's suspended, so check its
      * state.
+     *
+     * @param domain in lowercase
      */
     public Optional<Actor> findRemoteByAcct(String username, String domain) {
-        return actors.findRemoteByAcct(username, domain, 1).stream().findFirst();
+        return actors.findRemoteByAcct(username, domain);
     }
 
     /**

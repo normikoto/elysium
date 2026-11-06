@@ -10,6 +10,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.http.HttpStatus;
@@ -22,7 +23,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -106,8 +106,7 @@ public class ActivityPubController {
         }
         var found = actor.get();
         var uri = followers ? Person.followersOf(found) : Person.followingOf(found);
-        var counts = follows.countsFor(List.of(found.id())).get(found.id());
-        var total = followers ? counts.followers() : counts.following();
+        var total = followers ? follows.countFollowers(found.id()) : follows.countFollowing(found.id());
         if (actors.hidesCollections(found.id())) {
             return ResponseEntity.ok(OrderedCollection.ofSize(uri, total));
         }
@@ -125,7 +124,7 @@ public class ActivityPubController {
         var entries = followers ? follows.followers(found.id(), selection) : follows.following(found.id(), selection);
         var next = entries.size() == COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().followId()) : null;
         return ResponseEntity.ok(OrderedCollectionPage.of(
-                pageUri(uri, cursor.orElse(null)), total, uri, next, follows.urisOf(entries)));
+                pageUri(uri, cursor.orElse(null)), total, uri, next, entries.stream().map(FollowEntry::actorUri).toList()));
     }
 
     private static URI pageUri(URI collection, UUID maxId) {

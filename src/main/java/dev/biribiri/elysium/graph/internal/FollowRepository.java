@@ -91,10 +91,11 @@ public class FollowRepository {
     /**
      * Inserts a follow by a local account, unless the two already have one.
      *
-     * @param activityUri the {@code Follow} sent for it, or null for a follow of a local account
+     * @param activityUri the {@code Follow} sent for it, which leaves it waiting for an answer, or null for a follow of a
+     *                    local account, which is accepted straight away
      * @return whether it was inserted
      */
-    public boolean insertOutgoing(UUID id, UUID followerId, UUID followedId, boolean accepted, String activityUri) {
+    public boolean insertOutgoing(UUID id, UUID followerId, UUID followedId, String activityUri) {
         return jdbc.sql("""
                         INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
                         VALUES (:id, :followerId, :followedId, :state, :activityUri)
@@ -103,7 +104,7 @@ public class FollowRepository {
                 .param("id", id)
                 .param("followerId", followerId)
                 .param("followedId", followedId)
-                .param("state", accepted ? "accepted" : "pending")
+                .param("state", activityUri == null ? "accepted" : "pending")
                 .param("activityUri", activityUri, Types.VARCHAR)
                 .update() > 0;
     }
@@ -219,7 +220,7 @@ public class FollowRepository {
     public List<FollowEntry> findPage(UUID actorId, boolean followers, FollowPage page) {
         var self = followers ? "f.followed_id" : "f.follower_id";
         var other = followers ? "f.follower_id" : "f.followed_id";
-        var sql = new StringBuilder("SELECT f.id, ").append(other).append(" AS other_id FROM follow f JOIN actor a ON a.id = ")
+        var sql = new StringBuilder("SELECT f.id, a.id AS other_id, a.uri AS other_uri FROM follow f JOIN actor a ON a.id = ")
                 .append(other).append(" WHERE ").append(self).append(" = :actorId AND f.state = 'accepted' AND ")
                 .append(ACTIVE_OTHER);
         var parameters = new HashMap<String, Object>();
@@ -242,59 +243,50 @@ public class FollowRepository {
         parameters.put("limit", page.limit());
         var found = jdbc.sql(sql.toString())
                 .params(parameters)
-                .query((rs, row) -> new FollowEntry(rs.getObject("id", UUID.class), rs.getObject("other_id", UUID.class)))
+                .query((rs, row) -> new FollowEntry(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("other_id", UUID.class),
+                        URI.create(rs.getString("other_uri"))))
                 .list();
         return ascending ? found.reversed() : found;
     }
 
     /**
-     * @return the URIs of these actors, in the same order. Actors that are gone are left out.
+     * Counts the accepted follows to and from each of these accounts, leaving out suspended and deleted actors.
+     *
+     * @return an entry for each account
      */
-    public List<URI> findUris(List<UUID> actorIds) {
-        if (actorIds.isEmpty()) {
-            return List.of();
+    public Map<UUID, FollowCounts> countFor(Collection<UUID> actorIds) {
+        var followers = count(actorIds, true);
+        var following = count(actorIds, false);
+        var counts = new HashMap<UUID, FollowCounts>();
+        for (var id : actorIds) {
+            counts.put(id, new FollowCounts(followers.getOrDefault(id, 0L), following.getOrDefault(id, 0L)));
         }
-        var uris = new HashMap<UUID, URI>();
-        jdbc.sql("SELECT id, uri FROM actor WHERE id IN (:ids)")
-                .param("ids", actorIds)
-                .query(rs -> {
-                    uris.put(rs.getObject("id", UUID.class), URI.create(rs.getString("uri")));
-                });
-        return actorIds.stream().filter(uris::containsKey).map(uris::get).toList();
+        return counts;
     }
 
     /**
-     * Counts the accepted follows to and from each of these accounts, leaving out suspended and deleted actors.
+     * Counts the accepted followers of each of these accounts, or the accounts each follows, leaving out suspended and
+     * deleted actors.
      *
+     * @param followers true for followers, and false for the accounts followed
      * @return an entry for each account with any
      */
-    public Map<UUID, FollowCounts> countFor(Collection<UUID> actorIds) {
+    public Map<UUID, Long> count(Collection<UUID> actorIds, boolean followers) {
         if (actorIds.isEmpty()) {
             return Map.of();
         }
-        var followers = new HashMap<UUID, Long>();
-        var following = new HashMap<UUID, Long>();
-        jdbc.sql("SELECT f.followed_id AS id, count(*) AS n FROM follow f JOIN actor a ON a.id = f.follower_id"
-                        + " WHERE f.followed_id IN (:ids) AND f.state = 'accepted' AND " + ACTIVE_OTHER
-                        + " GROUP BY f.followed_id")
+        var self = followers ? "f.followed_id" : "f.follower_id";
+        var other = followers ? "f.follower_id" : "f.followed_id";
+        var counts = new HashMap<UUID, Long>();
+        jdbc.sql("SELECT " + self + " AS id, count(*) AS n FROM follow f JOIN actor a ON a.id = " + other
+                        + " WHERE " + self + " IN (:ids) AND f.state = 'accepted' AND " + ACTIVE_OTHER
+                        + " GROUP BY " + self)
                 .param("ids", actorIds)
                 .query(rs -> {
-                    followers.put(rs.getObject("id", UUID.class), rs.getLong("n"));
+                    counts.put(rs.getObject("id", UUID.class), rs.getLong("n"));
                 });
-        jdbc.sql("SELECT f.follower_id AS id, count(*) AS n FROM follow f JOIN actor a ON a.id = f.followed_id"
-                        + " WHERE f.follower_id IN (:ids) AND f.state = 'accepted' AND " + ACTIVE_OTHER
-                        + " GROUP BY f.follower_id")
-                .param("ids", actorIds)
-                .query(rs -> {
-                    following.put(rs.getObject("id", UUID.class), rs.getLong("n"));
-                });
-        var counts = new HashMap<UUID, FollowCounts>();
-        for (var id : actorIds) {
-            var count = new FollowCounts(followers.getOrDefault(id, 0L), following.getOrDefault(id, 0L));
-            if (!count.equals(FollowCounts.NONE)) {
-                counts.put(id, count);
-            }
-        }
         return counts;
     }
 
@@ -327,10 +319,6 @@ public class FollowRepository {
                 .param("time", time(time))
                 .query((rs, row) -> URI.create(rs.getString(1)))
                 .list();
-    }
-
-    public long countFollowers(UUID followedId) {
-        return countFor(List.of(followedId)).getOrDefault(followedId, FollowCounts.NONE).followers();
     }
 
     /**

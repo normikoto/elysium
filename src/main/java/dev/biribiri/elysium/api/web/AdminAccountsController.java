@@ -30,7 +30,6 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.IntStream;
 
 /**
  * Follows Mastodon's admin API for accounts, as far as what's here can. Suspending is the only action, and an account doesn't
@@ -184,12 +183,10 @@ public class AdminAccountsController {
     }
 
     private List<AdminAccountResponse> responses(Collection<Actor> found) {
-        var ordered = List.copyOf(found);
-        var ids = ordered.stream().map(Actor::id).toList();
-        var admins = accounts.adminsAmong(ids);
-        var built = accountResponses.build(ordered);
-        return IntStream.range(0, ordered.size())
-                .mapToObj(i -> from(ordered.get(i), built.get(i), admins.contains(ordered.get(i).id())))
+        var admins = accounts.adminsAmong(found.stream().map(Actor::id).toList());
+        var built = accountResponses.byId(found);
+        return found.stream()
+                .map(account -> from(account, built.get(account.id()), admins.contains(account.id())))
                 .toList();
     }
 

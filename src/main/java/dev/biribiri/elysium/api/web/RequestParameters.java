@@ -50,6 +50,19 @@ final class RequestParameters {
         };
     }
 
+    /**
+     * Reads a flag from a request body, which can be a boolean or a string read as {@link #flag(String)} does. A missing
+     * value is false.
+     */
+    static boolean flag(Map<String, ?> parameters, String name) {
+        return switch (parameters.get(name)) {
+            case null -> false;
+            case Boolean flag -> flag;
+            case String string -> flag(string);
+            default -> throw new InvalidRequestException("Validation failed: " + name + " must be a boolean");
+        };
+    }
+
     static StatusPage page(String limit, String maxId, String sinceId, String minId) {
         return new StatusPage(
                 limit(limit, StatusPage.DEFAULT_LIMIT),
@@ -105,15 +118,22 @@ final class RequestParameters {
         return token == null ? Optional.empty() : token.actorId();
     }
 
-    private static int limit(String value, int defaultLimit) {
+    /**
+     * Reads a whole number, or returns the default if it's missing or empty.
+     */
+    static int number(String name, String value, int defaultValue) {
         if (value == null || value.isEmpty()) {
-            return defaultLimit;
+            return defaultValue;
         }
         try {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {
-            throw new InvalidRequestException("Validation failed: limit must be a number");
+            throw new InvalidRequestException("Validation failed: " + name + " must be a number");
         }
+    }
+
+    private static int limit(String value, int defaultLimit) {
+        return number("limit", value, defaultLimit);
     }
 
     private static UUID cursor(String name, String value) {

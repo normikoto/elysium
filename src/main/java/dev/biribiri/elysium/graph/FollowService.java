@@ -12,6 +12,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,7 +65,8 @@ public class FollowService {
         follows.lock(pairKey(follower.uri().toString(), followed.id()));
         var existing = follows.findByPair(follower.id(), followed.id());
         if (existing.isPresent()) {
-            if (!existing.get().accepted() && existing.get().activityUri() != null) {
+            // Only a follow of a remote account waits for an answer.
+            if (!existing.get().accepted()) {
                 events.publishEvent(new FollowRequested(
                         follower.id(), followed.id(), existing.get().activityUri(), Instant.now()));
             }
@@ -72,11 +74,11 @@ public class FollowService {
         }
         var id = UUID.randomUUID();
         if (actors.isLocal(followed)) {
-            follows.insertOutgoing(id, follower.id(), followed.id(), true, null);
+            follows.insertOutgoing(id, follower.id(), followed.id(), null);
             return;
         }
         var activityUri = followActivityUri(follower, id);
-        follows.insertOutgoing(id, follower.id(), followed.id(), false, activityUri);
+        follows.insertOutgoing(id, follower.id(), followed.id(), activityUri);
         events.publishEvent(new FollowRequested(follower.id(), followed.id(), activityUri, Instant.now()));
     }
 
@@ -164,20 +166,20 @@ public class FollowService {
      * @return how the viewer is related to each of these accounts, in the same order
      */
     public List<Relationship> relationships(UUID viewerId, List<UUID> otherIds) {
-        var pairs = follows.findPairsWith(viewerId, otherIds);
-        return otherIds.stream().map(other -> {
-            var outgoing = pairs.stream()
-                    .filter(pair -> pair.followerId().equals(viewerId) && pair.followedId().equals(other))
-                    .findFirst();
-            var followedBy = pairs.stream()
-                    .anyMatch(pair -> pair.followerId().equals(other) && pair.followedId().equals(viewerId)
-                            && pair.accepted());
-            return new Relationship(
-                    other,
-                    outgoing.filter(FollowRepository.Pair::accepted).isPresent(),
-                    outgoing.filter(pair -> !pair.accepted()).isPresent(),
-                    followedBy);
-        }).toList();
+        var outgoing = new HashMap<UUID, Boolean>();
+        var followedBy = new HashSet<UUID>();
+        for (var pair : follows.findPairsWith(viewerId, otherIds)) {
+            if (pair.followerId().equals(viewerId)) {
+                outgoing.put(pair.followedId(), pair.accepted());
+            } else if (pair.accepted()) {
+                followedBy.add(pair.followerId());
+            }
+        }
+        return otherIds.stream().map(other -> new Relationship(
+                other,
+                Boolean.TRUE.equals(outgoing.get(other)),
+                Boolean.FALSE.equals(outgoing.get(other)),
+                followedBy.contains(other))).toList();
     }
 
     /**
@@ -196,21 +198,26 @@ public class FollowService {
     }
 
     /**
-     * @return the URIs of the actors in these entries, in the same order
-     */
-    public List<URI> urisOf(List<FollowEntry> entries) {
-        return follows.findUris(entries.stream().map(FollowEntry::actorId).toList());
-    }
-
-    /**
      * Counts accepted follows to and from each of these accounts, leaving out suspended and deleted actors.
      *
      * @return an entry for each account
      */
     public Map<UUID, FollowCounts> countsFor(Collection<UUID> actorIds) {
-        var counts = new HashMap<>(follows.countFor(actorIds));
-        actorIds.forEach(id -> counts.putIfAbsent(id, FollowCounts.NONE));
-        return counts;
+        return follows.countFor(actorIds);
+    }
+
+    /**
+     * Counts an account's accepted followers, leaving out suspended and deleted ones.
+     */
+    public long countFollowers(UUID actorId) {
+        return follows.count(List.of(actorId), true).getOrDefault(actorId, 0L);
+    }
+
+    /**
+     * Counts the accounts that an account follows and has been accepted by, leaving out suspended and deleted ones.
+     */
+    public long countFollowing(UUID actorId) {
+        return follows.count(List.of(actorId), false).getOrDefault(actorId, 0L);
     }
 
     /**
@@ -315,10 +322,6 @@ public class FollowService {
      */
     public List<URI> followerInboxesAsOf(UUID followedId, Instant time) {
         return follows.findFollowerInboxesAsOf(followedId, time);
-    }
-
-    public long countFollowers(UUID followedId) {
-        return follows.countFollowers(followedId);
     }
 
     /**

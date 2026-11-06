@@ -10,8 +10,4 @@ import java.util.UUID;
  * @param followedBy whether the other account follows the first
  */
 public record Relationship(UUID otherId, boolean following, boolean requested, boolean followedBy) {
-
-    public static Relationship none(UUID otherId) {
-        return new Relationship(otherId, false, false, false);
-    }
 }

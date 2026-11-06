@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.graph;
 
+import java.net.URI;
 import java.util.UUID;
 
 /**
@@ -7,6 +8,7 @@ import java.util.UUID;
  *
  * @param followId what to page from, with {@link FollowPage}
  * @param actorId  the other account: the follower in a list of followers, and the account followed in a list of following
+ * @param actorUri the other account's URI
  */
-public record FollowEntry(UUID followId, UUID actorId) {
+public record FollowEntry(UUID followId, UUID actorId, URI actorUri) {
 }

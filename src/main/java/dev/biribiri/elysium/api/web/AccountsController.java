@@ -121,11 +121,7 @@ public class AccountsController {
             if (!entry.getKey().equals("hide_collections")) {
                 throw new InvalidRequestException("Validation failed: " + entry.getKey() + " can't be changed yet");
             }
-            hide = switch (value) {
-                case Boolean flag -> flag;
-                case String text -> RequestParameters.flag(text);
-                default -> throw new InvalidRequestException("Validation failed: hide_collections must be a boolean");
-            };
+            hide = RequestParameters.flag(values, "hide_collections");
         }
         if (hide != null) {
             actors.setHidesCollections(actorId, hide);
@@ -161,11 +157,9 @@ public class AccountsController {
         Optional.ofNullable(ids).ifPresent(requested::addAll);
         Optional.ofNullable(plainIds).ifPresent(requested::addAll);
         // Unknown and malformed IDs are left out, as Mastodon does.
-        var found = requested.stream()
-                .distinct()
-                .flatMap(id -> RequestParameters.uuid(id).stream())
-                .filter(id -> actors.findById(id).filter(Actor::isActive).isPresent())
-                .toList();
+        var parsed = requested.stream().distinct().flatMap(id -> RequestParameters.uuid(id).stream()).toList();
+        var active = actors.findByIds(parsed).stream().filter(Actor::isActive).map(Actor::id).collect(Collectors.toSet());
+        var found = parsed.stream().filter(active::contains).toList();
         return follows.relationships(viewer, found).stream().map(RelationshipResponse::from).toList();
     }
 
@@ -245,9 +239,7 @@ public class AccountsController {
         List<FollowEntry> entries = followers
                 ? follows.followers(account.id(), page)
                 : follows.following(account.id(), page);
-        var others = entries.stream().map(FollowEntry::actorId).distinct().toList();
-        var found = others.stream()
-                .flatMap(other -> actors.findById(other).stream())
+        var found = actors.findByIds(entries.stream().map(FollowEntry::actorId).toList()).stream()
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
         var listed = entries.stream()
                 .map(FollowEntry::actorId)

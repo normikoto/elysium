@@ -17,8 +17,4 @@ public record FollowPage(int limit, UUID maxId, UUID sinceId, UUID minId) {
     public FollowPage {
         limit = Math.clamp(limit, 1, MAX_LIMIT);
     }
-
-    public static FollowPage first(int limit) {
-        return new FollowPage(limit, null, null, null);
-    }
 }

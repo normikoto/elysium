@@ -98,7 +98,7 @@ public class StatusesController {
                 RequestParameters.string(parameters, "spoiler_text"),
                 RequestParameters.string(parameters, "language"),
                 visibility(parameters),
-                flag(parameters, "sensitive"),
+                RequestParameters.flag(parameters, "sensitive"),
                 replyParent(RequestParameters.string(parameters, "in_reply_to_id")));
         return responses.one(statuses.create(author, draft));
     }
@@ -151,15 +151,6 @@ public class StatusesController {
             case null -> Visibility.PUBLIC;
             case String value -> Visibility.fromValue(value);
             default -> throw new InvalidRequestException("Validation failed: visibility must be a string");
-        };
-    }
-
-    private static boolean flag(Map<String, ?> parameters, String name) {
-        return switch (parameters.get(name)) {
-            case null -> false;
-            case Boolean flag -> flag;
-            case String string -> RequestParameters.flag(string);
-            default -> throw new InvalidRequestException("Validation failed: " + name + " must be a boolean");
         };
     }
 }

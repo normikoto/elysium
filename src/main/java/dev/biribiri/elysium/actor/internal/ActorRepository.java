@@ -292,21 +292,32 @@ public class ActorRepository {
     }
 
     /**
-     * Finds the remote actors with this username on this domain, newest copy first. Usernames aren't unique for remote
+     * Finds the remote actor with this username on this domain, refreshed most recently. Usernames aren't unique for remote
      * actors, because a server can give one to a new actor while an old copy of the last one to have it is stored here.
+     *
+     * @param domain in lowercase, as remote actors' domains are stored, so that the domain's index is used
      */
-    public List<Actor> findRemoteByAcct(String username, String domain, int limit) {
+    public Optional<Actor> findRemoteByAcct(String username, String domain) {
         return jdbc.sql("SELECT " + COLUMNS + """
                         FROM actor
-                        WHERE NOT is_local AND lower(username) = lower(:username) AND lower(domain) = lower(:domain)
+                        WHERE NOT is_local AND domain = :domain AND lower(username) = lower(:username)
                         ORDER BY updated_at DESC
-                        LIMIT :limit
+                        LIMIT 1
                         """)
                 .param("username", username)
                 .param("domain", domain)
-                .param("limit", limit)
                 .query(ACTOR_MAPPER)
-                .list();
+                .optional();
+    }
+
+    /**
+     * Finds local and remote actors in any state.
+     */
+    public List<Actor> findByIds(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("SELECT " + COLUMNS + " FROM actor WHERE id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
     }
 
     /**
