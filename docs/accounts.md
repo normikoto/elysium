@@ -41,15 +41,19 @@ authorize them again.
 The server's first account becomes an admin, and later accounts are regular users. If sign-ups are turned on, `/signup`
 refuses to create the first account until `create-user` has been run, so that a stranger can't become the admin.
 
-To give or remove the role:
+If your server had accounts before this role was added, they stay regular users, so choose an admin with `set-role`. It
+also removes the role:
 ```shell
 java -jar elysium.jar set-role alice admin
 java -jar elysium.jar set-role alice user
 ```
 
-Changes apply straight away, including to anyone who's logged in. Changing a role also revokes the account's applications
-that have admin scopes, and only an admin can authorize those. If an admin's account may be compromised, remove the role and
-run `reset-password`, since removing the role doesn't log them out.
+Changes apply straight away, including to anyone who's logged in. Removing the role doesn't log them out, and giving it back
+restores admin access to any session that's still logged in, so if an admin's account may be compromised, remove the role
+and run `reset-password`.
+
+Only an admin can authorize an application's admin scopes. Changing an account's role revokes all of its access for its
+applications that have admin scopes, so they'll need to be authorized again.
 
 ## Suspending and deleting accounts
 An admin can suspend an account, which can be undone, at `/admin/accounts`, through the [API](api.md), or with a command,
@@ -99,11 +103,12 @@ failed. Jobs don't contain posts, so private posts aren't shown.
 - **Retries:** A job that fails for a temporary reason, like a server being down, is tried again with longer and longer gaps,
   for up to 3 days.
 - **Giving up:** After that, or straight away if trying again can't help, a job stays in the list as failed for 30 days, so
-  that you can retry or delete it. Retrying one that's over 34 days old fails with "Its activity is gone".
+  that you can retry or delete it. A retried job that fails again stays for another 30 days. Activities are kept for 34
+  days, so retrying an older job can fail with "Its activity is gone".
 - **Servers that keep failing:** After 3 failures in a row, sending to that server waits, for up to 6 hours. These jobs show
   as scheduled, not failed.
-- **Limits:** Each copy of the server sends at most 3 activities at a time to another server, so a large backlog for one
-  server drains at about 180 a minute.
+- **Limits:** Each copy of the server sends at most 3 activities at a time to another server, and starts about 3 jobs a
+  second for one server, so a large backlog for one server drains at about 180 a minute for each copy.
 
 ## Rate limits
 Logins and sign-ups are limited, and requests over a limit get a `429` response:
@@ -134,5 +139,6 @@ Login sessions are stored in the database, so restarting doesn't log anyone out,
 any of them can serve any browser. A session ends after 30 minutes without a request, which you can change with
 `server.servlet.session.timeout`. To end someone's sessions, use `reset-password`.
 
-If you log PostgreSQL statements with their parameters, those logs contain session IDs, so keep them private. Visitors who
+Only a hash of each session's ID is stored, so the database or a backup can't be used to take over a session. If you log
+PostgreSQL statements with their parameters, those logs do contain session IDs, so keep them private. Visitors who
 aren't logged in also get sessions, so if you're watching your database's size, look at the `spring_session` table.

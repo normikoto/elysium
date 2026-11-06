@@ -149,7 +149,7 @@ change. New settings an operator would use also belong in `application.propertie
 User-facing changes go in the `[Unreleased]` section of `CHANGELOG.md`, with upgrade steps when an operator has to do
 something. Federation behavior goes in `FEDERATION.md`, and API differences from Mastodon in `docs/api.md`.
 
-`README.md`, `CHANGELOG.md`, and `docs/` are for instance admins setting up and running the server. Only
+`README.md`, `CHANGELOG.md`, and `docs/` other than `docs/api.md` are for instance admins setting up and running the server. Only
 write what an admin needs to install, configure, operate, or understand the server's visible behavior: settings, commands,
 what happens to their users and data, limits they may hit, and security pitfalls they have to avoid. Leave out how it's
 built, such as class names, tables, job internals, the order things happen in, exact retention times, and edge cases an
@@ -162,3 +162,7 @@ server can observe and has to know to interoperate: endpoints, content types, re
 accepted and what they look like, how they're addressed, IDs, signature requirements, limits, ordering and repeat behavior,
 and differences from common implementations. Leave out internals that can't be seen from outside, such as class names,
 tables, or how jobs are run, and link to `docs/` for admin steps rather than repeating them.
+
+`docs/api.md` is for developers of client applications. List every difference from Mastodon's API that a client could run
+into: missing endpoints, parameters, and fields, different defaults, limits, validation that refuses what Mastodon accepts,
+and different error responses. Leave out how the server implements them.
