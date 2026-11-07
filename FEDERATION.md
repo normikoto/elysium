@@ -428,12 +428,15 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   that isn't stored, or of another actor, is ignored.
 - **Statuses:** an `Update` whose `object` is a `Note` is read with [the same checks as a `Create`](#receiving-statuses):
   it has to be attributed to the `actor` alone, with an `id` on the same host and port, and one sent as an ID is fetched.
-  It's only applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, and the language
+  It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, and the language
   are replaced, and sanitized as they are for a `Create`. Its visibility, `inReplyTo`, `url`, and `published` aren't
   changed. Other object types, such as `Question`, are ignored.
 - **Order:** the `Note` needs an `updated`, and is only applied if that's later than the edit stored last. Activities are
-  processed in no order, so one that's older is ignored, and one without `updated` is ignored too. An `Update` that's
-  processed before its `Create` is ignored, and the status keeps the version in the `Create`.
+  processed in no order, so one that's older is ignored, and one without `updated` is ignored too.
+- **Before its `Create`:** an `Update` of a `Note` that isn't stored is treated as its `Create`, with the same checks,
+  including who it's for, if its `published` is less than 3 days before the `Update` arrived. The `Create` is then ignored
+  when it's processed. A `Note` that's older, or has no `published`, is ignored, so that editing an old post doesn't make
+  it look new here, since statuses are ordered by when they arrive.
 - **Forwarded:** an `Update` is [fetched from its origin](#forwarded-activities) like any forwarded activity. Mastodon's
   `Update` IDs have a fragment, so a forwarded one is lost.
 

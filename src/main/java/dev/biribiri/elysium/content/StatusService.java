@@ -175,13 +175,13 @@ public class StatusService {
      * Mastodon is replaced, so its visibility, its parent and when it was published stay as they were. Nothing is
      * published for it, since it isn't this server's to send.
      *
-     * @return whether the status was changed. It isn't if it isn't stored, isn't the author's, or was already edited at this
-     * time or later
+     * @return what happened to the edit
      */
-    public boolean updateRemote(RemoteEdit edit) {
+    public RemoteEdit.Outcome updateRemote(RemoteEdit edit) {
         var html = RemoteText.of(edit.content(), edit.spoilerText(), edit.language());
-        // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order.
-        return statuses.updateRemote(
+        // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
+        // caller that stores the status after NOT_STORED has to cope with one stored in between.
+        var edited = statuses.updateRemote(
                 edit.uri(),
                 edit.authorId(),
                 html.text(),
@@ -190,6 +190,10 @@ public class StatusService {
                 html.language(),
                 edit.sensitive() || !html.spoilerText().isEmpty(),
                 edit.editedAt().truncatedTo(ChronoUnit.MICROS));
+        if (edited) {
+            return RemoteEdit.Outcome.EDITED;
+        }
+        return statuses.existsByUri(edit.uri()) ? RemoteEdit.Outcome.UNCHANGED : RemoteEdit.Outcome.NOT_STORED;
     }
 
     /**

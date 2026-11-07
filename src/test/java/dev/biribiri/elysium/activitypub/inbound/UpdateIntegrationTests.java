@@ -7,6 +7,7 @@ import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,10 +38,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Calls the handlers directly with no worker running, as {@link CreateIntegrationTests} does.
+ * Calls the handlers directly with no worker running, as {@link CreateIntegrationTests} does. It has the same configuration,
+ * so that the two share a context, which keeps the test run within its memory, and each test uses a host of its own.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://update.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://create.example", "elysium.jobs.worker-enabled=false"})
 class UpdateIntegrationTests {
 
     private static final String PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
@@ -54,6 +59,8 @@ class UpdateIntegrationTests {
     private JsonMapper json;
     @Autowired
     private DomainBlocks blocks;
+    @Autowired
+    private StatusService statuses;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -152,11 +159,76 @@ class UpdateIntegrationTests {
         assertThat(status(noteId).orElseThrow().get("edited_at")).isNull();
     }
 
-    @Test
-    void ignoresAnEditOfAStatusThatIsntStored() {
-        var noteId = noteId();
+    // Updates that run before their Create
 
-        handler.handle(update(edit(noteId, "2026-02-01T00:00:00Z", "<p>Edited</p>")));
+    @Test
+    void storesARecentNoteThatIsntStoredYet() {
+        var noteId = noteId();
+        var published = Instant.now().minus(Duration.ofHours(1)).truncatedTo(ChronoUnit.SECONDS);
+        var updated = published.plus(Duration.ofMinutes(5));
+        var original = new HashMap<>(note(noteId, null));
+        original.put("published", published.toString());
+        var edited = new HashMap<>(original);
+        edited.put("updated", updated.toString());
+        edited.put("content", "<p>Edited</p>");
+
+        handler.handle(update(edited));
+        creates.handle(create(original));
+
+        var row = status(noteId).orElseThrow();
+        assertThat(row.get("content")).isEqualTo("<p>Edited</p>");
+        assertThat(row.get("visibility")).isEqualTo("public");
+        assertThat(((Timestamp) row.get("edited_at")).toInstant()).isEqualTo(updated);
+        assertThat(((Timestamp) row.get("published_at")).toInstant()).isEqualTo(published);
+    }
+
+    @Test
+    void ignoresAnOldNoteThatIsntStored() {
+        var noteId = noteId();
+        var old = new HashMap<>(edit(noteId, Instant.now().toString(), "<p>Edited</p>"));
+        old.put("published", Instant.now().minus(Duration.ofDays(4)).toString());
+
+        handler.handle(update(old));
+
+        assertThat(status(noteId)).isEmpty();
+    }
+
+    @Test
+    void ignoresANoteThatIsntStoredAndDoesNotSayWhenItWasPublished() {
+        var noteId = noteId();
+        var undated = new HashMap<>(edit(noteId, Instant.now().toString(), "<p>Edited</p>"));
+        undated.remove("published");
+
+        handler.handle(update(undated));
+
+        assertThat(status(noteId)).isEmpty();
+    }
+
+    @Test
+    void aLateUpdateHasTheSameChecksAsACreate() {
+        var stranger = remote("stranger");
+        var notForAnyone = "https://" + host + "/notes/" + UUID.randomUUID();
+        var note = new HashMap<>(recent(notForAnyone));
+        note.put("attributedTo", stranger.uri().toString());
+        note.put("cc", List.of(stranger.uri() + "/followers"));
+        var direct = noteId();
+        var directNote = new HashMap<>(recent(direct));
+        directNote.put("to", List.of());
+        directNote.put("cc", List.of());
+
+        handler.handle(updateOf(notForAnyone + "#updates/1", stranger.uri(), json.writeValueAsString(note)));
+        handler.handle(update(directNote));
+
+        assertThat(status(notForAnyone)).isEmpty();
+        assertThat(status(direct)).isEmpty();
+    }
+
+    @Test
+    void aDeletedNoteIsntStoredByALateUpdate() {
+        var noteId = noteId();
+        statuses.deleteRemote(URI.create(noteId), author.uri());
+
+        handler.handle(update(recent(noteId)));
 
         assertThat(status(noteId)).isEmpty();
     }
@@ -348,6 +420,16 @@ class UpdateIntegrationTests {
         if (updated != null) {
             note.put("updated", updated);
         }
+        return note;
+    }
+
+    /**
+     * An edited note that was published an hour ago.
+     */
+    private Map<String, Object> recent(String id) {
+        var now = Instant.now();
+        var note = edit(id, now.toString(), "<p>Edited</p>");
+        note.put("published", now.minus(Duration.ofHours(1)).toString());
         return note;
     }
 

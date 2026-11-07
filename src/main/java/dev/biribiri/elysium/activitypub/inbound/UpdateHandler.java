@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.RemoteEdit;
 import dev.biribiri.elysium.content.StatusService;
@@ -11,6 +12,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.time.Duration;
+import java.util.UUID;
 
 /**
  * Applies a change that another server made to one of its actors, or to a status stored here.
@@ -20,20 +23,26 @@ import java.net.URI;
  * server says when an actor changed, so an older {@code Update} that runs after a newer one couldn't be told apart. One
  * that isn't stored is ignored, as for a {@code Delete}: Mastodon sends these to every server it knows.
  *
- * <p>A {@code Note} has to be the actor's, as {@link ActorNotes} checks, and already stored, so that editing an old post
- * can't make it look new here, at the cost of losing an edit that runs before its {@code Create}. Its {@code updated}
- * orders edits, since jobs have no order, and one without it is ignored, because nothing says that it's newer than what's
- * stored.
+ * <p>A {@code Note} has to be the actor's, as {@link ActorNotes} checks. Its {@code updated} orders edits, since jobs have
+ * no order, and one without it is ignored, because nothing says that it's newer than what's stored. One that isn't stored
+ * yet is stored as a {@code Create} would store it, if it was published recently, since its {@code Create} can run later.
  */
 @Component
 class UpdateHandler implements InboundActivityHandler {
 
     private static final Logger log = LoggerFactory.getLogger(UpdateHandler.class);
 
+    /**
+     * How old a note can be and still be stored from an {@code Update}. A {@code Create} and its {@code Update} are
+     * usually minutes apart, and this matches how long deliveries to a host that's backing off are kept.
+     */
+    private static final Duration NEW_FOR = Duration.ofDays(3);
+
     private final ActorService actors;
     private final RemoteActors remoteActors;
     private final StatusService statuses;
     private final ActorNotes notes;
+    private final NoteStorage storage;
     private final DomainBlocks blocks;
     private final JsonMapper json;
 
@@ -42,12 +51,14 @@ class UpdateHandler implements InboundActivityHandler {
             RemoteActors remoteActors,
             StatusService statuses,
             ActorNotes notes,
+            NoteStorage storage,
             DomainBlocks blocks,
             JsonMapper json) {
         this.actors = actors;
         this.remoteActors = remoteActors;
         this.statuses = statuses;
         this.notes = notes;
+        this.storage = storage;
         this.blocks = blocks;
         this.json = json;
     }
@@ -93,21 +104,47 @@ class UpdateHandler implements InboundActivityHandler {
         if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
             return;
         }
-        var author = actors.findByUri(actorUri).filter(found -> found.isActive() && !actors.isLocal(found));
-        if (author.isEmpty()) {
-            log.debug("Ignoring Update {}, whose actor isn't stored here", activity.id());
+        // An author who isn't stored can't have a stored status, but can still have one to store, if its Create is late.
+        var outcome = actors.findByUri(actorUri)
+                .filter(found -> found.isActive() && !actors.isLocal(found))
+                .map(author -> edit(note, author.id()))
+                .orElse(RemoteEdit.Outcome.NOT_STORED);
+        switch (outcome) {
+            case EDITED -> {
+            }
+            case UNCHANGED -> log.debug("Ignoring Update {}, whose Note has a newer version, or is someone else's", activity.id());
+            case NOT_STORED -> storeLate(activity, document, read.get());
+        }
+    }
+
+    /**
+     * Stores a note whose {@code Create} hasn't been processed yet, since jobs have no order, as long as it's new. An older
+     * note is ignored, so that editing an old post can't make it look new here: status IDs come from when a status arrives,
+     * so it would go to the top of timelines. Its {@code published} is the other server's word, but a server that lied could
+     * send a {@code Create} instead.
+     */
+    private void storeLate(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read) {
+        var published = read.note().published();
+        if (published == null || published.isBefore(activity.firstReceivedAt().minus(NEW_FOR))) {
+            log.debug("Ignoring Update {}, whose Note isn't stored, and isn't new", activity.id());
             return;
         }
-        var changed = statuses.updateRemote(new RemoteEdit(
+        if (storage.store(activity, document, read)) {
+            return;
+        }
+        // A Create that's stored in between, with an older version, is still edited.
+        var author = actors.findByUri(URI.create(activity.actorUri())).filter(Actor::isActive);
+        author.ifPresent(found -> edit(read.note(), found.id()));
+    }
+
+    private RemoteEdit.Outcome edit(RemoteNote note, UUID authorId) {
+        return statuses.updateRemote(new RemoteEdit(
                 note.id(),
-                author.get().id(),
+                authorId,
                 note.content() == null ? "" : note.content(),
                 note.summary(),
                 note.language(),
                 note.sensitive(),
                 note.updated()));
-        if (!changed) {
-            log.debug("Ignoring Update {}, whose Note isn't stored, or has a newer version", activity.id());
-        }
     }
 }

@@ -21,4 +21,16 @@ public record RemoteEdit(
         boolean sensitive,
         Instant editedAt
 ) {
+
+    /**
+     * What {@link StatusService#updateRemote} did with an edit.
+     */
+    public enum Outcome {
+        /** The stored status was replaced. */
+        EDITED,
+        /** A status with this URI is stored, but it's someone else's, or was already edited at this time or later. */
+        UNCHANGED,
+        /** No status with this URI is stored. */
+        NOT_STORED
+    }
 }
