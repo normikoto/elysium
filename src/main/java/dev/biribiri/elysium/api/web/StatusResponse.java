@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.content.Status;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 import java.util.Optional;
@@ -14,6 +15,9 @@ import java.util.UUID;
  *
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
+@Schema(name = "Status", description = """
+        Mastodon's Status entity. Favourites, boosts, media, polls, cards, mentions, hashtags, and edits don't exist \
+        yet, so those fields are always empty, null, zero, or false.""")
 record StatusResponse(
         String id,
         @JsonProperty("created_at") String createdAt,
@@ -30,6 +34,7 @@ record StatusResponse(
         @JsonProperty("reblogs_count") int reblogsCount,
         @JsonProperty("favourites_count") int favouritesCount,
         String content,
+        @Schema(description = "The source text, only when the status has just been deleted.")
         @JsonInclude(JsonInclude.Include.NON_NULL) String text,
         Object reblog,
         Object application,

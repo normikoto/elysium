@@ -171,6 +171,106 @@ class ApiDocsIntegrationTests {
     }
 
     @Test
+    void describesEveryEndpoint() throws Exception {
+        var undescribed = new ArrayList<String>();
+        var operationIds = new ArrayList<String>();
+        for (var path : document().get("paths").properties()) {
+            for (var operation : path.getValue().properties()) {
+                var name = operation.getKey() + " " + path.getKey();
+                var op = operation.getValue();
+                var linksToMastodon = op.path("externalDocs").path("url").asString("")
+                        .startsWith("https://docs.joinmastodon.org/methods/");
+                if (op.path("summary").asString("").isEmpty()
+                        || (path.getKey().startsWith("/api/") && !linksToMastodon)) {
+                    undescribed.add(name);
+                }
+                operationIds.add(op.path("operationId").asString(""));
+            }
+        }
+        assertThat(undescribed).isEmpty();
+        // springdoc adds a number to repeated IDs.
+        assertThat(operationIds).doesNotHaveDuplicates().noneMatch(id -> id.isEmpty() || id.matches(".*_\\d+"));
+    }
+
+    @Test
+    void describesTheServer() throws Exception {
+        mockMvc.perform(get("/api-docs"))
+                .andExpect(jsonPath("$.info.title").value("Elysium"))
+                .andExpect(jsonPath("$.info.description").value(containsString("Mastodon")))
+                .andExpect(jsonPath("$.tags[0].name").value("Apps"))
+                .andExpect(jsonPath("$.tags[1].name").value("OAuth"));
+    }
+
+    @Test
+    void namesSchemasAfterMastodonsEntities() throws Exception {
+        var schemas = document().get("components").get("schemas");
+        assertThat(schemas.propertyNames()).contains(
+                "Account", "CredentialAccount", "Status", "Relationship", "Application", "Instance", "Search",
+                "AdminAccount", "AdminDomainBlock", "Error");
+    }
+
+    @Test
+    void givesEveryApiErrorTheErrorBody() throws Exception {
+        var wrong = new ArrayList<String>();
+        for (var path : document().get("paths").properties()) {
+            if (!path.getKey().startsWith("/api/")) {
+                continue;
+            }
+            for (var operation : path.getValue().properties()) {
+                for (var response : operation.getValue().path("responses").properties()) {
+                    var schema = response.getValue().at("/content/application~1json/schema/$ref").asString("");
+                    if (response.getKey().startsWith("4") && !schema.equals("#/components/schemas/Error")) {
+                        wrong.add(operation.getKey() + " " + path.getKey() + " " + response.getKey());
+                    }
+                }
+            }
+        }
+        assertThat(wrong).isEmpty();
+        mockMvc.perform(get("/api-docs"))
+                .andExpect(jsonPath("$.paths['/api/v1/statuses'].post.responses['401']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/statuses'].post.responses['403']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/apps/verify_credentials'].get.responses['403']").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/instance'].get.responses['401']").doesNotExist());
+    }
+
+    @Test
+    void documentsTheFederationEndpoints() throws Exception {
+        var actor = "$.paths['/users/{username}'].get";
+        mockMvc.perform(get("/api-docs"))
+                .andExpect(jsonPath("$.paths['/.well-known/webfinger'].get.tags[0]").value("WebFinger"))
+                .andExpect(jsonPath("$.paths['/.well-known/nodeinfo'].get").exists())
+                .andExpect(jsonPath("$.paths['/nodeinfo/2.0'].get").exists())
+                .andExpect(jsonPath("$.paths['/nodeinfo/2.1'].get").exists())
+                .andExpect(jsonPath("$.paths['/actor'].get").exists())
+                .andExpect(jsonPath("$.paths['/users/{username}/statuses/{id}'].get").exists())
+                .andExpect(jsonPath("$.paths['/users/{username}/followers'].get").exists())
+                .andExpect(jsonPath("$.paths['/users/{username}/following'].get").exists())
+                .andExpect(jsonPath(actor + ".tags[0]").value("ActivityPub"))
+                .andExpect(jsonPath(actor + ".responses['200'].content['application/activity+json'].schema['$ref']")
+                        .value("#/components/schemas/Person"))
+                .andExpect(jsonPath(actor + ".responses['200'].content['text/html']").exists())
+                .andExpect(jsonPath(actor + ".responses['404'].content").doesNotExist())
+                .andExpect(jsonPath(actor + ".responses['410'].content['application/activity+json'].schema['$ref']")
+                        .value("#/components/schemas/Tombstone"));
+    }
+
+    @Test
+    void documentsWhatEveryInboxTakes() throws Exception {
+        for (var path : List.of("/users/{username}/inbox", "/inbox", "/actor/inbox")) {
+            var inbox = "$.paths['" + path + "'].post";
+            mockMvc.perform(get("/api-docs"))
+                    .andExpect(jsonPath(inbox + ".requestBody.content['application/activity+json']").exists())
+                    .andExpect(jsonPath(inbox + ".parameters[?(@.name == 'Signature')].in").value("header"))
+                    .andExpect(jsonPath(inbox + ".responses['202']").exists())
+                    .andExpect(jsonPath(inbox + ".responses['200']").doesNotExist())
+                    .andExpect(jsonPath(inbox + ".responses['429'].headers['Retry-After']").exists());
+        }
+        mockMvc.perform(get("/api-docs"))
+                .andExpect(jsonPath("$.paths['/users/{username}/inbox'].post.responses['410']").exists())
+                .andExpect(jsonPath("$.paths['/inbox'].post.responses['410']").doesNotExist());
+    }
+
+    @Test
     void leavesOutHtmlPages() throws Exception {
         mockMvc.perform(get("/api-docs"))
                 .andExpect(jsonPath("$.paths['/login']").doesNotExist())

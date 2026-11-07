@@ -9,6 +9,10 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.ratelimit.ClientAddresses;
 import dev.biribiri.elysium.ratelimit.RateLimiter;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,7 +37,12 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
  * aren't limited, which is left to a reverse proxy.
  */
 @RestController
+@Tag(name = FederationDocs.ACTIVITYPUB_TAG)
 class InboxController {
+
+    static final String PERSONAL_INBOX_PATH = "/users/{username}/inbox";
+    static final String SHARED_INBOX_PATH = "/inbox";
+    static final String INSTANCE_ACTOR_INBOX_PATH = InstanceActor.PATH + "/inbox";
 
     private static final Logger log = LoggerFactory.getLogger(InboxController.class);
 
@@ -56,7 +65,18 @@ class InboxController {
         this.budgets = budgets;
     }
 
-    @PostMapping(path = "/users/{username}/inbox", consumes = {ACTIVITY_JSON, ANY_LD_JSON})
+    @PostMapping(path = PERSONAL_INBOX_PATH, consumes = {ACTIVITY_JSON, ANY_LD_JSON})
+    // FederationApiDocs adds what every inbox has in common.
+    @Operation(
+            operationId = "postToUserInbox",
+            summary = "Deliver an activity to a user's inbox",
+            description = FederationDocs.INBOX
+                    + "\n\nA suspended user's inbox still accepts activities, such as an `Undo` of a `Follow`.",
+            parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
+            responses = {
+                    @ApiResponse(responseCode = "404", description = "There's no such user."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
     ResponseEntity<Void> personalInbox(@PathVariable String username, HttpServletRequest request) throws IOException {
         // A suspended actor can still be sent things, such as an Undo of a Follow, or it could lose followers it should keep.
         var actor = actors.findAnyLocalByUsername(username);
@@ -69,8 +89,21 @@ class InboxController {
         return receive(request);
     }
 
-    @PostMapping(path = {"/inbox", InstanceActor.PATH + "/inbox"}, consumes = {ACTIVITY_JSON, ANY_LD_JSON})
-    ResponseEntity<Void> sharedOrInstanceActorInbox(HttpServletRequest request) throws IOException {
+    @PostMapping(path = SHARED_INBOX_PATH, consumes = {ACTIVITY_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "postToSharedInbox",
+            summary = "Deliver an activity to the shared inbox",
+            description = "Every actor document gives this as its `endpoints.sharedInbox`. " + FederationDocs.INBOX)
+    ResponseEntity<Void> sharedInbox(HttpServletRequest request) throws IOException {
+        return receive(request);
+    }
+
+    @PostMapping(path = INSTANCE_ACTOR_INBOX_PATH, consumes = {ACTIVITY_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "postToInstanceActorInbox",
+            summary = "Deliver an activity to the instance actor's inbox",
+            description = FederationDocs.INBOX)
+    ResponseEntity<Void> instanceActorInbox(HttpServletRequest request) throws IOException {
         return receive(request);
     }
 

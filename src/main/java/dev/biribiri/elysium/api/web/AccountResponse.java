@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.AccountStats;
 import dev.biribiri.elysium.graph.FollowCounts;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -19,6 +20,10 @@ import java.util.List;
  * @param hideCollections whether a local account hides its followers and following, or null for a remote account, whose
  *                        server decides
  */
+@Schema(name = "Account", description = """
+        Mastodon's Account entity. Accounts have no profile yet, so `display_name` is the username, `note` is empty, \
+        `fields` and `emojis` are empty, the images are a placeholder, and `locked`, `bot`, `group`, and `discoverable` \
+        are false.""")
 record AccountResponse(
         String id,
         String username,
@@ -36,12 +41,17 @@ record AccountResponse(
         @JsonProperty("avatar_static") String avatarStatic,
         String header,
         @JsonProperty("header_static") String headerStatic,
+        @Schema(description = "For an account on another server, only its followers on this server.")
         @JsonProperty("followers_count") long followersCount,
+        @Schema(description = "For an account on another server, only the accounts on this server that it follows.")
         @JsonProperty("following_count") long followingCount,
         @JsonProperty("statuses_count") long statusesCount,
         @JsonProperty("last_status_at") String lastStatusAt,
         List<Object> emojis,
         List<Object> fields,
+        @Schema(description = """
+                Whether the account hides who's in its followers and following, or null for an account on another \
+                server.""")
         @JsonProperty("hide_collections") Boolean hideCollections
 ) {
 

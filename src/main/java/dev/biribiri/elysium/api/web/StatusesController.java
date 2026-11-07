@@ -4,9 +4,14 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import io.swagger.v3.oas.annotations.ExternalDocumentation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,11 +27,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/statuses")
+@Tag(name = "Statuses", description = "Posting, viewing, and deleting statuses.",
+        externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/"))
 public class StatusesController {
 
     /**
@@ -59,11 +67,40 @@ public class StatusesController {
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
-    // The API docs combine both mappings into one operation, and this replaces the body documented by the other one.
+    // The API docs combine both mappings into one operation, and this replaces what the other one documents.
+    @Operation(
+            operationId = "createStatus",
+            summary = "Post a status",
+            description = """
+                    Differences from Mastodon:
+
+                    - Media, polls, and scheduled statuses aren't supported, and `media_ids`, `poll`, or `scheduled_at` \
+                    with a value gets a 422 rather than being ignored. Empty values are allowed.
+                    - The length limit defaults to 5000 characters rather than 500, and `GET /api/v1/instance` gives it. \
+                    As in Mastodon, each URL counts as 23 characters, unless it's longer than 2048 characters, when it \
+                    counts at its full length. URLs can save at most 4096 characters per status, and any after that \
+                    also count at their full length.
+                    - `visibility` defaults to `public` only when it's missing. An empty value gets a 422, as do a \
+                    repeated value and `visibility[]`.
+                    - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a \
+                    duplicate status.
+
+                    """ + ApiDocs.NEEDS_USER + " " + ApiDocs.FORM_OR_JSON,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The new status."),
+                    @ApiResponse(responseCode = "404", description = "`in_reply_to_id` isn't a status the user can see."),
+                    @ApiResponse(responseCode = "413", description = "The body is too large."),
+                    @ApiResponse(responseCode = "422", description = """
+                            The status is empty or too long, a value is unsupported or of the wrong type, or the token \
+                            has no user.""")
+            })
     @RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(type = "object")),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE, schema = @Schema(type = "object")),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE, schema = @Schema(type = "object"))
+            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewStatusBody.class)),
+            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+                    schema = @Schema(implementation = NewStatusBody.class)),
+            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
+                    schema = @Schema(implementation = NewStatusBody.class))
     })
     public StatusResponse createFromJson(@AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request)
             throws IOException {
@@ -74,7 +111,19 @@ public class StatusesController {
 
     @GetMapping("/{id}")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
-    public StatusResponse get(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
+    @Operation(
+            operationId = "getStatus",
+            summary = "View a status",
+            description = """
+                    Works without a token for public and unlisted statuses. Others are only found for a user who can \
+                    see them. A status from a suspended account gets a 404.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#get"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
+            })
+    public StatusResponse get(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         return RequestParameters.uuid(id)
                 .flatMap(statusId -> statuses.findVisible(statusId, RequestParameters.viewer(token)))
                 .map(responses::one)
@@ -83,7 +132,21 @@ public class StatusesController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
-    public StatusResponse delete(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
+    @Operation(
+            operationId = "deleteStatus",
+            summary = "Delete a status",
+            description = """
+                    Only the author can delete a status. Other servers that were sent it are sent a `Delete`. \
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#delete"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = """
+                            The deleted status, with its source `text`, so that a client can offer to redraft it."""),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the status isn't the user's."),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse delete(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         var author = requireUser(token);
         return RequestParameters.uuid(id)
                 .flatMap(statusId -> statuses.delete(statusId, author))
@@ -152,5 +215,32 @@ public class StatusesController {
             case String value -> Visibility.fromValue(value);
             default -> throw new InvalidRequestException("Validation failed: visibility must be a string");
         };
+    }
+
+    /**
+     * Only documents the body, which is read by hand.
+     */
+    @Schema(name = "NewStatus")
+    private record NewStatusBody(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = """
+                    The text, as plain text. URLs are linked, but mentions and hashtags aren't yet.""")
+            String status,
+            @Schema(description = "A content warning, shown in place of the text until it's opened.")
+            String spoiler_text,
+            @Schema(description = "An ISO 639 language code.")
+            String language,
+            @Schema(allowableValues = {"public", "unlisted", "private", "direct"}, defaultValue = "public",
+                    description = "Who can see the status. An empty value gets a 422.")
+            String visibility,
+            @Schema(description = "Whether the content is sensitive.", defaultValue = "false")
+            Boolean sensitive,
+            @Schema(description = "The status this replies to, which the user has to be able to see.")
+            String in_reply_to_id,
+            @Schema(description = "Not supported, and only accepted when empty.")
+            List<String> media_ids,
+            @Schema(description = "Not supported, and only accepted when empty.")
+            Map<String, Object> poll,
+            @Schema(description = "Not supported, and only accepted when empty.")
+            String scheduled_at) {
     }
 }

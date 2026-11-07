@@ -26,6 +26,7 @@ import io.swagger.v3.oas.models.tags.Tag;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -60,7 +61,25 @@ class OAuthApiDocs {
 
     @Bean
     OpenApiCustomizer oauthApiDocs(InstanceProperties instance) {
-        return openApi -> customize(openApi, instance);
+        return new OrderedCustomizer(instance);
+    }
+
+    /**
+     * Runs before customizers that aren't ordered, such as the one that puts the documentation's sections in order, which
+     * has to see the tag this adds. springdoc sorts customizers by {@link Ordered}, and an {@code @Order} on a bean method
+     * isn't seen.
+     */
+    private record OrderedCustomizer(InstanceProperties instance) implements OpenApiCustomizer, Ordered {
+
+        @Override
+        public void customise(OpenAPI openApi) {
+            customize(openApi, instance);
+        }
+
+        @Override
+        public int getOrder() {
+            return 0;
+        }
     }
 
     private static void customize(OpenAPI openApi, InstanceProperties instance) {

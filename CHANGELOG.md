@@ -82,6 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inbox limits. See `FEDERATION.md`.
 - The API documentation now describes the OAuth endpoints and the scopes each endpoint needs, and Swagger UI can sign in
   to try endpoints that need a token. See `docs/api.md`.
+- The API documentation now describes every endpoint, its parameters, responses, and errors, and how it differs from
+  Mastodon, with a link to Mastodon's documentation for it. It also covers the ActivityPub, WebFinger, and NodeInfo
+  endpoints.
 
 ### Changed
 

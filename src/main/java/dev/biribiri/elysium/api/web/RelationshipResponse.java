@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.graph.Relationship;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
@@ -9,9 +10,14 @@ import java.util.List;
  * Mastodon's Relationship entity. Only follows exist so far, so the rest hold the values they'd have for an account with no
  * blocks, mutes, notes, or endorsements.
  */
+@Schema(name = "Relationship", description = """
+        Mastodon's Relationship entity. Blocks, mutes, notes, endorsements, and notifications don't exist, so those \
+        fields are always false or empty, and `requested_by` is always false, since requests to follow are accepted \
+        straight away.""")
 record RelationshipResponse(
         String id,
         boolean following,
+        @Schema(description = "True whenever `following` or `requested` is.")
         @JsonProperty("showing_reblogs") boolean showingReblogs,
         boolean notifying,
         List<String> languages,

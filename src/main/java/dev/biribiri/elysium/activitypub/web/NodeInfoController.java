@@ -6,6 +6,10 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.StatusService;
+import io.swagger.v3.oas.annotations.ExternalDocumentation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -18,6 +22,9 @@ import java.util.Map;
 
 @CrossOrigin
 @RestController
+@Tag(name = "NodeInfo", description = """
+        Information about the server's software and usage. Any origin can read these through CORS.""",
+        externalDocs = @ExternalDocumentation(url = "https://nodeinfo.diaspora.software/"))
 public class NodeInfoController {
 
     private static final String PATH_2_0 = "/nodeinfo/2.0";
@@ -46,6 +53,11 @@ public class NodeInfoController {
     }
 
     @GetMapping(path = "/.well-known/nodeinfo", produces = {"application/jrd+json", MediaType.APPLICATION_JSON_VALUE})
+    @Operation(
+            operationId = "nodeInfoLinks",
+            summary = "Find the NodeInfo documents",
+            description = "Links to the 2.1 and 2.0 documents.",
+            responses = @ApiResponse(responseCode = "200", description = "The links."))
     JsonResourceDescriptor links() {
         return JsonResourceDescriptor.ofLinks(List.of(
                 new JsonResourceDescriptor.Link(SCHEMA_2_1, instance.resolve(PATH_2_1)),
@@ -53,6 +65,14 @@ public class NodeInfoController {
     }
 
     @GetMapping(path = PATH_2_1, produces = "application/json; profile=\"" + SCHEMA_2_1 + "#\"")
+    @Operation(
+            operationId = "nodeInfo21",
+            summary = "Get NodeInfo 2.1",
+            description = """
+                    Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the \
+                    number of local users, and `localPosts`, which counts replies but not direct statuses. Active user \
+                    counts and `localComments` aren't reported. The same as 2.0, plus the software's repository.""",
+            responses = @ApiResponse(responseCode = "200", description = "The document."))
     NodeInfo nodeInfo2_1() {
         return nodeInfo("2.1", REPOSITORY);
     }
@@ -61,6 +81,14 @@ public class NodeInfoController {
      * The 2.0 schema doesn't allow a repository.
      */
     @GetMapping(path = PATH_2_0, produces = "application/json; profile=\"" + SCHEMA_2_0 + "#\"")
+    @Operation(
+            operationId = "nodeInfo20",
+            summary = "Get NodeInfo 2.0",
+            description = """
+                    Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the \
+                    number of local users, and `localPosts`, which counts replies but not direct statuses. Active user \
+                    counts and `localComments` aren't reported.""",
+            responses = @ApiResponse(responseCode = "200", description = "The document."))
     NodeInfo nodeInfo2_0() {
         return nodeInfo("2.0", null);
     }

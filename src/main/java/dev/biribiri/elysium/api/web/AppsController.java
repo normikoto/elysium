@@ -3,7 +3,13 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.auth.ClientRegistrations;
 import dev.biribiri.elysium.auth.InvalidClientRegistrationException;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import io.swagger.v3.oas.annotations.ExternalDocumentation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +31,8 @@ import java.util.stream.Stream;
 
 @RestController
 @RequestMapping("/api/v1/apps")
+@Tag(name = "Apps", description = "Registering applications, which then sign in with OAuth.",
+        externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "apps/"))
 class AppsController {
 
     private final ClientRegistrations registrations;
@@ -46,6 +54,25 @@ class AppsController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    // The API docs combine both mappings into one operation, and this replaces what the other one documents.
+    @Operation(
+            operationId = "createApp",
+            summary = "Register an application",
+            description = """
+                    Needs no token. The response is the only time `client_secret` is shown. The body can be \
+                    form-encoded, multipart, or a JSON object.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "apps/#create"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The application, with its credentials."),
+                    @ApiResponse(responseCode = "422", description = """
+                            The name, a redirect URI, the website, or a scope is missing or invalid.""")
+            })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = {
+            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewAppBody.class)),
+            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+                    schema = @Schema(implementation = NewAppBody.class)),
+            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE, schema = @Schema(implementation = NewAppBody.class))
+    })
     ApplicationResponse registerFromJson(@RequestBody Map<String, Object> body) {
         var redirectUris = new ArrayList<String>();
         switch (body.get("redirect_uris")) {
@@ -69,6 +96,12 @@ class AppsController {
      */
     @GetMapping("/verify_credentials")
     @SecurityRequirement(name = "oauth2")
+    @Operation(
+            operationId = "verifyAppCredentials",
+            summary = "Check the application's token",
+            description = "Any token works, with any scope, including one from the `client_credentials` grant.",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "apps/#verify_credentials"),
+            responses = @ApiResponse(responseCode = "200", description = "The application, without its credentials."))
     ResponseEntity<ApplicationResponse> verifyCredentials(@AuthenticationPrincipal TokenPrincipal token) {
         return ResponseEntity.of(registrations.findById(token.applicationId()).map(ApplicationResponse::from));
     }
@@ -98,5 +131,23 @@ class AppsController {
 
     private static String string(Object value) {
         return value instanceof String string ? string : null;
+    }
+
+    /**
+     * Only documents the body.
+     */
+    @Schema(name = "NewApp")
+    private record NewAppBody(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "The application's name.")
+            String client_name,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = """
+                    Where to send users after they authorize, or `urn:ietf:wg:oauth:2.0:oob` to show the code instead. \
+                    One value each, or several in one value, separated by spaces or line breaks. A form can also send \
+                    `redirect_uris[]`.""")
+            List<String> redirect_uris,
+            @Schema(defaultValue = "read", description = "The scopes the application can ask for, separated by spaces.")
+            String scopes,
+            @Schema(description = "The application's home page, which has to be an `http` or `https` URL.")
+            String website) {
     }
 }

@@ -5,14 +5,20 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
+import io.swagger.v3.oas.annotations.ExternalDocumentation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -39,6 +45,8 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/accounts")
+@Tag(name = "Accounts", description = "Viewing accounts, and following them.",
+        externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/"))
 public class AccountsController {
 
     private static final long MAX_CREDENTIALS_BODY_BYTES = 64 * 1024;
@@ -76,6 +84,15 @@ public class AccountsController {
 
     @GetMapping("/verify_credentials")
     @PreAuthorize("hasAnyAuthority('SCOPE_profile', 'SCOPE_read:accounts')")
+    @Operation(
+            operationId = "verifyAccountCredentials",
+            summary = "Get the user's own account",
+            description = ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#verify_credentials"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The user's account."),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
     public ResponseEntity<CredentialAccountResponse> verifyCredentials(@AuthenticationPrincipal TokenPrincipal token) {
         var actorId = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
         return ResponseEntity.of(actors.findLocalById(actorId)
@@ -99,11 +116,31 @@ public class AccountsController {
 
     @PatchMapping(path = "/update_credentials", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
-    // The API docs combine both mappings into one operation, and this replaces the body documented by the other one.
+    // The API docs combine both mappings into one operation, and this replaces what the other one documents.
+    @Operation(
+            operationId = "updateAccountCredentials",
+            summary = "Change the user's account settings",
+            description = """
+                    Differences from Mastodon: only `hide_collections` can be changed, because profiles don't exist \
+                    yet. Any other field with a value gets a 422 naming it, and then nothing is changed. Empty values \
+                    are ignored.
+
+                    """ + ApiDocs.NEEDS_USER + " " + ApiDocs.FORM_OR_JSON,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#update_credentials"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The user's account, as changed."),
+                    @ApiResponse(responseCode = "413", description = "The body is too large."),
+                    @ApiResponse(responseCode = "422", description = """
+                            A field other than `hide_collections` has a value, a value is of the wrong type, or the \
+                            token has no user.""")
+            })
     @RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(type = "object")),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE, schema = @Schema(type = "object")),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE, schema = @Schema(type = "object"))
+            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = CredentialsBody.class)),
+            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+                    schema = @Schema(implementation = CredentialsBody.class)),
+            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
+                    schema = @Schema(implementation = CredentialsBody.class))
     })
     public CredentialAccountResponse updateCredentialsFromJson(
             @AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request) throws IOException {
@@ -137,7 +174,25 @@ public class AccountsController {
      */
     @GetMapping("/lookup")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:accounts')")
-    public AccountResponse lookup(@AuthenticationPrincipal TokenPrincipal token, @RequestParam(required = false) String acct) {
+    @Operation(
+            operationId = "lookupAccount",
+            summary = "Find an account by its address",
+            description = """
+                    Only asks another server about an account for a signed-in user's request, and so finds only the \
+                    accounts this server already knows otherwise. Each user can make 30 of those lookups a minute, \
+                    and then gets a 429. A suspended or deleted account isn't found.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#lookup"),
+            parameters = @Parameter(name = "acct", required = true, description = """
+                    The username of an account on this server, or `username@domain` for one on another server. A \
+                    missing or empty value gets a 404."""),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The account."),
+                    @ApiResponse(responseCode = "404", description = "No account was found."),
+                    @ApiResponse(responseCode = "429", description = "The user has made too many lookups.")
+            })
+    public AccountResponse lookup(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @RequestParam(required = false) String acct) {
         if (acct == null || acct.isEmpty()) {
             throw new RecordNotFoundException();
         }
@@ -148,6 +203,25 @@ public class AccountsController {
 
     @GetMapping("/relationships")
     @PreAuthorize("hasAuthority('SCOPE_read:follows')")
+    @Operation(
+            operationId = "getRelationships",
+            summary = "Check the user's relationships with accounts",
+            description = """
+                    Differences from Mastodon: blocks, mutes, notes, and endorsements don't exist, so those fields are \
+                    always false or empty, and `showing_reblogs` is true whenever `following` or `requested` is. \
+                    Suspended accounts are always left out, and `with_suspended` is ignored. Unknown and malformed \
+                    IDs are left out, as on Mastodon.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#relationships"),
+            parameters = {
+                    @Parameter(name = "id[]", description = "The accounts' IDs, one value each."),
+                    @Parameter(name = "id", description = "The same as `id[]`, for clients that leave out the brackets.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "A relationship for each account found."),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
     public List<RelationshipResponse> relationships(
             @AuthenticationPrincipal TokenPrincipal token,
             @RequestParam(name = "id[]", required = false) List<String> ids,
@@ -165,7 +239,16 @@ public class AccountsController {
 
     @GetMapping("/{id}")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:accounts')")
-    public AccountResponse account(@PathVariable String id) {
+    @Operation(
+            operationId = "getAccount",
+            summary = "View an account",
+            description = "A suspended or deleted account gets a 404.",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#get"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The account."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
+            })
+    public AccountResponse account(@Parameter(description = ApiDocs.ID) @PathVariable String id) {
         return accounts.one(activeAccount(id));
     }
 
@@ -174,7 +257,28 @@ public class AccountsController {
      */
     @PostMapping("/{id}/follow")
     @PreAuthorize("hasAuthority('SCOPE_write:follows')")
-    public RelationshipResponse follow(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
+    @Operation(
+            operationId = "followAccount",
+            summary = "Follow an account",
+            description = """
+                    Differences from Mastodon:
+
+                    - Following an account on this server takes effect straight away. Following one on another server \
+                    returns `requested: true` until that server accepts.
+                    - Following yourself, or an account on a blocked server, gets a 422.
+                    - `reblogs`, `notify`, and `languages` are ignored.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#follow"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
+                    @ApiResponse(responseCode = "422", description = """
+                            The account is the user's own, or is on a blocked server, or the token has no user.""")
+            })
+    public RelationshipResponse follow(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         var follower = viewerAccount(token);
         var followed = activeAccount(id);
         if (followed.id().equals(follower.id())) {
@@ -192,7 +296,21 @@ public class AccountsController {
      */
     @PostMapping("/{id}/unfollow")
     @PreAuthorize("hasAuthority('SCOPE_write:follows')")
-    public RelationshipResponse unfollow(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
+    @Operation(
+            operationId = "unfollowAccount",
+            summary = "Unfollow an account",
+            description = """
+                    Also withdraws a request to follow that's still waiting. An account can be unfollowed while it's \
+                    suspended.""" + " " + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unfollow"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public RelationshipResponse unfollow(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         var follower = viewerAccount(token);
         var followed = RequestParameters.uuid(id).flatMap(actors::findById).orElseThrow(RecordNotFoundException::new);
         follows.unfollow(follower, followed.id());
@@ -201,9 +319,33 @@ public class AccountsController {
 
     @GetMapping("/{id}/followers")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:accounts')")
+    @Operation(
+            operationId = "getAccountFollowers",
+            summary = "List the accounts following an account",
+            description = """
+                    Differences from Mastodon: pages are by when each follow was made, so a cursor from a follow \
+                    that's since been removed gives an empty page. For an account on another server, only accounts on \
+                    this server are listed. Suspended accounts are left out.
+
+                    If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A \
+                    suspended account gets a 404.""" + " " + ApiDocs.PAGE,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#followers"),
+            parameters = {
+                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                            + FollowPage.MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT)),
+                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
+                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
+                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID)
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The accounts, most recent follow first."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+            })
     public ResponseEntity<List<AccountResponse>> followers(
             @AuthenticationPrincipal TokenPrincipal token,
-            @PathVariable String id,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
             @RequestParam(required = false) String limit,
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
@@ -213,9 +355,33 @@ public class AccountsController {
 
     @GetMapping("/{id}/following")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:accounts')")
+    @Operation(
+            operationId = "getAccountFollowing",
+            summary = "List the accounts an account follows",
+            description = """
+                    Differences from Mastodon: pages are by when each follow was made, so a cursor from a follow \
+                    that's since been removed gives an empty page. For an account on another server, only accounts on \
+                    this server are listed. Suspended accounts are left out.
+
+                    If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A \
+                    suspended account gets a 404.""" + " " + ApiDocs.PAGE,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#following"),
+            parameters = {
+                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                            + FollowPage.MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT)),
+                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
+                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
+                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID)
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The accounts, most recent follow first."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+            })
     public ResponseEntity<List<AccountResponse>> following(
             @AuthenticationPrincipal TokenPrincipal token,
-            @PathVariable String id,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
             @RequestParam(required = false) String limit,
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
@@ -259,9 +425,37 @@ public class AccountsController {
      */
     @GetMapping("/{id}/statuses")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getAccountStatuses",
+            summary = "List an account's statuses",
+            description = """
+                    Differences from Mastodon: statuses from other servers aren't stored, so an account on another \
+                    server gets a 404. Statuses can't be pinned, tagged, or have media, so `pinned`, `tagged`, and \
+                    `only_media` return an empty list, and there are no boosts for `exclude_reblogs` to leave out.
+
+                    Only statuses the viewer can see are listed. A suspended account gets a 404.""" + " " + ApiDocs.PAGE,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
+            parameters = {
+                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                            + StatusPage.MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
+                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
+                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
+                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID),
+                    @Parameter(name = "exclude_replies", description = "Leave out replies. " + ApiDocs.FLAG),
+                    @Parameter(name = "exclude_reblogs", description = "Has no effect. " + ApiDocs.FLAG),
+                    @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG),
+                    @Parameter(name = "pinned", description = "Returns an empty list if true. " + ApiDocs.FLAG),
+                    @Parameter(name = "tagged", description = "Returns an empty list if not empty.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is on another server."),
+                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+            })
     public ResponseEntity<List<StatusResponse>> statuses(
             @AuthenticationPrincipal TokenPrincipal token,
-            @PathVariable String id,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
             @RequestParam(required = false) String limit,
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
@@ -309,5 +503,16 @@ public class AccountsController {
 
     private RelationshipResponse relationship(UUID viewer, UUID other) {
         return RelationshipResponse.from(follows.relationships(viewer, List.of(other)).getFirst());
+    }
+
+    /**
+     * Only documents the body, which is read by hand.
+     */
+    @Schema(name = "AccountCredentials")
+    private record CredentialsBody(
+            @Schema(description = """
+                    Whether to hide who's in the user's followers and following from everyone else. The counts are \
+                    still shown.""")
+            Boolean hide_collections) {
     }
 }
