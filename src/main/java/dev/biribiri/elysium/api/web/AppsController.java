@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.auth.ClientRegistrations;
 import dev.biribiri.elysium.auth.InvalidClientRegistrationException;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -63,7 +64,11 @@ class AppsController {
                 string(body.get("website"))));
     }
 
+    /**
+     * Any token works, with any scope, so there's no {@code @PreAuthorize} to document this from.
+     */
     @GetMapping("/verify_credentials")
+    @SecurityRequirement(name = "oauth2")
     ResponseEntity<ApplicationResponse> verifyCredentials(@AuthenticationPrincipal TokenPrincipal token) {
         return ResponseEntity.of(registrations.findById(token.applicationId()).map(ApplicationResponse::from));
     }

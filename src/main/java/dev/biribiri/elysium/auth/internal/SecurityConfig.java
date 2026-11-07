@@ -53,8 +53,8 @@ class SecurityConfig {
     static final String DELETE_ACCOUNT_PATH = "/settings/delete-account";
     static final String SETTINGS_PATH = "/settings";
 
-    private static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
-    private static final String APP_REGISTRATION_PATH = "/api/v1/apps";
+    static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
+    static final String APP_REGISTRATION_PATH = "/api/v1/apps";
 
     /**
      * Pages for admins, which all go under this path so that they're covered by one rule.

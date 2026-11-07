@@ -81,4 +81,8 @@ There's no API for people to delete their own accounts, so that an application c
 `/settings/delete-account` page. People can also hide their followers and following on the `/settings` page.
 
 API documentation is public, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs` or
-`/api-docs.yaml`.
+`/api-docs.yaml`. It includes the OAuth endpoints, and the scopes each endpoint needs. A scope such as `read` also grants
+the granular scopes under it. To sign in from Swagger UI, first register an application with the redirect URI
+`<base-url>/api-docs/swagger-ui/oauth2-redirect.html`, and then enter its `client_id` and `client_secret` under Authorize.
+Swagger UI builds that redirect URI from the request, so behind a reverse proxy, the server has to
+[trust the proxy's forwarded headers](configuration.md#reverse-proxies), or the sign-in is refused.

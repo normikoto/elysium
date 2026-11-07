@@ -80,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Activities that another server forwards, such as replies sent on to the followers of the account being replied to, are
   now fetched from the server they came from, instead of being dropped. Each one counts against the forwarding server's
   inbox limits. See `FEDERATION.md`.
+- The API documentation now describes the OAuth endpoints and the scopes each endpoint needs, and Swagger UI can sign in
+  to try endpoints that need a token. See `docs/api.md`.
 
 ### Changed
 

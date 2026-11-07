@@ -59,6 +59,13 @@ public final class OAuthScopes {
     }
 
     /**
+     * What a broad scope grants, or nothing if it's a granular one.
+     */
+    public static List<String> grants(String scope) {
+        return PARENT_SCOPES.getOrDefault(scope, List.of());
+    }
+
+    /**
      * Parses a space-separated scope list.
      *
      * @return the scopes in the order given, or {@link #DEFAULT_SCOPE} if there are none
