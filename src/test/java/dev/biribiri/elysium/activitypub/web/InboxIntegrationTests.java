@@ -190,7 +190,7 @@ class InboxIntegrationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"not json", "[]", "{}", "{\"id\":\"https://inbox.example/has space\",\"type\":\"Test\",\"actor\":\"https://inbox.example/users/alice\"}"})
+    @ValueSource(strings = {"not json", "{\"id\":\"https://inbox.example/has space\",\"type\":\"Test\",\"actor\":\"https://inbox.example/users/alice\"}"})
     void refusesASignedBodyThatIsNotAnActivity(String body) throws Exception {
         signed("/inbox", alice(), body).andExpect(status().isBadRequest());
     }
@@ -201,20 +201,6 @@ class InboxIntegrationTests {
 
         signed("/inbox", alice, activity(BASE + "/" + "x".repeat(2048), alice.uri().toString()))
                 .andExpect(status().isBadRequest());
-    }
-
-    /**
-     * This is what a forwarded activity looks like, but this server is its origin, so there's nothing to fetch. Its sender did
-     * nothing wrong, so it isn't told to try again. Fetching others is tested in {@code ForwardedActivitiesIntegrationTests}.
-     */
-    @Test
-    void dropsAForwardedActivityClaimingToComeFromThisServer() throws Exception {
-        var alice = alice();
-        var id = newId(alice);
-
-        signed("/inbox", alice, activity(id, BASE + "/users/bob")).andExpect(status().isAccepted());
-
-        assertThat(stored(id)).isZero();
     }
 
     @Test

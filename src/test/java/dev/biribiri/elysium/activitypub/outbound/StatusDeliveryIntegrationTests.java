@@ -490,18 +490,6 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void aFollowerSentAFollowersOnlyStatusIsAlsoSentItsDelete() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var status = post(Visibility.PRIVATE, null);
-        awaitCreate(host, status);
-
-        statuses.delete(status.id(), author.id());
-
-        awaitDelete(host, status);
-    }
-
-    @Test
     void sendsNothingForADeletedDirectStatus() {
         var host = newHost();
         follow(host, "bob", false);

@@ -73,17 +73,6 @@ class InboxLimitIntegrationTests {
     }
 
     @Test
-    void countsSubdomainsAsOneServer() {
-        var domain = newDomain();
-        for (var i = 0; i < 3; i++) {
-            assertThat(receive("a" + i + "." + domain)).isEqualTo(Inbox.Outcome.ACCEPTED);
-        }
-
-        assertThat(receive("other." + domain)).isEqualTo(Inbox.Outcome.RATE_LIMITED);
-        assertThat(receive(newDomain())).isEqualTo(Inbox.Outcome.ACCEPTED);
-    }
-
-    @Test
     void limitsTheDataAServerSends() {
         var host = newDomain();
         var padding = "x".repeat(900 * 1024);

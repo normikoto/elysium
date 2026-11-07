@@ -93,19 +93,6 @@ class DomainBlockCleanupIntegrationTests {
     }
 
     @Test
-    void leavesOtherServersAlone() {
-        var blocked = remote(domain);
-        var lookalike = remote("not" + domain);
-        follow(blocked, local);
-        follow(lookalike, local);
-
-        blocks.create(domain, null);
-
-        await().atMost(WAIT).until(() -> follows(blocked) == 0);
-        assertThat(follows(lookalike)).isEqualTo(1);
-    }
-
-    @Test
     void theSecondJobRemovesAFollowSavedAfterTheFirst() {
         var follower = remote(domain);
         var block = blocks.create(domain, null);

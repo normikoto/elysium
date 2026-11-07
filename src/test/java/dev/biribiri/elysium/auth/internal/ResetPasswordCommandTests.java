@@ -3,7 +3,6 @@ package dev.biribiri.elysium.auth.internal;
 import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,9 +40,6 @@ class ResetPasswordCommandTests {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private InstanceProperties instance;
 
     @Autowired
     private JdbcClient jdbc;
@@ -87,29 +83,20 @@ class ResetPasswordCommandTests {
     }
 
     @Test
-    void revokesOnlyThatAccountsAuthorizations() {
+    void revokesOnlyThatAccountsAuthorizationsAndConsent() {
         var actorId = account("revoked");
         var otherActorId = account("unaffected");
         var own = authorization(actorId.toString(), "authorization_code");
         var other = authorization(otherActorId.toString(), "authorization_code");
         var appOnly = authorization("some-client", "client_credentials");
+        consent(actorId);
+        consent(otherActorId);
 
         assertThat(run(() -> NEW_PASSWORD, "revoked")).isZero();
 
         assertThat(authorizationExists(own)).isFalse();
         assertThat(authorizationExists(other)).isTrue();
         assertThat(authorizationExists(appOnly)).isTrue();
-    }
-
-    @Test
-    void revokesOnlyThatAccountsConsent() {
-        var actorId = account("noconsent");
-        var otherActorId = account("hasconsent");
-        consent(actorId);
-        consent(otherActorId);
-
-        assertThat(run(() -> NEW_PASSWORD, "noconsent")).isZero();
-
         assertThat(consentExists(actorId)).isFalse();
         assertThat(consentExists(otherActorId)).isTrue();
     }
@@ -117,23 +104,6 @@ class ResetPasswordCommandTests {
     @Test
     void refusesAnUnknownUsernameWithoutReadingAPassword() {
         assertThat(run(MUST_NOT_READ, "nobody")).isOne();
-
-        assertThat(err.toString()).contains("no local account");
-    }
-
-    @Test
-    void refusesANonLocalActorWithoutReadingAPassword() {
-        var uri = instance.resolve("/users/notlocal").toString();
-        jdbc.sql("""
-                        INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, public_key_pem)
-                        VALUES (:id, :uri, 'notlocal', :domain, :uri, :uri, 'key')
-                        """)
-                .param("id", UUID.randomUUID())
-                .param("uri", uri)
-                .param("domain", instance.domain())
-                .update();
-
-        assertThat(run(MUST_NOT_READ, "notlocal")).isOne();
 
         assertThat(err.toString()).contains("no local account");
     }

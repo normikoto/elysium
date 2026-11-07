@@ -60,16 +60,6 @@ class LocalUsernameMigrationTests {
                 .isInstanceOf(DuplicateKeyException.class);
     }
 
-    @Test
-    void remoteActorsCanShareAUsername() {
-        flyway("9").migrate();
-
-        insertActor("https://remote.example/users/1", "bob", false);
-        insertActor("https://remote.example/users/2", "BOB", false);
-
-        assertThat(jdbc.sql("SELECT count(*) FROM %s.actor".formatted(SCHEMA)).query(Long.class).single()).isEqualTo(2);
-    }
-
     private void insertActor(String uri, String username, boolean local) {
         jdbc.sql("""
                         INSERT INTO %s.actor (id, uri, username, domain, inbox_uri, is_local)

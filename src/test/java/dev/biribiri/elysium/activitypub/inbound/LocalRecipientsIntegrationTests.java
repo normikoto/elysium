@@ -54,7 +54,7 @@ class LocalRecipientsIntegrationTests {
 
     @Test
     void doesNotFindAccountsAddressedOnlyInTheObjectOfAnAnnounce() {
-        var body = "{\"to\":\"%s\",\"object\":{\"to\":\"%s\"}}".formatted(alice.uri(), bob.uri());
+        var body = "{\"type\":\"Announce\",\"to\":\"%s\",\"object\":{\"to\":\"%s\"}}".formatted(alice.uri(), bob.uri());
 
         assertThat(recipients.of(activity("Announce", body))).containsExactly(alice.id());
     }

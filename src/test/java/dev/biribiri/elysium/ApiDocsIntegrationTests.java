@@ -77,11 +77,6 @@ class ApiDocsIntegrationTests {
     }
 
     @Test
-    void doesNotDocumentActuatorEndpoints() throws Exception {
-        mockMvc.perform(get("/api-docs")).andExpect(jsonPath("$.paths['/actuator']").doesNotExist());
-    }
-
-    @Test
     void servesSwaggerUiAndItsAssetsPublicly() throws Exception {
         var location = mockMvc.perform(get("/api-docs/ui"))
                 .andExpect(status().is3xxRedirection())

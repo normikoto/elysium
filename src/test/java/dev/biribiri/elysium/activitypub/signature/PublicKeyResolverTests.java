@@ -459,6 +459,7 @@ class PublicKeyResolverTests {
         advance(Duration.ofMinutes(5));
 
         assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
         advance(Duration.ofMinutes(5).minusSeconds(1));
         assertRefreshFails(stale, Failure.KEY_UNAVAILABLE);
         verify(documents, times(2)).fetch(any());
@@ -516,21 +517,6 @@ class PublicKeyResolverTests {
 
         when(documents.fetch(any())).thenReturn(NEW_KEY);
         assertThat(resolver.refresh(keyId(KEY_ID), stale, UNLIMITED)).contains(NEW_KEY);
-    }
-
-    @Test
-    void keepsTheOldKeyIfARefreshFailsForNow() throws Exception {
-        when(documents.fetch(any()))
-                .thenReturn(KEY)
-                .thenThrow(DocumentFetchException.temporary("down", null));
-        var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
-        advance(Duration.ofMinutes(5));
-
-        assertThatThrownBy(() -> resolver.refresh(keyId(KEY_ID), stale, UNLIMITED))
-                .isInstanceOfSatisfying(SignatureVerificationException.class,
-                        e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
-
-        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
     }
 
     @Test

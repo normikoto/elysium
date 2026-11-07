@@ -153,10 +153,12 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void frontPageOffersLoggingInAndSigningUp() throws Exception {
+    void frontPageOffersLoggingInAndSigningUpWithNoStatuses() throws Exception {
         mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/login\"")))
-                .andExpect(content().string(containsString("href=\"/signup\"")));
+                .andExpect(content().string(containsString("href=\"/signup\"")))
+                .andExpect(content().string(containsString("No posts yet.")));
     }
 
     @Test
@@ -164,13 +166,6 @@ class WebPagesIntegrationTests {
         mockMvc.perform(get("/").with(user("wanda")))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("href=\"/login\""))));
-    }
-
-    @Test
-    void frontPageWorksWithNoStatuses() throws Exception {
-        mockMvc.perform(get("/"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("No posts yet.")));
     }
 
     // Profile
@@ -462,20 +457,12 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void noteLinksToAVisibleParent() throws Exception {
+    void noteLinksToAVisibleParentAndAddressesItsAuthor() throws Exception {
         var parent = post(walt, "text from walt", Visibility.UNLISTED);
         var reply = reply(wanda, "reply to walt", parent);
 
         mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
-                .andExpect(jsonPath("$.inReplyTo").value(parent.uri().toString()));
-    }
-
-    @Test
-    void noteAddressesTheParentsAuthor() throws Exception {
-        var parent = post(walt, "text from walt", Visibility.PUBLIC);
-        var reply = reply(wanda, "reply to walt", parent);
-
-        mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.inReplyTo").value(parent.uri().toString()))
                 .andExpect(jsonPath("$.cc", hasItem(walt.uri().toString())));
     }
 
@@ -545,13 +532,8 @@ class WebPagesIntegrationTests {
     void choosesBetweenTheStatusPageAndTheNote() throws Exception {
         var status = post(wanda, "public text", Visibility.PUBLIC);
 
-        for (var accept : new String[]{
-                "application/activity+json",
-                "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
-                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-                "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams https://example.com/other\"",
-                "application/ld+json",
-                "application/activity+json, */*;q=0.1"}) {
+        // The actor document, which declares the same types, is tried with every form of them.
+        for (var accept : new String[]{"application/activity+json", "application/activity+json, */*;q=0.1"}) {
             mockMvc.perform(get(path(wanda, status)).header("Accept", accept))
                     .andExpect(status().isOk())
                     .andExpect(header().stringValues("Vary", hasItem("Accept")))

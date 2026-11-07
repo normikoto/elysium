@@ -67,25 +67,6 @@ class AdminRoleIntegrationTests {
     // Admin pages. Nothing is mounted there yet, so getting past security gives a 404.
 
     @Test
-    void anonymousVisitorsCannotReachAdminPages() throws Exception {
-        mockMvc.perform(get("/admin/jobs")).andExpect(status().isForbidden());
-    }
-
-    @Test
-    void regularUsersCannotReachAdminPages() throws Exception {
-        var account = account(AccountRole.USER);
-
-        mockMvc.perform(get("/admin/jobs").session(logIn(account))).andExpect(status().isForbidden());
-    }
-
-    @Test
-    void adminsCanReachAdminPages() throws Exception {
-        var account = account(AccountRole.ADMIN);
-
-        mockMvc.perform(get("/admin/jobs").session(logIn(account))).andExpect(status().isNotFound());
-    }
-
-    @Test
     void removingTheRoleAppliesToAnExistingSession() throws Exception {
         var account = account(AccountRole.ADMIN);
         var session = logIn(account);

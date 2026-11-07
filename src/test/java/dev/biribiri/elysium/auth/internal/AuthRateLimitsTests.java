@@ -4,6 +4,9 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.ratelimit.ClientAddresses;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -79,23 +82,16 @@ class AuthRateLimitsTests {
         assertThat(limits.beginLogin(login("another", ADDRESS))).isPresent();
     }
 
-    @Test
-    void usernamesThatCantExistOnlyCountAgainstTheAddress() {
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = "not-valid")
+    void missingUsernamesAndOnesThatCantExistOnlyCountAgainstTheAddress(String username) {
         for (var i = 0; i < 20; i++) {
-            assertThat(limits.beginLogin(login("not-valid", ADDRESS))).isEmpty();
+            assertThat(limits.beginLogin(login(username, ADDRESS))).isEmpty();
         }
 
-        assertThat(limits.beginLogin(login("not-valid", ADDRESS))).isPresent();
-        assertThat(limits.beginLogin(login("not-valid", "203.0.113.2"))).isEmpty();
-    }
-
-    @Test
-    void aMissingUsernameOnlyCountsAgainstTheAddress() {
-        for (var i = 0; i < 20; i++) {
-            assertThat(limits.beginLogin(login(null, ADDRESS))).isEmpty();
-        }
-
-        assertThat(limits.beginLogin(login(null, ADDRESS))).isPresent();
+        assertThat(limits.beginLogin(login(username, ADDRESS))).isPresent();
+        assertThat(limits.beginLogin(login(username, "203.0.113.2"))).isEmpty();
     }
 
     @Test
@@ -229,7 +225,7 @@ class AuthRateLimitsTests {
     }
 
     @Test
-    void doesNothingWhenDisabled() {
+    void doesNothingWhenDisabled(CapturedOutput output) {
         var disabled = limits(false, "https://example.com");
 
         for (var i = 0; i < 100; i++) {
@@ -240,6 +236,9 @@ class AuthRateLimitsTests {
         disabled.loginFailed(login("alice", ADDRESS));
         disabled.loginNotCounted(login("alice", ADDRESS));
         disabled.signUpNotCounted(login(null, ADDRESS));
+        disabled.beginLogin(login("alice", "127.0.0.1"));
+
+        assertThat(output).doesNotContain("forward-headers-strategy");
     }
 
     @Test
@@ -280,13 +279,6 @@ class AuthRateLimitsTests {
         for (var baseUrl : new String[]{"http://localhost:8080", "http://127.0.0.1:8080", "http://[::1]:8080"}) {
             limits(true, baseUrl).beginLogin(login("alice", "127.0.0.1"));
         }
-
-        assertThat(output).doesNotContain("forward-headers-strategy");
-    }
-
-    @Test
-    void doesntWarnWhenDisabled(CapturedOutput output) {
-        limits(false, "https://example.com").beginLogin(login("alice", "127.0.0.1"));
 
         assertThat(output).doesNotContain("forward-headers-strategy");
     }

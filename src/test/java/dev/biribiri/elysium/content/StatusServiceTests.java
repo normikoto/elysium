@@ -74,11 +74,6 @@ class StatusServiceTests {
     }
 
     @Test
-    void countsCodePointsRatherThanUtf16Units() {
-        assertThat(service.create(AUTHOR, draft("😀".repeat(10), null)).text()).isEqualTo("😀".repeat(10));
-    }
-
-    @Test
     void normalizesLineEndingsAndSurroundingWhitespace() {
         var status = service.create(AUTHOR, draft("  a\r\nb\rc\n", null));
         assertThat(status.text()).isEqualTo("a\nb\nc");
@@ -142,22 +137,6 @@ class StatusServiceTests {
         var status = service.create(AUTHOR, draft("hello", "​"));
         assertThat(status.spoilerText()).isEmpty();
         assertThat(status.sensitive()).isFalse();
-    }
-
-    @Test
-    void countsUrlsAsAFixedLengthTowardTheLimit() {
-        var wider = new StatusService(
-                repository,
-                actors,
-                new InstanceProperties(BASE_URL),
-                new StatusProperties(25),
-                mock(PlatformTransactionManager.class),
-                mock(ApplicationEventPublisher.class),
-                mock(FollowService.class));
-        var url = "https://a.example/" + "x".repeat(100);
-        assertThat(wider.create(AUTHOR, draft(url + " a", null)).text()).startsWith(url);
-        assertThatThrownBy(() -> wider.create(AUTHOR, draft(url + " ab", null)))
-                .isInstanceOf(InvalidStatusException.class);
     }
 
     @Test

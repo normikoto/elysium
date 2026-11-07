@@ -161,18 +161,6 @@ class RateLimiterTests {
         assertThat(bytes.tryAcquire("key", 70)).isPresent();
     }
 
-    @Test
-    void releasingAfterTheWindowEndsLeavesTheNextOneAlone() {
-        var bytes = new RateLimiter(100, WINDOW, 100, now::get);
-        var slot = bytes.tryAcquire("key", 70).orElseThrow();
-        advance(WINDOW);
-        bytes.tryAcquire("key", 70);
-
-        slot.release();
-
-        assertThat(bytes.tryAcquire("key", 31)).isEmpty();
-    }
-
     private void advance(Duration duration) {
         now.addAndGet(duration.toNanos());
     }

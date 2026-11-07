@@ -241,10 +241,12 @@ class AccountModerationIntegrationTests {
     }
 
     @Test
-    void endsLoginSessionsOfASuspendedAccount() throws Exception {
+    void endsLoginSessionsOfASuspendedAccountEvenAnAdmins() throws Exception {
         var user = newAccount();
+        TestAccounts.makeAdmin(jdbc, user.id());
         var session = TestOAuth.logIn(mockMvc, user.username(), PASSWORD);
         mockMvc.perform(get("/settings/delete-account").session(session)).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/accounts").session(session)).andExpect(status().isOk());
 
         // As a command would, in a process that can't reach sessions.
         accounts.suspend(user.id(), Optional.empty());
@@ -252,19 +254,7 @@ class AccountModerationIntegrationTests {
         mockMvc.perform(get("/settings/delete-account").session(session))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/login"));
-    }
-
-    @Test
-    void endsAnAdminsAccessToAdminPagesWhenSuspended() throws Exception {
-        var other = newAccount();
-        TestAccounts.makeAdmin(jdbc, other.id());
-        var session = TestOAuth.logIn(mockMvc, other.username(), PASSWORD);
-        mockMvc.perform(get("/admin/accounts").session(session)).andExpect(status().isOk());
-
-        accounts.suspend(other.id(), Optional.empty());
-
-        mockMvc.perform(get("/admin/accounts").session(session)
-                        .accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/admin/accounts").session(session).accept(MediaType.TEXT_HTML))
                 .andExpect(redirectedUrl("/login"));
     }
 

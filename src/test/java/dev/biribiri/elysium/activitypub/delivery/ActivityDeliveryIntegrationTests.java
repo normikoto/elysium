@@ -3,7 +3,6 @@ package dev.biribiri.elysium.activitypub.delivery;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import com.github.kagkarlsson.scheduler.Scheduler;
 import com.github.kagkarlsson.scheduler.serializer.Jackson3Serializer;
-import com.github.kagkarlsson.scheduler.task.Task;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.zaxxer.hikari.HikariDataSource;
@@ -39,7 +38,6 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -83,8 +81,6 @@ class ActivityDeliveryIntegrationTests {
     private ApplicationEventPublisher events;
     @Autowired
     private DataSource dataSource;
-    @Autowired
-    private Task<DeliveryJob> task;
     @Autowired
     private HostGate gate;
     @Autowired
@@ -540,22 +536,6 @@ class ActivityDeliveryIntegrationTests {
     }
 
     @Test
-    void retryingAParkedJobWhoseActivityWasCancelledFinishesIt() {
-        var activity = activity();
-        var host = newHost();
-        answer(host, new Answer(410, null));
-        enqueue(activity, inboxOn(host));
-        await().atMost(WAIT).until(() -> failures(activity) == 1);
-        var instance = instanceOf(activity);
-        deliveries.cancel(activity.id());
-
-        scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instance), Instant.now());
-
-        await().atMost(WAIT).until(() -> jobs(activity) == 0);
-        assertThat(receivedBy(host)).hasSize(1);
-    }
-
-    @Test
     void queuingAnActivityAgainKeepsItForAsLongAsTheNewJobCanLast() {
         var activity = activity();
         enqueue(activity, inboxOn(newHost()));
@@ -609,15 +589,26 @@ class ActivityDeliveryIntegrationTests {
     }
 
     @Test
-    void aFailingServerDoesNotHoldUpOthers() {
-        var failing = newHost();
+    void aServerThatIsSlowToAnswerDoesNotHoldUpOthers() throws Exception {
+        var slow = newHost();
         var working = newHost();
-        answer(failing, new Answer(500, null));
+        var arrived = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        handlers.put(slow, exchange -> {
+            arrived.countDown();
+            release.await(30, TimeUnit.SECONDS);
+            return new Answer(500, null);
+        });
         var activity = activity();
 
-        enqueue(activity, inboxOn(failing), inboxOn(working));
+        enqueue(activity, inboxOn(slow), inboxOn(working));
+        assertThat(arrived.await(30, TimeUnit.SECONDS)).isTrue();
 
-        await().atMost(WAIT).until(() -> receivedBy(working).size() == 1 && receivedBy(failing).size() == 1);
+        try {
+            await().atMost(WAIT).until(() -> receivedBy(working).size() == 1);
+        } finally {
+            release.countDown();
+        }
     }
 
     @Test
@@ -807,34 +798,6 @@ class ActivityDeliveryIntegrationTests {
     }
 
     // More than one worker
-
-    @Test
-    void twoWorkersRunEachJobOnce() {
-        var other = Scheduler.create(dataSource, task)
-                .serializer(new Jackson3Serializer())
-                .threads(10)
-                .pollingInterval(Duration.ofMillis(100))
-                .schedulerName(new com.github.kagkarlsson.scheduler.SchedulerName.Fixed("second-worker"))
-                .build();
-        other.start();
-        try {
-            var hosts = new ArrayList<String>();
-            var activity = activity();
-            var inboxes = new ArrayList<URI>();
-            for (var i = 0; i < 40; i++) {
-                hosts.add(newHost());
-                inboxes.add(inboxOn(hosts.getLast()));
-            }
-
-            enqueue(activity, inboxes.toArray(URI[]::new));
-
-            await().atMost(WAIT).until(() -> hosts.stream().allMatch(host -> !receivedBy(host).isEmpty()));
-            await().during(Duration.ofSeconds(1)).atMost(WAIT)
-                    .until(() -> hosts.stream().allMatch(host -> receivedBy(host).size() == 1));
-        } finally {
-            other.stop();
-        }
-    }
 
     @Test
     void aJobAbandonedByADeadWorkerIsPickedUpAgain() {

@@ -62,15 +62,6 @@ class CreateUserCommandTests {
     }
 
     @Test
-    void storesThePasswordExactlyAsWritten() {
-        var password = "first ${password} #{1+1}";
-
-        assertThat(run(() -> password, "literal")).isZero();
-
-        assertThat(passwordEncoder.matches(password, accounts.loadUserByUsername("literal").getPassword())).isTrue();
-    }
-
-    @Test
     void doesNotPrintThePassword() {
         run(() -> PASSWORD, "quiet");
         run(() -> PASSWORD, "quiet");

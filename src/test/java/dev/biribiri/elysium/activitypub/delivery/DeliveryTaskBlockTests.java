@@ -1,7 +1,6 @@
 package dev.biribiri.elysium.activitypub.delivery;
 
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
-import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.SignedSender;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -17,7 +16,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -49,10 +47,5 @@ class DeliveryTaskBlockTests {
         when(blocks.isBlocked("blocked.test")).thenReturn(true);
 
         assertThatCode(() -> task.send(ACTIVITY, Optional.of(actor), INBOX, "blocked.test")).doesNotThrowAnyException();
-    }
-
-    @Test
-    void stillFailsForOtherRefusals() {
-        assertThatThrownBy(() -> task.send(ACTIVITY, Optional.of(actor), INBOX, "blocked.test")).isInstanceOf(PermanentJobFailure.class);
     }
 }

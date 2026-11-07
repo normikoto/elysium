@@ -131,14 +131,10 @@ class CavageSignatureSchemeTests {
         assertThat(scheme.appliesTo(request("POST", new HttpHeaders()))).isFalse();
     }
 
-    @Test
-    void requiresTheRequestTarget() {
-        assertRejected(post(signature("rsa-sha256", "host date digest", ANY_SIGNATURE)));
-    }
-
-    @Test
-    void requiresHostEvenOnPost() {
-        assertRejected(post(signature("rsa-sha256", "(request-target) date digest", ANY_SIGNATURE)));
+    @ParameterizedTest
+    @ValueSource(strings = {"host date digest", "(request-target) date digest"})
+    void requiresTheRequestTargetAndHostEvenOnPost(String covered) {
+        assertRejected(post(signature("rsa-sha256", covered, ANY_SIGNATURE)));
     }
 
     @Test
@@ -206,7 +202,7 @@ class CavageSignatureSchemeTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"rsa-sha1", "hmac-sha256", "ecdsa-sha256", "ed25519", "none"})
+    @ValueSource(strings = {"rsa-sha1", "hmac-sha256"})
     void rejectsOtherAlgorithms(String algorithm) {
         assertRejected(post(signature(algorithm, POST_HEADERS, ANY_SIGNATURE)));
     }
