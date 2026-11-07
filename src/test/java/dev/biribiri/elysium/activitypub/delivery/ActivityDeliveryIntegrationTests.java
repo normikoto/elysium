@@ -599,12 +599,12 @@ class ActivityDeliveryIntegrationTests {
             release.await(30, TimeUnit.SECONDS);
             return new Answer(500, null);
         });
-        var activity = activity();
-
-        enqueue(activity, inboxOn(slow), inboxOn(working));
-        assertThat(arrived.await(30, TimeUnit.SECONDS)).isTrue();
-
         try {
+            enqueue(activity(), inboxOn(slow));
+            assertThat(arrived.await(30, TimeUnit.SECONDS)).isTrue();
+
+            // Queued only once the slow request is held, so that it can't have been sent first by chance.
+            enqueue(activity(), inboxOn(working));
             await().atMost(WAIT).until(() -> receivedBy(working).size() == 1);
         } finally {
             release.countDown();

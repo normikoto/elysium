@@ -245,8 +245,10 @@ class AccountModerationIntegrationTests {
         var user = newAccount();
         TestAccounts.makeAdmin(jdbc, user.id());
         var session = TestOAuth.logIn(mockMvc, user.username(), PASSWORD);
+        // Its own session, because the first request after the suspension ends the other one.
+        var adminSession = TestOAuth.logIn(mockMvc, user.username(), PASSWORD);
         mockMvc.perform(get("/settings/delete-account").session(session)).andExpect(status().isOk());
-        mockMvc.perform(get("/admin/accounts").session(session)).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/accounts").session(adminSession)).andExpect(status().isOk());
 
         // As a command would, in a process that can't reach sessions.
         accounts.suspend(user.id(), Optional.empty());
@@ -254,7 +256,7 @@ class AccountModerationIntegrationTests {
         mockMvc.perform(get("/settings/delete-account").session(session))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/login"));
-        mockMvc.perform(get("/admin/accounts").session(session).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/admin/accounts").session(adminSession).accept(MediaType.TEXT_HTML))
                 .andExpect(redirectedUrl("/login"));
     }
 

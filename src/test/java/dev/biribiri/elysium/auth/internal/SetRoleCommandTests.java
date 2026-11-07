@@ -3,6 +3,7 @@ package dev.biribiri.elysium.auth.internal;
 import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,9 @@ class SetRoleCommandTests {
 
     @Autowired
     private LocalAccounts accounts;
+
+    @Autowired
+    private InstanceProperties instance;
 
     @Autowired
     private JdbcClient jdbc;
@@ -142,6 +146,23 @@ class SetRoleCommandTests {
     @Test
     void refusesAnUnknownUsername() {
         assertThat(run("nobody", "admin")).isOne();
+
+        assertThat(err.toString()).contains("no local account");
+    }
+
+    @Test
+    void refusesANonLocalActor() {
+        var uri = instance.resolve("/users/remote").toString();
+        jdbc.sql("""
+                        INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, public_key_pem)
+                        VALUES (:id, :uri, 'remote', :domain, :uri, :uri, 'key')
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("uri", uri)
+                .param("domain", instance.domain())
+                .update();
+
+        assertThat(run("remote", "admin")).isOne();
 
         assertThat(err.toString()).contains("no local account");
     }
