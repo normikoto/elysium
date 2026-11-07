@@ -85,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The API documentation now describes every endpoint, its parameters, responses, and errors, and how it differs from
   Mastodon, with a link to Mastodon's documentation for it. It also covers the ActivityPub, WebFinger, and NodeInfo
   endpoints.
+- An experimental setting for how background jobs are picked up, which may help with more than one copy of the server. See
+  [Background jobs](docs/configuration.md#background-jobs).
 
 ### Changed
 

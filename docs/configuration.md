@@ -17,6 +17,8 @@ Set these in your `application.properties`:
 | `elysium.federation.inbox-limits.data-per-hour` | Optional. How much data each other server's activities can add up to in an hour, such as `50MB`. It can't be less than `1MB`. Defaults to `20MB`. |
 | `elysium.federation.inbox-limits.exempt-domains` | Optional. A comma-separated list of domains, such as `mastodon.social`, that aren't limited, along with their subdomains. Enter only the domain, with no `https://` or wildcard. A suffix that anyone can register under, such as `co.uk`, isn't allowed. Empty by default. |
 | `elysium.federation.allowed-private-networks` | Optional, and should not normally be set. A comma-separated list of private networks, such as `172.30.0.0/24`, that requests to other servers may reach. Anyone can make the server send requests, so this would let them reach anything on these networks. Only for testing with servers on a private network. |
+| `db-scheduler.polling-strategy` | Optional, and experimental. Set to `LOCK_AND_FETCH` to change how background jobs are picked up, which may help with more than one copy of the server. Defaults to `FETCH`. See [Background jobs](#background-jobs). |
+| `db-scheduler.polling-strategy-upper-limit-fraction-of-threads` | Set to `1.0` along with `LOCK_AND_FETCH`. Leave it unset otherwise. |
 
 You also need to point `spring.datasource.*` at your PostgreSQL database. Migrations run automatically on startup.
 
@@ -29,6 +31,23 @@ A server is counted by its domain, so `a.example.com` and `b.example.com` share 
 that's reaching its limit, add it to `elysium.federation.inbox-limits.exempt-domains` rather than raising the limits for
 every server. These limits don't apply to requests that aren't signed, or whose signature is wrong, which is why a public
 server needs a [reverse proxy that limits them](#reverse-proxies).
+
+## Background jobs
+Sending activities to other servers, and other background work, happens in jobs stored in the database, which any copy of
+the server can pick up. By default, copies sharing a database can try to pick up the same jobs, and all but one have to
+look again. With `LOCK_AND_FETCH`, each copy only picks up jobs no other copy has. This is experimental: it made no
+difference with one copy, and hasn't been tested with more.
+
+To try it, set both:
+```properties
+db-scheduler.polling-strategy=LOCK_AND_FETCH
+db-scheduler.polling-strategy-upper-limit-fraction-of-threads=1.0
+```
+
+Don't leave out the second one. Without it, each copy holds about three times as many jobs as it can run at once, and
+other copies can't run them while it does. If a copy stops, other copies can take a long time to run the jobs it held.
+
+To go back, remove both settings and restart.
 
 ## Reverse proxies
 A public server needs a reverse proxy in front of it, to handle HTTPS, and to limit how many requests each address can
