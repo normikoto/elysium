@@ -30,9 +30,9 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   and they never have `media_attachments`, `mentions`, `tags`, `emojis`, or a `poll`. A reply whose parent isn't stored has a
   null `in_reply_to_id` and `in_reply_to_account_id`.
 - `GET /api/v1/timelines/home` is worked out from the statuses stored here each time, rather than kept as a feed, so it
-  never answers `206`, and an account's stored statuses show as soon as it's followed, older ones too. A reply is only
-  listed when it's to its author, to the user, or to someone they follow, as on Mastodon, and a reply to a status that
-  isn't stored here is left out. `local` has no effect. List and hashtag timelines aren't implemented.
+  never answers `206`, and an account's stored statuses show as soon as it's followed, older ones too. A followed
+  account's reply is only listed when it's to its author, to the user, or to someone they follow, as on Mastodon, and one
+  to a status that isn't stored here is left out. The user's own replies are always listed. `local` has no effect. List and hashtag timelines aren't implemented.
 - `GET /api/v1/timelines/public` lists public statuses from other servers too, as on Mastodon. With both `local` and
   `remote`, `local` wins.
 

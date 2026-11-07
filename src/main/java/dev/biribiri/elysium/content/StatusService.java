@@ -282,10 +282,10 @@ public class StatusService {
     }
 
     /**
-     * Lists a viewer's own statuses, and those of the accounts they follow that they can see. Direct statuses from others
-     * aren't stored yet, so they're left out. As on Mastodon, a reply is only listed when it's to its author, to the
-     * viewer, or to someone they follow, so that following one person doesn't show their side of every conversation. A
-     * reply to a status that isn't stored here has no known parent author, so it's left out too.
+     * Lists all of a viewer's own statuses, and those of the accounts they follow that they can see. Direct statuses from
+     * others aren't stored yet, so they're left out. As on Mastodon, a followed account's reply is only listed when it's to
+     * its author, to the viewer, or to someone they follow, so that following one person doesn't show their side of every
+     * conversation. A reply to a status that isn't stored here has no known parent author, so it's left out too.
      *
      * @param followedIds the accounts the viewer follows
      */

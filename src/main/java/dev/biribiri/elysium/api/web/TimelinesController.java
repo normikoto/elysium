@@ -49,12 +49,13 @@ public class TimelinesController {
                     Differences from Mastodon: the timeline is read from the statuses stored here each time, rather than \
                     from a feed kept for each user, so it never answers `206`, and a newly followed account's stored \
                     statuses show straight away, including older ones. Statuses from other servers are only those sent \
-                    here since the follow was accepted, or before it if someone else here follows the author. A reply to a \
-                    status that isn't stored here is left out, since who it's replying to isn't known. `local` has no \
+                    here since the follow was accepted, or before it if someone else here follows the author. A followed \
+                    account's reply to a status that isn't stored here is left out, since who it's replying to isn't known. `local` has no \
                     effect.
 
-                    Lists the user's own statuses, and the public, unlisted, and followers-only statuses of accounts they \
-                    follow. A reply is only listed when it's to its author, to the user, or to an account they follow.
+                    Lists all of the user's own statuses, and the public, unlisted, and followers-only statuses of \
+                    accounts they follow. A followed account's reply is only listed when it's to its author, to the user, \
+                    or to an account they follow.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#home"),

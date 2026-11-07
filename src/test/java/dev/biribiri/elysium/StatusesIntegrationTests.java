@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.StatusDeleted;
@@ -27,6 +28,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +36,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -640,6 +643,26 @@ class StatusesIntegrationTests {
 
         follow(aliceId(), actorId("grace"), "accepted");
         expectIds(withToken(get(HOME), alice()), toGrace, toViewer, toSelf, graceStatus, bobStatus, aliceStatus);
+    }
+
+    @Test
+    void homeTimelineHasAllOfTheViewersOwnReplies() throws Exception {
+        var stranger = create(token("heidi", "read write"), "Not followed");
+        var reply = create(alice(), "Reply to a stranger", "public", stranger);
+
+        expectIds(withToken(get(HOME), alice()), reply);
+    }
+
+    @Test
+    void homeTimelineHandlesManyFollows() throws Exception {
+        var bobStatus = create(bob(), "Bob");
+        var bob = UUID.fromString(bobId());
+        var followed = new ArrayList<UUID>(Stream.generate(UUID::randomUUID).limit(40_000).toList());
+        followed.add(bob);
+
+        assertThat(statuses.findHome(UUID.fromString(aliceId()), followed, new StatusPage(20, null, null, null)))
+                .extracting(status -> status.id().toString())
+                .containsExactly(bobStatus);
     }
 
     @Test
