@@ -24,8 +24,13 @@ class JobsConfig {
      * own pool otherwise, whatever {@code spring.threads.virtual.enabled} says. They're still in a fixed-size pool, because
      * that's the only thing limiting how many jobs run at once: the library fetches several times this many, and hands them
      * all to the executor.
+     *
+     * <p>This is the deprecated way to set these, rather than {@code DbSchedulerOverrides}, because db-scheduler-ui 5.0.0
+     * reads the serializer from it to show job data, and fails to start without one. Move to the overrides once the UI
+     * supports them.
      */
     @Bean
+    @SuppressWarnings("removal")
     DbSchedulerCustomizer jobSchedulerCustomizer(@Value("${db-scheduler.threads}") int threads) {
         return new DbSchedulerCustomizer() {
             @Override
