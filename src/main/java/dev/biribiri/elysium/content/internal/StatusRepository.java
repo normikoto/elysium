@@ -173,6 +173,20 @@ public class StatusRepository {
                 .update() == 1;
     }
 
+    public boolean isPublicRemote(URI uri, URI actorUri) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM status s JOIN actor a ON a.id = s.actor_id
+                            WHERE s.uri = :uri AND a.uri = :actorUri AND NOT a.is_local
+                              AND s.visibility IN ('public', 'unlisted')
+                        )
+                        """)
+                .param("uri", uri.toString())
+                .param("actorUri", actorUri.toString())
+                .query(Boolean.class)
+                .single();
+    }
+
     public boolean existsByUri(URI uri) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM status WHERE uri = :uri)")
                 .param("uri", uri.toString())
@@ -234,8 +248,8 @@ public class StatusRepository {
     }
 
     /**
-     * Removes all of an actor's statuses and tombstones. Each batch commits by itself, so that removing a lot of them doesn't
-     * hold one long transaction.
+     * Removes all of an actor's statuses and tombstones, and the deletions remembered for it. Each batch commits by itself,
+     * so that removing a lot of them doesn't hold one long transaction.
      */
     public void removeAllBy(UUID actorId) {
         int removed;
@@ -249,11 +263,17 @@ public class StatusRepository {
                     .update();
         } while (removed == REMOVAL_BATCH_SIZE);
         jdbc.sql("DELETE FROM status_tombstone WHERE actor_id = :actorId").param("actorId", actorId).update();
+        jdbc.sql("""
+                        DELETE FROM deleted_remote_status d USING actor a
+                        WHERE a.id = :actorId AND NOT a.is_local AND d.actor_uri = a.uri
+                        """)
+                .param("actorId", actorId)
+                .update();
     }
 
     /**
-     * Removes the statuses of every remote actor on a domain, in batches like {@link #removeAllBy}. Remote statuses have no
-     * tombstones.
+     * Removes the statuses of every remote actor on a domain, in batches like {@link #removeAllBy}, and the deletions remembered for
+     * them. Remote statuses have no tombstones.
      *
      * @param domain a domain as {@code actor.domain} has it
      */
@@ -273,6 +293,12 @@ public class StatusRepository {
                     .param("limit", REMOVAL_BATCH_SIZE)
                     .update();
         } while (removed == REMOVAL_BATCH_SIZE);
+        jdbc.sql("""
+                        DELETE FROM deleted_remote_status d USING actor a
+                        WHERE a.domain = :domain AND NOT a.is_local AND d.actor_uri = a.uri
+                        """)
+                .param("domain", domain)
+                .update();
     }
 
     public void insertTombstone(Status status, Instant deletedAt) {

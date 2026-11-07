@@ -5,6 +5,7 @@ import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,12 +32,19 @@ class DeletionChecks {
     private final ActivityDocuments documents;
     private final DomainBlocks blocks;
     private final Deletions deletions;
+    private final StatusService statuses;
 
-    DeletionChecks(SchedulerClient scheduler, ActivityDocuments documents, DomainBlocks blocks, Deletions deletions) {
+    DeletionChecks(
+            SchedulerClient scheduler,
+            ActivityDocuments documents,
+            DomainBlocks blocks,
+            Deletions deletions,
+            StatusService statuses) {
         this.scheduler = scheduler;
         this.documents = documents;
         this.blocks = blocks;
         this.deletions = deletions;
+        this.statuses = statuses;
     }
 
     /**
@@ -51,8 +59,9 @@ class DeletionChecks {
     }
 
     /**
-     * Fetches the object, and deletes it here if its server says it's gone, with a 404, a 410, or a {@code Tombstone}. This
-     * has to be called with no transaction open, because it waits on another server.
+     * Fetches the object, and deletes it here if its server says it's gone, with a {@code Tombstone}, or with a 404 or a 410
+     * for the actor or for a status that anyone could see. This has to be called with no transaction open, because it waits
+     * on another server.
      *
      * @param object an object on the actor's server
      * @throws IllegalStateException if the object's server couldn't be reached, which is worth trying again
@@ -76,6 +85,12 @@ class DeletionChecks {
             }
             if (!e.isGone()) {
                 log.debug("Ignoring a Delete of {}, which couldn't be checked: {}", object, e.getMessage());
+                return;
+            }
+            // Servers such as Mastodon answer the instance actor with a 404 for a followers-only status too, so that only
+            // shows a status is gone if anyone could have fetched it. Otherwise anyone could forward a Delete of one.
+            if (!object.equals(actor) && !statuses.isPublicRemote(object, actor)) {
+                log.debug("Ignoring a Delete of {}, which its server might only be hiding", object);
                 return;
             }
         }

@@ -113,27 +113,28 @@ public class Inbox {
     }
 
     /**
-     * Takes an actor's {@code Delete} of itself whose signature couldn't be checked, because the key went with the actor,
-     * as it does on Mastodon. Since anyone could send this, nothing in it is trusted: it only queues a check that the actor's
-     * own server says the actor is gone. That's only for actors stored here, so the check can't be aimed at any other URL.
+     * Takes an actor's {@code Delete} of itself whose signature wasn't accepted: because its key went with it, as on
+     * Mastodon, or because it's suspended here, which would otherwise keep its statuses stored for good. Since anyone could
+     * send this, nothing in it is trusted: it only queues a check that the actor's own server says the actor is gone. That's
+     * only for actors stored here and not already deleted, so the check can't be aimed at any other URL.
      *
-     * @param keyDocument the document that the signature's key was in, which has to be the actor's
+     * @param actor the actor that the signature's key was taken to be, which has to be the {@code Delete}'s
      * @return the result, or empty if this isn't such a {@code Delete}, and the signature should be refused
      */
-    public Optional<Result> receiveWithGoneKey(URI keyDocument, byte[] body) {
+    public Optional<Result> receiveUnverifiedDelete(URI actor, byte[] body) {
         var envelope = ActivityEnvelope.parse(body, json);
         if (envelope.isEmpty()
                 || !"Delete".equals(envelope.get().type())
-                || !keyDocument.toString().equals(envelope.get().actor())
-                || !DeleteHandler.objectOf(envelope.get().body(), json).equals(Optional.of(keyDocument))
-                || blocks.isBlocked(keyDocument.getHost())) {
+                || !actor.toString().equals(envelope.get().actor())
+                || !DeleteHandler.objectOf(envelope.get().body(), json).equals(Optional.of(actor))
+                || blocks.isBlocked(actor.getHost())) {
             return Optional.empty();
         }
-        var actor = actors.findByUri(keyDocument).filter(found -> found.isActive() && !actors.isLocal(found));
-        if (actor.isEmpty()) {
+        var stored = actors.findByUri(actor).filter(found -> !found.isDeleted() && !actors.isLocal(found));
+        if (stored.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(admitted(keyDocument, body.length, () -> deletions.queue(keyDocument, keyDocument), Outcome.ACCEPTED));
+        return Optional.of(admitted(actor, body.length, () -> deletions.queue(actor, actor), Outcome.ACCEPTED));
     }
 
     /**

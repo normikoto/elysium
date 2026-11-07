@@ -271,6 +271,14 @@ public class StatusService {
     }
 
     /**
+     * Whether this actor has a stored remote status with this URI that anyone could see, which its server would show to
+     * anyone who asks.
+     */
+    public boolean isPublicRemote(URI uri, URI authorUri) {
+        return statuses.isPublicRemote(uri, authorUri);
+    }
+
+    /**
      * Removes all of an account's statuses, for when it's being deleted. No {@link StatusDeleted} is published for them,
      * because other servers are told about the account instead, which covers its statuses.
      */

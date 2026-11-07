@@ -26,12 +26,18 @@ public class SignatureVerificationException extends RuntimeException {
         return new SignatureVerificationException(Failure.KEY_GONE, message, keyDocument);
     }
 
+    static SignatureVerificationException suspended(URI actor, String message) {
+        return new SignatureVerificationException(Failure.ACTOR_SUSPENDED, message, actor);
+    }
+
     public Failure failure() {
         return failure;
     }
 
     /**
-     * @return for {@link Failure#KEY_GONE}, the document the key was in, which is usually its actor's, and otherwise empty
+     * @return for {@link Failure#KEY_GONE}, the document the key was in, which is usually its actor's, for
+     * {@link Failure#ACTOR_SUSPENDED}, the actor that's refused, and otherwise empty. Either way, that actor's own
+     * {@code Delete} can still be checked with its server.
      */
     public Optional<URI> keyDocument() {
         return Optional.ofNullable(keyDocument);

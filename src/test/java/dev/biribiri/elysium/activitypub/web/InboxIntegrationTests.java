@@ -415,6 +415,18 @@ class InboxIntegrationTests {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void acceptsASuspendedActorsOwnDeleteForChecking() throws Exception {
+        var suspended = goneRemote();
+        actors.suspend(actors.findByUri(suspended).orElseThrow().id());
+        var body = "{\"id\":\"%s#delete\",\"type\":\"Delete\",\"actor\":\"%s\",\"object\":\"%s\"}"
+                .formatted(suspended, suspended, suspended);
+
+        send(signedAs(suspended + "#main-key", body)).andExpect(status().isAccepted());
+        send(signedAs(suspended + "#main-key", activity(suspended + "/activities/1", suspended.toString())))
+                .andExpect(status().isForbidden());
+    }
+
     /**
      * @return a stored remote actor whose server now answers that its key is gone
      */

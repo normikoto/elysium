@@ -424,11 +424,14 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
   `403` for deliveries signed with its key, even if its server later gives the URI to a new actor. A `Delete` of an actor
   that isn't stored is ignored.
 - **Checked with the object's server:** when a `Delete` can't be shown to come from its actor, its `object` is fetched,
-  signed as the [instance actor](#instance-actor), and it's only acted on if that answers `404` or `410`, or serves a
-  `Tombstone` with the same `id`. A server error or timeout is tried again later. This is done for a forwarded `Delete` that
-  its origin doesn't serve, and for a `Delete` of an actor by itself whose key now answers `404` or `410`, as Mastodon's do.
-  Without that, a request whose key can't be fetched gets a `401`. That `Delete` is answered with a `202`, but only if the
-  actor is stored here, and otherwise it gets the `401`.
+  signed as the [instance actor](#instance-actor), and it's only acted on if that serves a `Tombstone` with the same `id`,
+  or answers `404` or `410` for an actor, or for a public or unlisted status that's stored here. Servers give the same answer
+  for a followers-only status they won't show the instance actor, so a `404` or `410` doesn't remove one, or keep a status
+  that isn't stored yet from being stored. A server error or timeout is tried again later. This is done for a forwarded
+  `Delete` that its origin doesn't serve, and for a `Delete` of an actor by itself whose signature isn't accepted: because
+  its key now answers `404` or `410`, as Mastodon's do, or because the actor is [suspended](#suspended-and-deleted-accounts)
+  here. Such a `Delete` is answered with a `202`, but only if the actor is stored here and not already deleted. Otherwise it
+  gets the `401` or `403` it would have.
 
 ### Notable differences
 
@@ -482,7 +485,7 @@ A suspended account's actor document has no profile: no `name`, `summary`, `icon
   on another server that it follows, or has asked to follow, also gets an `Undo` of the `Follow`, the same as for
   [unfollowing](#following-other-actors).
 - **Suspending a remote actor:** A delivery signed with its key gets a `403`, and its activities are refused, including any
-  still queued. Its document isn't fetched or refreshed. Its follows are removed, and aren't restored if the suspension ends, so
+  still queued, apart from its own `Delete` of itself, which is [checked with its server](#receiving-deletes). Its document isn't fetched or refreshed. Its follows are removed, and aren't restored if the suspension ends, so
   it would have to follow again. Nothing more is sent to its personal inbox, but a shared inbox still gets activities for
   other followers. Its stored statuses stop being shown, and come back if the suspension ends. Its own server isn't told. Only
   an actor that's already stored can be suspended.

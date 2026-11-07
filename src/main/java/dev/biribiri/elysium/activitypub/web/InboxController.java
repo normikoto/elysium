@@ -137,9 +137,9 @@ class InboxController {
             var signer = verifier.verify(data, budgets.forAddress(address));
             return respond(inbox.receive(signer, body));
         } catch (SignatureVerificationException e) {
-            var withGoneKey = e.keyDocument().flatMap(document -> inbox.receiveWithGoneKey(document, body));
-            if (withGoneKey.isPresent()) {
-                return respond(withGoneKey.get());
+            var unverified = e.keyDocument().flatMap(actor -> inbox.receiveUnverifiedDelete(actor, body));
+            if (unverified.isPresent()) {
+                return respond(unverified.get());
             }
             log.debug("Refusing a delivery: {}", e.getMessage());
             var response = ResponseEntity.status(e.failure().status());

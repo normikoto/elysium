@@ -7,6 +7,7 @@ import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
@@ -86,7 +87,7 @@ public class SignatureVerifier {
         }
         // Most servers' key IDs lead to the actor's own document, so this usually avoids fetching a suspended actor's key.
         if (!keyId.local() && actors.isInactive(keyId.document())) {
-            throw suspended(claim.keyId());
+            throw suspended(keyId.document(), claim.keyId());
         }
         var key = keys.resolve(keyId, budget);
         if (!matches(claim, key)) {
@@ -97,7 +98,7 @@ public class SignatureVerifier {
                             Failure.REJECTED, "Signature doesn't match the key " + claim.keyId()));
         }
         if (!keyId.local() && actors.isInactive(key.owner())) {
-            throw suspended(claim.keyId());
+            throw suspended(key.owner(), claim.keyId());
         }
         return new VerifiedSignature(key.keyId(), key.owner());
     }
@@ -120,8 +121,8 @@ public class SignatureVerifier {
         return claim.algorithm().verify(key.key(), claim.signatureBase(), claim.signature());
     }
 
-    private static SignatureVerificationException suspended(String keyId) {
-        return new SignatureVerificationException(Failure.ACTOR_SUSPENDED, "Key belongs to a suspended or deleted actor: " + keyId);
+    private static SignatureVerificationException suspended(URI actor, String keyId) {
+        return SignatureVerificationException.suspended(actor, "Key belongs to a suspended or deleted actor: " + keyId);
     }
 
     private static SignatureVerificationException expired(String message) {

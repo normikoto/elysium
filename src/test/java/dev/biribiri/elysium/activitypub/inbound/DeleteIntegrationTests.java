@@ -197,6 +197,17 @@ class DeleteIntegrationTests {
     }
 
     @Test
+    void aCheckKeepsAFollowersOnlyStatusThatItsServerWontShow() throws Exception {
+        var status = stored(author);
+        jdbc.sql("UPDATE status SET visibility = 'private' WHERE uri = :uri").param("uri", status).update();
+        when(documents.fetch(URI.create(status))).thenThrow(DocumentFetchException.gone("not found"));
+
+        checks.confirm(URI.create(status), author.uri());
+
+        assertThat(exists(status)).isTrue();
+    }
+
+    @Test
     void aCheckIsRetriedWhenTheServerCantBeReached() throws Exception {
         var status = stored(author);
         when(documents.fetch(URI.create(status))).thenThrow(DocumentFetchException.temporary("down", null));
@@ -242,7 +253,7 @@ class DeleteIntegrationTests {
 
     @Test
     void anActorsOwnDeleteWithAGoneKeyQueuesACheck() {
-        var result = inbox.receiveWithGoneKey(author.uri(), bytes(delete(author, "\"" + author.uri() + "\"")));
+        var result = inbox.receiveUnverifiedDelete(author.uri(), bytes(delete(author, "\"" + author.uri() + "\"")));
 
         assertThat(result).map(Inbox.Result::outcome).contains(Inbox.Outcome.ACCEPTED);
         assertThat(checkJobs(author.uri())).isOne();
@@ -250,14 +261,38 @@ class DeleteIntegrationTests {
     }
 
     @Test
+    void aSuspendedActorsOwnDeleteIsCheckedAndThenDeletesIt() throws Exception {
+        var status = stored(author);
+        actors.suspend(author.id());
+        when(documents.fetch(author.uri())).thenThrow(DocumentFetchException.gone("gone"));
+
+        var result = inbox.receiveUnverifiedDelete(author.uri(), bytes(delete(author, "\"" + author.uri() + "\"")));
+        checks.confirm(author.uri(), author.uri());
+
+        assertThat(result).map(Inbox.Result::outcome).contains(Inbox.Outcome.ACCEPTED);
+        assertThat(checkJobs(author.uri())).isOne();
+        assertThat(actors.findById(author.id()).orElseThrow().isDeleted()).isTrue();
+        // The account cleanup job removes it, and it isn't running here.
+        assertThat(exists(status)).isTrue();
+    }
+
+    @Test
+    void aDeletedActorsDeleteIsntCheckedAgain() {
+        actors.markRemoteDeleted(author.id());
+
+        assertThat(inbox.receiveUnverifiedDelete(author.uri(), bytes(delete(author, "\"" + author.uri() + "\"")))).isEmpty();
+        assertThat(checkJobs(author.uri())).isZero();
+    }
+
+    @Test
     void aGoneKeyIsRefusedForAnythingElse() {
         var status = stored(author);
         var unknown = URI.create("https://" + host + "/users/" + UUID.randomUUID());
 
-        assertThat(inbox.receiveWithGoneKey(author.uri(), bytes(delete(author, "\"" + status + "\"")))).isEmpty();
-        assertThat(inbox.receiveWithGoneKey(neighbour.uri(), bytes(delete(author, "\"" + author.uri() + "\"")))).isEmpty();
-        assertThat(inbox.receiveWithGoneKey(unknown, bytes(delete(unknown, "\"" + unknown + "\"")))).isEmpty();
-        assertThat(inbox.receiveWithGoneKey(author.uri(), bytes(create(author, status)))).isEmpty();
+        assertThat(inbox.receiveUnverifiedDelete(author.uri(), bytes(delete(author, "\"" + status + "\"")))).isEmpty();
+        assertThat(inbox.receiveUnverifiedDelete(neighbour.uri(), bytes(delete(author, "\"" + author.uri() + "\"")))).isEmpty();
+        assertThat(inbox.receiveUnverifiedDelete(unknown, bytes(delete(unknown, "\"" + unknown + "\"")))).isEmpty();
+        assertThat(inbox.receiveUnverifiedDelete(author.uri(), bytes(create(author, status)))).isEmpty();
         assertThat(checkJobs(author.uri())).isZero();
         assertThat(checkJobs(unknown)).isZero();
     }
