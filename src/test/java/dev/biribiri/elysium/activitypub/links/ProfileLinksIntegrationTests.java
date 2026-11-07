@@ -98,7 +98,7 @@ class ProfileLinksIntegrationTests {
     private void page(String uri, String html) throws IOException {
         when(http.get(eq(URI.create(uri)), anyString(), any())).thenReturn(new FederationHttpClient.Response(
                 200, "text/html", null, ("<!doctype html><html><head></head><body>" + html + "</body></html>")
-                .getBytes(StandardCharsets.UTF_8)));
+                .getBytes(StandardCharsets.UTF_8), null));
     }
 
     private void redirect(String uri, String location) throws IOException {

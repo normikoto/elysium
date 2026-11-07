@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.Profile;
+import dev.biribiri.elysium.actor.ProfileField;
 import dev.biribiri.elysium.actor.ProfileImage;
 import dev.biribiri.elysium.content.AccountStats;
 import dev.biribiri.elysium.graph.FollowCounts;
@@ -67,6 +68,11 @@ record AccountResponse(
      */
     @Schema(name = "Field")
     record Field(String name, String value, @JsonProperty("verified_at") String verifiedAt) {
+
+        static Field of(ProfileField field, String value) {
+            return new Field(
+                    field.name(), value, field.verifiedAt() == null ? null : ApiTimestamps.format(field.verifiedAt()));
+        }
     }
 
     /**
@@ -108,12 +114,7 @@ record AccountResponse(
                         ? null
                         : LocalDate.ofInstant(stats.lastStatusAt(), ZoneOffset.UTC).toString(),
                 List.of(),
-                shown.fields().stream()
-                        .map(field -> new Field(
-                                field.name(),
-                                field.valueHtml(),
-                                field.verifiedAt() == null ? null : field.verifiedAt().toString()))
-                        .toList(),
+                shown.fields().stream().map(field -> Field.of(field, field.valueHtml())).toList(),
                 hideCollections);
     }
 

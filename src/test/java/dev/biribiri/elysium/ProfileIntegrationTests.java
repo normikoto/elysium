@@ -17,7 +17,6 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 
-import java.io.IOException;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
@@ -208,14 +207,14 @@ class ProfileIntegrationTests {
 
     @Test
     void uploadsReplacesAndRemovesImages() throws Exception {
-        var first = uploadAvatar(png(64, 64));
+        var first = uploadAvatar(TestImages.png(64, 64));
         assertThat(first).startsWith("https://profiles.example/media/").endsWith(".webp");
         mockMvc.perform(get(URI.create(first).getPath()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType("image/webp"))
                 .andExpect(header().string("Cache-Control", containsString("immutable")));
 
-        var second = uploadAvatar(png(32, 32));
+        var second = uploadAvatar(TestImages.png(32, 32));
         assertThat(second).isNotEqualTo(first);
         mockMvc.perform(get(URI.create(first).getPath())).andExpect(status().isNotFound());
 
@@ -281,7 +280,7 @@ class ProfileIntegrationTests {
                         .param("fields_attributes[0][name]", "Site")
                         .param("fields_attributes[0][value]", "https://alice.example"))
                 .andExpect(status().isOk());
-        uploadAvatar(png(10, 10));
+        uploadAvatar(TestImages.png(10, 10));
 
         mockMvc.perform(get("/users/alice").accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
@@ -330,7 +329,7 @@ class ProfileIntegrationTests {
                 .andExpect(content().string(containsString("name=\"displayName\"")))
                 .andExpect(content().string(containsString("Fields (up to 2)")));
 
-        mockMvc.perform(multipart("/settings").file(new MockMultipartFile("avatar", "a.png", "image/png", png(20, 20)))
+        mockMvc.perform(multipart("/settings").file(new MockMultipartFile("avatar", "a.png", "image/png", TestImages.png(20, 20)))
                         .session(session).with(csrf())
                         .param("displayName", "Alice, from the page")
                         .param("note", "Bio")
@@ -369,10 +368,6 @@ class ProfileIntegrationTests {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.avatar");
-    }
-
-    private static byte[] png(int width, int height) throws IOException {
-        return TestImages.png(width, height);
     }
 
     private Actor account(String username) throws Exception {

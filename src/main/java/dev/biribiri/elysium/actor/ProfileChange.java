@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.actor;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -31,6 +32,17 @@ public record ProfileChange(
         public NewField {
             Objects.requireNonNull(name);
             Objects.requireNonNull(value);
+        }
+
+        /**
+         * Pairs names and values sent as two lists, as forms send them. The shorter list is padded with empty strings.
+         */
+        public static List<NewField> zip(List<String> names, List<String> values) {
+            var fields = new ArrayList<NewField>();
+            for (var i = 0; i < Math.max(names.size(), values.size()); i++) {
+                fields.add(new NewField(i < names.size() ? names.get(i) : "", i < values.size() ? values.get(i) : ""));
+            }
+            return fields;
         }
     }
 

@@ -8,9 +8,6 @@ import dev.biribiri.elysium.actor.Profile;
 import dev.biribiri.elysium.actor.ProfileImage;
 
 import java.net.URI;
-import java.time.Instant;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -99,8 +96,8 @@ public record Person(
                         : profile.fields().stream()
                         .map(field -> new PropertyValue("PropertyValue", field.name(), field.valueHtml()))
                         .toList(),
-                time(actor.createdAt()),
-                time(profile.updatedAt()),
+                ActivityStreams.time(actor.createdAt()),
+                ActivityStreams.time(profile.updatedAt()),
                 null);
     }
 
@@ -109,41 +106,19 @@ public record Person(
      * saying this, and so that the actor is still there to come back. Its profile isn't shown, as Mastodon does.
      */
     public static Person suspended(Actor actor, InstanceProperties instance) {
-        return new Person(
-                ActivityStreams.SUSPENDED_ACTOR_CONTEXT,
-                actor.uri(),
-                "Person",
-                actor.username(),
-                null,
-                null,
-                actor.uri(),
-                actor.inboxUri(),
-                actor.outboxUri(),
-                followersOf(actor),
-                followingOf(actor),
-                new Endpoints(instance.sharedInboxUri()),
-                new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
-                null,
-                null,
-                null,
-                time(actor.createdAt()),
-                null,
-                true);
-    }
-
-    /**
-     * Whole seconds, as {@link Note} has, since some servers can't read fractions.
-     */
-    private static String time(Instant instant) {
-        return instant == null ? null : DateTimeFormatter.ISO_INSTANT.format(instant.truncatedTo(ChronoUnit.SECONDS));
+        return from(actor, Profile.EMPTY, instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, true);
     }
 
     /**
      * This document as part of an activity, which has the {@code @context} for both.
      */
     Person withoutContext() {
+        return with(null, suspended);
+    }
+
+    private Person with(List<?> context, Boolean suspended) {
         return new Person(
-                null, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, endpoints,
+                context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, endpoints,
                 publicKey, icon, image, attachment, published, updated, suspended);
     }
 }

@@ -14,8 +14,4 @@ public record StoredImage(String name, String staticName) {
         Objects.requireNonNull(name);
         Objects.requireNonNull(staticName);
     }
-
-    public boolean isAnimated() {
-        return !name.equals(staticName);
-    }
 }

@@ -75,11 +75,7 @@ class SettingsController {
         var note = form.getFirst("note");
         var names = form.getOrDefault("fieldName", List.of());
         var values = form.getOrDefault("fieldValue", List.of());
-        var fields = new ArrayList<ProfileChange.NewField>();
-        for (var i = 0; i < Math.max(names.size(), values.size()); i++) {
-            fields.add(new ProfileChange.NewField(
-                    i < names.size() ? names.get(i) : "", i < values.size() ? values.get(i) : ""));
-        }
+        var fields = ProfileChange.NewField.zip(names, values);
         var hideCollections = "true".equals(form.getFirst("hideCollections"));
         // Only what the form has a control for is changed, as a form with no rows for fields has none to send.
         var change = ProfileChange.NONE

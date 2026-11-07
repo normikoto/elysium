@@ -235,10 +235,6 @@ public class FederationHttpClient implements AutoCloseable {
      */
     public record Response(int status, String contentType, String retryAfter, byte[] body, String location) {
 
-        public Response(int status, String contentType, String retryAfter, byte[] body) {
-            this(status, contentType, retryAfter, body, null);
-        }
-
         /**
          * @return how long the {@code Retry-After} header asks this server to wait, in either of its forms. This is zero if
          * it doesn't say, and can be negative if it gives a time in the past.

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.actor.internal;
 
+import dev.biribiri.elysium.media.StoredImage;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -17,21 +18,23 @@ import java.util.UUID;
 public class ProfileRepository {
 
     /**
-     * Image columns are file names in the media directory.
+     * @param avatar null if there isn't one
+     * @param header null if there isn't one
      */
     public record Row(
             UUID actorId,
             String displayName,
             String note,
-            String avatar,
-            String avatarStatic,
-            String header,
-            String headerStatic,
+            StoredImage avatar,
+            StoredImage header,
             Instant updatedAt) {
     }
 
     public record FieldRow(UUID actorId, int position, String name, String value, Instant verifiedAt) {
     }
+
+    private static final String COLUMNS =
+            "actor_id, display_name, note, avatar, avatar_static, header, header_static, updated_at";
 
     private final JdbcClient jdbc;
 
@@ -43,10 +46,7 @@ public class ProfileRepository {
         if (actorIds.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql("""
-                        SELECT actor_id, display_name, note, avatar, avatar_static, header, header_static, updated_at
-                        FROM profile WHERE actor_id IN (:ids)
-                        """)
+        return jdbc.sql("SELECT " + COLUMNS + " FROM profile WHERE actor_id IN (:ids)")
                 .param("ids", actorIds)
                 .query(ProfileRepository::row)
                 .list();
@@ -78,10 +78,7 @@ public class ProfileRepository {
         jdbc.sql("INSERT INTO profile (actor_id) VALUES (:actorId) ON CONFLICT DO NOTHING")
                 .param("actorId", actorId)
                 .update();
-        return jdbc.sql("""
-                        SELECT actor_id, display_name, note, avatar, avatar_static, header, header_static, updated_at
-                        FROM profile WHERE actor_id = :actorId FOR UPDATE
-                        """)
+        return jdbc.sql("SELECT " + COLUMNS + " FROM profile WHERE actor_id = :actorId FOR UPDATE")
                 .param("actorId", actorId)
                 .query(ProfileRepository::row)
                 .single();
@@ -101,10 +98,10 @@ public class ProfileRepository {
                 .param("actorId", row.actorId())
                 .param("displayName", row.displayName())
                 .param("note", row.note())
-                .param("avatar", row.avatar())
-                .param("avatarStatic", row.avatarStatic())
-                .param("header", row.header())
-                .param("headerStatic", row.headerStatic())
+                .param("avatar", row.avatar() == null ? null : row.avatar().name())
+                .param("avatarStatic", row.avatar() == null ? null : row.avatar().staticName())
+                .param("header", row.header() == null ? null : row.header().name())
+                .param("headerStatic", row.header() == null ? null : row.header().staticName())
                 .query(OffsetDateTime.class)
                 .single()
                 .toInstant();
@@ -150,10 +147,7 @@ public class ProfileRepository {
      * @return what it had, for removing its images
      */
     public Optional<Row> delete(UUID actorId) {
-        return jdbc.sql("""
-                        DELETE FROM profile WHERE actor_id = :actorId
-                        RETURNING actor_id, display_name, note, avatar, avatar_static, header, header_static, updated_at
-                        """)
+        return jdbc.sql("DELETE FROM profile WHERE actor_id = :actorId RETURNING " + COLUMNS)
                 .param("actorId", actorId)
                 .query(ProfileRepository::row)
                 .optional();
@@ -164,11 +158,13 @@ public class ProfileRepository {
                 rs.getObject("actor_id", UUID.class),
                 rs.getString("display_name"),
                 rs.getString("note"),
-                rs.getString("avatar"),
-                rs.getString("avatar_static"),
-                rs.getString("header"),
-                rs.getString("header_static"),
+                image(rs.getString("avatar"), rs.getString("avatar_static")),
+                image(rs.getString("header"), rs.getString("header_static")),
                 instant(rs.getObject("updated_at", OffsetDateTime.class)));
+    }
+
+    private static StoredImage image(String name, String staticName) {
+        return name == null ? null : new StoredImage(name, staticName);
     }
 
     private static Instant instant(OffsetDateTime time) {

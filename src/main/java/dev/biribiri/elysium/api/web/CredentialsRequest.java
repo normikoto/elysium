@@ -73,13 +73,9 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections) {
         });
         if (!indexed.isEmpty() || !listed.isEmpty()) {
             var fields = new ArrayList<Object>(indexed.values());
-            var names = listed.getOrDefault("name", List.of());
-            var fieldValues = listed.getOrDefault("value", List.of());
-            for (var i = 0; i < Math.max(names.size(), fieldValues.size()); i++) {
-                var entry = new LinkedHashMap<String, Object>();
-                entry.put("name", i < names.size() ? names.get(i) : "");
-                entry.put("value", i < fieldValues.size() ? fieldValues.get(i) : "");
-                fields.add(entry);
+            for (var field : ProfileChange.NewField.zip(
+                    listed.getOrDefault("name", List.of()), listed.getOrDefault("value", List.of()))) {
+                fields.add(Map.of("name", field.name(), "value", field.value()));
             }
             values.put(FIELDS, fields);
         }

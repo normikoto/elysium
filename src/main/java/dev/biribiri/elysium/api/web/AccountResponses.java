@@ -48,7 +48,9 @@ class AccountResponses {
      * The account as its owner sees it, which is only ever a local one.
      */
     CredentialAccountResponse credential(Actor actor) {
-        return CredentialAccountResponse.from(one(actor), profiles.find(actor.id()));
+        var profile = profiles.find(actor.id());
+        var account = byId(List.of(actor), Map.of(actor.id(), profile)).get(actor.id());
+        return CredentialAccountResponse.from(account, profile);
     }
 
     /**
@@ -63,11 +65,14 @@ class AccountResponses {
      * @return a response for each account, by its ID
      */
     Map<UUID, AccountResponse> byId(Collection<Actor> found) {
+        return byId(found, profiles.findAll(found.stream().filter(actors::isLocal).map(Actor::id).toList()));
+    }
+
+    private Map<UUID, AccountResponse> byId(Collection<Actor> found, Map<UUID, Profile> profilesById) {
         var ids = found.stream().map(Actor::id).toList();
         var stats = statuses.statsFor(ids);
         var counts = follows.countsFor(ids);
         var hiding = actors.hidingCollections(ids);
-        var profilesById = profiles.findAll(ids);
         var responses = new HashMap<UUID, AccountResponse>();
         for (var actor : found) {
             var local = actors.isLocal(actor);

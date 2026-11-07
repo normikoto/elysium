@@ -126,6 +126,7 @@ class ProfileLinksTask {
     }
 
     private static String stripSlash(String path) {
-        return path != null && path.endsWith("/") ? path.substring(0, path.length() - 1) : path == null ? "" : path;
+        var p = path == null ? "" : path;
+        return p.endsWith("/") ? p.substring(0, p.length() - 1) : p;
     }
 }

@@ -1,5 +1,8 @@
 package dev.biribiri.elysium.activitypub.vocab;
 
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 
@@ -56,5 +59,12 @@ public final class ActivityStreams {
             Map.of("toot", "http://joinmastodon.org/ns#", "suspended", "toot:suspended"));
 
     private ActivityStreams() {
+    }
+
+    /**
+     * Whole seconds, since some servers can't read fractions.
+     */
+    static String time(Instant instant) {
+        return instant == null ? null : DateTimeFormatter.ISO_INSTANT.format(instant.truncatedTo(ChronoUnit.SECONDS));
     }
 }

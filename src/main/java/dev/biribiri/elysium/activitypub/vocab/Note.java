@@ -6,8 +6,6 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.content.Status;
 
 import java.net.URI;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 
@@ -58,7 +56,7 @@ public record Note(
                 author.uri(),
                 // Browsers get the status's page from the same URL as this document.
                 status.uri(),
-                DateTimeFormatter.ISO_INSTANT.format(status.publishedAt().truncatedTo(ChronoUnit.SECONDS)),
+                ActivityStreams.time(status.publishedAt()),
                 audience.to(),
                 audience.cc(),
                 status.content(),

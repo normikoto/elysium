@@ -71,14 +71,14 @@ public class ProfileService {
     public Map<UUID, Profile> findAll(Collection<UUID> actorIds) {
         var fields = profiles.findFields(actorIds).stream().collect(Collectors.groupingBy(
                 ProfileRepository.FieldRow::actorId,
-                Collectors.mapping(row -> new ProfileField(row.name(), row.value(), row.verifiedAt()), Collectors.toList())));
+                Collectors.mapping(ProfileService::field, Collectors.toList())));
         var found = new HashMap<UUID, Profile>();
         for (var row : profiles.find(actorIds)) {
             found.put(row.actorId(), new Profile(
                     row.displayName(),
                     row.note(),
-                    image(row.avatar(), row.avatarStatic()),
-                    image(row.header(), row.headerStatic()),
+                    image(row.avatar()),
+                    image(row.header()),
                     fields.getOrDefault(row.actorId(), List.of()),
                     row.updatedAt()));
         }
@@ -112,18 +112,14 @@ public class ProfileService {
                 }
                 var old = profiles.lock(actorId);
                 var removed = new ArrayList<StoredImage>();
-                var newAvatar = choose(change.avatar(), avatar, old.avatar(), old.avatarStatic(), removed);
-                var newHeader = choose(change.header(), header, old.header(), old.headerStatic(), removed);
                 var row = new ProfileRepository.Row(
                         actorId,
                         displayName.orElse(old.displayName()),
                         note.orElse(old.note()),
-                        newAvatar == null ? null : newAvatar.name(),
-                        newAvatar == null ? null : newAvatar.staticName(),
-                        newHeader == null ? null : newHeader.name(),
-                        newHeader == null ? null : newHeader.staticName(),
+                        choose(change.avatar(), avatar, old.avatar(), removed),
+                        choose(change.header(), header, old.header(), removed),
                         old.updatedAt());
-                var oldFields = profiles.findFields(List.of(actorId));
+                var oldFields = fields.isPresent() ? profiles.findFields(List.of(actorId)) : List.<ProfileRepository.FieldRow>of();
                 var newFields = fields.map(list -> keepVerification(list, actorId, oldFields));
                 // A form sends everything each time it's saved, and other servers shouldn't hear about nothing.
                 if (row.equals(old) && newFields.map(oldFields::equals).orElse(true)) {
@@ -147,17 +143,13 @@ public class ProfileService {
     }
 
     /**
-     * The field links that haven't been checked yet, for an active local account.
+     * The field links that haven't been checked yet. The caller checks that the account is active, as it needs the actor.
      */
     public List<FieldLink> linksToVerify(UUID actorId) {
-        if (actors.findLocalById(actorId).isEmpty()) {
-            return List.of();
-        }
         var links = new ArrayList<FieldLink>();
         for (var row : profiles.findFields(List.of(actorId))) {
-            var field = new ProfileField(row.name(), row.value(), row.verifiedAt());
-            if (field.verifiedAt() == null) {
-                field.link().ifPresent(link -> links.add(new FieldLink(row.position(), row.value(), link)));
+            if (row.verifiedAt() == null) {
+                field(row).link().ifPresent(link -> links.add(new FieldLink(row.position(), row.value(), link)));
             }
         }
         return links;
@@ -185,17 +177,14 @@ public class ProfileService {
      * Removes a profile and its images, for an account that's deleted. This is safe to repeat.
      */
     public void removeAll(UUID actorId) {
-        var removed = transaction.execute(status -> profiles.delete(actorId));
-        if (removed != null) {
-            removed.ifPresent(row -> {
-                if (row.avatar() != null) {
-                    images.delete(new StoredImage(row.avatar(), row.avatarStatic()));
-                }
-                if (row.header() != null) {
-                    images.delete(new StoredImage(row.header(), row.headerStatic()));
-                }
-            });
-        }
+        profiles.delete(actorId).ifPresent(row -> {
+            if (row.avatar() != null) {
+                images.delete(row.avatar());
+            }
+            if (row.header() != null) {
+                images.delete(row.header());
+            }
+        });
     }
 
     private List<ProfileChange.NewField> checkFields(List<ProfileChange.NewField> fields) {
@@ -252,8 +241,7 @@ public class ProfileService {
      * @return the image the profile should have, or null for none
      */
     private static StoredImage choose(
-            ProfileChange.Image change, StoredImage uploaded, String oldName, String oldStatic, List<StoredImage> removed) {
-        var old = oldName == null ? null : new StoredImage(oldName, oldStatic);
+            ProfileChange.Image change, StoredImage uploaded, StoredImage old, List<StoredImage> removed) {
         if (change instanceof ProfileChange.Image.Keep) {
             return old;
         }
@@ -263,8 +251,12 @@ public class ProfileService {
         return uploaded;
     }
 
-    private static ProfileImage image(String name, String staticName) {
-        return name == null ? null : new ProfileImage(Images.pathOf(name), Images.pathOf(staticName));
+    private static ProfileImage image(StoredImage image) {
+        return image == null ? null : new ProfileImage(Images.pathOf(image.name()), Images.pathOf(image.staticName()));
+    }
+
+    private static ProfileField field(ProfileRepository.FieldRow row) {
+        return new ProfileField(row.name(), row.value(), row.verifiedAt());
     }
 
     /**

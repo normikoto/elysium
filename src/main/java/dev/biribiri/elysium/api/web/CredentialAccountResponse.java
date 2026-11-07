@@ -17,12 +17,7 @@ import java.util.List;
 record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source source) {
 
     static CredentialAccountResponse from(AccountResponse account, Profile profile) {
-        var fields = profile.fields().stream()
-                .map(field -> new AccountResponse.Field(
-                        field.name(),
-                        field.value(),
-                        field.verifiedAt() == null ? null : field.verifiedAt().toString()))
-                .toList();
+        var fields = profile.fields().stream().map(field -> AccountResponse.Field.of(field, field.value())).toList();
         return new CredentialAccountResponse(account, new Source("public", false, "", profile.note(), fields, 0));
     }
 

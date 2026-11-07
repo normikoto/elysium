@@ -19,6 +19,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
+import java.util.function.IntFunction;
+import java.util.stream.IntStream;
 
 /**
  * Re-encodes an upload as WebP at the size its kind needs. Re-encoding from decoded pixels is also what removes metadata,
@@ -64,7 +66,7 @@ public final class WebpEncoder {
         if (header.pixels() > MAX_PIXELS) {
             throw new InvalidImageException("The image is larger than " + MAX_PIXELS / 1_000_000 + " megapixels");
         }
-        if (header.isAnimated() && header.frames() > MAX_FRAMES) {
+        if (header.frames() > MAX_FRAMES) {
             throw new InvalidImageException("The animation has more than " + MAX_FRAMES + " frames");
         }
         if (header.isAnimated() && header.pixels() * header.frames() > MAX_ANIMATION_PIXELS) {
@@ -95,30 +97,29 @@ public final class WebpEncoder {
         return write(fit(image, kind));
     }
 
-    private static Encoded encodeAnimation(byte[] bytes, ImageHeader header, ImageKind kind) {
-        var frames = new ArrayList<ImmutableImage>();
-        var delays = new ArrayList<Duration>();
-        int loops;
-        if (header.format() == ImageHeader.ImageFormat.GIF) {
-            var gif = decode(() -> AnimatedGifReader.read(ImageSource.of(bytes)));
-            for (var i = 0; i < gif.getFrameCount(); i++) {
-                frames.add(gif.getFrame(i));
-                delays.add(gif.getDelay(i));
-            }
-            loops = gif.getLoopCount();
-        } else {
-            var webp = decode(() -> AnimatedWebpReader.read(ImageSource.of(bytes)));
-            for (var i = 0; i < webp.getFrameCount(); i++) {
-                frames.add(webp.getFrame(i));
-                delays.add(webp.getDelay(i));
-            }
-            loops = webp.getLoopCount();
+    /**
+     * Scrimage's GIF and WebP animations have the same methods, but no type in common.
+     */
+    private record Animation(List<ImmutableImage> frames, List<Duration> delays, int loops) {
+
+        Animation(List<ImmutableImage> frames, IntFunction<Duration> delay, int loops) {
+            this(frames, IntStream.range(0, frames.size()).mapToObj(delay).toList(), loops);
         }
-        if (frames.isEmpty()) {
+    }
+
+    private static Encoded encodeAnimation(byte[] bytes, ImageHeader header, ImageKind kind) {
+        var animation = decode(() -> {
+            if (header.format() == ImageHeader.ImageFormat.GIF) {
+                var gif = AnimatedGifReader.read(ImageSource.of(bytes));
+                return new Animation(gif.getFrames(), gif::getDelay, gif.getLoopCount());
+            }
+            var webp = AnimatedWebpReader.read(ImageSource.of(bytes));
+            return new Animation(webp.getFrames(), webp::getDelay, webp.getLoopCount());
+        });
+        if (animation.frames().isEmpty()) {
             throw new InvalidImageException("The animation has no frames");
         }
-        var fitted = frames.stream().map(frame -> fit(frame, kind)).toList();
-        return new Encoded(writeAnimation(fitted, delays, loops), write(fitted.getFirst()));
+        return writeAnimation(animation, kind);
     }
 
     private static ImmutableImage fit(ImmutableImage image, ImageKind kind) {
@@ -135,24 +136,30 @@ public final class WebpEncoder {
 
     /**
      * Goes to {@code img2webp} directly, rather than through Scrimage's streaming writer, which can only loop forever or
-     * play once.
+     * play once. Each frame is fitted as it's written, so that only one is held at the size it's shown at, which can be
+     * larger than the upload's.
      */
-    private static byte[] writeAnimation(List<ImmutableImage> frames, List<Duration> delays, int loops) {
+    private static Encoded writeAnimation(Animation animation, ImageKind kind) {
         Path directory = null;
         try {
             directory = Files.createTempDirectory("elysium-animation");
             var inputs = new ArrayList<Path>();
-            for (var i = 0; i < frames.size(); i++) {
+            byte[] still = null;
+            for (var i = 0; i < animation.frames().size(); i++) {
+                var fitted = fit(animation.frames().get(i), kind);
+                if (i == 0) {
+                    still = write(fitted);
+                }
                 var input = directory.resolve(i + ".png");
-                Files.write(input, frames.get(i).bytes(PngWriter.NoCompression));
+                Files.write(input, fitted.bytes(PngWriter.NoCompression));
                 inputs.add(input);
             }
             var output = directory.resolve("out.webp");
-            var milliseconds = delays.stream()
+            var milliseconds = animation.delays().stream()
                     .mapToInt(delay -> (int) (delay.compareTo(SHORTEST_FRAME) < 0 ? DEFAULT_FRAME : delay).toMillis())
                     .toArray();
-            new Img2WebpHandler().convert(inputs, milliseconds, output, Math.max(loops, 0), QUALITY, -1, false);
-            return Files.readAllBytes(output);
+            new Img2WebpHandler().convert(inputs, milliseconds, output, Math.max(animation.loops(), 0), QUALITY, -1, false);
+            return new Encoded(Files.readAllBytes(output), still);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } finally {
