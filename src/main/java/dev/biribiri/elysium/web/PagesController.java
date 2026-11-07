@@ -7,6 +7,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -69,7 +70,7 @@ class PagesController {
         model.addAttribute("statusCount", statuses.countLocal());
         model.addAttribute("showLogin", principal == null);
         model.addAttribute("registrationEnabled", registration.enabled());
-        model.addAttribute("statuses", views(statuses.findPublic(firstPage(null))));
+        model.addAttribute("statuses", views(statuses.findPublic(StatusOrigin.LOCAL, firstPage(null))));
         return "home";
     }
 

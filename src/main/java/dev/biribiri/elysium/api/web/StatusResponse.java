@@ -87,9 +87,13 @@ record StatusResponse(
     }
 
     /**
-     * Web pages always read as an anonymous viewer, so other statuses have no page to link to.
+     * A status from another server links to the page it gave. Web pages here always read as an anonymous viewer, so a local
+     * status that anyone can't see has no page to link to.
      */
     private static String pageUrl(Status status) {
+        if (status.url() != null) {
+            return status.url().toString();
+        }
         return status.isVisibleTo(Optional.empty()) ? status.uri().toString() : null;
     }
 

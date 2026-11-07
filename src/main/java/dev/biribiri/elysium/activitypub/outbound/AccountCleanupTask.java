@@ -12,7 +12,8 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Removes a deleted account's statuses, follows, and profile, and a suspended remote actor's follows, which would otherwise give it a
- * way to keep receiving statuses. A suspended local account keeps everything, so that its suspension can be undone. This
+ * way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that they come back
+ * if the suspension is undone. A suspended local account keeps everything, for the same reason. This
  * looks at the actor's state now, so it's safe to run again, and does nothing for a suspension that's since ended.
  */
 @Configuration(proxyBeanMethods = false)

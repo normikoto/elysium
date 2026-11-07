@@ -429,9 +429,10 @@ public class AccountsController {
             operationId = "getAccountStatuses",
             summary = "List an account's statuses",
             description = """
-                    Differences from Mastodon: statuses from other servers aren't stored, so an account on another \
-                    server gets a 404. Statuses can't be pinned, tagged, or have media, so `pinned`, `tagged`, and \
-                    `only_media` return an empty list, and there are no boosts for `exclude_reblogs` to leave out.
+                    Differences from Mastodon: for an account on another server, only the statuses it has sent here \
+                    are listed, and older ones aren't fetched. Statuses can't be pinned, tagged, or have media, so \
+                    `pinned`, `tagged`, and `only_media` return an empty list, and there are no boosts for \
+                    `exclude_reblogs` to leave out.
 
                     Only statuses the viewer can see are listed. A suspended account gets a 404.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
@@ -447,7 +448,7 @@ public class AccountsController {
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
-                    @ApiResponse(responseCode = "404", description = "Not found, or the account is on another server.")
+                    @ApiResponse(responseCode = "404", description = "Not found.")
             })
     public ResponseEntity<List<StatusResponse>> statuses(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -461,9 +462,7 @@ public class AccountsController {
             @RequestParam(name = "only_media", required = false) String onlyMedia,
             @RequestParam(required = false) String pinned,
             @RequestParam(required = false) String tagged) {
-        var actorId = RequestParameters.uuid(id)
-                .filter(candidate -> actors.findLocalById(candidate).isPresent())
-                .orElseThrow(RecordNotFoundException::new);
+        var actorId = activeAccount(id).id();
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         var withoutReplies = RequestParameters.flag(excludeReplies);
         var nothingToReturn = RequestParameters.flag(onlyMedia) || RequestParameters.flag(pinned)

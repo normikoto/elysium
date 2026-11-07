@@ -17,6 +17,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -64,11 +65,16 @@ public class StatusDeliveries {
         if (status.isEmpty() || author.isEmpty()) {
             return;
         }
-        var inboxes = inboxes(author.get().id(), status.get().visibility(), status.get().publishedAt());
+        var note = notes.of(status.get(), author.get());
+        var inboxes = inboxes(
+                author.get().id(),
+                status.get().visibility(),
+                status.get().publishedAt(),
+                note.inReplyTo() == null ? null : status.get().inReplyToAccountId());
         if (inboxes.isEmpty()) {
             return;
         }
-        var create = Create.of(notes.of(status.get(), author.get()));
+        var create = Create.of(note);
         deliveries.enqueue(
                 new OutboundActivity(
                         create.id().toString(), author.get().id(), json.writeValueAsString(create), WhileSuspended.DROP),
@@ -91,7 +97,7 @@ public class StatusDeliveries {
         if (author.isEmpty()) {
             return;
         }
-        var inboxes = inboxes(author.get().id(), event.visibility(), event.publishedAt());
+        var inboxes = inboxes(author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId());
         if (inboxes.isEmpty()) {
             return;
         }
@@ -107,10 +113,24 @@ public class StatusDeliveries {
      * {@code Create} nor its {@code Delete}, so that its {@code Delete} can't tell them it existed. Both have to use the same
      * rule, or a follower could be sent a status and not its deletion. Other statuses can be fetched, so a later follower may
      * have a copy to remove.
+     *
+     * <p>The author of a public or unlisted status's parent on another server gets them as well, since otherwise their server
+     * wouldn't know about the reply. A followers-only reply isn't sent to them: whether it addressed them depends on whether
+     * its parent could be seen by everyone, which can't be known once it's deleted, and its {@code Delete} has to reach
+     * whoever got it.
+     *
+     * @param parentAuthorId the parent's author, or null if the status doesn't address them
      */
-    private List<URI> inboxes(UUID authorId, Visibility visibility, Instant publishedAt) {
-        return visibility == Visibility.PRIVATE
+    private List<URI> inboxes(UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId) {
+        var inboxes = new LinkedHashSet<>(visibility == Visibility.PRIVATE
                 ? follows.followerInboxesAsOf(authorId, publishedAt)
-                : follows.followerInboxes(authorId);
+                : follows.followerInboxes(authorId));
+        if (parentAuthorId != null && (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED)) {
+            actors.findById(parentAuthorId)
+                    .filter(parent -> parent.isActive() && !actors.isLocal(parent))
+                    .map(parent -> parent.sharedInboxUri() == null ? parent.inboxUri() : parent.sharedInboxUri())
+                    .ifPresent(inboxes::add);
+        }
+        return List.copyOf(inboxes);
     }
 }

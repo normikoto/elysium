@@ -33,7 +33,7 @@ public class Notes {
                 status,
                 author,
                 parent.map(Status::uri).orElse(null),
-                parent.flatMap(shown -> actors.findLocalById(shown.actorId())).map(Actor::uri).orElse(null));
+                parent.flatMap(shown -> actors.findById(shown.actorId())).filter(Actor::isActive).map(Actor::uri).orElse(null));
     }
 
     /**

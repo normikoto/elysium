@@ -74,7 +74,7 @@ These apply straight away, but when a command does it, other servers may only be
   still being sent are dropped.
 
 **Suspending an account on another server** refuses everything from it, stops sending to it, and removes its follows, which
-don't come back if the suspension ends. To cut off a whole server, use a [domain block](#domain-blocks).
+don't come back if the suspension ends. Its posts stored here are hidden, and come back if the suspension ends. To cut off a whole server, use a [domain block](#domain-blocks).
 
 **Deleting a local account** can't be undone. Its posts and follows are removed, and other servers are asked to remove it
 too, which they may not do. Its username can't be used again, because other servers can still know it. Accounts on other
@@ -108,8 +108,8 @@ themselves from the admin page or the API.
 
 ## Domain blocks
 Admins can cut off another server at `/admin/domain-blocks`, or through the [API](api.md). A block covers the domain's
-subdomains too, and applies straight away. Nothing more is accepted from those servers or sent to them, and their follows are
-removed. Removing a block doesn't bring those back, so followers on that server have to follow again. See
+subdomains too, and applies straight away. Nothing more is accepted from those servers or sent to them, and their follows and
+posts are removed. Removing a block doesn't bring those back, so followers on that server have to follow again. See
 [`FEDERATION.md`](../FEDERATION.md#domain-blocks) for what a block doesn't stop.
 
 Comments on a block are only shown to admins. The list of blocks isn't published, but it isn't secret either, because anyone

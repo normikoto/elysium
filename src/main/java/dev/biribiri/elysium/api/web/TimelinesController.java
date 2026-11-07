@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.timeline.TimelineService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -36,8 +37,8 @@ public class TimelinesController {
     }
 
     /**
-     * Every status is local and none have media yet, so {@code local} has no effect, and {@code remote} and
-     * {@code only_media} have nothing to return.
+     * No status has media yet, so {@code only_media} has nothing to return. Mastodon lets {@code local} win when both it and
+     * {@code remote} are given.
      */
     @GetMapping("/public")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
@@ -45,8 +46,8 @@ public class TimelinesController {
             operationId = "getPublicTimeline",
             summary = "View public statuses",
             description = """
-                    Differences from Mastodon: statuses from other servers aren't stored, so every status is from this \
-                    server. `local` has no effect, and `remote` returns an empty list. Statuses can't have media, so \
+                    Differences from Mastodon: statuses from other servers are only stored when they're sent here, \
+                    which is when a local account follows their author or is addressed. Statuses can't have media, so \
                     `only_media` returns an empty list.
 
                     Only public statuses are listed, and not ones from suspended accounts.""",
@@ -55,8 +56,9 @@ public class TimelinesController {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
                             + StatusPage.MAX_LIMIT + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
-                    @Parameter(name = "local", description = "Has no effect. " + ApiDocs.FLAG),
-                    @Parameter(name = "remote", description = "Returns an empty list if true. " + ApiDocs.FLAG),
+                    @Parameter(name = "local", description = "Only list statuses from this server. " + ApiDocs.FLAG),
+                    @Parameter(name = "remote", description = "Only list statuses from other servers. Ignored if "
+                            + "`local` is true. " + ApiDocs.FLAG),
                     @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG)
             },
             responses = {
@@ -71,12 +73,17 @@ public class TimelinesController {
             @RequestParam(required = false) String remote,
             @RequestParam(name = "only_media", required = false) String onlyMedia) {
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
-        var nothingToReturn = RequestParameters.flag(remote) || RequestParameters.flag(onlyMedia);
-        List<Status> found = nothingToReturn ? List.of() : timelines.publicTimeline(page);
+        var origin = RequestParameters.flag(local) ? StatusOrigin.LOCAL
+                : RequestParameters.flag(remote) ? StatusOrigin.REMOTE
+                : StatusOrigin.ANY;
+        List<Status> found = RequestParameters.flag(onlyMedia) ? List.of() : timelines.publicTimeline(origin, page);
 
         var filters = new LinkedHashMap<String, String>();
-        if (RequestParameters.flag(local)) {
-            filters.put("local", "true");
+        switch (origin) {
+            case LOCAL -> filters.put("local", "true");
+            case REMOTE -> filters.put("remote", "true");
+            case ANY -> {
+            }
         }
         return responses.page(PUBLIC_PATH, filters, page, found);
     }

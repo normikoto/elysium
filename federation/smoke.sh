@@ -78,11 +78,33 @@ expect_delivery() {
             "SELECT count(*) FROM inbound_activity WHERE type = 'Create' AND actor_uri LIKE 'https://$server/%'")
         if [[ $found -gt 0 ]]; then
             echo "Elysium accepted a Create from $server"
+            expect_remote_status "$server"
             return
         fi
         sleep 2
     done
     fail "Nothing was delivered from $server. Elysium only logs why it refused one at debug level"
+}
+
+# The lab's post mentions alice, which is what makes it hers to store. Read through the API, so that this also checks that the
+# sanitized HTML keeps the text and the mention's link.
+expect_remote_status() {
+    local server=$1 statuses status
+    echo "Waiting for Elysium to show lab@$server's status"
+    for _ in $(seq 1 60); do
+        statuses=$(driver curl -fsS -G https://elysium.test/api/v1/timelines/public --data-urlencode remote=true)
+        status=$(jq -c --arg acct "lab@$server" 'map(select(.account.acct == $acct)) | first // empty' <<<"$statuses")
+        if [[ -n $status ]]; then
+            jq -e '.content | contains("Hello from the lab") and contains("<a href=\"https://elysium.test/")' \
+                <<<"$status" >/dev/null || fail "Elysium stored lab@$server's status with unexpected content: $status"
+            jq -e '.uri | startswith("https://")' <<<"$status" >/dev/null \
+                || fail "Elysium stored lab@$server's status without its URI: $status"
+            echo "Elysium shows lab@$server's status"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium didn't store lab@$server's status. Check /admin/db-scheduler, and its logs at debug level"
 }
 
 # Passing the first time means that the other server's Follow was stored here. Elysium has to fetch the follower's document.
@@ -731,4 +753,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, receive its statuses and profile changes, and accept its suspension and deletion"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses, receive its statuses and profile changes, and accept its suspension and deletion"

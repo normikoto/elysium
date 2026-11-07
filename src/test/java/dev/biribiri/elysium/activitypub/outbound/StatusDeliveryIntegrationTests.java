@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -316,6 +317,39 @@ class StatusDeliveryIntegrationTests {
     }
 
     // Deleting
+
+    @Test
+    void sendsAReplyAndItsDeleteToTheRemoteParentsAuthor() {
+        var host = newHost();
+        var parentAuthor = remoteAuthor(host, "carol");
+        var parent = remoteStatus(parentAuthor, Visibility.PUBLIC);
+
+        var reply = post(Visibility.PUBLIC, parent);
+
+        var create = awaitCreate(host, reply);
+        assertThat(create.request().path()).isEqualTo("/users/carol/inbox");
+        var note = create.body().path("object");
+        assertThat(note.path("inReplyTo").stringValue()).contains("/notes/");
+        assertThat(strings(note.path("cc"))).contains(parentAuthor.uri().toString());
+
+        statuses.delete(reply.id(), author.id());
+
+        assertThat(awaitDelete(host, reply).request().path()).isEqualTo("/users/carol/inbox");
+    }
+
+    @Test
+    void doesNotSendAFollowersOnlyReplyToTheRemoteParentsAuthor() {
+        var host = newHost();
+        var parentAuthor = remoteAuthor(host, "carol");
+        var parent = remoteStatus(parentAuthor, Visibility.PUBLIC);
+        var followerHost = newHost();
+        follow(followerHost, "bob", false);
+
+        var reply = post(Visibility.PRIVATE, parent);
+
+        awaitCreate(followerHost, reply);
+        assertThat(receivedBy(host)).isEmpty();
+    }
 
     @Test
     void sendsADeleteToAFollower() {
@@ -645,6 +679,19 @@ class StatusDeliveryIntegrationTests {
 
     private Status post(Visibility visibility, UUID inReplyTo) {
         return statuses.create(author.id(), new NewStatus("Hello", null, null, visibility, false, inReplyTo));
+    }
+
+    private Actor remoteAuthor(String host, String username) {
+        var domain = host + ":" + server.getAddress().getPort();
+        var uri = URI.create("http://" + domain + "/users/" + username);
+        return actors.upsertRemote(
+                new RemoteActorProfile(uri, username, domain, URI.create(uri + "/inbox"), null, null, null));
+    }
+
+    private UUID remoteStatus(Actor remote, Visibility visibility) {
+        return statuses.storeRemote(new RemoteStatus(
+                URI.create(remote.uri() + "/notes/" + UUID.randomUUID()), null, remote.id(), "<p>Hi</p>", null, null,
+                visibility, false, null, Instant.now())).orElseThrow();
     }
 
     private String followers() {

@@ -43,8 +43,16 @@ class LocalRecipients {
      * @return the IDs of the local actors that the activity is for
      */
     Set<UUID> of(InboundActivity activity) {
+        return of(activity, Addressing.NONE);
+    }
+
+    /**
+     * @param object the addressing of an object that was fetched, because the activity only gave its ID
+     * @return the IDs of the local actors that the activity or that object is for
+     */
+    Set<UUID> of(InboundActivity activity, Addressing object) {
         var document = json.readTree(activity.body());
-        var addressed = Addressing.ofActivity(document).all();
+        var addressed = Addressing.ofActivity(document).with(object).all();
         var local = new ArrayList<URI>();
         addressed.forEach(address -> onThisServer(address).ifPresent(local::add));
         if (activity.type().equals("Follow")) {

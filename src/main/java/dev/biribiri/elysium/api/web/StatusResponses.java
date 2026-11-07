@@ -61,12 +61,13 @@ class StatusResponses {
     }
 
     /**
-     * Leaves out statuses whose author can't be loaded, such as when the account was deleted after the statuses were
-     * read, so that one of them doesn't fail the whole response.
+     * Leaves out statuses whose author can't be loaded, such as when the account was suspended or deleted after the
+     * statuses were read, so that one of them doesn't fail the whole response.
      */
     private List<StatusResponse> build(List<Status> found, boolean includeText) {
         var actorIds = found.stream().map(Status::actorId).collect(Collectors.toSet());
-        var authors = actors.findLocalByIds(actorIds).stream()
+        var authors = actors.findByIds(actorIds).stream()
+                .filter(Actor::isActive)
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
         var accountResponses = accounts.byId(authors.values());
         return found.stream()

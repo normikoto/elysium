@@ -3,24 +3,27 @@ package dev.biribiri.elysium.activitypub.outbound;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes the follows of actors on blocked servers. Actors themselves are kept, because other things can refer to them, and
- * nothing is sent to them. This has to be safe to run again, and it's fine for it to find nothing.
+ * Removes the follows and statuses of actors on blocked servers. Actors themselves are kept, because other things can refer
+ * to them, and nothing is sent to them. This has to be safe to run again, and it's fine for it to find nothing.
  */
 @Configuration(proxyBeanMethods = false)
 class DomainBlockCleanupTask {
 
     private final DomainBlocks blocks;
     private final FollowService follows;
+    private final StatusService statuses;
 
-    DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows) {
+    DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, StatusService statuses) {
         this.blocks = blocks;
         this.follows = follows;
+        this.statuses = statuses;
     }
 
     @Bean
@@ -36,7 +39,10 @@ class DomainBlockCleanupTask {
         if (blocks.find(job.blockId()).isEmpty()) {
             return Jobs.done();
         }
-        blocks.blockedHosts(follows.remoteDomains()).forEach(follows::removeForDomain);
+        blocks.blockedHosts(follows.remoteDomains()).forEach(domain -> {
+            follows.removeForDomain(domain);
+            statuses.removeForDomain(domain);
+        });
         return Jobs.done();
     }
 }

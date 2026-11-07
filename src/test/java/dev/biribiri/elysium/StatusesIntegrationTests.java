@@ -2,7 +2,12 @@ package dev.biribiri.elysium;
 
 import com.jayway.jsonpath.JsonPath;
 import org.hamcrest.Matcher;
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.StatusDeleted;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,12 +18,15 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockPart;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +36,8 @@ import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -73,8 +83,11 @@ class StatusesIntegrationTests {
     @Autowired
     private ApplicationEvents events;
 
-    @Autowired
+    @MockitoSpyBean
     private ActorService actors;
+
+    @Autowired
+    private StatusService statuses;
 
     @BeforeEach
     void setUp() {
@@ -496,7 +509,11 @@ class StatusesIntegrationTests {
         var orphan = create(token("dave", "read write"), "Orphan");
         var kept = create(bob(), "Kept");
         var older = create(token("dave", "read write"), "Older orphan");
-        jdbc.sql("DELETE FROM local_account WHERE actor_id = (SELECT id FROM actor WHERE username = 'dave')").update();
+        // As if dave's account were deleted between reading the statuses and loading their authors.
+        doAnswer(invocation -> ((List<?>) invocation.callRealMethod()).stream()
+                .filter(actor -> !((Actor) actor).username().equals("dave"))
+                .toList())
+                .when(actors).findByIds(any());
 
         expectIds(get(TIMELINE), kept);
         mockMvc.perform(get("/api/v1/statuses/" + orphan)).andExpect(status().isNotFound());
@@ -526,12 +543,45 @@ class StatusesIntegrationTests {
     }
 
     @Test
-    void publicTimelineHasNothingForRemoteOrMediaFilters() throws Exception {
-        create(alice(), "Public");
-        mockMvc.perform(get(TIMELINE).param("local", "true")).andExpect(jsonPath("$", hasSize(1)));
-        mockMvc.perform(get(TIMELINE).param("remote", "true")).andExpect(jsonPath("$", empty()));
+    void publicTimelineFiltersByServerAndHasNothingForMedia() throws Exception {
+        var local = create(alice(), "Public");
+        var remote = remote(Visibility.PUBLIC).toString();
+        expectIds(get(TIMELINE), remote, local);
+        expectIds(get(TIMELINE).param("local", "true"), local);
+        expectIds(get(TIMELINE).param("remote", "true"), remote);
+        expectIds(get(TIMELINE).param("local", "true").param("remote", "true"), local);
+        mockMvc.perform(get(TIMELINE).param("remote", "true"))
+                .andExpect(header().string("Link", containsString("remote=true")));
         mockMvc.perform(get(TIMELINE).param("only_media", "1")).andExpect(jsonPath("$", empty()));
-        mockMvc.perform(get(TIMELINE).param("only_media", "false")).andExpect(jsonPath("$", hasSize(1)));
+        mockMvc.perform(get(TIMELINE).param("only_media", "false")).andExpect(jsonPath("$", hasSize(2)));
+    }
+
+    @Test
+    void showsAStatusFromAnotherServer() throws Exception {
+        var id = remote(Visibility.PUBLIC);
+
+        mockMvc.perform(get("/api/v1/statuses/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("<p>From afar</p>"))
+                .andExpect(jsonPath("$.uri").value(containsString("/notes/")))
+                .andExpect(jsonPath("$.url").value(containsString("/@s/")))
+                .andExpect(jsonPath("$.account.acct").value(containsString("s@")));
+    }
+
+    @Test
+    void listsTheStatusesOfAnAccountOnAnotherServer() throws Exception {
+        var id = remote(Visibility.PUBLIC);
+        var authorId = jdbc.sql("SELECT actor_id FROM status WHERE id = :id").param("id", id).query(UUID.class).single();
+
+        expectIds(get("/api/v1/accounts/" + authorId + "/statuses"), id.toString());
+    }
+
+    @Test
+    void doesNotCountStatusesFromOtherServersAsLocal() throws Exception {
+        create(alice(), "Public");
+        remote(Visibility.PUBLIC);
+
+        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(1));
     }
 
     @Test
@@ -736,6 +786,27 @@ class StatusesIntegrationTests {
                 .param("username", username)
                 .query(String.class)
                 .single();
+    }
+
+    /**
+     * Stores a status from a new actor on another server.
+     */
+    private UUID remote(Visibility visibility) {
+        var host = "h" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/s");
+        var author = actors.upsertRemote(
+                new RemoteActorProfile(uri, "s", host, URI.create(uri + "/inbox"), null, null, null, null));
+        return statuses.storeRemote(new RemoteStatus(
+                URI.create("https://" + host + "/notes/" + UUID.randomUUID()),
+                URI.create("https://" + host + "/@s/1"),
+                author.id(),
+                "<p>From afar</p>",
+                null,
+                null,
+                visibility,
+                false,
+                null,
+                Instant.now())).orElseThrow();
     }
 
     private String create(String token, String text) throws Exception {
