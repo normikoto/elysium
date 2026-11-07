@@ -1,7 +1,8 @@
 package dev.biribiri.elysium.activitypub.web;
 
-import dev.biribiri.elysium.activitypub.vocab.Application;
 import dev.biribiri.elysium.activitypub.outbound.Notes;
+import dev.biribiri.elysium.activitypub.vocab.Application;
+import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollectionPage;
 import dev.biribiri.elysium.activitypub.vocab.Person;
@@ -14,6 +15,14 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.FollowService;
+import io.swagger.v3.oas.annotations.ExternalDocumentation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -32,6 +41,9 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
 import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.LD_JSON;
 
 @RestController
+@Tag(name = FederationDocs.ACTIVITYPUB_TAG, description = """
+        ActivityPub documents and inboxes, for other servers. `FEDERATION.md` in the repository describes them in full.""",
+        externalDocs = @ExternalDocumentation(url = "https://www.w3.org/TR/activitypub/"))
 public class ActivityPubController {
 
     /**
@@ -39,7 +51,7 @@ public class ActivityPubController {
      */
     private static final Optional<UUID> ANONYMOUS = Optional.empty();
 
-    private static final int COLLECTION_PAGE_SIZE = 40;
+    static final int COLLECTION_PAGE_SIZE = 40;
 
     private final ActorService actors;
     private final StatusService statuses;
@@ -57,6 +69,27 @@ public class ActivityPubController {
     }
 
     @GetMapping(path = "/users/{username}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getActor",
+            summary = "Fetch a user's actor document",
+            description = """
+                    A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, and the shared inbox \
+                    at `/inbox` as `endpoints.sharedInbox`. A suspended user's document has `suspended: true`, and the \
+                    same key.\s""" + FederationDocs.NEGOTIATED,
+            parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The actor, or the profile page for HTML.",
+                            content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Person.class)),
+                            @Content(mediaType = MediaType.TEXT_HTML_VALUE, schema = @Schema(type = "string"))
+                    }),
+                    @ApiResponse(responseCode = "404", description = "There's no such user."),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header allows neither type."),
+                    @ApiResponse(responseCode = "410", description = """
+                            The user was deleted, with a `Tombstone` whose `formerType` is `Person`.""", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Tombstone.class)),
+                    })
+            })
     ResponseEntity<?> actor(@PathVariable String username) {
         var actor = actors.findAnyLocalByUsername(username);
         if (actor.isEmpty()) {
@@ -77,6 +110,26 @@ public class ActivityPubController {
      */
     @CrossOrigin
     @GetMapping(path = "/users/{username}/followers", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getFollowers",
+            summary = "Fetch a user's followers",
+            description = FederationDocs.COLLECTION,
+            parameters = {
+                    @Parameter(name = "username", description = FederationDocs.USERNAME),
+                    @Parameter(name = "page", description = "Any value asks for a page rather than the collection."),
+                    @Parameter(name = "max_id", description = "The cursor from a `next` link.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The collection or the page.", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(oneOf = {
+                                    OrderedCollection.class, OrderedCollectionPage.class}))
+                    }),
+                    @ApiResponse(responseCode = "400", description = "`max_id` isn't valid."),
+                    @ApiResponse(responseCode = "403", description = "The user is suspended."),
+                    @ApiResponse(responseCode = "404", description = "There's no such user."),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
     ResponseEntity<?> followers(
             @PathVariable String username,
             @RequestParam(required = false) String page,
@@ -89,6 +142,26 @@ public class ActivityPubController {
      */
     @CrossOrigin
     @GetMapping(path = "/users/{username}/following", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getFollowing",
+            summary = "Fetch the actors a user follows",
+            description = FederationDocs.COLLECTION,
+            parameters = {
+                    @Parameter(name = "username", description = FederationDocs.USERNAME),
+                    @Parameter(name = "page", description = "Any value asks for a page rather than the collection."),
+                    @Parameter(name = "max_id", description = "The cursor from a `next` link.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The collection or the page.", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(oneOf = {
+                                    OrderedCollection.class, OrderedCollectionPage.class}))
+                    }),
+                    @ApiResponse(responseCode = "400", description = "`max_id` isn't valid."),
+                    @ApiResponse(responseCode = "403", description = "The user is suspended."),
+                    @ApiResponse(responseCode = "404", description = "There's no such user."),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
     ResponseEntity<?> following(
             @PathVariable String username,
             @RequestParam(required = false) String page,
@@ -148,11 +221,49 @@ public class ActivityPubController {
      */
     @CrossOrigin
     @GetMapping(path = InstanceActor.PATH, produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getInstanceActor",
+            summary = "Fetch the server's own actor document",
+            description = """
+                    An `Application` with the `preferredUsername` `""" + InstanceActor.USERNAME + """
+                    `, for signing requests that no user is behind, such as fetches of keys and actor documents. Its \
+                    key is identified as `{actor-uri}#main-key`, and its `url` is the front page. It can't be followed, \
+                    so a `Follow` of it is ignored. It never needs a signature.\s""" + FederationDocs.DOCUMENT,
+            responses = @ApiResponse(responseCode = "200", description = "The actor.", content = {
+                    @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Application.class)),
+            }))
     Application instanceActor() {
         return Application.from(actors.instanceActor(), instance.sharedInboxUri());
     }
 
     @GetMapping(path = "/users/{username}/statuses/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getNote",
+            summary = "Fetch a status as a Note",
+            description = """
+                    Public and unlisted statuses are `Note` objects, and private and direct ones get a 404, even for a \
+                    follower. A deleted public or unlisted status gets a 410 with a `Tombstone`, and a deleted private \
+                    or direct one still gets a 404.\s""" + FederationDocs.NEGOTIATED,
+            parameters = {
+                    @Parameter(name = "username", description = "The author's username, matched case-insensitively."),
+                    @Parameter(name = "id", description = "The status's ID.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The `Note`, or the status's page for HTML.",
+                            content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Note.class)),
+                            @Content(mediaType = MediaType.TEXT_HTML_VALUE, schema = @Schema(type = "string"))
+                    }),
+                    @ApiResponse(responseCode = "403", description = "The author is suspended."),
+                    @ApiResponse(responseCode = "404", description = """
+                            There's no such status by this author, or it isn't public or unlisted."""),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header allows neither type."),
+                    @ApiResponse(responseCode = "410", description = """
+                            The status was deleted, with a `Tombstone` whose `formerType` is `Note`, or the author \
+                            was deleted, which gives the same answer for any ID.""", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Tombstone.class)),
+                    })
+            })
     ResponseEntity<?> note(@PathVariable String username, @PathVariable String id) {
         var author = actors.findAnyLocalByUsername(username);
         var statusId = Ids.parse(id);

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.auth.ClientApplication;
 import dev.biribiri.elysium.auth.ClientRegistrations.NewClient;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
@@ -14,6 +15,9 @@ import java.util.List;
  * @param redirectUri the redirect URIs joined by newlines, which Mastodon has deprecated but older clients still read
  */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
+@Schema(name = "Application", description = """
+        Mastodon's Application entity, which is a CredentialApplication, with `client_id` and `client_secret`, only \
+        when it's first registered.""")
 record ApplicationResponse(
         String id,
         String name,

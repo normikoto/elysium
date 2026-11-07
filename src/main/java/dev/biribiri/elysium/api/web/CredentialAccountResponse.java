@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
@@ -9,6 +10,9 @@ import java.util.List;
  * Mastodon's CredentialAccount entity: an Account, plus the settings only its owner can see. Those settings don't exist
  * yet, so they hold the values a new account would have.
  */
+@Schema(name = "CredentialAccount", description = """
+        Mastodon's CredentialAccount entity: an Account, plus `source`. The settings in `source` don't exist yet, so \
+        they have the values a new account would have.""")
 record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source source) {
 
     static CredentialAccountResponse from(AccountResponse account) {

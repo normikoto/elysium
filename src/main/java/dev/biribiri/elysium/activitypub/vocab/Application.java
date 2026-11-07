@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.vocab;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.actor.InstanceActor;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.net.URI;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.List;
 /**
  * The actor document for the server itself.
  */
+@Schema(name = "ApplicationActor", description = "The ActivityPub actor document for the server itself.")
 public record Application(
         @JsonProperty("@context") List<String> context,
         URI id,

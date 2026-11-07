@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.moderation.DomainBlock;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -13,6 +14,10 @@ import java.util.HexFormat;
  * {@code reject_reports} are always the same. The list of blocks is never published, so there's no public comment, and
  * nothing to obfuscate.
  */
+@Schema(name = "AdminDomainBlock", description = """
+        Mastodon's Admin::DomainBlock entity. Every block is a full block, so `severity` is always `suspend`, \
+        `reject_media` and `reject_reports` are always true, `obfuscate` is always false, and `public_comment` is \
+        always null.""")
 record DomainBlockResponse(
         String id,
         String domain,

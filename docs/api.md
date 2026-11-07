@@ -13,13 +13,17 @@ differs from Mastodon in these ways:
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
 - Statuses can't be edited, and media, polls, scheduled posts, and `GET /api/v1/statuses/:id/context` aren't implemented.
+  `media_ids`, `poll`, or `scheduled_at` with a value gets a 422 rather than being ignored.
+- URLs in a status are linked, but mentions and hashtags aren't yet.
 - The length limit defaults to 5000 characters rather than 500. As in Mastodon, each URL counts as 23 characters, unless
   it's longer than 2048 characters, in which case it counts at its full length. URLs can save at most 4096 characters
   per status, and any URLs after that also count at their full length.
 - `visibility` defaults to `public` only when it's missing. An empty value is rejected, as are a repeated value and
   `visibility[]`.
 - `GET /api/v1/instance` reports the limit in `max_toot_chars` and `configuration.statuses.max_characters`, but
-  `/api/v2/instance` isn't implemented. Clients that don't read the limit from v1 may apply their own limit of 500.
+  `/api/v2/instance` isn't implemented. Clients that don't read the limit from v1 may apply their own limit of 500. Its
+  `version` is a Mastodon version followed by `(compatible; Elysium)`. The streaming API isn't implemented, though
+  `urls.streaming_api` is set.
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
 
 Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.org/methods/accounts/) and
@@ -36,8 +40,8 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   until that server accepts. Following yourself, or an account on a blocked server, gets a 422.
 - `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true whenever
   `following` or `requested` is. Blocks, mutes, notes, and endorsements don't exist, so those fields are always false or empty.
-- A suspended account gets a 404 from `GET /api/v1/accounts/:id` and the lists, and is left out of `relationships` and of
-  followers and following. An account can still be unfollowed while it's suspended.
+- A suspended account gets a 404 from `GET /api/v1/accounts/:id` and the lists, and is left out of `relationships`, even
+  with `with_suspended`, and of followers and following. An account can still be unfollowed while it's suspended.
 - `:id/followers` and `:id/following` page by the follow, so a cursor from a follow that's since been removed gives an empty
   page. If the account hides them, anyone else gets an empty list.
 - `lookup` and `search` only ask another server about an account for a signed-in user, and `search` only when `resolve` is
@@ -47,7 +51,8 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   usernames this server knows. Only the first 200 matches can be paged through with `offset`, and an `offset` past them
   returns no accounts. `following`, `account_id`, `exclude_unreviewed`,
   `min_id`, and `max_id` are ignored.
-- Statuses from other servers aren't stored yet, so following an account there doesn't add anything to a timeline.
+- Statuses from other servers aren't stored yet, so following an account there doesn't add anything to a timeline, and
+  `GET /api/v1/accounts/:id/statuses` gets a 404 for an account on another server.
 
 Domain blocks follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/domain_blocks/), under
 `/api/v1/admin/domain_blocks`, with the `admin:read:domain_blocks` and `admin:write:domain_blocks` scopes. Every block is a
@@ -81,7 +86,9 @@ There's no API for people to delete their own accounts, so that an application c
 `/settings/delete-account` page. People can also hide their followers and following on the `/settings` page.
 
 API documentation is public, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs` or
-`/api-docs.yaml`. It includes the OAuth endpoints, and the scopes each endpoint needs. A scope such as `read` also grants
+`/api-docs.yaml`. It describes each endpoint and how it differs from Mastodon, with a link to Mastodon's documentation for
+it, and includes the OAuth endpoints, the scopes each endpoint needs, and the ActivityPub, WebFinger, and NodeInfo
+endpoints that other servers use. A scope such as `read` also grants
 the granular scopes under it. To sign in from Swagger UI, first register an application with the redirect URI
 `<base-url>/api-docs/swagger-ui/oauth2-redirect.html`, and then enter its `client_id` and `client_secret` under Authorize.
 Swagger UI builds that redirect URI from the request, so behind a reverse proxy, the server has to

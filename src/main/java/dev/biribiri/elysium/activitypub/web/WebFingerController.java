@@ -6,6 +6,11 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import io.swagger.v3.oas.annotations.ExternalDocumentation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +26,8 @@ import java.util.Locale;
 import java.util.Optional;
 
 @RestController
+@Tag(name = "WebFinger", description = "Finding actors by address.",
+        externalDocs = @ExternalDocumentation(url = "https://webfinger.net/"))
 public class WebFingerController {
 
     private final ActorService actors;
@@ -33,6 +40,25 @@ public class WebFingerController {
 
     @CrossOrigin
     @GetMapping(path = "/.well-known/webfinger", produces = {"application/jrd+json", MediaType.APPLICATION_JSON_VALUE})
+    @Operation(
+            operationId = "webFinger",
+            summary = "Find an actor by its address or URL",
+            description = """
+                    Gives a `self` link to the actor document, of type `""" + ActivityStreams.ACTIVITY_JSON + """
+                    `, and an `http://webfinger.net/rel/profile-page` link to the profile page. The instance actor can \
+                    be found as `acct:""" + InstanceActor.USERNAME + "@{domain}` or by its URL, `{base-url}"
+                    + InstanceActor.PATH + """
+                    `, and its profile page is the front page. A suspended user is still found. Served as \
+                    `application/jrd+json` or `application/json`, and any origin can read it through CORS.""",
+            parameters = @Parameter(name = "resource", required = true, description = """
+                    `acct:{username}@{domain}`, or an actor's URL. Only this server's domain is found."""),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The actor's links."),
+                    @ApiResponse(responseCode = "400", description = """
+                            The resource is missing, isn't a URI, or is an `acct:` URI with no username or domain."""),
+                    @ApiResponse(responseCode = "404", description = "No actor was found."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
     ResponseEntity<JsonResourceDescriptor> webFinger(@RequestParam String resource) {
         URI uri;
         try {

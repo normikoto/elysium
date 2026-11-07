@@ -1,14 +1,20 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.AccountActionRefusedException;
 import dev.biribiri.elysium.auth.AccountActions;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import io.swagger.v3.oas.annotations.ExternalDocumentation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -37,6 +43,9 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping(AdminAccountsController.PATH)
+@Tag(name = "Admin: accounts", description = """
+        Suspending and deleting accounts. Needs an admin's token. There's no `/api/v2/admin/accounts`.""",
+        externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/"))
 public class AdminAccountsController {
 
     static final String PATH = "/api/v1/admin/accounts";
@@ -64,6 +73,35 @@ public class AdminAccountsController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('SCOPE_admin:read:accounts')")
+    @Operation(
+            operationId = "listAdminAccounts",
+            summary = "List accounts",
+            description = """
+                    Differences from Mastodon: only `local`, `remote`, `suspended`, `username`, and `by_domain` filter \
+                    the list, and other filters are ignored. Accounts are ordered by their IDs, which are random, \
+                    rather than by age, from highest to lowest, and the cursors follow that order. Deleted accounts \
+                    aren't listed.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#v1"),
+            parameters = {
+                    @Parameter(name = "local", description = "Only accounts on this server. " + ApiDocs.FLAG),
+                    @Parameter(name = "remote", description = """
+                            Only accounts on other servers. Asking for both `local` and `remote` lists both. \
+                            """ + ApiDocs.FLAG),
+                    @Parameter(name = "suspended", description = "Only suspended accounts. " + ApiDocs.FLAG),
+                    @Parameter(name = "username", description = "Only accounts whose username starts with this."),
+                    @Parameter(name = "by_domain", description = "Only accounts on this domain."),
+                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                            + AccountFilter.MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + AccountFilter.DEFAULT_LIMIT)),
+                    // The generic cursor descriptions say older and newer, which these IDs don't mean.
+                    @Parameter(name = "max_id", description = "Only accounts with an ID lower than this."),
+                    @Parameter(name = "since_id", description = "Only accounts with an ID higher than this."),
+                    @Parameter(name = "min_id", description = """
+                            Only accounts with an ID higher than this, starting with the closest to it.""")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The accounts.")
+            })
     public ResponseEntity<List<AdminAccountResponse>> list(
             @RequestParam(required = false) String local,
             @RequestParam(required = false) String remote,
@@ -108,7 +146,16 @@ public class AdminAccountsController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('SCOPE_admin:read:accounts')")
-    public AdminAccountResponse get(@PathVariable String id) {
+    @Operation(
+            operationId = "getAdminAccount",
+            summary = "View an account",
+            description = "A deleted account gets a 404.",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#get-one"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The account."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
+            })
+    public AdminAccountResponse get(@Parameter(description = ApiDocs.ID) @PathVariable String id) {
         return response(find(id));
     }
 
@@ -116,28 +163,52 @@ public class AdminAccountsController {
     @PreAuthorize("hasAuthority('SCOPE_admin:write:accounts')")
     public Map<String, Object> actionFromForm(
             @AuthenticationPrincipal TokenPrincipal token,
-            @PathVariable String id,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
             @RequestParam MultiValueMap<String, String> form) {
         return action(token, id, form.toSingleValueMap());
     }
 
     @PostMapping(path = "/{id}/action", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAuthority('SCOPE_admin:write:accounts')")
-    // The API docs combine both mappings into one operation, and this replaces the body documented by the other one.
-    @RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(type = "object")),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE, schema = @Schema(type = "object")),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE, schema = @Schema(type = "object"))
-    })
+    // The API docs combine both mappings into one operation, and this replaces what the other one documents.
+    @Operation(
+            operationId = "actOnAccount",
+            summary = "Suspend an account",
+            description = """
+                    Differences from Mastodon: `type` has to be `suspend`, and other values get a 422, rather than \
+                    doing more than an admin meant to. Other parameters are ignored. Suspending yourself, or the \
+                    server's last admin, gets a 403, with the reason in `error`.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#action"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "An empty object."),
+                    @ApiResponse(responseCode = "403", description = """
+                            The token has none of the scopes listed, or the account is the admin's own or the last \
+                            admin's."""),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is deleted."),
+                    @ApiResponse(responseCode = "413", description = "The body is too large."),
+                    @ApiResponse(responseCode = "422", description = "`type` isn't `suspend`.")
+            })
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = AccountActionBody.class)))
     public Map<String, Object> actionFromJson(
-            @AuthenticationPrincipal TokenPrincipal token, @PathVariable String id, HttpServletRequest request)
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            HttpServletRequest request)
             throws IOException {
         return action(token, id, json.read(request, MAX_BODY_BYTES));
     }
 
     @PostMapping("/{id}/unsuspend")
     @PreAuthorize("hasAuthority('SCOPE_admin:write:accounts')")
-    public AdminAccountResponse unsuspend(@PathVariable String id) {
+    @Operation(
+            operationId = "unsuspendAccount",
+            summary = "End an account's suspension",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#unsuspend"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The account."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is deleted.")
+            })
+    public AdminAccountResponse unsuspend(@Parameter(description = ApiDocs.ID) @PathVariable String id) {
         var account = find(id);
         accounts.unsuspend(account.id());
         return response(find(id));
@@ -145,7 +216,24 @@ public class AdminAccountsController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('SCOPE_admin:write:accounts')")
-    public AdminAccountResponse delete(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
+    @Operation(
+            operationId = "deleteAccount",
+            summary = "Delete an account",
+            description = """
+                    Differences from Mastodon: the account doesn't have to be suspended first. Only accounts on this \
+                    server can be deleted, and one on another server gets a 403. Deleting yourself, or the server's \
+                    last admin, gets a 403, with the reason in `error`.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#delete"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The account, as it was deleted."),
+                    @ApiResponse(responseCode = "403", description = """
+                            The token has none of the scopes listed, or the account is on another server, or is the \
+                            admin's own or the last admin's."""),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is already deleted.")
+            })
+    public AdminAccountResponse delete(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         var account = find(id);
         accounts.delete(account.id(), token.actorId());
         return response(actors.findById(account.id()).orElse(account));
@@ -200,5 +288,14 @@ public class AdminAccountsController {
                 local ? new AdminAccountResponse.Role(admin ? "Admin" : "User") : null,
                 !account.isActive(),
                 response);
+    }
+
+    /**
+     * Only documents the body, which is read by hand.
+     */
+    @Schema(name = "AccountAction")
+    private record AccountActionBody(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "suspend")
+            String type) {
     }
 }

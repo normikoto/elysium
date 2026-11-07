@@ -1,7 +1,14 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.timeline.TimelineService;
+import io.swagger.v3.oas.annotations.ExternalDocumentation;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +21,8 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/timelines")
+@Tag(name = "Timelines", description = "Reading feeds of statuses.",
+        externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/"))
 public class TimelinesController {
 
     private static final String PUBLIC_PATH = "/api/v1/timelines/public";
@@ -32,6 +41,27 @@ public class TimelinesController {
      */
     @GetMapping("/public")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getPublicTimeline",
+            summary = "View public statuses",
+            description = """
+                    Differences from Mastodon: statuses from other servers aren't stored, so every status is from this \
+                    server. `local` has no effect, and `remote` returns an empty list. Statuses can't have media, so \
+                    `only_media` returns an empty list.
+
+                    Only public statuses are listed, and not ones from suspended accounts.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#public"),
+            parameters = {
+                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                            + StatusPage.MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
+                    @Parameter(name = "local", description = "Has no effect. " + ApiDocs.FLAG),
+                    @Parameter(name = "remote", description = "Returns an empty list if true. " + ApiDocs.FLAG),
+                    @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG)
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The statuses, newest first.")
+            })
     public ResponseEntity<List<StatusResponse>> publicTimeline(
             @RequestParam(required = false) String limit,
             @RequestParam(name = "max_id", required = false) String maxId,
