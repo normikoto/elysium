@@ -35,10 +35,12 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 
 | Module        | Purpose                                    | May depend on                                  |
 |---------------|--------------------------------------------|------------------------------------------------|
-| `actor`       | Local and remote actors, profiles, keys    | nothing                                        |
+| `media`       | Uploaded images, kept on disk              | nothing                                        |
+| `text`        | Rendering plain text as HTML               | nothing                                        |
+| `actor`       | Local and remote actors, profiles, keys    | `media`, `text`                                |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, OAuth, HTTP security configuration | `actor`, `ratelimit`                           |
-| `content`     | Posts and related records                  | `actor`, `graph`                               |
+| `content`     | Posts and related records                  | `actor`, `graph`, `text`                       |
 | `graph`       | Follows (blocks and mutes to come)         | `actor`                                        |
 | `moderation`  | Domain blocks                              | `actor`                                        |
 | `timeline`    | Home and public feeds                      | `actor`, `content`, `graph`                    |
@@ -74,7 +76,8 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
   for what has to keep working for suspended or deleted ones, such as actor documents and signing, and check the state of
   anything from `findByUri` or `findById`. `auth.AccountActions` decides who can be suspended or deleted.
 - **Cleanup:** new remote data has to be removed by `DomainBlockCleanupTask`, and new remote or account data by
-  `AccountCleanupTask`. Domain blocks are decided in `moderation.DomainBlocks` and enforced in `activitypub`.
+  `AccountCleanupTask`, including files in the media directory. Domain blocks are decided in `moderation.DomainBlocks` and
+  enforced in `activitypub`.
 - **Outbound HTTP:** use `activitypub.http.FederationHttpClient`, which refuses private addresses. The lab uses
   `elysium.federation.allowed-private-networks`, and `federation/README.md` rules out an on/off switch or plain HTTP.
 

@@ -3,9 +3,9 @@ package dev.biribiri.elysium.content;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.internal.StatusIds;
-import dev.biribiri.elysium.content.internal.StatusRenderer;
+import dev.biribiri.elysium.text.PlainText;
 import dev.biribiri.elysium.content.internal.StatusRepository;
-import dev.biribiri.elysium.content.internal.StatusUrls;
+import dev.biribiri.elysium.text.Urls;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -75,7 +75,7 @@ public class StatusService {
 
         var author = actors.findLocalById(authorId)
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
-        var content = StatusRenderer.render(text);
+        var content = PlainText.render(text);
 
         return transaction.execute(tx -> {
             var parent = draft.inReplyToId() == null
@@ -212,7 +212,7 @@ public class StatusService {
      * What each URL counts as toward the length limit.
      */
     public int charactersReservedPerUrl() {
-        return StatusUrls.CHARACTERS_RESERVED_PER_URL;
+        return Urls.CHARACTERS_RESERVED_PER_URL;
     }
 
     /**
@@ -220,7 +220,7 @@ public class StatusService {
      * characters than they have.
      */
     public long maxStoredCharacters() {
-        return (long) properties.maxCharacters() + StatusUrls.MAX_URL_SAVINGS;
+        return (long) properties.maxCharacters() + Urls.MAX_URL_SAVINGS;
     }
 
     /**
@@ -240,7 +240,7 @@ public class StatusService {
         if (looksBlank(text)) {
             throw new InvalidStatusException("Text can't be blank");
         }
-        var length = StatusUrls.countCharacters(text) + spoilerText.codePointCount(0, spoilerText.length());
+        var length = Urls.countCharacters(text) + spoilerText.codePointCount(0, spoilerText.length());
         if (length > properties.maxCharacters()) {
             throw new InvalidStatusException(
                     "Text can't be longer than %d characters".formatted(properties.maxCharacters()));

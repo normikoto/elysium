@@ -30,12 +30,27 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
 [search API](https://docs.joinmastodon.org/methods/search/), with these differences:
 
 - Only `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `:id/statuses`, `:id/followers`,
-  `:id/following`, `POST /:id/follow` and `/:id/unfollow`, `PATCH update_credentials`, and `GET /api/v2/search` exist.
-- Accounts have no profile yet, so `display_name` is the username, `note` is empty, and images are a placeholder. For an
-  account on another server, `followers_count` and `following_count` only count accounts on this server, and
-  `hide_collections` is null.
-- `update_credentials` can only change `hide_collections`. Any other field with a value gets a 422 naming it, and nothing is
-  changed. Empty values are ignored.
+  `:id/following`, `POST /:id/follow` and `/:id/unfollow`, `PATCH update_credentials`, `DELETE /api/v1/profile/avatar`
+  and `/api/v1/profile/header`, and `GET /api/v2/search` exist.
+- Profiles of accounts on other servers aren't stored yet, so theirs have the username as `display_name`, an empty `note`
+  and `fields`, and placeholder images. For an account on another server, `followers_count` and `following_count` only
+  count accounts on this server, and `hide_collections` is null.
+- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, and `hide_collections`.
+  `locked`, `bot`, `discoverable`, `indexable`, and `source` are accepted only with the values the account already has:
+  false, and `public` for `source[privacy]`. Any other value for them, or any other field with a value, gets a 422 naming
+  it, and then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it, as
+  on Mastodon.
+- `fields_attributes` replaces all of the fields. It can be a list or an object keyed by position, in JSON or in a form
+  (`fields_attributes[0][name]` or `fields_attributes[][name]`). Fields with an empty name and value are left out. How many
+  there can be is set by the admin, and defaults to 4: `GET /api/v1/instance` reports it in
+  `configuration.accounts.max_profile_fields`, which Mastodon doesn't send.
+- `avatar` and `header` can only be uploaded in a multipart form, not as data in JSON. They have to be a PNG, JPEG, GIF,
+  or WebP, 8 MB at most by default. They're always re-encoded as WebP and cropped to 400 × 400 and 1500 × 500, which
+  removes their metadata. Animated ones stay animated, and `avatar_static` and `header_static` are their first frame.
+  `DELETE /api/v1/profile/avatar` and `/api/v1/profile/header` remove them.
+- A field whose value is only an `https` URL gets a `verified_at` once that page links back to the account with
+  `rel="me"`. This server checks when the field is saved, and only follows 3 redirects. A field keeps its `verified_at`
+  while its value stays the same.
 - Following a local account takes effect straight away. Following an account on another server returns `requested: true`
   until that server accepts. Following yourself, or an account on a blocked server, gets a 422.
 - `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true whenever

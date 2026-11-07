@@ -1,5 +1,7 @@
 HELP.md
 .env
+# Uploaded images, when running from a checkout.
+/media/
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar

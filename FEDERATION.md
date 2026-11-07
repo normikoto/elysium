@@ -32,6 +32,31 @@ document's `url` links to that page, which is at the same URL.
 Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`, and
 `endpoints.sharedInbox`, which is the [shared inbox](#inboxes) at `/inbox`.
 
+An actor document also has the user's profile, as Mastodon sends it, and leaves out each part that's empty:
+
+- `name`, the display name, which is plain text of up to 30 characters.
+- `summary`, the bio, as HTML: `<p>` paragraphs and `<br>` line breaks, with URLs as `<a>` links. Everything else is
+  escaped.
+- `icon` and `image`, the avatar and header, as `Image`s with a `url` and a `mediaType` of `image/webp`. They're always WebP,
+  and can be animated. An avatar is 400 × 400, and a header 1500 × 500.
+- `attachment`, the fields, as `PropertyValue`s (`schema:PropertyValue`), each with a `name` and a `value` that's HTML. A
+  URL in a value is a link with `rel="me nofollow noopener noreferrer"`. Whether this server has verified the link isn't
+  sent, since each server checks for itself.
+- `published`, when the account was created, and `updated`, when the profile last changed, both to the second.
+
+The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields.
+
+When a user changes their profile, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
+`{actor-uri}#profile/{milliseconds}`. It's addressed to the public, with the followers collection in `cc`, and its
+`object` is the actor document, without a `@context` of its own, as it is when it's sent. A save that changes nothing
+sends nothing, and neither does verifying a field. These aren't ordered, so a server that's been down can get an older
+`Update` last, and the actor's `updated` says which is newer.
+
+When a field's value is only an `https` URL, this server fetches that page when the field is saved, to see whether it links
+back to the actor with `rel="me"`. These requests aren't signed, ask for `text/html`, follow up to 3 redirects, and only
+reach public addresses over HTTPS. A link back is an `<a>` or `<link>` whose `rel` includes `me`, and whose `href`
+resolves to the actor's URI, ignoring a trailing slash.
+
 An actor's `followers` and `following` are `OrderedCollection`s at `/users/{username}/followers` and
 `/users/{username}/following`. They're served as `application/activity+json` or `application/ld+json` with any profile,
 including for `*/*` or no `Accept` header, and any origin can read them through CORS. There's no web page at these URLs, so a
@@ -360,6 +385,7 @@ again with the same `id`.
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
 - Statuses and other activities from followed actors are ignored.
+- Profiles of actors on other servers aren't stored, and an `Update` of one isn't acted on.
 - `Reject` is never sent.
 - A follower stays stored when its actor is deleted, because `Delete` isn't acted on.
 - Actor documents advertise an `outbox`, but it isn't implemented yet.
@@ -389,6 +415,8 @@ for a local account:
 `suspended` is `toot:suspended` (`http://joinmastodon.org/ns#suspended`), and the `@context` only defines it on a document
 that has it. A suspension isn't a `404` or `410`, so that other servers don't take it as the actor or its statuses being gone
 for good. A deleted account's `Note`s all get the same answer, whatever their ID, so this doesn't say which ones existed.
+
+A suspended account's actor document has no profile: no `name`, `summary`, `icon`, `image`, `attachment`, or `updated`.
 
 - **Suspending a local account:** Its followers' servers get an `Update` of the actor with `suspended: true`, and an `Update`
   without it if the suspension ends, each signed by the actor, with its own ID. They aren't ordered, so if a server is down

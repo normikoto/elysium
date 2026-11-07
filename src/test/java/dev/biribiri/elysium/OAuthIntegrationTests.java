@@ -566,7 +566,7 @@ class OAuthIntegrationTests {
                 .andExpect(jsonPath("$.id").isString())
                 .andExpect(jsonPath("$.username").value("oauthuser"))
                 .andExpect(jsonPath("$.acct").value("oauthuser"))
-                .andExpect(jsonPath("$.display_name").value("oauthuser"))
+                .andExpect(jsonPath("$.display_name").value(""))
                 .andExpect(jsonPath("$.url").value("https://elysium.example/users/oauthuser"))
                 .andExpect(jsonPath("$.avatar").value("https://elysium.example/images/missing.png"))
                 .andExpect(jsonPath("$.created_at").isString())

@@ -3,6 +3,8 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.Profile;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Component;
@@ -23,9 +25,16 @@ class AccountResponses {
     private final StatusService statuses;
     private final FollowService follows;
     private final InstanceProperties instance;
+    private final ProfileService profiles;
 
-    AccountResponses(ActorService actors, StatusService statuses, FollowService follows, InstanceProperties instance) {
+    AccountResponses(
+            ActorService actors,
+            StatusService statuses,
+            FollowService follows,
+            InstanceProperties instance,
+            ProfileService profiles) {
         this.actors = actors;
+        this.profiles = profiles;
         this.statuses = statuses;
         this.follows = follows;
         this.instance = instance;
@@ -33,6 +42,13 @@ class AccountResponses {
 
     AccountResponse one(Actor actor) {
         return byId(List.of(actor)).get(actor.id());
+    }
+
+    /**
+     * The account as its owner sees it, which is only ever a local one.
+     */
+    CredentialAccountResponse credential(Actor actor) {
+        return CredentialAccountResponse.from(one(actor), profiles.find(actor.id()));
     }
 
     /**
@@ -51,12 +67,14 @@ class AccountResponses {
         var stats = statuses.statsFor(ids);
         var counts = follows.countsFor(ids);
         var hiding = actors.hidingCollections(ids);
+        var profilesById = profiles.findAll(ids);
         var responses = new HashMap<UUID, AccountResponse>();
         for (var actor : found) {
             var local = actors.isLocal(actor);
             responses.put(actor.id(), AccountResponse.from(
                     actor,
                     local ? actor.username() : actor.username() + "@" + actor.domain(),
+                    local ? profilesById.getOrDefault(actor.id(), Profile.EMPTY) : null,
                     stats.get(actor.id()),
                     counts.get(actor.id()),
                     local ? hiding.contains(actor.id()) : null,

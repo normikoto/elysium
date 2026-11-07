@@ -1,8 +1,21 @@
 <!doctype html>
-<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(|@${actor.username}|, ~{::content})}">
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(${name}, ~{::content})}">
 <th:block th:fragment="content">
     <div class="wide">
+        <img class="profile-header" th:if="${header != null}" th:src="${header}" alt="">
+        <img class="avatar" th:if="${avatar != null}" th:src="${avatar}" alt="">
         <p th:text="|@${actor.username}@${actor.domain}|"></p>
+        <!-- The bio and field values are rendered from plain text, which escapes everything they contain. -->
+        <div class="bio" th:if="${!profile.note().isEmpty()}" th:utext="${profile.noteHtml()}"></div>
+        <dl class="fields" th:if="${!profile.fields().isEmpty()}">
+            <th:block th:each="field : ${profile.fields()}">
+                <dt th:text="${field.name()}"></dt>
+                <dd th:classappend="${field.verifiedAt() != null} ? 'verified'">
+                    <span th:utext="${field.valueHtml()}"></span>
+                    <span th:if="${field.verifiedAt() != null}" title="The page this links to links back here">✓</span>
+                </dd>
+            </th:block>
+        </dl>
         <p>Joined <span th:text="${joined}"></span></p>
         <p th:if="${#lists.isEmpty(statuses)}">No posts to show.</p>
         <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>

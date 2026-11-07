@@ -332,14 +332,15 @@ class FollowsIntegrationTests {
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("alice"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("hide_collections", "true")
-                        .param("display_name", "Alice"))
+                        .param("locked", "true"))
                 .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.error").value(containsString("display_name")));
+                .andExpect(jsonPath("$.error").value(containsString("locked")));
         assertThat(actors.hidesCollections(account("alice").id())).isFalse();
 
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("alice"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("note", ""))
+                        .param("locked", "false")
+                        .param("unknown", ""))
                 .andExpect(status().isOk());
     }
 

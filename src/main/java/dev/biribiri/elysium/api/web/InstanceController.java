@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
@@ -31,13 +32,16 @@ public class InstanceController {
     private final ActorService actors;
     private final StatusService statuses;
     private final RegistrationProperties registration;
+    private final ProfileService profiles;
 
     InstanceController(
             InstanceProperties instance,
             StatusProperties statusProperties,
             ActorService actors,
             StatusService statuses,
-            RegistrationProperties registration) {
+            RegistrationProperties registration,
+            ProfileService profiles) {
+        this.profiles = profiles;
         this.instance = instance;
         this.statusProperties = statusProperties;
         this.actors = actors;
@@ -56,7 +60,8 @@ public class InstanceController {
                      rather than 500. `/api/v2/instance` isn't implemented, so clients that don't read the limit \
                     from this may apply their own limit of 500. `version` is a Mastodon version followed by `(compatible; Elysium)`, for \
                     clients that check it to decide what to use. The streaming API isn't implemented, though \
-                    `urls.streaming_api` is set.""",
+                    `urls.streaming_api` is set. `configuration.accounts.max_profile_fields` says how many fields a \
+                    profile can have, which Mastodon doesn't send.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v1"),
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
     public InstanceResponse instance() {
@@ -78,7 +83,7 @@ public class InstanceController {
                 false,
                 maxCharacters,
                 new InstanceResponse.Configuration(
-                        new InstanceResponse.Accounts(0),
+                        new InstanceResponse.Accounts(0, profiles.maxFields()),
                         new InstanceResponse.Statuses(maxCharacters, 0, statuses.charactersReservedPerUrl()),
                         new InstanceResponse.MediaAttachments(List.of(), 0, 0, 0, 0, 0),
                         new InstanceResponse.Polls(0, 0, 0, 0)),

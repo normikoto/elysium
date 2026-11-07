@@ -17,6 +17,7 @@ import dev.biribiri.elysium.actor.AccountUnsuspended;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.context.annotation.Lazy;
@@ -56,6 +57,7 @@ public class AccountCleanup {
     private final SchedulerClient scheduler;
     private final JsonMapper json;
     private final InstanceProperties instance;
+    private final ProfileService profiles;
 
     /**
      * @param scheduler lazy like everywhere else it's used, so that this doesn't affect when the scheduler is created
@@ -66,8 +68,10 @@ public class AccountCleanup {
             ActivityDeliveries deliveries,
             @Lazy SchedulerClient scheduler,
             JsonMapper json,
-            InstanceProperties instance) {
+            InstanceProperties instance,
+            ProfileService profiles) {
         this.instance = instance;
+        this.profiles = profiles;
         this.actors = actors;
         this.follows = follows;
         this.deliveries = deliveries;
@@ -86,7 +90,7 @@ public class AccountCleanup {
             return;
         }
         if (actors.isLocal(actor.get())) {
-            announce(actor.get(), Update.of(Person.suspended(actor.get(), instance.sharedInboxUri()), "suspended", event.at()));
+            announce(actor.get(), Update.of(Person.suspended(actor.get(), instance), "suspended", event.at()));
         } else {
             sweep(event.actorId(), event.at().toString());
         }
@@ -96,7 +100,8 @@ public class AccountCleanup {
     public void on(AccountUnsuspended event) {
         var actor = actors.findById(event.actorId()).filter(Actor::isActive);
         if (actor.isPresent() && actors.isLocal(actor.get())) {
-            announce(actor.get(), Update.of(Person.from(actor.get(), instance.sharedInboxUri()), "unsuspended", event.at()));
+            var person = Person.from(actor.get(), profiles.find(actor.get().id()), instance);
+            announce(actor.get(), Update.of(person, "unsuspended", event.at()));
         }
     }
 

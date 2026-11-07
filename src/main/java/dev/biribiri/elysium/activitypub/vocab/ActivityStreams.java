@@ -39,6 +39,14 @@ public final class ActivityStreams {
     static final List<String> ACTOR_CONTEXT = List.of(CONTEXT, "https://w3id.org/security/v1");
 
     /**
+     * The {@code @context} of a local account's actor document, which adds the terms Mastodon uses for profile fields.
+     */
+    static final List<Object> PERSON_CONTEXT = List.of(
+            CONTEXT,
+            "https://w3id.org/security/v1",
+            Map.of("schema", "http://schema.org#", "PropertyValue", "schema:PropertyValue", "value", "schema:value"));
+
+    /**
      * The {@code @context} of an actor document or activity saying that the actor is suspended, which adds Mastodon's term for
      * that.
      */

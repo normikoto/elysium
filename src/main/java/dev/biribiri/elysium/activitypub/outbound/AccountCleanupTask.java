@@ -4,13 +4,14 @@ import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses and follows, and a suspended remote actor's follows, which would otherwise give it a
+ * Removes a deleted account's statuses, follows, and profile, and a suspended remote actor's follows, which would otherwise give it a
  * way to keep receiving statuses. A suspended local account keeps everything, so that its suspension can be undone. This
  * looks at the actor's state now, so it's safe to run again, and does nothing for a suspension that's since ended.
  */
@@ -20,9 +21,11 @@ class AccountCleanupTask {
     private final ActorService actors;
     private final StatusService statuses;
     private final FollowService follows;
+    private final ProfileService profiles;
 
-    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows) {
+    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, ProfileService profiles) {
         this.actors = actors;
+        this.profiles = profiles;
         this.statuses = statuses;
         this.follows = follows;
     }
@@ -37,6 +40,7 @@ class AccountCleanupTask {
             if (actor.isDeleted()) {
                 statuses.removeAllBy(actor.id());
                 follows.removeForActor(actor.id());
+                profiles.removeAll(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {
                 follows.removeForActor(actor.id());
             }

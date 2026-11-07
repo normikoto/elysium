@@ -21,6 +21,16 @@ spring.datasource.password=
 # doesn't affect existing statuses.
 #elysium.statuses.max-characters=5000
 
+# How many fields each profile can have. Lowering this doesn't remove any, but a profile with more can't save its fields
+# until it has few enough.
+#elysium.profiles.max-fields=4
+# The largest avatar or header that can be uploaded. Above 9MB, also raise spring.servlet.multipart.max-request-size,
+# which is 20MB.
+#elysium.profiles.max-image-size=8MB
+
+# Where uploaded images are kept. Back this directory up along with the database, which refers to the files in it.
+#elysium.media.directory=media
+
 # How long a login session lasts without a request.
 #server.servlet.session.timeout=30m
 

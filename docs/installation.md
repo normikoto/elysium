@@ -23,8 +23,9 @@ export SPRING_PROFILES_ACTIVE=prod
 java -jar elysium.jar
 ```
 
-See [Configuration](configuration.md) for the settings you can change, and [Accounts and sign-ups](accounts.md) to create
-your first account. A public server also needs a [reverse proxy](#before-going-live).
+Uploaded images are kept in `media`, in the directory you run it from, unless you set `elysium.media.directory`. Back it
+up along with the database. See [Configuration](configuration.md) for the settings you can change, and
+[Accounts and sign-ups](accounts.md) to create your first account. A public server also needs a [reverse proxy](#before-going-live).
 
 ## Running with Docker Compose
 `compose.yaml` runs the server and a PostgreSQL database. You'll need Docker, as well as JDK 25 or later to build the
@@ -39,7 +40,8 @@ docker compose up -d
 If the image build can't connect to Docker, which can happen with Docker Desktop or Colima, build it with
 `./gradlew bootBuildImage -PbindDockerHostToBuilder=false`.
 
-PostgreSQL isn't reachable from outside its Docker network, and its data is kept in the `postgres-data` volume. The
+PostgreSQL isn't reachable from outside its Docker network, and its data is kept in the `postgres-data` volume.
+Uploaded images are kept in the `media-data` volume, so back up both together. The
 server listens on `127.0.0.1:8080`, so you need a reverse proxy on the same host to handle HTTPS. Because the proxy is
 the only way to reach the server, `server.forward-headers-strategy=native` is already set. The proxy still needs to
 [set the forwarded headers itself and limit inbox requests](configuration.md#reverse-proxies). Otherwise clients may be
@@ -80,7 +82,7 @@ install -m 600 /dev/null /etc/elysium/elysium.env
 # Add a line to /etc/elysium/elysium.env: SPRING_DATASOURCE_PASSWORD=...
 ```
 
-The sandbox makes the filesystem read-only apart from private `/tmp` and `/var/tmp` directories and `/dev/shm`, which
-isn't private. It also hides `/home`, `/root` and `/run/user`, so `java` and the JAR must be installed outside them. If
+The sandbox makes the filesystem read-only apart from private `/tmp` and `/var/tmp` directories, `/dev/shm`, which
+isn't private, and `/var/lib/elysium`, where uploaded images are kept. Back that up along with the database. It also hides `/home`, `/root` and `/run/user`, so `java` and the JAR must be installed outside them. If
 you need the server to write somewhere, or to listen on a port below 1024, the comments in `elysium.service` explain what
 to change.

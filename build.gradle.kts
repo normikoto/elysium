@@ -35,6 +35,12 @@ dependencies {
     // Spring Boot doesn't manage these versions. Both need their Spring Boot 4 artifacts, not the ones without "4" in the name.
     implementation("com.github.kagkarlsson:db-scheduler-spring-boot-4-starter:17.0.0")
     implementation("info.picocli:picocli:4.7.7")
+    // Images are re-encoded as WebP, which the JDK can't write. This runs the libwebp tools that come in its JAR, so
+    // nothing has to be installed.
+    implementation("com.sksamuel.scrimage:scrimage-core:4.6.9")
+    implementation("com.sksamuel.scrimage:scrimage-webp:4.6.9")
+    // Reads the pages that profile fields link to, to check that they link back.
+    implementation("org.jsoup:jsoup:1.23.2")
     // Unlike the JDK's client, this lets each client choose how hosts resolve, which is what keeps fetches from reaching
     // private addresses.
     implementation("org.apache.httpcomponents.client5:httpclient5")

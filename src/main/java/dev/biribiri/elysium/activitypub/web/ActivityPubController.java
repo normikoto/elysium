@@ -11,6 +11,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
@@ -58,10 +59,17 @@ public class ActivityPubController {
     private final FollowService follows;
     private final Notes notes;
     private final InstanceProperties instance;
+    private final ProfileService profiles;
 
     ActivityPubController(
-            ActorService actors, StatusService statuses, FollowService follows, Notes notes, InstanceProperties instance) {
+            ActorService actors,
+            StatusService statuses,
+            FollowService follows,
+            Notes notes,
+            InstanceProperties instance,
+            ProfileService profiles) {
         this.instance = instance;
+        this.profiles = profiles;
         this.actors = actors;
         this.statuses = statuses;
         this.follows = follows;
@@ -74,8 +82,9 @@ public class ActivityPubController {
             summary = "Fetch a user's actor document",
             description = """
                     A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, and the shared inbox \
-                    at `/inbox` as `endpoints.sharedInbox`. A suspended user's document has `suspended: true`, and the \
-                    same key.\s""" + FederationDocs.NEGOTIATED,
+                    at `/inbox` as `endpoints.sharedInbox`. The profile is in `name`, `summary` (HTML), `icon` and \
+                    `image` (WebP `Image`s), and `attachment` (`PropertyValue`s), each left out if it's empty. A \
+                    suspended user's document has `suspended: true`, the same key, and no profile.\s""" + FederationDocs.NEGOTIATED,
             parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The actor, or the profile page for HTML.",
@@ -99,10 +108,9 @@ public class ActivityPubController {
             return ResponseEntity.status(HttpStatus.GONE).body(Tombstone.from(actor.get()));
         }
         // Not an error, because other servers take any answer that isn't this document as the actor being gone or broken.
-        var sharedInbox = instance.sharedInboxUri();
         return ResponseEntity.ok(actor.get().isSuspended()
-                ? Person.suspended(actor.get(), sharedInbox)
-                : Person.from(actor.get(), sharedInbox));
+                ? Person.suspended(actor.get(), instance)
+                : Person.from(actor.get(), profiles.find(actor.get().id()), instance));
     }
 
     /**
