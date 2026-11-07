@@ -536,9 +536,21 @@ class PublicKeyResolverTests {
         var stale = resolver.resolve(keyId(KEY_ID), UNLIMITED);
         advance(Duration.ofMinutes(5));
 
-        assertRefreshFails(stale, Failure.REJECTED);
+        assertRefreshFails(stale, Failure.KEY_GONE);
 
-        assertFails(KEY_ID, Failure.REJECTED);
+        assertFails(KEY_ID, Failure.KEY_GONE);
+    }
+
+    @Test
+    void saysWhoseKeyIsGone() throws Exception {
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.gone("gone"));
+
+        assertThatThrownBy(() -> resolver.resolve(keyId(KEY_ID), UNLIMITED))
+                .isInstanceOfSatisfying(SignatureVerificationException.class, e -> {
+                    assertThat(e.failure()).isEqualTo(Failure.KEY_GONE);
+                    assertThat(e.failure().status()).isEqualTo(401);
+                    assertThat(e.keyDocument()).contains(URI.create("https://remote.example/users/bob"));
+                });
     }
 
     @ParameterizedTest

@@ -70,6 +70,6 @@ class InboundActivityTask {
     }
 
     private boolean isRefused(URI actor) {
-        return blocks.isBlocked(actor.getHost()) || actors.isSuspended(actor);
+        return blocks.isBlocked(actor.getHost()) || actors.isInactive(actor);
     }
 }

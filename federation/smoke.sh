@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, be followed and unfollowed by it, and receive its statuses, their deletion, and profile changes.
+# and unfollow it, be followed and unfollowed by it, and receive its statuses, their deletion, and profile changes, and that
+# Elysium removes a status and an account that the other server deletes.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -741,6 +742,162 @@ misskey_expect_deleted() {
     echo 'Misskey removed both statuses'
 }
 
+# The lab user's status that mentions alice, as Elysium stored it. Its Delete goes to alice as someone it mentions, so this
+# doesn't depend on any follow.
+mentioned_status_uri() {
+    local server=$1
+    docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT s.uri FROM status s JOIN actor a ON a.id = s.actor_id
+         WHERE a.domain = '$server' AND s.text LIKE '%Hello from the lab%'"
+}
+
+# Passing means that Elysium took the other server's Delete, verified as coming from the status's author.
+expect_status_removed() {
+    local server=$1 uri=$2 found
+    echo "Waiting for Elysium to remove $uri"
+    for _ in $(seq 1 60); do
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM status WHERE uri = '$uri'")
+        if [[ $found -eq 0 ]]; then
+            echo "Elysium removed lab@$server's deleted status"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium still has $uri after $server deleted it. Check /admin/db-scheduler, and its logs at debug level"
+}
+
+# Passing means that Elysium took the other server's Delete of its actor, which leaves the row, marked deleted, with nothing
+# else stored about it.
+expect_actor_deleted() {
+    local server=$1 username=$2 found
+    echo "Waiting for Elysium to delete $username@$server"
+    for _ in $(seq 1 60); do
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM actor WHERE domain = '$server' AND username = '$username' AND deleted_at IS NOT NULL")
+        [[ $found -eq 1 ]] && break
+        sleep 2
+    done
+    [[ $found -eq 1 ]] || fail "Elysium didn't delete $username@$server. Check /admin/db-scheduler, and its logs at debug level"
+    for _ in $(seq 1 30); do
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM follow f JOIN actor a ON a.id IN (f.follower_id, f.followed_id)
+             WHERE a.domain = '$server' AND a.username = '$username'")
+        if [[ $found -eq 0 ]]; then
+            echo "Elysium deleted $username@$server, with its follows"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium deleted $username@$server, but still has $found of its follows"
+}
+
+# Passing means that Elysium stored the Follow, so the account is one whose deletion it has to hear about.
+expect_follower() {
+    local server=$1 username=$2 found
+    echo "Waiting for $username@$server to follow alice"
+    for _ in $(seq 1 60); do
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM follow f JOIN actor a ON a.id = f.follower_id
+             WHERE f.state = 'accepted' AND a.domain = '$server' AND a.username = '$username'")
+        [[ $found -eq 1 ]] && return
+        sleep 2
+    done
+    fail "$username@$server never followed alice. Check Elysium's failed jobs and logs"
+}
+
+delete_from_mastodon() {
+    local uri
+    uri=$(mentioned_status_uri mastodon.test)
+    [[ -n $uri ]] || fail "Elysium has no status from lab@mastodon.test to delete"
+    docker compose exec -T mastodon-web bin/rails runner '
+        Account.find_local("lab").statuses.where("text LIKE ?", "%Hello from the lab%").each do |status|
+            RemoveStatusService.new.call(status)
+        end'
+    expect_status_removed mastodon.test "$uri"
+}
+
+delete_from_gotosocial() {
+    local uri lab_id status_id
+    uri=$(mentioned_status_uri gts.test)
+    [[ -n $uri ]] || fail "Elysium has no status from lab@gts.test to delete"
+    lab_id=$(driver curl -fsS https://gts.test/api/v1/accounts/verify_credentials -H "Authorization: Bearer $token" | jq -r .id)
+    status_id=$(driver curl -fsS "https://gts.test/api/v1/accounts/$lab_id/statuses?limit=40" \
+        -H "Authorization: Bearer $token" | jq -r --arg uri "$uri" '.[] | select(.uri == $uri) | .id')
+    [[ -n $status_id ]] || fail "GoToSocial has no status at $uri"
+    driver curl -fsS -o /dev/null -X DELETE "https://gts.test/api/v1/statuses/$status_id" -H "Authorization: Bearer $token"
+    expect_status_removed gts.test "$uri"
+}
+
+delete_from_misskey() {
+    local uri lab_id note_id
+    uri=$(mentioned_status_uri misskey.test)
+    [[ -n $uri ]] || fail "Elysium has no status from lab@misskey.test to delete"
+    lab_id=$(misskey_api i | jq -r .id)
+    # Misskey's notes have no uri of their own, and Elysium stores them at /notes/{id}.
+    note_id=${uri##*/notes/}
+    misskey_api notes/show "$(jq -cn --arg id "$note_id" '{noteId: $id}')" | jq -e --arg id "$lab_id" '.userId == $id' \
+        >/dev/null || fail "Misskey has no note of lab's at $uri"
+    misskey_api notes/delete "$(jq -cn --arg id "$note_id" '{noteId: $id}')" >/dev/null
+    expect_status_removed misskey.test "$uri"
+}
+
+# These delete a second account, which follows alice, or which she follows, so that its server tells Elysium, rather than the
+# lab user, which later steps need, and which Misskey can't delete because it's the admin.
+delete_account_from_mastodon() {
+    docker compose exec -T mastodon-web bin/tootctl accounts create gone --email gone@mastodon.test --confirmed --approve
+    docker compose exec -T mastodon-web bin/rails runner '
+        FollowService.new.call(Account.find_local("gone"), ResolveAccountService.new.call("alice@elysium.test"))'
+    expect_follower mastodon.test gone
+    docker compose exec -T mastodon-web bin/rails runner '
+        DeleteAccountService.new.call(Account.find_local("gone"), reserve_username: false)'
+    expect_actor_deleted mastodon.test gone
+}
+
+# GoToSocial only tells a deleted account's followers, and withdraws its follows first, so here alice follows it instead.
+delete_account_from_gotosocial() {
+    local gone_token lab_token read_token write_token gone_id following
+    gts_admin account create --username gone --email gone@gts.test --password "$password"
+    gts_admin account confirm --username gone
+    gone_token=$(driver sh /federation/gotosocial-token.sh gone@gts.test "$password")
+    [[ -n $gone_token ]] || fail "Couldn't get a GoToSocial access token for gone"
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write)
+    gone_id=$(driver curl -fsS -G https://elysium.test/api/v1/accounts/lookup \
+        -H "Authorization: Bearer $read_token" --data-urlencode "acct=gone@gts.test" | jq -r .id) \
+        || fail "Elysium couldn't find gone@gts.test"
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$gone_id/follow" \
+        -H "Authorization: Bearer $write_token"
+    lab_token=$token
+    token=$gone_token
+    gotosocial_approve
+    token=$lab_token
+    echo "Waiting for gone@gts.test to accept alice's Follow"
+    for _ in $(seq 1 60); do
+        following=$(driver curl -fsS -G https://elysium.test/api/v1/accounts/relationships \
+            -H "Authorization: Bearer $read_token" --data-urlencode "id[]=$gone_id" | jq -r '.[0].following')
+        [[ $following == true ]] && break
+        sleep 2
+    done
+    [[ $following == true ]] || fail "gone@gts.test never accepted alice's Follow"
+    driver curl -fsS -o /dev/null https://gts.test/api/v1/accounts/delete \
+        -H "Authorization: Bearer $gone_token" --data-urlencode "password=$password"
+    expect_actor_deleted gts.test gone
+}
+
+delete_account_from_misskey() {
+    local account gone_token gone_id
+    account=$(misskey_api admin/accounts/create "$(jq -cn --arg password "$password" '{username: "gone", password: $password}')")
+    gone_token=$(jq -r .token <<<"$account")
+    gone_id=$(jq -r .id <<<"$account")
+    [[ -n $gone_token && $gone_token != null ]] || fail "Couldn't create Misskey's gone account: $account"
+    driver curl -fsS -o /dev/null https://misskey.test/api/following/create -H 'Content-Type: application/json' \
+        -d "$(jq -cn --arg token "$gone_token" --arg id "$alice_id" '{i: $token, userId: $id}')"
+    expect_follower misskey.test gone
+    misskey_api admin/delete-account "$(jq -cn --arg id "$gone_id" '{userId: $id}')" >/dev/null
+    expect_actor_deleted misskey.test gone
+}
+
 # The '*' includes every profile, so that this also clears a lab left over from another target.
 docker compose --profile '*' down -v --remove-orphans
 
@@ -756,6 +913,8 @@ case "$target" in
         deliver_from_gotosocial
         follow_from_gotosocial
         follow_from_elysium gts.test post_from_gotosocial gotosocial_approve
+        delete_from_gotosocial
+        delete_account_from_gotosocial
         post_from_elysium
         gotosocial_expect_statuses
         delete_from_elysium
@@ -768,6 +927,8 @@ case "$target" in
         deliver_from_mastodon
         follow_from_mastodon
         follow_from_elysium mastodon.test post_from_mastodon
+        delete_from_mastodon
+        delete_account_from_mastodon
         post_from_elysium
         mastodon_expect_statuses
         delete_from_elysium
@@ -780,6 +941,8 @@ case "$target" in
         deliver_from_misskey
         follow_from_misskey
         follow_from_elysium misskey.test post_from_misskey
+        delete_from_misskey
+        delete_account_from_misskey
         post_from_elysium
         misskey_expect_statuses
         delete_from_elysium
@@ -789,4 +952,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, and accept its suspension and deletion"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, and accept its suspension and deletion, and Elysium removes the status and account that $target deleted"

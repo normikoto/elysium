@@ -152,10 +152,10 @@ public class ActorService {
     }
 
     /**
-     * Whether this URI is the URI of a suspended actor. An actor that isn't stored can't be.
+     * Whether this URI is the URI of a suspended or deleted actor. An actor that isn't stored can't be either.
      */
-    public boolean isSuspended(URI uri) {
-        return actors.isSuspended(uri);
+    public boolean isInactive(URI uri) {
+        return actors.isInactive(uri);
     }
 
     /**
@@ -209,6 +209,23 @@ public class ActorService {
     public boolean markDeleted(UUID id) {
         return Boolean.TRUE.equals(transaction.execute(status -> {
             var deleted = actors.markDeleted(id);
+            if (deleted) {
+                events.publishEvent(new AccountDeleted(id));
+            }
+            return deleted;
+        }));
+    }
+
+    /**
+     * Marks a remote actor as permanently deleted, because its server said so. Its URI stays taken: anything from it is
+     * refused from then on, even if its server gives the URI to a new actor. Listeners for {@link AccountDeleted} remove
+     * what's stored about it.
+     *
+     * @return whether this deleted it, which it won't have if it's local, or was deleted already
+     */
+    public boolean markRemoteDeleted(UUID id) {
+        return Boolean.TRUE.equals(transaction.execute(status -> {
+            var deleted = actors.markRemoteDeleted(id);
             if (deleted) {
                 events.publishEvent(new AccountDeleted(id));
             }

@@ -2,32 +2,32 @@
 
 ## Where things stand
 
-Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new and deleted posts, and are told when an account is suspended or deleted. Elysium's users can find and follow accounts on other servers, and their posts are stored and shown in the home timeline. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
+Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new and deleted posts, and are told when an account is suspended or deleted. Elysium's users can find and follow accounts on other servers, and their posts are stored and shown in the home timeline, and removed when they're deleted. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
 
 | Area | State | Notes |
 | --- | --- | --- |
 | WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon, GoToSocial and Misskey resolve users in the federation lab |
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
-| Inboxes | Live, partly | `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a `Follow` are acted on, and other types are stored and ignored. Forwarded activities are fetched from their origin, `sharedInbox` is advertised, and local recipients are worked out, which finishes #39 |
+| Inboxes | Live, partly | `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, and `Delete` are acted on, and other types are stored and ignored. Forwarded activities are fetched from their origin, `sharedInbox` is advertised, and local recipients are worked out, which finishes #39 |
 | Delivery and signed `POST` | Live, partly | `Follow`, `Undo`, `Accept`, `Create`, `Update` of an actor, and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
 | Job queue and backoff | Live | Load tested on one node with `./gradlew loadTest`, and not with several nodes or a real server |
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
 | Sending follows | Live | Local users can follow local and remote users, found through WebFinger or a URL, with `Accept`, `Reject` and `Undo` handled. Checked on all three lab servers. Merged in PR #89, #44 |
 | Followers and following collections | Live | Both are paged, and users can hide what's in them. Merged in PR #89, #43 |
-| Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Received `Note`s for local users are stored and shown in the API, including a home timeline (#41). The outbox is in #40 |
-| Likes, boosts, edits, polls, receiving deletes | Missing | #60, #61, #62, #59, with polls only listed on #1 |
+| Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Received `Note`s for local users are stored and shown in the API, including a home timeline (#41), and received `Delete`s remove them and deleted actors (#59). The outbox is in #40 |
+| Likes, boosts, edits, polls | Missing | #60, #61, #62, with polls only listed on #1 |
 | Moderation and server policy | Live, partly | Domain blocks (#64, PR #82), suspending and deleting accounts (#65, PR #83), and limits on what each server can have stored (#66, PR #88). Reports and the rest are under #37 |
 
 ## Roadmap
 
-Milestone 3 and basic moderation are done, and so is following remote users, the first part of milestone 4. Reading activities fully and storing other servers' posts are done too. What's left of milestone 4 is receiving `Delete` and `Update`, and replies forwarded by a third server.
+Milestone 3 and basic moderation are done, and so is following remote users, the first part of milestone 4. Reading activities fully and storing other servers' posts are done too. Receiving `Delete` is done too. What's left of milestone 4 is receiving `Update`, and replies forwarded by a third server.
 
 ```mermaid
 flowchart TD
     m1["<b>1. Inbox and signatures (done)</b><br/>Servers discover users and deliver signed activities.<br/>PR #57 and earlier"]
     m2["<b>2. Receive follows (done)</b><br/>A remote user follows a local user and gets an Accept.<br/>PR #70, #44 receiving half"]
     m3["<b>3. Posts reach followers (done)</b><br/>Send Create and Delete, and serve followers collections.<br/>#41 sending, #43, #59 sending"]
-    m4["<b>4. Follow out and remote posts (in progress)</b><br/>Follow remote users and read activities fully (done), and store and show their posts.<br/>#41, #59 and #60 receiving"]
+    m4["<b>4. Follow out and remote posts (in progress)</b><br/>Follow remote users and read activities fully (done), and store and show their posts.<br/>#41, #59 (done) and #60 receiving"]
     m5["<b>5. Interactions</b><br/>Mentions, likes, boosts, edits and notifications.<br/>#28, #61, #62, #60 sending"]
     mod["<b>Basic moderation (done)</b><br/>Domain blocks, suspensions and per-server limits.<br/>#64, #65, #66"]
     m6["<b>6. Completeness</b><br/>Outbox, RFC 9421, polls, quotes.<br/>#40, #5, #9, #63"]
@@ -97,7 +97,7 @@ This is the largest step, and the first where other servers' content is stored a
 - **Done when:** a local user follows a remote user and reads their posts, including replies forwarded by a third server.
 - **Following out:** merged in PR #89. Local users find remote accounts through WebFinger or a URL, and follow and unfollow them. The `Accept` or `Reject` is matched by the `Follow`'s ID, which is new for each request, or by the two actors. Deleting an account sends an `Undo` for each of its follows. `federation/smoke.sh` has the lab user accept and drop a follow from Elysium on all three servers, approving it by hand on GoToSocial.
 - **Reading activities:** the rest of #39. Forwarded activities are fetched from their `id`'s origin in a job, and only the origin's copy is stored. `LocalRecipients` works out who an activity is for from its addressing, the sender's `followers` collection, now stored for remote actors, and a `Follow`'s `object`. Actor documents advertise `/inbox` as `endpoints.sharedInbox`.
-  - Left open: forwarded activities that their origin doesn't serve are lost, which includes Mastodon's `Delete`s, whose IDs have a fragment. The `Delete` and `Create` handlers should check the object instead, by fetching it or its `Tombstone`.
+  - Left open: forwarded activities that their origin doesn't serve are lost, apart from `Delete`s, which are checked with the object's server (see receiving `Delete` below). A `Create` could be checked the same way, by fetching its object.
   - Left open: fetches of forwarded activities aren't limited per target host, or counted by `HostRequests`, like actor fetches, so a forwarder can aim them at any host within its own limits (#94).
   - Left open: the check of real deliveries on a public deployment, from the comment on #39.
 - **Receiving `Create`:** the receiving half of #41. A `Note` is stored only if `LocalRecipients` finds someone for it, and replies that arrive before their parent are linked when it does, and direct ones are skipped until mentions (#28) give them someone who can see them. Its `attributedTo` has to be the activity's actor, and its `id` on the actor's server. One sent as an ID is fetched from there. HTML is sanitized with jsoup, keeping about what Mastodon keeps. Status IDs come from arrival, not `published`, so that clients paging by ID don't miss one. The API shows remote statuses, and `timelines/public` takes `local` and `remote`, while web pages stay local. A domain block removes the server's statuses, and a suspended actor's are kept but hidden, so that they come back if the suspension ends, which answers the question on #41.
@@ -106,7 +106,12 @@ This is the largest step, and the first where other servers' content is stored a
 - **Home timeline:** `GET /api/v1/timelines/home` is a query over stored statuses, with the viewer's accepted follows passed in, rather than a feed kept for each user as Mastodon does. Following shows an account's stored statuses straight away, and unfollowing hides them, with nothing to fill or clean up. A followed account's replies follow Mastodon's rule: only to the author, the viewer, or someone followed. The viewer's own are all listed. `federation/smoke.sh` has the lab user post with no mention while alice follows them, and checks it reaches her home timeline.
   - Left open: the query takes every followed account's ID, as one array parameter, so it gets slower for someone who follows thousands. A stored feed is the fix if that's ever measured to matter.
   - Left open: a reply to a status that isn't stored is left out, since its parent's author isn't known.
-- **Next, in order:** receiving `Delete` and `Update`.
+- **Receiving `Delete`:** the receiving half of #59. A status is removed if its author is the signer, and an actor deleting itself loses its statuses, follows and profile through `AccountCleanupTask`, with nothing sent. Its row is kept with `deleted_at` set, and the URI is refused from then on, which was chosen over letting a reused URI come back. A `Delete` that runs before its `Create` leaves a marker in `deleted_remote_status`, by URI and author, which `storeRemote` checks under the same per-URI lock, and `JobCleanupTask` prunes after `Jobs.ACTIVITIES_KEPT`. A `Delete` that can't be shown to come from its actor is checked by fetching its object, and acted on for a `404`, a `410` or a `Tombstone`: forwarded ones their origin doesn't serve, and an actor's own `Delete` signed with a key that's now gone, as Mastodon's are. The second is only taken for actors stored here, so it can't be aimed at any URL. `federation/smoke.sh` has each server delete the lab user's status that mentions alice, and delete a second account, and checks that Elysium removes both. GoToSocial only sends an account's `Delete` to its followers, after withdrawing its own follows, so there alice follows the account, and on the others it follows alice. Misskey can't delete its admin, which is the lab user.
+  - Left open: the lab's account `Delete`s were all verified with a key fetched earlier, so the path for a gone key is only covered by integration tests. A real Mastodon account deleted more than 24 hours after this server last fetched its key, or after a restart, would take it.
+  - Left open: a `Delete` of an actor that isn't stored is ignored, so nothing stops a `Follow` or `Create` from it processed later, though its server would refuse to serve the actor by then.
+  - Left open: object fetches for those checks aren't limited per target host, like forwarded activities (#94).
+  - Left open: a deleted status's replies stay, keeping their parent's URI, as Mastodon does.
+- **Next, in order:** receiving `Update`.
 
 ### Basic moderation (done)
 
@@ -134,12 +139,10 @@ These don't belong to one milestone, but each has a point where it stops being o
 | --- | --- | --- |
 | Extend `federation/smoke.sh` with each milestone's check, on all three servers | Every milestone | The lab found problems that unit tests couldn't on PR #57 |
 | Keep `FEDERATION.md` and `CHANGELOG.md` accurate in the same PR | Every milestone | `CLAUDE.md` |
-| Remove a follower when its actor is deleted | Milestone 4, with receiving #59 | Left out of PR #70 |
 | Check real delivery on a public deployment, not only the lab | Before any public server | Comment on #39 |
 | Limit inbox requests that don't start a key fetch, or document relying on a proxy | Before any public server | PR #57 known limits |
 | Email verification and sign-up approval | Before any public server | #35, #17, and the warning in `docs/accounts.md` |
 | Stop each anonymous visit to a page with a form storing a login session, which has no limit | Before any public server | Code review of PR #84, and `docs/accounts.md` |
-| Handling a `Delete` that arrives before its `Create` | Milestone 4 | #53 left ordering to the callers |
 | Report GoToSocial's stuck home timeline upstream, after confirming the cause | When someone can look into it, since it doesn't block federation | PR #72 |
 
 ## Open questions

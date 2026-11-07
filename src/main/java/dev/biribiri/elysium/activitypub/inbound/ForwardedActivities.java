@@ -16,6 +16,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 
 /**
  * Handles activities that were signed by someone other than their actor, which is what forwarding looks like: Mastodon
@@ -39,6 +40,7 @@ class ForwardedActivities {
     private final ActivityDocuments documents;
     private final DomainBlocks blocks;
     private final ActorService actors;
+    private final DeletionChecks deletions;
     private final JsonMapper json;
 
     ForwardedActivities(
@@ -48,6 +50,7 @@ class ForwardedActivities {
             ActivityDocuments documents,
             DomainBlocks blocks,
             ActorService actors,
+            DeletionChecks deletions,
             JsonMapper json) {
         this.scheduler = scheduler;
         this.stored = stored;
@@ -55,38 +58,55 @@ class ForwardedActivities {
         this.documents = documents;
         this.blocks = blocks;
         this.actors = actors;
+        this.deletions = deletions;
         this.json = json;
     }
 
     /**
      * Queues a fetch of the activity, unless one is already queued.
      *
-     * @param id an ID that {@link Inbox} has checked
+     * @param id            an ID that {@link Inbox} has checked
+     * @param deletedObject for a {@code Delete}, its object, checked to be on the actor's server, and otherwise empty
      */
-    void queue(String id) {
+    void queue(String id, URI actor, Optional<URI> deletedObject) {
         // PostgreSQL stores microseconds, so this matches what a later read of the activity returns.
         var arrivedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        Jobs.schedule(scheduler, TASK, new ForwardedJob(id, arrivedAt), "forwarded", id);
+        var job = new ForwardedJob(
+                id,
+                arrivedAt,
+                deletedObject.map(URI::toString).orElse(null),
+                deletedObject.isPresent() ? actor.toString() : null);
+        Jobs.schedule(scheduler, TASK, job, "forwarded", id);
     }
 
     /**
-     * Fetches the activity, and stores it if the origin vouches for it. This has to be called with no transaction open,
-     * because it waits on another server.
+     * Fetches the activity, and stores it if the origin vouches for it. A {@code Delete} that the origin doesn't vouch for
+     * is checked with its object's server instead. This has to be called with no transaction open, because it waits on
+     * other servers.
      *
+     * @throws IllegalStateException if a server couldn't be reached, which is worth trying again
+     */
+    void fetch(ForwardedJob job) {
+        if (!fetch(job.activityId(), job.queuedAt()) && job.deletedObject() != null) {
+            deletions.confirm(URI.create(job.deletedObject()), URI.create(job.actorId()));
+        }
+    }
+
+    /**
      * @param arrivedAt when the forwarded copy arrived, which is stored as when the activity did. Handlers order activities
      *                  by arrival, so the time of the fetch would put this after anything that arrived while it waited, such
      *                  as an {@code Undo} of a forwarded {@code Follow}.
-     * @throws IllegalStateException if the origin couldn't be reached, which is worth trying again
+     * @return whether the activity is stored, by this or before it
      */
-    void fetch(String id, Instant arrivedAt) {
+    private boolean fetch(String id, Instant arrivedAt) {
         // It can have been delivered by its own actor since this was queued.
         if (stored.exists(id)) {
-            return;
+            return true;
         }
         var uri = URI.create(id);
         // A block can have been added since this was queued.
         if (blocks.isBlocked(uri.getHost())) {
-            return;
+            return false;
         }
         byte[] body;
         try {
@@ -98,32 +118,33 @@ class ForwardedActivities {
             // This isn't something for an admin to fix. Many servers don't serve their activities, and a forged one has
             // nothing to find.
             log.debug("Dropping forwarded activity {}: {}", id, e.getMessage());
-            return;
+            return false;
         }
         if (body.length > Inbox.MAX_BODY_BYTES) {
             log.debug("Dropping forwarded activity {}, whose origin's copy is too large", id);
-            return;
+            return false;
         }
         var envelope = ActivityEnvelope.parse(body, json);
         if (envelope.isEmpty() || !id.equals(envelope.get().id()) || envelope.get().actor() == null) {
             log.debug("Dropping forwarded activity {}, which its origin doesn't serve as one activity with one actor", id);
-            return;
+            return false;
         }
         var actor = ActivityObject.parseUri(envelope.get().actor());
         // The origin decides who the actor is, but it can only speak for its own.
         if (actor.isEmpty() || !Inbox.isOnActorsServer(uri, actor.get())) {
             log.debug("Dropping forwarded activity {}, whose actor is on another server", id);
-            return;
+            return false;
         }
-        if (actors.isSuspended(actor.get())) {
-            return;
+        if (actors.isInactive(actor.get())) {
+            return false;
         }
         InboundActivity activity;
         try {
             activity = new InboundActivity(id, envelope.get().actor(), envelope.get().type(), envelope.get().body(), arrivedAt);
         } catch (IllegalArgumentException e) {
-            return;
+            return false;
         }
         activities.accept(activity);
+        return true;
     }
 }

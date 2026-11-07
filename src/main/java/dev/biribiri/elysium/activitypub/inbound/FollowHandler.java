@@ -96,7 +96,7 @@ class FollowHandler implements InboundActivityHandler {
                 return;
             }
             // The same goes for either actor being suspended. AccountCleanup looks again later for what gets past this.
-            if (actors.isSuspended(follower.uri()) || actors.findLocalById(followed.id()).isEmpty()) {
+            if (actors.isInactive(follower.uri()) || actors.findLocalById(followed.id()).isEmpty()) {
                 return;
             }
             var accepted = follows.accept(follower.id(), follower.uri(), followed.id(), activity.id(), activity.arrival());

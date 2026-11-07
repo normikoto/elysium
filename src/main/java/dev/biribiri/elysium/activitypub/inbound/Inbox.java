@@ -13,6 +13,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
+import java.util.Optional;
 
 /**
  * Decides whether to keep an activity that came with a valid signature. This has to happen before
@@ -40,6 +41,7 @@ public class Inbox {
     private final ServerActivityLimits limits;
     private final StoredActivities stored;
     private final ForwardedActivities forwarded;
+    private final DeletionChecks deletions;
     private final InstanceProperties instance;
 
     Inbox(
@@ -50,7 +52,9 @@ public class Inbox {
             ServerActivityLimits limits,
             StoredActivities stored,
             ForwardedActivities forwarded,
+            DeletionChecks deletions,
             InstanceProperties instance) {
+        this.deletions = deletions;
         this.stored = stored;
         this.forwarded = forwarded;
         this.instance = instance;
@@ -81,8 +85,8 @@ public class Inbox {
             return Result.of(Outcome.FORBIDDEN);
         }
         // Like a block, a suspension can have been added since the signature was checked.
-        if (actors.isSuspended(signer.owner())) {
-            log.debug("Refusing activity {} from {}, who is suspended", envelope.id(), signer.owner());
+        if (actors.isInactive(signer.owner())) {
+            log.debug("Refusing activity {} from {}, who is suspended or deleted", envelope.id(), signer.owner());
             return Result.of(Outcome.FORBIDDEN);
         }
         // Before the ID is read, because a forwarder isn't to blame for what's in the activity it passes on.
@@ -105,7 +109,31 @@ public class Inbox {
         } catch (IllegalArgumentException e) {
             return Result.of(Outcome.INVALID);
         }
-        return admitted(signer, body.length, () -> activities.accept(activity), Outcome.ACCEPTED);
+        return admitted(signer.owner(), body.length, () -> activities.accept(activity), Outcome.ACCEPTED);
+    }
+
+    /**
+     * Takes an actor's {@code Delete} of itself whose signature couldn't be checked, because the key went with the actor,
+     * as it does on Mastodon. Since anyone could send this, nothing in it is trusted: it only queues a check that the actor's
+     * own server says the actor is gone. That's only for actors stored here, so the check can't be aimed at any other URL.
+     *
+     * @param keyDocument the document that the signature's key was in, which has to be the actor's
+     * @return the result, or empty if this isn't such a {@code Delete}, and the signature should be refused
+     */
+    public Optional<Result> receiveWithGoneKey(URI keyDocument, byte[] body) {
+        var envelope = ActivityEnvelope.parse(body, json);
+        if (envelope.isEmpty()
+                || !"Delete".equals(envelope.get().type())
+                || !keyDocument.toString().equals(envelope.get().actor())
+                || !DeleteHandler.objectOf(envelope.get().body(), json).equals(Optional.of(keyDocument))
+                || blocks.isBlocked(keyDocument.getHost())) {
+            return Optional.empty();
+        }
+        var actor = actors.findByUri(keyDocument).filter(found -> found.isActive() && !actors.isLocal(found));
+        if (actor.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(admitted(keyDocument, body.length, () -> deletions.queue(keyDocument, keyDocument), Outcome.ACCEPTED));
     }
 
     /**
@@ -122,25 +150,35 @@ public class Inbox {
                 || !InboundActivity.isStorableId(envelope.id())
                 || RemoteActorDocument.isOnDomain(parsedId.get(), instance.domain())
                 || blocks.isBlocked(parsedId.get().getHost())
-                || actors.isSuspended(actor.get())) {
+                || actors.isInactive(actor.get())) {
             log.debug("Ignoring activity {} from {}, signed by {}, which can't be fetched from its origin",
                     envelope.id(), envelope.actor(), signer.owner());
             return Result.of(Outcome.IGNORED);
         }
-        return admitted(signer, bodyBytes, () -> {
+        return admitted(signer.owner(), bodyBytes, () -> {
             if (!stored.exists(envelope.id())) {
-                forwarded.queue(envelope.id());
+                forwarded.queue(envelope.id(), actor.get(), deletedObject(envelope, actor.get()));
             }
         }, Outcome.FORWARDED);
     }
 
     /**
+     * @return a {@code Delete}'s object, if it's on the actor's server, which is the only one that can say it's gone
+     */
+    private Optional<URI> deletedObject(ActivityEnvelope envelope, URI actor) {
+        if (!"Delete".equals(envelope.type())) {
+            return Optional.empty();
+        }
+        return DeleteHandler.objectOf(envelope.body(), json).filter(object -> isOnActorsServer(object, actor));
+    }
+
+    /**
      * Runs the step that keeps the activity, if the signer's server is within its limits.
      */
-    private Result admitted(VerifiedSignature signer, int bodyBytes, Runnable keep, Outcome outcome) {
-        var admission = limits.tryAdmit(signer.owner(), bodyBytes);
+    private Result admitted(URI sender, int bodyBytes, Runnable keep, Outcome outcome) {
+        var admission = limits.tryAdmit(sender, bodyBytes);
         if (admission instanceof ServerActivityLimits.Admission.Refused(var retryAfter)) {
-            log.debug("Refusing an activity from {}, whose server is over its limit", signer.owner());
+            log.debug("Refusing an activity from {}, whose server is over its limit", sender);
             return new Result(Outcome.RATE_LIMITED, retryAfter);
         }
         try {

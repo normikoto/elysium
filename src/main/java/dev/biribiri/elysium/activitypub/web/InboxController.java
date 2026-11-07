@@ -44,14 +44,15 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
 // What every inbox answers. FederationApiDocs describes the request.
 @ApiResponse(responseCode = "202", description = """
         The activity is queued, repeats one with the same `id`, was forwarded and will be fetched from its origin, or was \
-        dropped.""")
+        dropped. A stored actor's `Delete` of itself whose key is gone is also answered this way, and checked with its \
+        server.""")
 @ApiResponse(responseCode = "400", description = """
         The signature header can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, \
         or the `id` isn't a valid URI or is over\s""" + InboundActivity.MAX_ID_BYTES + " bytes.")
 @ApiResponse(responseCode = "401", description = "There's no signature in a supported format, or it isn't valid.")
 @ApiResponse(responseCode = "403", description = """
-        The `id` isn't an HTTPS URL on the same host and port as the `actor`, the signer is suspended, or the signature's \
-        key is on a blocked domain.""")
+        The `id` isn't an HTTPS URL on the same host and port as the `actor`, the signer is suspended or deleted, or the \
+        signature's key is on a blocked domain.""")
 @ApiResponse(responseCode = "413", description = "The body is over " + Inbox.MAX_BODY_BYTES / (1024 * 1024) + " MiB.")
 @ApiResponse(responseCode = "415", description = "The `Content-Type` isn't one of those accepted.")
 @ApiResponse(responseCode = "429", description = """
@@ -134,16 +135,12 @@ class InboxController {
         var data = HttpRequestData.from(request, body);
         try {
             var signer = verifier.verify(data, budgets.forAddress(address));
-            var result = inbox.receive(signer, body);
-            return switch (result.outcome()) {
-                case ACCEPTED, FORWARDED, IGNORED -> ResponseEntity.accepted().build();
-                case INVALID -> ResponseEntity.badRequest().build();
-                case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-                case RATE_LIMITED -> ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                        .header(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(result.retryAfter()))
-                        .build();
-            };
+            return respond(inbox.receive(signer, body));
         } catch (SignatureVerificationException e) {
+            var withGoneKey = e.keyDocument().flatMap(document -> inbox.receiveWithGoneKey(document, body));
+            if (withGoneKey.isPresent()) {
+                return respond(withGoneKey.get());
+            }
             log.debug("Refusing a delivery: {}", e.getMessage());
             var response = ResponseEntity.status(e.failure().status());
             if (e.failure() == Failure.FETCH_BUDGET_SPENT) {
@@ -152,6 +149,17 @@ class InboxController {
             }
             return response.build();
         }
+    }
+
+    private static ResponseEntity<Void> respond(Inbox.Result result) {
+        return switch (result.outcome()) {
+            case ACCEPTED, FORWARDED, IGNORED -> ResponseEntity.accepted().build();
+            case INVALID -> ResponseEntity.badRequest().build();
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            case RATE_LIMITED -> ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(result.retryAfter()))
+                    .build();
+        };
     }
 
     /**

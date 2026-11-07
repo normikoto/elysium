@@ -125,6 +125,54 @@ public class StatusRepository {
                 .update() == 1;
     }
 
+    /**
+     * Makes other transactions that take this lock for the same URI wait until this one ends, so that storing a remote status
+     * and deleting it can't miss each other.
+     */
+    public void lockUri(URI uri) {
+        jdbc.sql("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+                .param("key", "status:" + uri)
+                .query((rs, rowNum) -> true)
+                .single();
+    }
+
+    public void markRemoteDeleted(URI uri, URI actorUri) {
+        jdbc.sql("""
+                        INSERT INTO deleted_remote_status (uri, actor_uri) VALUES (:uri, :actorUri)
+                        ON CONFLICT (md5(uri), md5(actor_uri)) DO NOTHING
+                        """)
+                .param("uri", uri.toString())
+                .param("actorUri", actorUri.toString())
+                .update();
+    }
+
+    public boolean isRemoteDeleted(URI uri, URI actorUri) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM deleted_remote_status
+                            WHERE md5(uri) = md5(:uri) AND md5(actor_uri) = md5(:actorUri)
+                              AND uri = :uri AND actor_uri = :actorUri
+                        )
+                        """)
+                .param("uri", uri.toString())
+                .param("actorUri", actorUri.toString())
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * @return whether a status was removed, which it's only if it's a remote status by the actor with this URI
+     */
+    public boolean deleteRemote(URI uri, URI actorUri) {
+        return jdbc.sql("""
+                        DELETE FROM status s USING actor a
+                        WHERE s.uri = :uri AND a.id = s.actor_id AND a.uri = :actorUri AND NOT a.is_local
+                        """)
+                .param("uri", uri.toString())
+                .param("actorUri", actorUri.toString())
+                .update() == 1;
+    }
+
     public boolean existsByUri(URI uri) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM status WHERE uri = :uri)")
                 .param("uri", uri.toString())

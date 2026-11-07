@@ -3,13 +3,15 @@
 Elysium is an early work in progress and can't fully federate yet. Other servers can discover its users, fetch their actors,
 statuses, and followers and following collections, deliver activities to them, and follow them. Its users can find accounts
 on other servers by `username@domain` or URL, and follow and unfollow them. Other servers are sent its users' new and deleted
-statuses, and are told when an account is suspended or deleted. Activities from other servers are ignored, apart from follows
-and the answers to them, so statuses from other servers aren't shown. This file only describes what's implemented today.
+statuses, and are told when an account is suspended or deleted. Other servers' statuses are stored when they're for a local
+user, and removed when they're deleted, as are deleted actors. Other activities are ignored, apart from follows and the answers
+to them. This file only describes what's implemented today.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
-  activities at an inbox, receiving `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a `Follow`, and sending
+  activities at an inbox, receiving `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`,
+  and `Delete`, and sending
   `Follow`, `Undo` of a `Follow`, `Accept`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
@@ -156,7 +158,7 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
 one worked. Activities are processed in no particular order. Only `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a
-`Follow`, and `Create` of a `Note` are acted on, and other types are ignored.
+`Follow`, `Create` of a `Note`, and `Delete` are acted on, and other types are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -177,7 +179,8 @@ not when it's fetched, so an `Undo` that arrives in between still covers a forwa
 What the origin serves is only accepted if it's an activity whose `id` is exactly the one fetched, with one `actor` on the
 same host and port. That actor is the one believed, even if the forwarded copy named another. A `404`, `410`, or another
 refusal drops the activity, and a server error or timeout is tried again later. This means an activity that its origin
-doesn't serve is lost when it's forwarded, which includes Mastodon's `Delete`s, whose `id` has a fragment.
+doesn't serve is lost when it's forwarded, except for a `Delete`, such as Mastodon's, whose `id` has a fragment. Its `object`
+is [checked with its own server](#receiving-deletes) instead, if it's on the same host and port as the `actor`.
 
 #### Reading activities
 
@@ -408,14 +411,33 @@ even if it's public. Other object types, such as `Article`, `Page`, and `Questio
 What happens to the statuses of [suspended](#suspended-and-deleted-accounts) actors and [blocked](#domain-blocks) servers is
 described with those.
 
+#### Receiving deletes
+
+A `Delete`'s `object` can be an ID, or an embedded object with an `id`, such as a `Tombstone`. It has to be an HTTPS URL on
+the same host and port as the `actor`, and anything else is dropped. Its `type` isn't read.
+
+- **Statuses:** a stored status is removed if its author is the `Delete`'s `actor`. A `Delete` of a status by someone else
+  is ignored. Activities are processed in no order, so the `id` is remembered for 34 days, and a `Create` of it from the same
+  actor that's processed later is ignored.
+- **Actors:** a `Delete` whose `object` is its own `actor` deletes that actor, if it's stored, and removes its statuses and
+  its follows in both directions. Nothing is sent back. This is for good: the actor's URI is refused from then on, with a
+  `403` for deliveries signed with its key, even if its server later gives the URI to a new actor. A `Delete` of an actor
+  that isn't stored is ignored.
+- **Checked with the object's server:** when a `Delete` can't be shown to come from its actor, its `object` is fetched,
+  signed as the [instance actor](#instance-actor), and it's only acted on if that answers `404` or `410`, or serves a
+  `Tombstone` with the same `id`. A server error or timeout is tried again later. This is done for a forwarded `Delete` that
+  its origin doesn't serve, and for a `Delete` of an actor by itself whose key now answers `404` or `410`, as Mastodon's do.
+  Without that, a request whose key can't be fetched gets a `401`. That `Delete` is answered with a `202`, but only if the
+  actor is stored here, and otherwise it gets the `401`.
+
 ### Notable differences
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
-- Only `Note`s are stored, and only ones that are for a local user. Direct `Note`s, `Announce`, `Like`, and an `Update` or
-  `Delete` of a `Note` are ignored.
+- Only `Note`s are stored, and only ones that are for a local user. Direct `Note`s, `Announce`, `Like`, and an `Update` of
+  a `Note` are ignored.
 - Profiles of actors on other servers aren't stored, and an `Update` of one isn't acted on.
 - `Reject` is never sent.
-- A follower stays stored when its actor is deleted, because `Delete` isn't acted on.
+- A deleted actor's URI can't be used again by a new actor on its server.
 - Actor documents advertise an `outbox`, but it isn't implemented yet.
 - `Note` objects for replies don't include a `Mention` tag.
 - A reply's `inReplyTo` is left out if its parent is deleted or can't be shown, so it looks like it isn't a reply.
@@ -464,6 +486,8 @@ A suspended account's actor document has no profile: no `name`, `summary`, `icon
   it would have to follow again. Nothing more is sent to its personal inbox, but a shared inbox still gets activities for
   other followers. Its stored statuses stop being shown, and come back if the suspension ends. Its own server isn't told. Only
   an actor that's already stored can be suspended.
+- **Deleting a remote actor:** this happens when its server [sends a `Delete`](#receiving-deletes) of it, and is treated
+  like a suspension that can't end, except that its statuses are removed too.
 
 ### Domain blocks
 

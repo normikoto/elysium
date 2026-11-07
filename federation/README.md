@@ -16,7 +16,7 @@ federation/smoke.sh gotosocial   # or mastodon, or misskey
 The script deletes any lab left over from an earlier run, starts a new one, and exits with an error if a check fails.
 Rebuild the image to test a change to Elysium, because the lab doesn't build it for you.
 
-The script checks nine things:
+The script checks ten things:
 
 - **Discovery:** Elysium serves its documents through the proxy, and the other server can resolve `@alice@elysium.test`.
 - **Refusing deliveries:** An unsigned `POST` to Elysium's inbox gets a `401`.
@@ -32,6 +32,10 @@ The script checks nine things:
   WebFinger, and follows it. The other server has to accept the signed `Follow`, which Elysium shows as `following`. On
   GoToSocial, whose users approve followers by hand by default, the request waits until `lab` approves it, which tests the
   waiting state too. alice's `following` collection then has to list `lab`. alice then unfollows, and the other server has to take the `Undo`.
+- **Receiving deletes:** `lab` deletes its status that mentions alice, and Elysium has to remove its copy. The other server
+  then creates a `gone` account, which follows alice, or on GoToSocial is followed by her, since GoToSocial only tells a
+  deleted account's followers. Once it's deleted, Elysium has to mark the actor as deleted and remove its follows. This uses a
+  second account because later checks need `lab`, and Misskey can't delete `lab`, which is its admin.
 - **Sending statuses:** alice posts a public and a followers-only status. The other server has to accept the signed `Create`
   for each and store it with the right visibility, though it can't fetch the followers-only one, which gets a `404`.
   GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in
@@ -46,8 +50,6 @@ The script checks nine things:
 - **Suspending and deleting accounts:** Another admin suspends alice, ends the suspension, and deletes alice's account through the
   admin API. The other server has to accept the signed `Update` and `Delete` for these, including the `Delete` while alice's
   actor document answers `410`. Mastodon also has to mark the account as suspended, then not suspended, and then remove it.
-
-Elysium's users can't follow anyone yet, so nothing can test that.
 
 ## Looking into a failure
 

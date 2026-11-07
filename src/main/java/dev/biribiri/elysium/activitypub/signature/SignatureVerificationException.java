@@ -1,5 +1,8 @@
 package dev.biribiri.elysium.activitypub.signature;
 
+import java.net.URI;
+import java.util.Optional;
+
 /**
  * A request's signature couldn't be accepted. The message can include values from the request, so it's for logs rather
  * than for sending back.
@@ -7,14 +10,31 @@ package dev.biribiri.elysium.activitypub.signature;
 public class SignatureVerificationException extends RuntimeException {
 
     private final Failure failure;
+    private final URI keyDocument;
 
     SignatureVerificationException(Failure failure, String message) {
+        this(failure, message, null);
+    }
+
+    private SignatureVerificationException(Failure failure, String message, URI keyDocument) {
         super(message);
         this.failure = failure;
+        this.keyDocument = keyDocument;
+    }
+
+    static SignatureVerificationException keyGone(URI keyDocument, String message) {
+        return new SignatureVerificationException(Failure.KEY_GONE, message, keyDocument);
     }
 
     public Failure failure() {
         return failure;
+    }
+
+    /**
+     * @return for {@link Failure#KEY_GONE}, the document the key was in, which is usually its actor's, and otherwise empty
+     */
+    public Optional<URI> keyDocument() {
+        return Optional.ofNullable(keyDocument);
     }
 
     /**
@@ -28,9 +48,14 @@ public class SignatureVerificationException extends RuntimeException {
         NO_SUPPORTED_SIGNATURE(401),
         /** The signature was read, but it isn't valid or isn't good enough. */
         REJECTED(401),
+        /**
+         * The key's server answered that it's gone, which is what happens to the key of an actor that's been deleted. Its
+         * actor's own {@code Delete} can still be checked another way.
+         */
+        KEY_GONE(401),
         /** The key is on a server that's been blocked, so it's never looked up. This tells the sender not to try again. */
         DOMAIN_BLOCKED(403),
-        /** The key's actor has been suspended, so it isn't looked up or accepted. */
+        /** The key's actor has been suspended or deleted, so it isn't looked up or accepted. */
         ACTOR_SUSPENDED(403),
         /** The sender's key can't be fetched right now, so the sender should try again later. */
         KEY_UNAVAILABLE(503),

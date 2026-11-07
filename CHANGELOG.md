@@ -58,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sanitized. A public or unlisted reply to one is also sent to its author. A domain block removes its server's posts, and
   a suspended account's posts are hidden until the suspension ends. The server's post count only counts local posts. See
   `FEDERATION.md` and `docs/api.md`.
+- Posts and accounts deleted on other servers are now removed here too, along with a deleted account's follows. A deleted
+  account from another server can't come back, even if its server gives its address to a new account. See `FEDERATION.md`.
 - Actor documents link to `followers` and `following` collections, at `/users/:username/followers` and
   `/users/:username/following`, which list accounts in pages.
 - A `/settings` page, and `PATCH /api/v1/accounts/update_credentials` with `hide_collections`, for people to hide who follows
