@@ -122,35 +122,44 @@ change. New settings an operator would use also belong in `application.propertie
 
 ## Documentation
 
-User-facing changes go in the `[Unreleased]` section of `CHANGELOG.md`, with upgrade steps when an operator has to do
-something. Federation behavior goes in `FEDERATION.md`, and API differences from Mastodon in `docs/api.md`.
+Each document has one audience. Keep each fact short, put it in one place, and link to it from elsewhere. Describe only
+what its readers can observe or have to do, and leave out how the server is built: class names, tables, job internals,
+the order things happen in inside the server, exact retention times, and edge cases its readers won't notice.
+`federation/README.md` and `docs/federation-plan.md` are the exception, since they're for contributors.
 
-`README.md`, `CHANGELOG.md`, and `docs/` other than `docs/api.md` are for instance admins setting up and running the server. Only
-write what an admin needs to install, configure, operate, or understand the server's visible behavior: settings, commands,
-what happens to their users and data, limits they may hit, and security pitfalls they have to avoid. Leave out how it's
-built, such as class names, tables, job internals, the order things happen in, exact retention times, and edge cases an
-admin won't notice. Those belong in code comments or `package-info.java`. Keep each fact short, and put it in
-one place, linking to it from elsewhere. `federation/README.md` and `docs/federation-plan.md` are for contributors, and are
-the exception.
+- **`README.md`, `CHANGELOG.md`, and `docs/` other than `docs/api.md`** are for instance admins. Write only what an admin
+  needs to install, configure, operate, or understand the server's visible behavior: settings, commands, what happens to
+  their users and data, limits they may hit, and security pitfalls to avoid.
+- **`CHANGELOG.md`** gets every user-facing change in its `[Unreleased]` section, with upgrade steps when an operator has
+  to do something.
+- **`FEDERATION.md`** follows FEP-67ff, so it's for developers of other fediverse servers as well as admins. Describe what
+  another server can observe and has to know to interoperate: endpoints, content types, response codes, which activities
+  are sent and accepted and what they look like, how they're addressed, IDs, signature requirements, limits, ordering and
+  repeat behavior, and differences from common implementations. Link to `docs/` for admin steps rather than repeating
+  them.
+- **`docs/api.md`** is for developers of client applications. List every difference from Mastodon's API that a client
+  could run into: missing endpoints, parameters, and fields, different defaults, limits, validation that refuses what
+  Mastodon accepts, and different error responses.
 
-`FEDERATION.md` follows FEP-67ff, so it's for developers of other fediverse servers as well as admins. Describe what another
-server can observe and has to know to interoperate: endpoints, content types, response codes, which activities are sent and
-accepted and what they look like, how they're addressed, IDs, signature requirements, limits, ordering and repeat behavior,
-and differences from common implementations. Leave out internals that can't be seen from outside, such as class names,
-tables, or how jobs are run, and link to `docs/` for admin steps rather than repeating them.
+### Code comments
 
-`docs/api.md` is for developers of client applications. List every difference from Mastodon's API that a client could run
-into: missing endpoints, parameters, and fields, different defaults, limits, validation that refuses what Mastodon accepts,
-and different error responses. Leave out how the server implements them.
+Comments and `package-info.java` explain _why_ the code does what it does: the constraint it works within, the failure
+it prevents, the decision behind it, or what would break if it changed. Don't restate or overdescribe what the code does,
+narrate it step by step, or repeat what names and types already say. If a comment would only paraphrase the code beneath
+it, leave it out.
 
-The OpenAPI document repeats these for each endpoint, so a change to an endpoint's behavior also changes its annotations.
-Client API endpoints have an `@Operation` with a summary, a link to Mastodon's documentation, the differences from
-`docs/api.md` that apply to it, and its error responses. `api.web.ApiDocs` fills in what they have in common: the `Error`
-body for every error, the 401 and 403 that an endpoint's scopes imply, form and multipart bodies like the JSON one, and the
-paging cursors and `Link` header for a list that takes `max_id`. Request bodies that are read by hand are documented with a
-private record in the controller, as JSON only. Where a form and a JSON mapping share a path, springdoc combines them, and
-the JSON one's annotations are the ones used. Federation endpoints follow `FEDERATION.md`, and
-`activitypub.web.FederationApiDocs` only keeps a body on a response whose annotation declares one, documents each
-`application/activity+json` body as `application/ld+json` too, and describes the request every inbox takes.
-`InboxController`'s class-level `@ApiResponse`s are what every inbox answers. `ApiDocsIntegrationTests` checks that every
-endpoint is described.
+### OpenAPI
+
+The OpenAPI document repeats `docs/api.md` and `FEDERATION.md` for each endpoint, so a change to an endpoint's behavior
+also changes its annotations. `ApiDocsIntegrationTests` checks that every endpoint is described.
+
+- Client API endpoints have an `@Operation` with a summary, a link to Mastodon's documentation, the differences from
+  `docs/api.md` that apply to it, and its error responses.
+- `api.web.ApiDocs` fills in what they have in common: the `Error` body for every error, the 401 and 403 that an
+  endpoint's scopes imply, form and multipart bodies like the JSON one, and the paging cursors and `Link` header for a
+  list that takes `max_id`.
+- Request bodies that are read by hand are documented with a private record in the controller, as JSON only. Where a form
+  and a JSON mapping share a path, springdoc combines them and uses the JSON one's annotations.
+- Federation endpoints follow `FEDERATION.md`. `activitypub.web.FederationApiDocs` only keeps a body on a response whose
+  annotation declares one, documents each `application/activity+json` body as `application/ld+json` too, and describes
+  the request every inbox takes. `InboxController`'s class-level `@ApiResponse`s are what every inbox answers.
