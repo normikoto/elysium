@@ -3,12 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Elysium is an experimental ActivityPub server (Java 25, Spring Boot 4, Spring Modulith, PostgreSQL) aiming for
-compatibility with Mastodon and other common implementations. It can't fully federate yet: other servers can discover its
-users, fetch actors, `Note` objects, and paged followers and following collections, deliver activities to its inboxes, follow
-and unfollow its users, which sends an `Accept`, and receive its new and deleted statuses as `Create` and `Delete`, and its
-suspended and deleted accounts as `Update` and `Delete`. Its users can follow and unfollow remote users, found through
-WebFinger or a URL, which sends a `Follow` or `Undo` and acts on the `Accept` or `Reject`. Other activities, including remote
-statuses, are ignored.
+compatibility with Mastodon and other common implementations. Federation is only partly built: `FEDERATION.md` describes
+what's live today, so check it before assuming a federation feature exists.
 
 ## Commands
 
@@ -57,69 +53,30 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
   activities call into the core modules, and outbound activities are built from events those modules publish.
 - A new module also has to be added to the list in `ModularityTests.detectsEveryModule`.
 
-### Federation code
+### Federation rules
 
-Only part of this is live. `InboxController` receives activities and queues them, and only `Follow`, `Undo`, `Accept`, and
-`Reject` have an `InboundActivityHandler`, so other types are stored and ignored. `FollowHandler`, `StatusDeliveries`, and
-`FollowDeliveries` use `activitypub.delivery`, and `StatusPublished`, `StatusDeleted`, `FollowRequested`, `FollowWithdrawn`,
-`DomainBlocked`, `AccountSuspended`, `AccountUnsuspended`, and `AccountDeleted` are the only application events. Check `FEDERATION.md`, which only describes what's implemented today, before assuming a federation
-feature is live.
+`activitypub`'s classes document how they work. These are the rules that a change can break without a test noticing.
 
-- **Inbound:** `InboxController` does the HTTP and signature steps, and `Inbox` decides whether to keep an activity. Who an
-  activity is for has to come from the activity, never from the inbox's URL. Checks on who's speaking for an `id` have to
-  run before `InboundActivities.accept`, where the first activity stored under an ID wins. To act on a type of activity,
-  add an `InboundActivityHandler`, or for another type of `Undo`, extend `UndoHandler`, since each type has one handler.
-  A repeated ID is dropped unless the handler's `processesRepeats` says otherwise, since some servers reuse IDs for new requests.
-  Anything a handler reads from a body that it then stores, such as an ID in an `Undo`, hasn't been through the inbox's
-  checks. The inbox limits the key fetches an address can cause (`KeyFetchBudget`),
-  and `SignatureVerifier.verify` needs one, so that every caller has to decide who pays for fetches. `Inbox` also counts
-  activities and bytes per server through `ServerActivityLimits`, after every other check and just before `accept`, keyed
-  by the signer's registrable domain from httpclient5's public suffix list. Unsigned requests and bad signatures aren't
-  limited, which is left to the reverse proxy. `RateLimiter.tryAcquire` takes a weight for counting bytes.
-- **Reading activities:** `ActivityJson` has the helpers for the different forms of the same data, and the parsers use it:
-  `ActivityEnvelope` reads `id`, `type`, and `actor`, `ActivityObject` reads `object` and, when it's embedded, its content,
-  tags, and addressing, and `Addressing` reads `to`, `cc`, `bto`, `bcc`, and `audience`. A handler that stores something for
-  its recipients should get them from `LocalRecipients`, which only matches an actor's own `followers`, from
-  `actor.followers_uri`.
-- **Forwarded activities:** an activity signed by someone other than its `actor` is never stored as sent. `Inbox` checks
-  its `id` and counts it against the signer's limits, and `ForwardedActivities` fetches the `id` in a job and stores the
-  origin's copy through `accept`.
-- **Remote actors:** `RemoteActors` fetches and stores them, and `RemoteActorDocument` decides what to believe. Other
-  modules find new ones through `actor.RemoteActorResolver`, an interface that `activitypub.resolve.RemoteActorLookup`
-  implements with WebFinger or a URL, so that they don't depend on `activitypub`. It limits lookups per local account. Remote rows
-  in `actor` have no `local_account`, and can have a null `outbox_uri`, `public_key_pem`, and `followers_uri`. Local rows have a
-  null `shared_inbox_uri` and `followers_uri`, which are derived instead (`InstanceProperties.sharedInboxUri`). Usernames are only unique for
-  local accounts, through `actor.is_local`, since a remote actor's identity is its URI.
-- **Signatures:** `SignatureVerifier`, `PublicKeyResolver`, and `SignedFetcher` are independent of the signature format.
-  Each format supplies a `SignatureScheme` and a `RequestSigner`. Only draft-cavage is implemented. The reasoning for
-  signer order is in `activitypub/signature/package-info.java`.
-- **Outbound:** A module publishes an event inside its transaction, with only IDs in it, and a listener in
-  `activitypub.outbound` builds the activity, as `StatusDeliveries` does. `StatusDeleted` also has the URI, visibility, and time of publishing,
-  which can't be looked up once the row is gone, and never has a status's text, because events are stored. Listeners have to be safe to repeat and shouldn't
-  fail for what's since been deleted, because `EventRetries` runs a failed one again every 5 minutes, and an event only stays
-  stored until its listeners finish. `Notes` builds `Note` objects, so that fetched and delivered ones match.
-- **Outgoing follows:** `FollowService.follow` accepts a local target at once, and stores a remote one as `pending` with
-  `activity_uri` set to a new `{actor-uri}#follows/{row-id}`, so that answers to an earlier request can't match a re-follow.
-  `AcceptHandler` and `RejectHandler` go through `FollowAnswers`, which only trusts the signer as the followed actor. An
-  incoming follow's `activity_uri` is the remote `Follow`'s ID instead, and its follower is remote, so the two never mix.
-- **Collections:** `hide_collections` on `local_account` hides the items, not the counts, in the AP collections and the API's
-  lists, except to the owner. Lists and counts leave out suspended and deleted actors, and page by `(created_at, id)` with the
-  follow's ID as the cursor.
-- **Domain blocks:** `moderation.DomainBlocks` decides what's blocked, and `activitypub` enforces it at `SignatureVerifier`,
-  `Inbox`, `InboundActivityTask`, `ForwardedActivities`, `FollowHandler`, `FederationHttpClient`, `ActivityDeliveries`, and `DeliveryTask`. `InboundActivityTask` only
-  checks an activity's actor, so a handler has to check any other actor or object that it fetches or stores. New remote data
-  also has to be removed by `DomainBlockCleanupTask`.
-- **Account state:** `actor.suspended_at` and `deleted_at` say whether an actor is active. `ActorService.findLocal*` and
-  `StatusRepository`'s queries only find active ones, so that something new can't serve a suspended account by forgetting to
-  check. Use `findAnyLocal*` only for what has to tell these apart or keep working for them, such as actor documents and signing.
-  `findByUri` and `findById` find any actor, so check its state. `auth.AccountActions` decides who can be suspended or deleted.
-  A deleted local actor keeps its row, which reserves its username and URI. `AccountCleanup` tells other servers and queues the
-  removal of its data. `OutboundActivity.WhileSuspended` says what happens to a queued activity while its actor is suspended, and only
-  `SEND` goes out once its actor is deleted.
-  New remote or account data also has to be removed by `AccountCleanupTask`.
-- **Outbound HTTP:** Use `activitypub.http.FederationHttpClient`, which refuses private addresses, including through its
-  own DNS resolver. The lab gets around this with `elysium.federation.allowed-private-networks`, and `federation/README.md`
-  rules out an on/off switch or plain HTTP.
+- **Inbound:** who an activity is for comes from the activity, never from the inbox's URL. Checks on who's speaking for an
+  `id` run before `InboundActivities.accept`, where the first activity stored under an ID wins. Each activity type has one
+  `InboundActivityHandler`, and another type of `Undo` extends `UndoHandler`. Anything a handler reads from a body and then
+  stores hasn't been through the inbox's checks, and a handler has to check any actor or object it fetches or stores other
+  than the activity's actor. Recipients come from `LocalRecipients`, and parsing goes through `ActivityJson` and the parsers
+  that use it.
+- **Signatures:** `SignatureVerifier.verify` needs a `KeyFetchBudget`, so every caller decides who pays for key fetches.
+  Signer order is explained in `activitypub/signature/package-info.java`.
+- **Outbound:** a module publishes an event inside its transaction, holding only IDs and never a status's text, since events
+  are stored, and a listener in `activitypub.outbound` builds the activity. Listeners have to be safe to repeat and mustn't fail
+  for what's since been deleted, because `EventRetries` reruns failed ones. Build `Note`s with `Notes`, so fetched and delivered
+  ones match.
+- **Remote actors:** other modules find them through `actor.RemoteActorResolver`, never by depending on `activitypub`.
+- **Account state:** `ActorService.findLocal*` and `StatusRepository`'s queries only find active actors. Use `findAnyLocal*` only
+  for what has to keep working for suspended or deleted ones, such as actor documents and signing, and check the state of
+  anything from `findByUri` or `findById`. `auth.AccountActions` decides who can be suspended or deleted.
+- **Cleanup:** new remote data has to be removed by `DomainBlockCleanupTask`, and new remote or account data by
+  `AccountCleanupTask`. Domain blocks are decided in `moderation.DomainBlocks` and enforced in `activitypub`.
+- **Outbound HTTP:** use `activitypub.http.FederationHttpClient`, which refuses private addresses. The lab uses
+  `elysium.federation.allowed-private-networks`, and `federation/README.md` rules out an on/off switch or plain HTTP.
 
 ### Jobs
 
@@ -128,13 +85,9 @@ all share the same retry and parking behavior.
 
 - Handlers run with no transaction open and can run again after succeeding, so they have to be safe to repeat.
 - `ActivityDeliveries.enqueue` requires an existing transaction, so that a change and its activity are saved together.
-- Jobs have no order, so a handler can run before the job for an earlier activity. `InboundActivity`'s times say which
-  arrived first, and `FollowService` explains how `undone_follow` and `undone_follow_pair` use them.
+- Jobs have no order, so a handler can run before the job for an earlier activity. `FollowService` shows how to cope.
 - Job data only holds IDs. The admin UI at `/admin/db-scheduler` shows it.
-- `HostGate` spaces out jobs waiting for a host to suit `db-scheduler.polling-interval`, since all the jobs due at a poll run
-  within moments. Rerun `./gradlew loadTest` after changing how jobs wait.
-- `activitypub.http.HostRequests` counts key fetches and deliveries per host. Deliveries count both and stop one short of the
-  client's connections, and fetches only count each other, so that a fan-out can't refuse a server's own key fetches.
+- Rerun `./gradlew loadTest` after changing how jobs wait, such as `HostGate` or `activitypub.http.HostRequests`.
 
 ### Persistence
 
