@@ -1,7 +1,5 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
-import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
-import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -12,20 +10,16 @@ import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
-import java.util.List;
-import java.util.Optional;
 
 /**
  * Stores a {@code Note} from another server as a status, when it's for a local account, through a follow or by addressing
  * it. Notes that nobody here would see aren't kept, which also stops any server from filling the database by delivering to
  * the shared inbox. Direct notes are left out until mentions exist, since nobody but their author could see them here.
  *
- * <p>Only the activity's actor has been checked, so the note has to be theirs: its {@code attributedTo} has to be that actor,
- * and its ID on their server. A note sent only as an ID is fetched from there.
+ * <p>{@link ActorNotes} makes sure the note is the actor's own.
  */
 @Component
 class CreateHandler implements InboundActivityHandler {
@@ -36,7 +30,7 @@ class CreateHandler implements InboundActivityHandler {
     private final RemoteActors remoteActors;
     private final StatusService statuses;
     private final LocalRecipients recipients;
-    private final ActivityDocuments documents;
+    private final ActorNotes notes;
     private final DomainBlocks blocks;
     private final JsonMapper json;
 
@@ -45,14 +39,14 @@ class CreateHandler implements InboundActivityHandler {
             RemoteActors remoteActors,
             StatusService statuses,
             LocalRecipients recipients,
-            ActivityDocuments documents,
+            ActorNotes notes,
             DomainBlocks blocks,
             JsonMapper json) {
         this.actors = actors;
         this.remoteActors = remoteActors;
         this.statuses = statuses;
         this.recipients = recipients;
-        this.documents = documents;
+        this.notes = notes;
         this.blocks = blocks;
         this.json = json;
     }
@@ -66,45 +60,21 @@ class CreateHandler implements InboundActivityHandler {
     public void handle(InboundActivity activity) {
         var actorUri = URI.create(activity.actorUri());
         var document = json.readTree(activity.body());
-        var object = embeddedObject(document);
-        if (object.isEmpty()) {
-            log.debug("Ignoring Create {}, which doesn't have one object", activity.id());
+        var read = notes.read(activity, document);
+        if (read.isEmpty()) {
             return;
         }
-        var fetched = object.get().isString();
-        var embeddedNote = fetched ? Optional.<RemoteNote>empty() : RemoteNote.read(object.get());
-        var noteId = fetched
-                ? Optional.ofNullable(ActivityJson.text(object.get())).flatMap(ActivityObject::parseUri)
-                : embeddedNote.map(RemoteNote::id);
-        if (noteId.isEmpty()) {
-            log.debug("Ignoring Create {}, whose object isn't a Note", activity.id());
-            return;
-        }
-        // Checked before fetching, since the actor can't speak for anyone else's objects, and nothing should be fetched
-        // from another server on their word.
-        if (!InboundActivity.isStorableId(noteId.get().toString()) || !Inbox.isOnActorsServer(noteId.get(), actorUri)) {
-            log.debug("Dropping Create {}, whose object isn't on its actor's server", activity.id());
-            return;
-        }
-        var note = fetched ? fetch(activity, noteId.get()) : embeddedNote;
-        if (note.isEmpty()) {
-            log.debug("Ignoring Create {}, whose object isn't a Note", activity.id());
-            return;
-        }
-        if (!note.get().attributedTo().equals(List.of(activity.actorUri()))) {
-            log.debug("Dropping Create {}, whose Note isn't attributed to its actor alone", activity.id());
-            return;
-        }
+        var note = read.get().note();
 
         // Before anything that reads the author's followers collection, which is only known once the actor is stored. It
         // can make a request to another server.
         var author = remoteActors.fetchOrRefresh(actorUri);
-        var visibility = visibility(note.get().addressing(), author);
+        var visibility = visibility(note.addressing(), author);
         if (visibility == Visibility.DIRECT) {
             log.debug("Ignoring Create {}, whose Note is direct", activity.id());
             return;
         }
-        var forWhom = recipients.of(activity, document, fetched ? note.get().addressing() : Addressing.NONE);
+        var forWhom = recipients.of(activity, document, read.get().fetched() ? note.addressing() : Addressing.NONE);
         if (forWhom.isEmpty()) {
             log.debug("Ignoring Create {}, which isn't for any local account", activity.id());
             return;
@@ -113,45 +83,21 @@ class CreateHandler implements InboundActivityHandler {
         if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
             return;
         }
+        var published = note.published() == null ? activity.firstReceivedAt() : note.published();
         statuses.storeRemote(new RemoteStatus(
-                note.get().id(),
-                note.get().url(),
+                note.id(),
+                note.url(),
                 author.id(),
-                note.get().content() == null ? "" : note.get().content(),
-                note.get().summary(),
-                note.get().language(),
+                note.content() == null ? "" : note.content(),
+                note.summary(),
+                note.language(),
                 visibility,
-                note.get().sensitive(),
-                note.get().inReplyTo(),
-                note.get().published() == null ? activity.firstReceivedAt() : note.get().published()));
-    }
-
-    /**
-     * The object, as an embedded object or a string that should be its ID, or empty if there isn't one.
-     */
-    private static Optional<JsonNode> embeddedObject(JsonNode activity) {
-        var node = activity.path("object");
-        if (node.isArray()) {
-            node = node.size() == 1 ? node.path(0) : null;
-        }
-        return Optional.ofNullable(node).filter(object -> object.isObject() || object.isString());
-    }
-
-    /**
-     * @param id an object on the actor's own server
-     * @return the note, or empty if what's served there isn't a {@code Note} with this ID
-     * @throws IllegalStateException if the actor's server couldn't be reached, which is worth trying again
-     */
-    private Optional<RemoteNote> fetch(InboundActivity activity, URI id) {
-        try {
-            return RemoteNote.read(documents.fetch(id)).filter(note -> note.id().equals(id));
-        } catch (DocumentFetchException e) {
-            if (e.isTemporary()) {
-                throw new IllegalStateException(e.getMessage(), e);
-            }
-            log.debug("Dropping Create {}, whose object couldn't be fetched: {}", activity.id(), e.getMessage());
-            return Optional.empty();
-        }
+                note.sensitive(),
+                note.inReplyTo(),
+                published,
+                // So that an Update older than this version can't replace it. Some servers send updated with the same time
+                // as published, which isn't an edit.
+                note.updated() != null && note.updated().isAfter(published) ? note.updated() : null));
     }
 
     /**

@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
+import dev.biribiri.elysium.activitypub.signature.SignatureVerifier;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
@@ -29,11 +30,14 @@ public class RemoteActors {
     private final ActorService actors;
     private final ActivityDocuments documents;
     private final InstanceProperties instance;
+    private final SignatureVerifier signatures;
 
-    RemoteActors(ActorService actors, ActivityDocuments documents, InstanceProperties instance) {
+    RemoteActors(
+            ActorService actors, ActivityDocuments documents, InstanceProperties instance, SignatureVerifier signatures) {
         this.actors = actors;
         this.documents = documents;
         this.instance = instance;
+        this.signatures = signatures;
     }
 
     /**
@@ -44,16 +48,7 @@ public class RemoteActors {
      * @throws PermanentJobFailure if the actor can never be stored. Anything else thrown is worth trying again.
      */
     public Actor fetchOrRefresh(URI uri) {
-        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
-            throw new PermanentJobFailure("The actor " + uri + " isn't an HTTPS URL");
-        }
-        if (!InboundActivity.isStorableId(uri.toString())) {
-            throw new PermanentJobFailure("An actor's URI is too long to store");
-        }
-        if (RemoteActorDocument.domainOf(uri).equals(instance.domain())) {
-            // A remote row claiming this domain could take the URI of a local account that doesn't exist yet.
-            throw new PermanentJobFailure("The actor " + uri + " claims to be on this server");
-        }
+        checkUri(uri);
         var existing = actors.findByUri(uri);
         if (existing.filter(actor -> !actor.isActive()).isPresent()) {
             throw new PermanentJobFailure("The actor " + uri + " is suspended or deleted");
@@ -65,6 +60,52 @@ public class RemoteActors {
         return document.map(fetched -> actors.upsertRemote(RemoteActorDocument.read(uri, fetched)))
                 .or(() -> existing)
                 .orElseThrow();
+    }
+
+    /**
+     * Fetches a stored actor's document again, however recent the stored copy is, for when the actor says that it changed.
+     * The document is fetched rather than taken from what the actor sent, because it's always the latest, whatever order
+     * the actor's activities run in. Blocks while fetching, so this mustn't be called inside a database transaction.
+     *
+     * @param uri an actor named by a valid signature
+     * @return the actor, or empty if it isn't stored here, or isn't active. The older copy is kept if its server refuses to
+     * serve it, or says it's gone, since only its {@code Delete} removes it.
+     * @throws PermanentJobFailure if the actor can never be stored, or its new document can't be used, which leaves the
+     *                             older copy. Anything else thrown is worth trying again.
+     */
+    public Optional<Actor> refresh(URI uri) {
+        checkUri(uri);
+        var existing = actors.findByUri(uri).filter(actor -> actor.isActive() && !actors.isLocal(actor));
+        if (existing.isEmpty()) {
+            return Optional.empty();
+        }
+        JsonNode document;
+        try {
+            document = documents.fetch(uri);
+        } catch (DocumentFetchException e) {
+            if (e.isTemporary()) {
+                throw new IllegalStateException(e.getMessage(), e);
+            }
+            // The actor's Delete is what removes it, so the older copy is kept until that arrives.
+            log.debug("Keeping the older copy of {}: {}", uri, e.getMessage());
+            return existing;
+        }
+        var refreshed = actors.upsertRemote(RemoteActorDocument.read(uri, document));
+        signatures.forgetChangedKeys(uri, document);
+        return Optional.of(refreshed);
+    }
+
+    private void checkUri(URI uri) {
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
+            throw new PermanentJobFailure("The actor " + uri + " isn't an HTTPS URL");
+        }
+        if (!InboundActivity.isStorableId(uri.toString())) {
+            throw new PermanentJobFailure("An actor's URI is too long to store");
+        }
+        if (RemoteActorDocument.domainOf(uri).equals(instance.domain())) {
+            // A remote row claiming this domain could take the URI of a local account that doesn't exist yet.
+            throw new PermanentJobFailure("The actor " + uri + " claims to be on this server");
+        }
     }
 
     /**

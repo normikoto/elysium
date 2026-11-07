@@ -133,7 +133,7 @@ class KeyDocuments {
     /**
      * @return the actor's keys, which can be one key or several, and which can each be an object or just an ID
      */
-    private static List<JsonNode> entries(JsonNode actor) {
+    static List<JsonNode> entries(JsonNode actor) {
         var publicKey = actor.path("publicKey");
         var entries = new ArrayList<JsonNode>();
         if (publicKey.isArray()) {
@@ -144,7 +144,7 @@ class KeyDocuments {
         return entries;
     }
 
-    private static String entryId(JsonNode entry) {
+    static String entryId(JsonNode entry) {
         return entry.isString() ? entry.stringValue() : entry.path("id").stringValue(null);
     }
 

@@ -29,7 +29,7 @@ public class StatusRepository {
 
     private static final String COLUMNS = """
             s.id, s.uri, s.actor_id, s.text, s.content, s.spoiler_text, s.language, s.visibility, s.sensitive, s.reply,
-            s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at""";
+            s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at, s.edited_at""";
 
     private static final String COUNT_REPLIES = """
             SELECT count(*) FROM status r
@@ -72,6 +72,7 @@ public class StatusRepository {
             uriOrNull(rs.getString("in_reply_to_uri")),
             uriOrNull(rs.getString("url")),
             rs.getObject("published_at", OffsetDateTime.class).toInstant(),
+            Optional.ofNullable(rs.getObject("edited_at", OffsetDateTime.class)).map(OffsetDateTime::toInstant).orElse(null),
             rs.getLong("replies_count"));
 
     private final JdbcClient jdbc;
@@ -102,9 +103,9 @@ public class StatusRepository {
         return jdbc.sql("""
                         INSERT INTO status (id, uri, actor_id, text, content, spoiler_text, language, visibility, sensitive,
                                             reply, in_reply_to_id, in_reply_to_account_id, in_reply_to_uri, url,
-                                            published_at)
+                                            published_at, edited_at)
                         VALUES (:id, :uri, :actorId, :text, :content, :spoilerText, :language, :visibility, :sensitive,
-                                :reply, :inReplyToId, :inReplyToAccountId, :inReplyToUri, :url, :publishedAt)
+                                :reply, :inReplyToId, :inReplyToAccountId, :inReplyToUri, :url, :publishedAt, :editedAt)
                         ON CONFLICT (uri) DO NOTHING
                         """)
                 .param("id", status.id())
@@ -122,6 +123,8 @@ public class StatusRepository {
                 .param("inReplyToUri", Objects.toString(status.inReplyToUri(), null), Types.VARCHAR)
                 .param("url", Objects.toString(status.url(), null), Types.VARCHAR)
                 .param("publishedAt", status.publishedAt().atOffset(ZoneOffset.UTC))
+                .param("editedAt", status.editedAt() == null ? null : status.editedAt().atOffset(ZoneOffset.UTC),
+                        Types.TIMESTAMP_WITH_TIMEZONE)
                 .update() == 1;
     }
 
@@ -170,6 +173,30 @@ public class StatusRepository {
                         """)
                 .param("uri", uri.toString())
                 .param("actorUri", actorUri.toString())
+                .update() == 1;
+    }
+
+    /**
+     * @return whether the status was changed, which it isn't if it's someone else's, or if it was edited at this time or
+     * later already
+     */
+    public boolean updateRemote(
+            URI uri, UUID actorId, String text, String content, String spoilerText, String language, boolean sensitive,
+            Instant editedAt) {
+        return jdbc.sql("""
+                        UPDATE status SET text = :text, content = :content, spoiler_text = :spoilerText,
+                                          language = :language, sensitive = :sensitive, edited_at = :editedAt
+                        WHERE uri = :uri AND actor_id = :actorId AND (edited_at IS NULL OR edited_at < :editedAt)
+                          AND NOT EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)
+                        """)
+                .param("uri", uri.toString())
+                .param("actorId", actorId)
+                .param("text", text)
+                .param("content", content)
+                .param("spoilerText", spoilerText)
+                .param("language", language, Types.VARCHAR)
+                .param("sensitive", sensitive)
+                .param("editedAt", editedAt.atOffset(ZoneOffset.UTC))
                 .update() == 1;
     }
 

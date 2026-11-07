@@ -54,12 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Posts from other servers are stored when they're sent here, which is when a local user follows their author or is
   addressed by them. They're shown through the API, in `GET /api/v1/statuses/:id`, `GET /api/v1/accounts/:id/statuses`,
   and `GET /api/v1/timelines/public`, which now takes `local` and `remote`, but not on the public web pages. Older posts
-  aren't fetched, and direct posts, attachments, and edits aren't read. Their HTML is
+  aren't fetched, and direct posts and attachments aren't read. Their HTML is
   sanitized. A public or unlisted reply to one is also sent to its author. A domain block removes its server's posts, and
   a suspended account's posts are hidden until the suspension ends. The server's post count only counts local posts. See
   `FEDERATION.md` and `docs/api.md`.
 - Posts and accounts deleted on other servers are now removed here too, along with a deleted account's follows. A deleted
   account from another server can't come back, even if its server gives its address to a new account. See `FEDERATION.md`.
+- Posts edited on other servers are now updated here too, with `edited_at` set in the API, though earlier versions aren't
+  kept. Changes to accounts on other servers, such as a new key or inbox, are picked up straight away rather than within a
+  day. See `FEDERATION.md`.
 - Actor documents link to `followers` and `following` collections, at `/users/:username/followers` and
   `/users/:username/following`, which list accounts in pages.
 - A `/settings` page, and `PATCH /api/v1/accounts/update_credentials` with `hide_collections`, for people to hide who follows

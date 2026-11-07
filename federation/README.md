@@ -31,7 +31,11 @@ The script checks ten things:
 - **Following out:** alice looks up `lab` on the other server through Elysium's client API, which makes Elysium use
   WebFinger, and follows it. The other server has to accept the signed `Follow`, which Elysium shows as `following`. On
   GoToSocial, whose users approve followers by hand by default, the request waits until `lab` approves it, which tests the
-  waiting state too. alice's `following` collection then has to list `lab`. alice then unfollows, and the other server has to take the `Undo`.
+  waiting state too. alice's `following` collection then has to list `lab`. While alice follows it, `lab` changes its
+  display name, and Elysium has to take the `Update` and fetch `lab`'s actor again. alice then unfollows, and the other
+  server has to take the `Undo`.
+- **Receiving edits:** on Mastodon and GoToSocial, `lab` edits its status that mentions alice, and Elysium has to store the
+  new text, marked as edited. Misskey can't edit notes.
 - **Receiving deletes:** `lab` deletes its status that mentions alice, and Elysium has to remove its copy. The other server
   then creates a `gone` account, which follows alice, or on GoToSocial is followed by her, since GoToSocial only tells a
   deleted account's followers. Once it's deleted, Elysium has to mark the actor as deleted and remove its follows. This uses a

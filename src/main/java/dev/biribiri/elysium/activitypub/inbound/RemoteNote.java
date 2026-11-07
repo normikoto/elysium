@@ -22,6 +22,7 @@ import java.util.Optional;
  * @param language     a key of {@code contentMap}, or null if it has none
  * @param inReplyTo    the ID of its {@code inReplyTo}, or null if it isn't a reply
  * @param published    its {@code published}, or null if that's missing or isn't a date
+ * @param updated      its {@code updated}, when it was last edited, or null if that's missing or isn't a date
  */
 record RemoteNote(
         URI id,
@@ -33,6 +34,7 @@ record RemoteNote(
         boolean sensitive,
         URI inReplyTo,
         Instant published,
+        Instant updated,
         Addressing addressing) {
 
     RemoteNote {
@@ -62,7 +64,8 @@ record RemoteNote(
                 Optional.ofNullable(ActivityJson.idOf(node.path("inReplyTo")))
                         .flatMap(ActivityObject::parseUri)
                         .orElse(null),
-                published(node.path("published")),
+                timestamp(node.path("published")),
+                timestamp(node.path("updated")),
                 Addressing.of(node)));
     }
 
@@ -115,7 +118,7 @@ record RemoteNote(
                 .orElse(null);
     }
 
-    private static Instant published(JsonNode node) {
+    private static Instant timestamp(JsonNode node) {
         var text = ActivityJson.text(node);
         if (text == null) {
             return null;
