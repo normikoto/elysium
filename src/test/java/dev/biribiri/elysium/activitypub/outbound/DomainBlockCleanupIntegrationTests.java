@@ -4,6 +4,9 @@ import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +17,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,6 +38,8 @@ class DomainBlockCleanupIntegrationTests {
     private ActorService actors;
     @Autowired
     private JdbcClient jdbc;
+    @Autowired
+    private StatusService statuses;
 
     private Actor local;
     private String domain;
@@ -59,6 +65,19 @@ class DomainBlockCleanupIntegrationTests {
         await().atMost(WAIT).until(() -> follows(follower) == 0 && follows(followed) == 0);
         assertThat(actors.findByUri(follower.uri())).isPresent();
         assertThat(actors.findByUri(followed.uri())).isPresent();
+    }
+
+    @Test
+    void removesStatusesOfTheBlockedServersActors() {
+        var blocked = remote("social." + domain);
+        var other = remote("not" + domain);
+        var removed = post(blocked);
+        var kept = post(other);
+
+        blocks.create(domain, null);
+
+        await().atMost(WAIT).until(() -> !statusExists(removed));
+        assertThat(statusExists(kept)).isTrue();
     }
 
     @Test
@@ -111,6 +130,16 @@ class DomainBlockCleanupIntegrationTests {
 
         await().atMost(WAIT).until(() -> jobs(block.id()) == 0);
         assertThat(follows(follower)).isEqualTo(1);
+    }
+
+    private UUID post(Actor author) {
+        return statuses.storeRemote(new RemoteStatus(
+                URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(), "<p>Hi</p>", null, null,
+                Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
+    }
+
+    private boolean statusExists(UUID id) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM status WHERE id = :id)").param("id", id).query(Boolean.class).single();
     }
 
     private Actor remote(String domain) {

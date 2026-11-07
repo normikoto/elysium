@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.text.PlainText;
+import dev.biribiri.elysium.text.RemoteHtml;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.text.Urls;
 import dev.biribiri.elysium.graph.FollowService;
@@ -84,15 +85,9 @@ public class StatusService {
                     .filter(candidate -> isVisible(candidate, Optional.of(authorId)))
                     .orElseThrow(ReplyParentNotFoundException::new));
 
-            // Clients poll for statuses newer than the last ID they saw, so a status must never become visible after one
-            // with a later ID, or they would miss it. Holding this lock until commit makes IDs and commits happen in the
-            // same order.
-            statuses.lockIdAssignment();
             // PostgreSQL stores microseconds, so this matches what a later read returns.
             var publishedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-            var id = statuses.findNewestId()
-                    .map(newest -> StatusIds.after(newest, publishedAt))
-                    .orElseGet(() -> StatusIds.fromTimestamp(publishedAt));
+            var id = nextId(publishedAt);
             var uri = instance.resolve("/users/" + author.username() + "/statuses/" + id);
             var status = new Status(
                     id,
@@ -107,12 +102,87 @@ public class StatusService {
                     parent.isPresent(),
                     parent.map(Status::id).orElse(null),
                     parent.map(Status::actorId).orElse(null),
+                    null,
+                    null,
                     publishedAt,
                     0);
             statuses.insert(status);
             events.publishEvent(new StatusPublished(id, authorId));
             return status;
         });
+    }
+
+    /**
+     * Stores a status from another server. Its HTML is sanitized here, so that nothing unsanitized can be stored. Nothing is
+     * published for it, since it isn't this server's to send.
+     *
+     * <p>Its ID comes from when it arrived, not from its {@code published} date, which the other server chose. Clients ask
+     * for statuses newer than the last ID they saw, so one with an older ID would never reach them.
+     *
+     * @return the stored status's ID, or empty if a status with its URI is already stored
+     * @throws IllegalArgumentException if the author isn't an active remote actor
+     */
+    public Optional<UUID> storeRemote(RemoteStatus remote) {
+        var author = actors.findById(remote.authorId())
+                .filter(found -> found.isActive() && !actors.isLocal(found))
+                .orElseThrow(() -> new IllegalArgumentException("The author isn't an active remote actor"));
+        var content = RemoteHtml.sanitize(remote.content());
+        var text = RemoteHtml.plainText(content);
+        var spoilerText = remote.spoilerText() == null ? "" : RemoteHtml.inlineText(remote.spoilerText());
+        var language = isLanguageCode(remote.language()) ? remote.language() : null;
+        // Repeats are common, and this keeps them from waiting for the lock that every new status takes.
+        if (statuses.existsByUri(remote.uri())) {
+            return Optional.empty();
+        }
+
+        return transaction.execute(tx -> {
+            // Inside the lock, so that a reply and its parent arriving together can't miss each other: whichever is stored
+            // second sees the other.
+            var id = nextId(Instant.now());
+            var parent = Optional.ofNullable(remote.inReplyToUri()).flatMap(statuses::findParentByUriAndLock);
+            var status = new Status(
+                    id,
+                    remote.uri(),
+                    author.id(),
+                    text,
+                    content,
+                    spoilerText,
+                    language,
+                    remote.visibility(),
+                    remote.sensitive() || !spoilerText.isEmpty(),
+                    remote.inReplyToUri() != null,
+                    parent.map(StatusRepository.Parent::id).orElse(null),
+                    parent.map(StatusRepository.Parent::actorId).orElse(null),
+                    remote.inReplyToUri(),
+                    remote.url(),
+                    remote.publishedAt().truncatedTo(ChronoUnit.MICROS),
+                    0);
+            if (!statuses.insert(status)) {
+                return Optional.<UUID>empty();
+            }
+            // Jobs have no order, so replies can be stored before their parent.
+            statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
+            return Optional.of(id);
+        });
+    }
+
+    /**
+     * Whether this is a language code that statuses can have, such as {@code en} or {@code pt-BR}.
+     */
+    public static boolean isLanguageCode(String value) {
+        return value != null && LANGUAGE.matcher(value).matches();
+    }
+
+    /**
+     * Clients poll for statuses newer than the last ID they saw, so a status must never become visible after one with a
+     * later ID, or they would miss it. The lock this takes is held until commit, which makes IDs and commits happen in the
+     * same order.
+     */
+    private UUID nextId(Instant now) {
+        statuses.lockIdAssignment();
+        return statuses.findNewestId()
+                .map(newest -> StatusIds.after(newest, now))
+                .orElseGet(() -> StatusIds.fromTimestamp(now));
     }
 
     /**
@@ -159,10 +229,25 @@ public class StatusService {
                     statuses.insertTombstone(status, Instant.now().truncatedTo(ChronoUnit.MICROS));
                 }
                 events.publishEvent(new StatusDeleted(
-                        status.id(), status.uri(), authorId, status.visibility(), status.publishedAt()));
+                        status.id(), status.uri(), authorId, status.visibility(), status.publishedAt(),
+                        shownParentAuthor(status)));
             });
             return deleted;
         });
+    }
+
+    /**
+     * The parent's author, if the parent is still one that anyone can see. That's when a public or unlisted reply's
+     * {@code Note} names its parent, so it's who was sent the reply. A parent's visibility can't change. One that's gone since
+     * was either this server's, whose author isn't sent anything, or removed with its author's account or server, which
+     * nothing is sent to any more.
+     */
+    private UUID shownParentAuthor(Status status) {
+        return Optional.ofNullable(status.inReplyToId())
+                .flatMap(statuses::findById)
+                .filter(parent -> parent.isVisibleTo(Optional.empty()))
+                .map(Status::actorId)
+                .orElse(null);
     }
 
     /**
@@ -174,6 +259,15 @@ public class StatusService {
     }
 
     /**
+     * Removes the statuses of every remote actor on a domain, for when it's blocked. Each batch commits by itself.
+     *
+     * @param domain a domain as {@code actor.domain} has it
+     */
+    public void removeForDomain(String domain) {
+        statuses.removeForDomain(domain);
+    }
+
+    /**
      * Finds what's left of a deleted status of this author's, if it's one that anyone could see.
      */
     public Optional<DeletedStatus> findTombstone(UUID id, UUID authorId) {
@@ -181,10 +275,22 @@ public class StatusService {
     }
 
     /**
-     * Lists public statuses from every account, leaving out replies to other accounts.
+     * Lists public statuses, leaving out replies to other accounts.
      */
-    public List<Status> findPublic(StatusPage page) {
-        return statuses.findPublic(page);
+    public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
+        return statuses.findPublic(origin, page);
+    }
+
+    /**
+     * Lists all of a viewer's own statuses, and those of the accounts they follow that they can see. Direct statuses from
+     * others aren't stored yet, so they're left out. As on Mastodon, a followed account's reply is only listed when it's to
+     * its author, to the viewer, or to someone they follow, so that following one person doesn't show their side of every
+     * conversation. A reply to a status that isn't stored here has no known parent author, so it's left out too.
+     *
+     * @param followedIds the accounts the viewer follows
+     */
+    public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
+        return statuses.findHome(viewerId, followedIds, page);
     }
 
     /**
@@ -224,10 +330,10 @@ public class StatusService {
     }
 
     /**
-     * Counts the statuses on this server, leaving out direct ones. Every status is local until federation exists.
+     * Counts the statuses of local accounts, leaving out direct ones.
      */
     public long countLocal() {
-        return statuses.countExcludingDirect();
+        return statuses.countLocalExcludingDirect();
     }
 
     private static String normalize(String value) {

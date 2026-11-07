@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
@@ -43,8 +44,22 @@ class LocalRecipients {
      * @return the IDs of the local actors that the activity is for
      */
     Set<UUID> of(InboundActivity activity) {
-        var document = json.readTree(activity.body());
-        var addressed = Addressing.ofActivity(document).all();
+        return of(activity, Addressing.NONE);
+    }
+
+    /**
+     * @param object the addressing of an object that was fetched, because the activity only gave its ID
+     * @return the IDs of the local actors that the activity or that object is for
+     */
+    Set<UUID> of(InboundActivity activity, Addressing object) {
+        return of(activity, json.readTree(activity.body()), object);
+    }
+
+    /**
+     * @param document the activity's JSON, for a caller that has already parsed it
+     */
+    Set<UUID> of(InboundActivity activity, JsonNode document, Addressing object) {
+        var addressed = Addressing.ofActivity(document).with(object).all();
         var local = new ArrayList<URI>();
         addressed.forEach(address -> onThisServer(address).ifPresent(local::add));
         if (activity.type().equals("Follow")) {

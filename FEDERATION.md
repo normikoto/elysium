@@ -155,9 +155,8 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 ### Activities
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
-one worked. Activities are processed in no particular order. Only `Follow`, `Undo` of a `Follow`, and `Accept` and `Reject` of a
-`Follow` are acted on, and other
-types are ignored.
+one worked. Activities are processed in no particular order. Only `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a
+`Follow`, and `Create` of a `Note` are acted on, and other types are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -314,14 +313,15 @@ has ended:
 }
 ```
 
-Nothing that the followed actor posts is acted on yet, so following them only changes the relationship and the collections.
-Following an actor on a [blocked domain](#domain-blocks) is refused.
+What the followed actor posts is stored once following them is accepted, as [Receiving statuses](#receiving-statuses)
+describes. Older posts aren't fetched. Following an actor on a [blocked domain](#domain-blocks) is refused.
 
 ### Statuses
 
 When a local user posts a public, unlisted, or followers-only status, it's sent to their followers on other servers, signed as
 the user. Each server's shared inbox is used for its followers that have one, so that they share one delivery, and other
-followers' `inbox` is used otherwise. Direct statuses aren't sent, since they have no audience without mentions. Followers are
+followers' `inbox` is used otherwise. A public or unlisted reply to a status from another server is also sent to that
+status's author. Direct statuses aren't sent, since they have no audience without mentions. Followers are
 worked out shortly after posting, and statuses from before someone followed aren't sent. A
 followers-only status only goes to those who were already following when it was posted.
 
@@ -354,7 +354,7 @@ same `id`.
 
 When a local user deletes a public, unlisted, or followers-only status, any delivery of its `Create` that hasn't started is
 cancelled, and a `Delete` is sent to their followers on other servers, the same way as a `Create`. It's addressed like the
-`Create`, except that it doesn't address the author of a parent status. Deleting a direct status sends nothing. The `Delete` of
+`Create`, except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. Deleting a direct status sends nothing. The `Delete` of
 a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
 that the status existed.
 
@@ -381,10 +381,38 @@ could still process them the other way around.
 A `Delete` can be sent for a status that a server never received, and in rare cases, such as after a failure, it can be sent
 again with the same `id`.
 
+#### Receiving statuses
+
+A `Create` whose `object` is a `Note` is stored as a status, if the `Note` is for a local user: one who follows its author,
+with the author's `followers` collection addressed, or one it addresses. A `Note` that isn't for anyone here is ignored,
+even if it's public. Other object types, such as `Article`, `Page`, and `Question`, are ignored.
+
+- **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
+  same host and port. Anything else is dropped.
+- **Sent as an ID:** an `object` that's only an ID is fetched from there, signed as the [instance actor](#instance-actor),
+  and has to come back with the same `id`. A server error or timeout is tried again later, and other failures drop it.
+- **Visibility:** read from the `Note`'s own `to` and `cc`, not the `Create`'s. The public collection in `to` makes it public,
+  and in `cc` unlisted. Otherwise, the author's `followers` collection in either makes it followers-only. Anything else is
+  direct, and is ignored until mentions are supported.
+- **Content:** `content` is sanitized. `p`, `br`, `span`, `a`, `del`, `s`, `pre`, `code`, `em`, `strong`, `b`, `i`, `u`,
+  `ul`, `ol`, `li`, and `blockquote` are kept, headings become bold paragraphs, and other elements are replaced by their
+  text. Links keep only HTTP and HTTPS `href`s, and get `rel="nofollow noopener noreferrer"`. Only Mastodon's `h-card`,
+  `mention`, `hashtag`, `u-url`, `invisible`, and `ellipsis` classes are kept, and no other attributes. `summary` is
+  reduced to plain text and shown as a content warning, which also marks the status as sensitive.
+- **Other properties:** `url` is kept if it's an HTTP or HTTPS URL, or a `Link` to one that's `text/html` or has no
+  `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
+  other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the parent arrives later. Attachments,
+  tags, emoji, and polls aren't read yet.
+- **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again.
+
+What happens to the statuses of [suspended](#suspended-and-deleted-accounts) actors and [blocked](#domain-blocks) servers is
+described with those.
+
 ### Notable differences
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
-- Statuses and other activities from followed actors are ignored.
+- Only `Note`s are stored, and only ones that are for a local user. Direct `Note`s, `Announce`, `Like`, and an `Update` or
+  `Delete` of a `Note` are ignored.
 - Profiles of actors on other servers aren't stored, and an `Update` of one isn't acted on.
 - `Reject` is never sent.
 - A follower stays stored when its actor is deleted, because `Delete` isn't acted on.
@@ -434,7 +462,8 @@ A suspended account's actor document has no profile: no `name`, `summary`, `icon
 - **Suspending a remote actor:** A delivery signed with its key gets a `403`, and its activities are refused, including any
   still queued. Its document isn't fetched or refreshed. Its follows are removed, and aren't restored if the suspension ends, so
   it would have to follow again. Nothing more is sent to its personal inbox, but a shared inbox still gets activities for
-  other followers. Its own server isn't told. Only an actor that's already stored can be suspended.
+  other followers. Its stored statuses stop being shown, and come back if the suspension ends. Its own server isn't told. Only
+  an actor that's already stored can be suspended.
 
 ### Domain blocks
 
@@ -448,7 +477,7 @@ compared in lowercase ASCII, without a trailing dot. A block is only ever a full
 - **Fetching:** Keys and actors are never fetched from a blocked domain.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
-- **Existing data:** Follows to and from its actors are removed. Its actors are kept.
+- **Existing data:** Follows to and from its actors are removed, and so are their statuses. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
   status posted before then, and it keeps any copy it has.

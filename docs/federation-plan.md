@@ -2,7 +2,7 @@
 
 ## Where things stand
 
-Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new and deleted posts, and are told when an account is suspended or deleted. Elysium's users can find and follow accounts on other servers, but Elysium ignores posts from other servers, so following someone there doesn't show anything yet. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
+Other servers can discover Elysium's users, deliver signed activities to them, follow them, and receive their new and deleted posts, and are told when an account is suspended or deleted. Elysium's users can find and follow accounts on other servers, and their posts are stored and shown in the home timeline. The next goal is a two-way relationship with Mastodon and GoToSocial, and #1 tracks the full ActivityPub list.
 
 | Area | State | Notes |
 | --- | --- | --- |
@@ -14,13 +14,13 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
 | Sending follows | Live | Local users can follow local and remote users, found through WebFinger or a URL, with `Accept`, `Reject` and `Undo` handled. Checked on all three lab servers. Merged in PR #89, #44 |
 | Followers and following collections | Live | Both are paged, and users can hide what's in them. Merged in PR #89, #43 |
-| Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Receiving is in #41, and the outbox is in #40 |
+| Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Received `Note`s for local users are stored and shown in the API, including a home timeline (#41). The outbox is in #40 |
 | Likes, boosts, edits, polls, receiving deletes | Missing | #60, #61, #62, #59, with polls only listed on #1 |
 | Moderation and server policy | Live, partly | Domain blocks (#64, PR #82), suspending and deleting accounts (#65, PR #83), and limits on what each server can have stored (#66, PR #88). Reports and the rest are under #37 |
 
 ## Roadmap
 
-Milestone 3 and basic moderation are done, and so is following remote users, the first part of milestone 4. What's left of milestone 4 is reading activities fully and storing other servers' posts, which is the riskiest step.
+Milestone 3 and basic moderation are done, and so is following remote users, the first part of milestone 4. Reading activities fully and storing other servers' posts are done too. What's left of milestone 4 is receiving `Delete` and `Update`, and replies forwarded by a third server.
 
 ```mermaid
 flowchart TD
@@ -81,7 +81,7 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
   - a `Delete` also waits for a `Create` job left running by a node that died, until another node notices
   - a backlog for one fast host drains at about 180 a minute, well below what its connections could carry
   - actor document fetches aren't counted in the per-host limit, so they can still wait for a connection
-  - replies haven't reached a remote server, because parents are always local until milestone 4
+  - replies haven't reached a remote server, because parents are always local until milestone 4. Public and unlisted replies to a stored remote status now go to its author, and followers-only ones don't
   - three `Create`s weren't stored on GoToSocial within about 30 seconds during testing, for a reason that wasn't found, though four timed runs took 5-6 seconds (PR #72)
 
 ### 4. Follow out and remote posts (in progress)
@@ -91,8 +91,8 @@ This is the largest step, and the first where other servers' content is stored a
 - **Issues:** the receiving half of #41, and the receiving halves of #59 and #60. The sending half of #44 and the rest of #39 are done.
 - **Delivers:**
   - client follow endpoints, and resolving remote accounts (done)
-  - remote statuses with sanitized HTML, which `Status` currently assumes is safe
-  - a home timeline
+  - remote statuses with sanitized HTML (done)
+  - a home timeline (done)
   - `to` and `cc` normalizing and local recipients from #39, forwarded activities fetched from their origin, and `sharedInbox` advertised (done)
 - **Done when:** a local user follows a remote user and reads their posts, including replies forwarded by a third server.
 - **Following out:** merged in PR #89. Local users find remote accounts through WebFinger or a URL, and follow and unfollow them. The `Accept` or `Reject` is matched by the `Follow`'s ID, which is new for each request, or by the two actors. Deleting an account sends an `Undo` for each of its follows. `federation/smoke.sh` has the lab user accept and drop a follow from Elysium on all three servers, approving it by hand on GoToSocial.
@@ -100,7 +100,13 @@ This is the largest step, and the first where other servers' content is stored a
   - Left open: forwarded activities that their origin doesn't serve are lost, which includes Mastodon's `Delete`s, whose IDs have a fragment. The `Delete` and `Create` handlers should check the object instead, by fetching it or its `Tombstone`.
   - Left open: fetches of forwarded activities aren't limited per target host, or counted by `HostRequests`, like actor fetches, so a forwarder can aim them at any host within its own limits (#94).
   - Left open: the check of real deliveries on a public deployment, from the comment on #39.
-- **Next, in order:** receiving `Create` with sanitized HTML and a home timeline, possibly as two PRs. Then receiving `Delete` and `Update`.
+- **Receiving `Create`:** the receiving half of #41. A `Note` is stored only if `LocalRecipients` finds someone for it, and replies that arrive before their parent are linked when it does, and direct ones are skipped until mentions (#28) give them someone who can see them. Its `attributedTo` has to be the activity's actor, and its `id` on the actor's server. One sent as an ID is fetched from there. HTML is sanitized with jsoup, keeping about what Mastodon keeps. Status IDs come from arrival, not `published`, so that clients paging by ID don't miss one. The API shows remote statuses, and `timelines/public` takes `local` and `remote`, while web pages stay local. A domain block removes the server's statuses, and a suspended actor's are kept but hidden, so that they come back if the suspension ends, which answers the question on #41.
+  - Left open: `Article`, `Page` and `Question` are ignored, and attachments, tags, emoji and `contentMap` languages other than the first aren't read.
+  - Left open: there's no limit on how many statuses a server can have stored, beyond the inbox's rate limits.
+- **Home timeline:** `GET /api/v1/timelines/home` is a query over stored statuses, with the viewer's accepted follows passed in, rather than a feed kept for each user as Mastodon does. Following shows an account's stored statuses straight away, and unfollowing hides them, with nothing to fill or clean up. A followed account's replies follow Mastodon's rule: only to the author, the viewer, or someone followed. The viewer's own are all listed. `federation/smoke.sh` has the lab user post with no mention while alice follows them, and checks it reaches her home timeline.
+  - Left open: the query takes every followed account's ID, as one array parameter, so it gets slower for someone who follows thousands. A stored feed is the fix if that's ever measured to matter.
+  - Left open: a reply to a status that isn't stored is left out, since its parent's author isn't known.
+- **Next, in order:** receiving `Delete` and `Update`.
 
 ### Basic moderation (done)
 

@@ -25,6 +25,16 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   `version` is a Mastodon version followed by `(compatible; Elysium)`. The streaming API isn't implemented, though
   `urls.streaming_api` is set.
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
+- Statuses from other servers are only stored when they're sent here, which is when a local account follows their author or
+  is addressed by them, so older ones and replies from others aren't there. Direct ones aren't stored. Their HTML is sanitized, so it can differ from what the other server shows,
+  and they never have `media_attachments`, `mentions`, `tags`, `emojis`, or a `poll`. A reply whose parent isn't stored has a
+  null `in_reply_to_id` and `in_reply_to_account_id`.
+- `GET /api/v1/timelines/home` is worked out from the statuses stored here each time, rather than kept as a feed, so it
+  never answers `206`, and an account's stored statuses show as soon as it's followed, older ones too. A followed
+  account's reply is only listed when it's to its author, to the user, or to someone they follow, as on Mastodon, and one
+  to a status that isn't stored here is left out. The user's own replies are always listed. `local` has no effect. List and hashtag timelines aren't implemented.
+- `GET /api/v1/timelines/public` lists public statuses from other servers too, as on Mastodon. With both `local` and
+  `remote`, `local` wins.
 
 Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.org/methods/accounts/) and
 [search API](https://docs.joinmastodon.org/methods/search/), with these differences:
@@ -66,8 +76,7 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   usernames this server knows. Only the first 200 matches can be paged through with `offset`, and an `offset` past them
   returns no accounts. `following`, `account_id`, `exclude_unreviewed`,
   `min_id`, and `max_id` are ignored.
-- Statuses from other servers aren't stored yet, so following an account there doesn't add anything to a timeline, and
-  `GET /api/v1/accounts/:id/statuses` gets a 404 for an account on another server.
+- `GET /api/v1/accounts/:id/statuses` for an account on another server only lists its statuses stored here.
 
 Domain blocks follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/domain_blocks/), under
 `/api/v1/admin/domain_blocks`, with the `admin:read:domain_blocks` and `admin:write:domain_blocks` scopes. Every block is a

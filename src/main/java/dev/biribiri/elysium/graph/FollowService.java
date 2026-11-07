@@ -164,6 +164,13 @@ public class FollowService {
     }
 
     /**
+     * @return the accounts this one follows and has been accepted by, including suspended ones
+     */
+    public List<UUID> followedIds(UUID followerId) {
+        return follows.findFollowedIds(followerId);
+    }
+
+    /**
      * Whether one account follows another, and has been accepted.
      */
     public boolean isFollowing(UUID followerId, UUID followedId) {

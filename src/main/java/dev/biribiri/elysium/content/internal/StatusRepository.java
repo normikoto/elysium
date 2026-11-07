@@ -3,6 +3,7 @@ package dev.biribiri.elysium.content.internal;
 import dev.biribiri.elysium.content.AccountStats;
 import dev.biribiri.elysium.content.DeletedStatus;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.Visibility;
 import org.springframework.jdbc.core.RowMapper;
@@ -18,15 +19,17 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Repository
 public class StatusRepository {
 
     private static final String COLUMNS = """
             s.id, s.uri, s.actor_id, s.text, s.content, s.spoiler_text, s.language, s.visibility, s.sensitive, s.reply,
-            s.in_reply_to_id, s.in_reply_to_account_id, s.published_at""";
+            s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at""";
 
     private static final String COUNT_REPLIES = """
             SELECT count(*) FROM status r
@@ -66,6 +69,8 @@ public class StatusRepository {
             rs.getBoolean("reply"),
             rs.getObject("in_reply_to_id", UUID.class),
             rs.getObject("in_reply_to_account_id", UUID.class),
+            uriOrNull(rs.getString("in_reply_to_uri")),
+            uriOrNull(rs.getString("url")),
             rs.getObject("published_at", OffsetDateTime.class).toInstant(),
             rs.getLong("replies_count"));
 
@@ -90,12 +95,17 @@ public class StatusRepository {
         return jdbc.sql("SELECT id FROM status ORDER BY id DESC LIMIT 1").query(UUID.class).optional();
     }
 
-    public void insert(Status status) {
-        jdbc.sql("""
+    /**
+     * @return whether it was inserted, which it isn't if a status with its URI is already stored
+     */
+    public boolean insert(Status status) {
+        return jdbc.sql("""
                         INSERT INTO status (id, uri, actor_id, text, content, spoiler_text, language, visibility, sensitive,
-                                            reply, in_reply_to_id, in_reply_to_account_id, published_at)
+                                            reply, in_reply_to_id, in_reply_to_account_id, in_reply_to_uri, url,
+                                            published_at)
                         VALUES (:id, :uri, :actorId, :text, :content, :spoilerText, :language, :visibility, :sensitive,
-                                :reply, :inReplyToId, :inReplyToAccountId, :publishedAt)
+                                :reply, :inReplyToId, :inReplyToAccountId, :inReplyToUri, :url, :publishedAt)
+                        ON CONFLICT (uri) DO NOTHING
                         """)
                 .param("id", status.id())
                 .param("uri", status.uri().toString())
@@ -109,8 +119,45 @@ public class StatusRepository {
                 .param("reply", status.reply())
                 .param("inReplyToId", status.inReplyToId(), Types.OTHER)
                 .param("inReplyToAccountId", status.inReplyToAccountId(), Types.OTHER)
+                .param("inReplyToUri", Objects.toString(status.inReplyToUri(), null), Types.VARCHAR)
+                .param("url", Objects.toString(status.url(), null), Types.VARCHAR)
                 .param("publishedAt", status.publishedAt().atOffset(ZoneOffset.UTC))
+                .update() == 1;
+    }
+
+    public boolean existsByUri(URI uri) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM status WHERE uri = :uri)")
+                .param("uri", uri.toString())
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * Finds a status to link a reply to, and stops it from being deleted until the transaction ends. Unlike other lookups,
+     * this finds the statuses of suspended authors too, because a link made now still holds if the suspension ends.
+     */
+    public Optional<Parent> findParentByUriAndLock(URI uri) {
+        return jdbc.sql("SELECT id, actor_id FROM status WHERE uri = :uri FOR KEY SHARE")
+                .param("uri", uri.toString())
+                .query((rs, rowNum) -> new Parent(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class)))
+                .optional();
+    }
+
+    /**
+     * Links the replies that arrived before their parent did.
+     */
+    public void linkWaitingReplies(URI parentUri, Parent parent) {
+        jdbc.sql("""
+                        UPDATE status SET in_reply_to_id = :id, in_reply_to_account_id = :actorId
+                        WHERE in_reply_to_uri = :uri AND in_reply_to_id IS NULL
+                        """)
+                .param("id", parent.id())
+                .param("actorId", parent.actorId())
+                .param("uri", parentUri.toString())
                 .update();
+    }
+
+    public record Parent(UUID id, UUID actorId) {
     }
 
     public Optional<Status> findById(UUID id) {
@@ -156,6 +203,30 @@ public class StatusRepository {
         jdbc.sql("DELETE FROM status_tombstone WHERE actor_id = :actorId").param("actorId", actorId).update();
     }
 
+    /**
+     * Removes the statuses of every remote actor on a domain, in batches like {@link #removeAllBy}. Remote statuses have no
+     * tombstones.
+     *
+     * @param domain a domain as {@code actor.domain} has it
+     */
+    public void removeForDomain(String domain) {
+        int removed;
+        do {
+            removed = jdbc.sql("""
+                            DELETE FROM status
+                            WHERE id IN (
+                                SELECT s.id FROM status s
+                                JOIN actor a ON a.id = s.actor_id
+                                WHERE a.domain = :domain AND NOT a.is_local
+                                LIMIT :limit
+                            )
+                            """)
+                    .param("domain", domain)
+                    .param("limit", REMOVAL_BATCH_SIZE)
+                    .update();
+        } while (removed == REMOVAL_BATCH_SIZE);
+    }
+
     public void insertTombstone(Status status, Instant deletedAt) {
         jdbc.sql("""
                         INSERT INTO status_tombstone (status_id, uri, actor_id, deleted_at)
@@ -178,8 +249,29 @@ public class StatusRepository {
                 .optional();
     }
 
-    public List<Status> findPublic(StatusPage page) {
-        return findPage("s.visibility = 'public' AND " + NOT_A_REPLY_TO_OTHERS, Map.of(), page);
+    public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
+        var filter = "s.visibility = 'public' AND " + NOT_A_REPLY_TO_OTHERS + switch (origin) {
+            case ANY -> "";
+            case LOCAL -> " AND author.is_local";
+            case REMOTE -> " AND NOT author.is_local";
+        };
+        return findPage(filter, Map.of(), page);
+    }
+
+    /**
+     * @param followedIds the accounts the viewer follows, which can be empty
+     */
+    public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
+        // The viewer's own statuses are all listed, and the reply rule only applies to those of accounts they follow.
+        var filter = """
+                (s.actor_id = :viewer
+                 OR (s.actor_id = ANY (CAST(:followed AS uuid[]))
+                     AND s.visibility IN ('public', 'unlisted', 'private')
+                     AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = :viewer
+                          OR s.in_reply_to_account_id = ANY (CAST(:followed AS uuid[])))))""";
+        // One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
+        var followed = followedIds.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
+        return findPage(filter, Map.of("viewer", viewerId, "followed", followed), page);
     }
 
     /**
@@ -221,14 +313,18 @@ public class StatusRepository {
         return stats;
     }
 
-    public long countExcludingDirect() {
+    public long countLocalExcludingDirect() {
         return jdbc.sql("""
                         SELECT coalesce(sum(c.statuses_count), 0)::bigint FROM actor_status_count c
                         JOIN actor ON actor.id = c.actor_id
-                        WHERE actor.suspended_at IS NULL AND actor.deleted_at IS NULL
+                        WHERE actor.is_local AND actor.suspended_at IS NULL AND actor.deleted_at IS NULL
                         """)
                 .query(Long.class)
                 .single();
+    }
+
+    private static URI uriOrNull(String value) {
+        return value == null ? null : URI.create(value);
     }
 
     private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page) {

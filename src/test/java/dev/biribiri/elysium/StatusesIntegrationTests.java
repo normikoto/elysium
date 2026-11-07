@@ -2,7 +2,13 @@ package dev.biribiri.elysium;
 
 import com.jayway.jsonpath.JsonPath;
 import org.hamcrest.Matcher;
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.StatusDeleted;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,12 +19,16 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockPart;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,8 +36,11 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -56,6 +69,7 @@ class StatusesIntegrationTests {
 
     private static final String PASSWORD = "correct horse battery staple";
     private static final String TIMELINE = "/api/v1/timelines/public";
+    private static final String HOME = "/api/v1/timelines/home";
     private static final String VERIFY_CREDENTIALS = "/api/v1/accounts/verify_credentials";
 
     /**
@@ -73,12 +87,16 @@ class StatusesIntegrationTests {
     @Autowired
     private ApplicationEvents events;
 
-    @Autowired
+    @MockitoSpyBean
     private ActorService actors;
+
+    @Autowired
+    private StatusService statuses;
 
     @BeforeEach
     void setUp() {
         jdbc.sql("DELETE FROM status").update();
+        jdbc.sql("DELETE FROM follow").update();
         TestAccounts.makeSureAnAccountExists(actors);
     }
 
@@ -496,7 +514,11 @@ class StatusesIntegrationTests {
         var orphan = create(token("dave", "read write"), "Orphan");
         var kept = create(bob(), "Kept");
         var older = create(token("dave", "read write"), "Older orphan");
-        jdbc.sql("DELETE FROM local_account WHERE actor_id = (SELECT id FROM actor WHERE username = 'dave')").update();
+        // As if dave's account were deleted between reading the statuses and loading their authors.
+        doAnswer(invocation -> ((List<?>) invocation.callRealMethod()).stream()
+                .filter(actor -> !((Actor) actor).username().equals("dave"))
+                .toList())
+                .when(actors).findByIds(any());
 
         expectIds(get(TIMELINE), kept);
         mockMvc.perform(get("/api/v1/statuses/" + orphan)).andExpect(status().isNotFound());
@@ -526,12 +548,142 @@ class StatusesIntegrationTests {
     }
 
     @Test
-    void publicTimelineHasNothingForRemoteOrMediaFilters() throws Exception {
-        create(alice(), "Public");
-        mockMvc.perform(get(TIMELINE).param("local", "true")).andExpect(jsonPath("$", hasSize(1)));
-        mockMvc.perform(get(TIMELINE).param("remote", "true")).andExpect(jsonPath("$", empty()));
+    void publicTimelineFiltersByServerAndHasNothingForMedia() throws Exception {
+        var local = create(alice(), "Public");
+        var remote = remote(Visibility.PUBLIC).toString();
+        expectIds(get(TIMELINE), remote, local);
+        expectIds(get(TIMELINE).param("local", "true"), local);
+        expectIds(get(TIMELINE).param("remote", "true"), remote);
+        expectIds(get(TIMELINE).param("local", "true").param("remote", "true"), local);
+        mockMvc.perform(get(TIMELINE).param("remote", "true"))
+                .andExpect(header().string("Link", containsString("remote=true")));
         mockMvc.perform(get(TIMELINE).param("only_media", "1")).andExpect(jsonPath("$", empty()));
-        mockMvc.perform(get(TIMELINE).param("only_media", "false")).andExpect(jsonPath("$", hasSize(1)));
+        mockMvc.perform(get(TIMELINE).param("only_media", "false")).andExpect(jsonPath("$", hasSize(2)));
+    }
+
+    @Test
+    void showsAStatusFromAnotherServer() throws Exception {
+        var id = remote(Visibility.PUBLIC);
+
+        mockMvc.perform(get("/api/v1/statuses/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("<p>From afar</p>"))
+                .andExpect(jsonPath("$.uri").value(containsString("/notes/")))
+                .andExpect(jsonPath("$.url").value(containsString("/@s/")))
+                .andExpect(jsonPath("$.account.acct").value(containsString("s@")));
+    }
+
+    @Test
+    void listsTheStatusesOfAnAccountOnAnotherServer() throws Exception {
+        var id = remote(Visibility.PUBLIC);
+        var authorId = jdbc.sql("SELECT actor_id FROM status WHERE id = :id").param("id", id).query(UUID.class).single();
+
+        expectIds(get("/api/v1/accounts/" + authorId + "/statuses"), id.toString());
+    }
+
+    @Test
+    void doesNotCountStatusesFromOtherServersAsLocal() throws Exception {
+        create(alice(), "Public");
+        remote(Visibility.PUBLIC);
+
+        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(1));
+    }
+
+    // Home timeline
+
+    @Test
+    void homeTimelineHasOwnStatusesAndThoseOfFollowedAccounts() throws Exception {
+        var own = create(alice(), "Own");
+        var ownDirect = create(alice(), "Own direct", "direct");
+        var followedPublic = create(bob(), "Public");
+        var followedUnlisted = create(bob(), "Unlisted", "unlisted");
+        var followedPrivate = create(bob(), "Private", "private");
+        create(bob(), "Direct", "direct");
+        create(token("erin", "read write"), "Not followed");
+        var remote = remoteAuthor();
+        var remotePublic = remoteStatus(remote, Visibility.PUBLIC, null).toString();
+        var remotePrivate = remoteStatus(remote, Visibility.PRIVATE, null).toString();
+        follow(aliceId(), bobId(), "accepted");
+        follow(aliceId(), remote.toString(), "accepted");
+
+        expectIds(withToken(get(HOME), alice()),
+                remotePrivate, remotePublic, followedPrivate, followedUnlisted, followedPublic, ownDirect, own);
+    }
+
+    @Test
+    void homeTimelineLeavesOutPendingFollowsAndSuspendedAccounts() throws Exception {
+        create(bob(), "Pending");
+        var frank = token("frank", "read write");
+        create(frank, "Suspended");
+        follow(aliceId(), bobId(), "pending");
+        follow(aliceId(), actorId("frank"), "accepted");
+        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE username = 'frank'").update();
+        try {
+            expectIds(withToken(get(HOME), alice()));
+        } finally {
+            jdbc.sql("UPDATE actor SET suspended_at = NULL WHERE username = 'frank'").update();
+        }
+    }
+
+    @Test
+    void homeTimelineOnlyHasRepliesToSomeoneFollowed() throws Exception {
+        var grace = token("grace", "read write");
+        var aliceStatus = create(alice(), "Alice");
+        var bobStatus = create(bob(), "Bob");
+        var graceStatus = create(grace, "Grace");
+        follow(aliceId(), bobId(), "accepted");
+        var toSelf = create(bob(), "To self", "public", bobStatus);
+        var toViewer = create(bob(), "To alice", "public", aliceStatus);
+        var toGrace = create(bob(), "To grace", "public", graceStatus);
+        var remote = remoteAuthor();
+        follow(aliceId(), remote.toString(), "accepted");
+        remoteStatus(remote, Visibility.PUBLIC, URI.create("https://elsewhere.test/notes/1"));
+
+        expectIds(withToken(get(HOME), alice()), toViewer, toSelf, bobStatus, aliceStatus);
+
+        follow(aliceId(), actorId("grace"), "accepted");
+        expectIds(withToken(get(HOME), alice()), toGrace, toViewer, toSelf, graceStatus, bobStatus, aliceStatus);
+    }
+
+    @Test
+    void homeTimelineHasAllOfTheViewersOwnReplies() throws Exception {
+        var stranger = create(token("heidi", "read write"), "Not followed");
+        var reply = create(alice(), "Reply to a stranger", "public", stranger);
+
+        expectIds(withToken(get(HOME), alice()), reply);
+    }
+
+    @Test
+    void homeTimelineHandlesManyFollows() throws Exception {
+        var bobStatus = create(bob(), "Bob");
+        var bob = UUID.fromString(bobId());
+        var followed = new ArrayList<UUID>(Stream.generate(UUID::randomUUID).limit(40_000).toList());
+        followed.add(bob);
+
+        assertThat(statuses.findHome(UUID.fromString(aliceId()), followed, new StatusPage(20, null, null, null)))
+                .extracting(status -> status.id().toString())
+                .containsExactly(bobStatus);
+    }
+
+    @Test
+    void homeTimelinePagesAndLinks() throws Exception {
+        var first = create(alice(), "1");
+        var second = create(alice(), "2");
+        var third = create(alice(), "3");
+
+        expectIds(withToken(get(HOME), alice()).param("limit", "2"), third, second);
+        expectIds(withToken(get(HOME), alice()).param("max_id", second), first);
+        expectIds(withToken(get(HOME), alice()).param("min_id", first).param("limit", "1"), second);
+        mockMvc.perform(withToken(get(HOME), alice()).param("limit", "2"))
+                .andExpect(header().string("Link", containsString("/api/v1/timelines/home?limit=2&max_id=" + second)));
+    }
+
+    @Test
+    void homeTimelineNeedsAUser() throws Exception {
+        mockMvc.perform(get(HOME)).andExpect(status().isUnauthorized());
+        mockMvc.perform(withToken(get(HOME), appToken()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error").value("This method requires an authenticated user"));
     }
 
     @Test
@@ -736,6 +888,54 @@ class StatusesIntegrationTests {
                 .param("username", username)
                 .query(String.class)
                 .single();
+    }
+
+    private UUID remoteAuthor() {
+        var host = "h" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/s");
+        return actors.upsertRemote(
+                new RemoteActorProfile(uri, "s", host, URI.create(uri + "/inbox"), null, null, null, null)).id();
+    }
+
+    private UUID remoteStatus(UUID authorId, Visibility visibility, URI inReplyTo) {
+        var author = actors.findById(authorId).orElseThrow();
+        return statuses.storeRemote(new RemoteStatus(
+                URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, authorId, "<p>Hi</p>", null, null,
+                visibility, false, inReplyTo, Instant.now())).orElseThrow();
+    }
+
+    private void follow(String followerId, String followedId, String state) {
+        jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
+                        VALUES (:id, :follower, :followed, :state, :activity)
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("follower", UUID.fromString(followerId))
+                .param("followed", UUID.fromString(followedId))
+                .param("state", state)
+                .param("activity", "https://elysium.example/follows/" + UUID.randomUUID())
+                .update();
+    }
+
+    /**
+     * Stores a status from a new actor on another server.
+     */
+    private UUID remote(Visibility visibility) {
+        var host = "h" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/s");
+        var author = actors.upsertRemote(
+                new RemoteActorProfile(uri, "s", host, URI.create(uri + "/inbox"), null, null, null, null));
+        return statuses.storeRemote(new RemoteStatus(
+                URI.create("https://" + host + "/notes/" + UUID.randomUUID()),
+                URI.create("https://" + host + "/@s/1"),
+                author.id(),
+                "<p>From afar</p>",
+                null,
+                null,
+                visibility,
+                false,
+                null,
+                Instant.now())).orElseThrow();
     }
 
     private String create(String token, String text) throws Exception {
