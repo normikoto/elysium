@@ -20,6 +20,8 @@ import java.util.UUID;
  *                           stored here. Null for a local status
  * @param url                the page that shows a status from another server, or null if it didn't give one, or for a
  *                           local status, whose page is its URI
+ * @param editedAt           when a status from another server was last edited, as its server gave it, or null if it
+ *                           never was
  * @param repliesCount       the number of public and unlisted replies
  */
 public record Status(
@@ -38,6 +40,7 @@ public record Status(
         URI inReplyToUri,
         URI url,
         Instant publishedAt,
+        Instant editedAt,
         long repliesCount
 ) {
 

@@ -106,6 +106,7 @@ public class StatusService {
                     null,
                     null,
                     publishedAt,
+                    null,
                     0);
             statuses.insert(status);
             events.publishEvent(new StatusPublished(id, authorId));
@@ -127,10 +128,7 @@ public class StatusService {
         var author = actors.findById(remote.authorId())
                 .filter(found -> found.isActive() && !actors.isLocal(found))
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't an active remote actor"));
-        var content = RemoteHtml.sanitize(remote.content());
-        var text = RemoteHtml.plainText(content);
-        var spoilerText = remote.spoilerText() == null ? "" : RemoteHtml.inlineText(remote.spoilerText());
-        var language = isLanguageCode(remote.language()) ? remote.language() : null;
+        var html = RemoteText.of(remote.content(), remote.spoilerText(), remote.language());
         // Repeats are common, and this keeps them from waiting for the lock that every new status takes.
         if (statuses.existsByUri(remote.uri())) {
             return Optional.empty();
@@ -149,18 +147,19 @@ public class StatusService {
                     id,
                     remote.uri(),
                     author.id(),
-                    text,
-                    content,
-                    spoilerText,
-                    language,
+                    html.text(),
+                    html.content(),
+                    html.spoilerText(),
+                    html.language(),
                     remote.visibility(),
-                    remote.sensitive() || !spoilerText.isEmpty(),
+                    remote.sensitive() || !html.spoilerText().isEmpty(),
                     remote.inReplyToUri() != null,
                     parent.map(StatusRepository.Parent::id).orElse(null),
                     parent.map(StatusRepository.Parent::actorId).orElse(null),
                     remote.inReplyToUri(),
                     remote.url(),
                     remote.publishedAt().truncatedTo(ChronoUnit.MICROS),
+                    remote.editedAt() == null ? null : remote.editedAt().truncatedTo(ChronoUnit.MICROS),
                     0);
             if (!statuses.insert(status)) {
                 return Optional.<UUID>empty();
@@ -169,6 +168,47 @@ public class StatusService {
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
             return Optional.of(id);
         });
+    }
+
+    /**
+     * Replaces a remote status with a version its author's server edited. Only what an author can change in an edit on
+     * Mastodon is replaced, so its visibility, its parent and when it was published stay as they were. Nothing is
+     * published for it, since it isn't this server's to send.
+     *
+     * @return what happened to the edit
+     */
+    public RemoteEdit.Outcome updateRemote(RemoteEdit edit) {
+        var html = RemoteText.of(edit.content(), edit.spoilerText(), edit.language());
+        // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
+        // caller that stores the status after NOT_STORED has to cope with one stored in between.
+        var edited = statuses.updateRemote(
+                edit.uri(),
+                edit.authorId(),
+                html.text(),
+                html.content(),
+                html.spoilerText(),
+                html.language(),
+                edit.sensitive() || !html.spoilerText().isEmpty(),
+                edit.editedAt().truncatedTo(ChronoUnit.MICROS));
+        if (edited) {
+            return RemoteEdit.Outcome.EDITED;
+        }
+        return statuses.existsByUri(edit.uri()) ? RemoteEdit.Outcome.UNCHANGED : RemoteEdit.Outcome.NOT_STORED;
+    }
+
+    /**
+     * Another server's text for a status, made safe to store.
+     */
+    private record RemoteText(String text, String content, String spoilerText, String language) {
+
+        static RemoteText of(String content, String spoilerText, String language) {
+            var sanitized = RemoteHtml.sanitize(content);
+            return new RemoteText(
+                    RemoteHtml.plainText(sanitized),
+                    sanitized,
+                    spoilerText == null ? "" : RemoteHtml.inlineText(spoilerText),
+                    isLanguageCode(language) ? language : null);
+        }
     }
 
     /**

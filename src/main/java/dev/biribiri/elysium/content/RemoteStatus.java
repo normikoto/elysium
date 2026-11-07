@@ -12,6 +12,7 @@ import java.util.UUID;
  * @param spoilerText  HTML, which is reduced to plain text, as clients show it
  * @param language     a language code, or null if not given or not valid
  * @param inReplyToUri the parent's URI, or null if it isn't a reply
+ * @param editedAt     when its server says it was last edited, or null if it hasn't been
  */
 public record RemoteStatus(
         URI uri,
@@ -23,6 +24,16 @@ public record RemoteStatus(
         Visibility visibility,
         boolean sensitive,
         URI inReplyToUri,
-        Instant publishedAt
+        Instant publishedAt,
+        Instant editedAt
 ) {
+
+    /**
+     * A status that hasn't been edited.
+     */
+    public RemoteStatus(
+            URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
+            boolean sensitive, URI inReplyToUri, Instant publishedAt) {
+        this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, null);
+    }
 }

@@ -13,6 +13,8 @@ differs from Mastodon in these ways:
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
 - Statuses can't be edited, and media, polls, scheduled posts, and `GET /api/v1/statuses/:id/context` aren't implemented.
+  Statuses from other servers can have been edited there, and then have an `edited_at`, but
+  `GET /api/v1/statuses/:id/history` and `GET /api/v1/statuses/:id/source` aren't implemented.
   `media_ids`, `poll`, or `scheduled_at` with a value gets a 422 rather than being ignored.
 - URLs in a status are linked, but mentions and hashtags aren't yet.
 - The length limit defaults to 5000 characters rather than 500. As in Mastodon, each URL counts as 23 characters, unless

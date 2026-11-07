@@ -4,14 +4,14 @@ Elysium is an early work in progress and can't fully federate yet. Other servers
 statuses, and followers and following collections, deliver activities to them, and follow them. Its users can find accounts
 on other servers by `username@domain` or URL, and follow and unfollow them. Other servers are sent its users' new and deleted
 statuses, and are told when an account is suspended or deleted. Other servers' statuses are stored when they're for a local
-user, and removed when they're deleted, as are deleted actors. Other activities are ignored, apart from follows and the answers
-to them. This file only describes what's implemented today.
+user, updated when they're edited, and removed when they're deleted, as are deleted actors. Other activities are ignored, apart
+from follows and the answers to them, and updates of actors. This file only describes what's implemented today.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
   activities at an inbox, receiving `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`,
-  and `Delete`, and sending
+  `Update` of an actor or a `Note`, and `Delete`, and sending
   `Follow`, `Undo` of a `Follow`, `Accept`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
@@ -158,7 +158,7 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
 one worked. Activities are processed in no particular order. Only `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a
-`Follow`, `Create` of a `Note`, and `Delete` are acted on, and other types are ignored.
+`Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -406,10 +406,39 @@ even if it's public. Other object types, such as `Article`, `Page`, and `Questio
   `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
   other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the parent arrives later. Attachments,
   tags, emoji, and polls aren't read yet.
-- **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again.
+- **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again. An
+  [`Update`](#receiving-updates) is how it's changed.
+- **Edits:** a `Note` that has an `updated` later than its `published` is stored as edited at that time, so an `Update`
+  that isn't newer can't replace it.
 
 What happens to the statuses of [suspended](#suspended-and-deleted-accounts) actors and [blocked](#domain-blocks) servers is
 described with those.
+
+#### Receiving updates
+
+An `Update`'s `object` can be an ID, an embedded object, or an array of one of those.
+
+- **Actors:** an `Update` whose `object` has the `actor`'s own `id` makes this server fetch the actor's document again,
+  signed as the [instance actor](#instance-actor), however recently it was fetched. The embedded object isn't read,
+  since not every server says when an actor changed, so the document's server is the only one that knows what's current.
+  What's stored is [what a `Follow` stores](#follows): the username, inboxes, `followers` collection, and key. A key
+  that the new document has dropped, or has with a different value, isn't used for signatures from then on, and is
+  fetched again when it's next needed. A server error or timeout is tried again later. Other failures, including a `404`
+  or `410`, keep the older copy, since only a [`Delete`](#receiving-deletes) removes an actor. An `Update` of an actor
+  that isn't stored, or of another actor, is ignored.
+- **Statuses:** an `Update` whose `object` is a `Note` is read with [the same checks as a `Create`](#receiving-statuses):
+  it has to be attributed to the `actor` alone, with an `id` on the same host and port, and one sent as an ID is fetched.
+  It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, and the language
+  are replaced, and sanitized as they are for a `Create`. Its visibility, `inReplyTo`, `url`, and `published` aren't
+  changed. Other object types, such as `Question`, are ignored.
+- **Order:** the `Note` needs an `updated`, and is only applied if that's later than the edit stored last. Activities are
+  processed in no order, so one that's older is ignored, and one without `updated` is ignored too.
+- **Before its `Create`:** an `Update` of a `Note` that isn't stored is treated as its `Create`, with the same checks,
+  including who it's for, if its `published` is less than 3 days before the `Update` arrived. The `Create` is then ignored
+  when it's processed. A `Note` that's older, or has no `published`, is ignored, so that editing an old post doesn't make
+  it look new here, since statuses are ordered by when they arrive.
+- **Forwarded:** an `Update` is [fetched from its origin](#forwarded-activities) like any forwarded activity. Mastodon's
+  `Update` IDs have a fragment, so a forwarded one is lost.
 
 #### Receiving deletes
 
@@ -436,9 +465,9 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
 ### Notable differences
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
-- Only `Note`s are stored, and only ones that are for a local user. Direct `Note`s, `Announce`, `Like`, and an `Update` of
-  a `Note` are ignored.
-- Profiles of actors on other servers aren't stored, and an `Update` of one isn't acted on.
+- Only `Note`s are stored, and only ones that are for a local user. Direct `Note`s, `Announce`, and `Like` are ignored.
+- Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
+- An edited status's earlier versions aren't kept.
 - `Reject` is never sent.
 - A deleted actor's URI can't be used again by a new actor on its server.
 - Actor documents advertise an `outbox`, but it isn't implemented yet.

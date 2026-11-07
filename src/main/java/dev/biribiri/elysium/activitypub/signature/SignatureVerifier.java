@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.time.Clock;
@@ -60,6 +61,16 @@ public class SignatureVerifier {
         this.blocks = blocks;
         this.actors = actors;
         this.clock = clock;
+    }
+
+    /**
+     * Stops using keys of the actor's that its current document has dropped or changed, for when the actor says it's
+     * changed. Otherwise a key is kept for a day, and only fetched again when a signature fails to verify with it.
+     *
+     * @param document the actor's document, just fetched from its {@code id}
+     */
+    public void forgetChangedKeys(URI actor, JsonNode document) {
+        keys.forgetChanged(actor, document);
     }
 
     /**
