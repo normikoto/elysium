@@ -27,6 +27,7 @@ import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -88,6 +89,7 @@ class OAuthApiDocs {
 
     private static SecurityScheme securityScheme(InstanceProperties instance) {
         var tokenUrl = instance.resolve(SecurityConfig.TOKEN_PATH).toString();
+        var scopes = scopes();
         return new SecurityScheme()
                 .type(SecurityScheme.Type.OAUTH2)
                 .description("A token from `" + SecurityConfig.TOKEN_PATH + "`, sent as a bearer token. Register an "
@@ -97,10 +99,10 @@ class OAuthApiDocs {
                         .authorizationCode(new OAuthFlow()
                                 .authorizationUrl(instance.resolve(SecurityConfig.AUTHORIZE_PATH).toString())
                                 .tokenUrl(tokenUrl)
-                                .scopes(scopes()))
+                                .scopes(scopes))
                         .clientCredentials(new OAuthFlow()
                                 .tokenUrl(tokenUrl)
-                                .scopes(scopes())));
+                                .scopes(scopes)));
     }
 
     private static Scopes scopes() {
@@ -112,22 +114,22 @@ class OAuthApiDocs {
     }
 
     private static String describe(String scope) {
-        var description = new StringBuilder();
+        var sentences = new ArrayList<String>();
         var granted = OAuthScopes.grants(scope);
         if (!granted.isEmpty()) {
-            description.append("Grants ").append(String.join(", ", granted)).append('.');
+            sentences.add("Grants " + String.join(", ", granted) + ".");
         }
         switch (scope) {
-            case "profile" -> description.append("Only `GET /api/v1/accounts/verify_credentials`.");
-            case "push" -> description.append("Accepted, but nothing uses it yet.");
-            case "follow" -> description.append(" Deprecated.");
+            case "profile" -> sentences.add("Only `GET /api/v1/accounts/verify_credentials`.");
+            case "push" -> sentences.add("Accepted, but nothing uses it yet.");
+            case "follow" -> sentences.add("Deprecated.");
             default -> {
             }
         }
         if (OAuthScopes.isAdmin(scope)) {
-            description.append(" Only works for admins.");
+            sentences.add("Only works for admins.");
         }
-        return description.toString().trim();
+        return String.join(" ", sentences);
     }
 
     private static Operation authorize() {
@@ -166,8 +168,7 @@ class OAuthApiDocs {
         properties.put("state", new StringSchema().description("The `state` from the consent page."));
         properties.put("scope", strings().description(
                 "The scopes approved, one value each. None denies the request, and removes any earlier approval."));
-        properties.put("_csrf", new StringSchema().description("The CSRF token from the consent page."));
-        var body = object(properties, "client_id", "state", "_csrf");
+        var body = object(properties, "client_id", "state");
         return new Operation()
                 .tags(List.of(TAG))
                 .operationId("oauthConsent")
@@ -178,7 +179,7 @@ class OAuthApiDocs {
                 .requestBody(new RequestBody().required(true).content(form(body)))
                 .responses(authorizationResponses()
                         .addApiResponse("200", new ApiResponse()
-                                .description("The code, or the error, for `urn:ietf:wg:oauth:2.0:oob`.")
+                                .description("The code, for `urn:ietf:wg:oauth:2.0:oob`.")
                                 .content(html())));
     }
 

@@ -53,9 +53,9 @@ nginx's default `client_max_body_size` of `1m` already matches the largest activ
 third-party module, such as `caddy-ratelimit`, to limit requests.
 
 Behind a reverse proxy, set `server.forward-headers-strategy=native` so that redirects use the public
-URL and [rate limits](accounts.md#rate-limits) apply to each client's address. Without it, every client appears to have
-the proxy's address and shares one limit, so one person could stop everyone from logging in, or stop other servers from
-delivering activities.
+URL, including Swagger UI's OAuth redirect, and [rate limits](accounts.md#rate-limits) apply to each client's address.
+Without it, every client appears to have the proxy's address and shares one limit, so one person could stop everyone from
+logging in, or stop other servers from delivering activities.
 
 **Warning:** With that setting on, a wrong proxy configuration can turn the per-address limits off without any sign of a
 problem. If the server trusts an `X-Forwarded-For` value that a client wrote, the client can send a new address with
