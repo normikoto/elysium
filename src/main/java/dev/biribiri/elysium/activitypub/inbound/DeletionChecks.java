@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
+import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -33,18 +34,21 @@ class DeletionChecks {
     private final DomainBlocks blocks;
     private final Deletions deletions;
     private final StatusService statuses;
+    private final TargetFetchTurns turns;
 
     DeletionChecks(
             SchedulerClient scheduler,
             ActivityDocuments documents,
             DomainBlocks blocks,
             Deletions deletions,
-            StatusService statuses) {
+            StatusService statuses,
+            TargetFetchTurns turns) {
         this.scheduler = scheduler;
         this.documents = documents;
         this.blocks = blocks;
         this.deletions = deletions;
         this.statuses = statuses;
+        this.turns = turns;
     }
 
     /**
@@ -53,9 +57,41 @@ class DeletionChecks {
      * @param object an object on the actor's server
      */
     void queue(URI object, URI actor) {
-        var queuedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        Jobs.schedule(scheduler, TASK, new DeletionCheckJob(object.toString(), actor.toString(), queuedAt),
+        queue(object, actor, Instant.now().truncatedTo(ChronoUnit.MICROS));
+    }
+
+    /**
+     * @param queuedAt when the {@code Delete} arrived, for one that has already waited in another job, so that retries are
+     *                 timed from then
+     */
+    void queue(URI object, URI actor, Instant queuedAt) {
+        Jobs.schedule(scheduler, TASK, new DeletionCheckJob(object.toString(), actor.toString(), queuedAt, null),
                 "deletion-check", object.toString(), actor.toString());
+    }
+
+    /**
+     * Runs {@link #confirm} once the object's host has a turn in {@link TargetFetchTurns}, since the object comes from
+     * whoever sent the {@code Delete}.
+     *
+     * @return what to do with the job, which is to wait for its turn if it hasn't come yet
+     */
+    CompletionHandler<DeletionCheckJob> run(DeletionCheckJob job) {
+        var object = URI.create(job.objectId());
+        // confirm checks again, but a blocked host shouldn't use up turns or wait for one.
+        if (blocks.isBlocked(object.getHost())) {
+            return Jobs.done();
+        }
+        var now = Instant.now();
+        var turn = turns.take(object, job.turn(), now);
+        if (turn.isEmpty()) {
+            log.debug("Ignoring a Delete of {}, since too many fetches are waiting for its server", object);
+            return Jobs.done();
+        }
+        if (turn.get().isAfter(now)) {
+            return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
+        }
+        confirm(object, URI.create(job.actorId()));
+        return Jobs.done();
     }
 
     /**

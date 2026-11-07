@@ -12,7 +12,7 @@ differs from Mastodon in these ways:
 
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
-- Statuses can't be edited, and media, polls, scheduled posts, and `GET /api/v1/statuses/:id/context` aren't implemented.
+- Statuses can't be edited, and media, polls, and scheduled posts aren't implemented.
   Statuses from other servers can have been edited there, and then have an `edited_at`, but
   `GET /api/v1/statuses/:id/history` and `GET /api/v1/statuses/:id/source` aren't implemented.
   `media_ids`, `poll`, or `scheduled_at` with a value gets a 422 rather than being ignored.
@@ -28,9 +28,13 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   `urls.streaming_api` is set.
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
 - Statuses from other servers are only stored when they're sent here, which is when a local account follows their author or
-  is addressed by them, so older ones and replies from others aren't there. Direct ones aren't stored. Their HTML is sanitized, so it can differ from what the other server shows,
+  is addressed by them, or when they're a public or unlisted reply to a stored status of a local account or one that's
+  followed here. Older ones, and replies that arrive before their parent, aren't there. Direct ones aren't stored. Their HTML is sanitized, so it can differ from what the other server shows,
   and they never have `media_attachments`, `mentions`, `tags`, `emojis`, or a `poll`. A reply whose parent isn't stored has a
   null `in_reply_to_id` and `in_reply_to_account_id`.
+- `GET /api/v1/statuses/:id/context` only lists statuses stored here, and never fetches missing parents or replies from other
+  servers. It lists up to 40 ancestors, and up to 60 descendants at most 20 replies deep, the limits Mastodon uses without a
+  token, whoever asks. Statuses the user can't see are left out after those limits apply, so fewer can be listed.
 - `GET /api/v1/timelines/home` is worked out from the statuses stored here each time, rather than kept as a feed, so it
   never answers `206`, and an account's stored statuses show as soon as it's followed, older ones too. A followed
   account's reply is only listed when it's to its author, to the user, or to someone they follow, as on Mastodon, and one

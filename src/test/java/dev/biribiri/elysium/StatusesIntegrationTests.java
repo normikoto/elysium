@@ -589,6 +589,62 @@ class StatusesIntegrationTests {
         mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(1));
     }
 
+    // Context
+
+    @Test
+    void contextListsAncestorsOldestFirstAndDescendantsDepthFirst() throws Exception {
+        var root = create(alice(), "Root");
+        var first = create(bob(), "First", "public", root);
+        var nested = create(alice(), "Nested", "unlisted", first);
+        var second = create(bob(), "Second", "public", root);
+        var deeper = create(bob(), "Deeper", "public", nested);
+
+        expectContext(get(context(root)), List.of(), List.of(first, nested, deeper, second));
+        expectContext(get(context(nested)), List.of(root, first), List.of(deeper));
+        expectContext(withToken(get(context(second)), alice()), List.of(root), List.of());
+    }
+
+    @Test
+    void contextLeavesOutWhatTheViewerCantSee() throws Exception {
+        var root = create(alice(), "Root");
+        var followersOnly = create(bob(), "Followers only", "private", root);
+        var direct = create(bob(), "Direct", "direct", root);
+        var ivan = token("ivan", "read write");
+        var suspended = create(ivan, "Suspended", "public", root);
+
+        expectContext(get(context(root)), List.of(), List.of(suspended));
+        expectContext(withToken(get(context(root)), bob()), List.of(), List.of(followersOnly, direct, suspended));
+        follow(aliceId(), bobId(), "accepted");
+        expectContext(withToken(get(context(root)), alice()), List.of(), List.of(followersOnly, suspended));
+        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE username = 'ivan'").update();
+        try {
+            expectContext(get(context(root)), List.of(), List.of());
+        } finally {
+            jdbc.sql("UPDATE actor SET suspended_at = NULL WHERE username = 'ivan'").update();
+        }
+        mockMvc.perform(get(context(followersOnly))).andExpect(status().isNotFound());
+        mockMvc.perform(get(context("not-a-uuid"))).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void contextEndsALoopOfReplies() throws Exception {
+        var author = remoteAuthor();
+        var first = remoteStatus(author, Visibility.PUBLIC, null);
+        var second = remoteStatus(author, Visibility.PUBLIC, null);
+        jdbc.sql("UPDATE status SET reply = true, in_reply_to_id = :parent WHERE id = :id")
+                .param("parent", second).param("id", first).update();
+        jdbc.sql("UPDATE status SET reply = true, in_reply_to_id = :parent WHERE id = :id")
+                .param("parent", first).param("id", second).update();
+
+        var body = mockMvc.perform(get(context(first.toString())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<String> descendants = JsonPath.read(body, "$.descendants[*].id");
+        List<String> ancestors = JsonPath.read(body, "$.ancestors[*].id");
+        assertThat(descendants).containsExactly(second.toString());
+        assertThat(ancestors).hasSize(40);
+    }
+
     // Home timeline
 
     @Test
@@ -965,6 +1021,19 @@ class StatusesIntegrationTests {
 
     private MockHttpServletRequestBuilder jsonCreateRequest(String token, String body) {
         return withToken(post("/api/v1/statuses"), token).contentType(MediaType.APPLICATION_JSON).content(body);
+    }
+
+    private static String context(String id) {
+        return "/api/v1/statuses/" + id + "/context";
+    }
+
+    private void expectContext(MockHttpServletRequestBuilder request, List<String> ancestors, List<String> descendants)
+            throws Exception {
+        var body = mockMvc.perform(request).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        List<String> foundAncestors = JsonPath.read(body, "$.ancestors[*].id");
+        List<String> foundDescendants = JsonPath.read(body, "$.descendants[*].id");
+        assertThat(foundAncestors).containsExactlyElementsOf(ancestors);
+        assertThat(foundDescendants).containsExactlyElementsOf(descendants);
     }
 
     private void expectIds(MockHttpServletRequestBuilder request, String... ids) throws Exception {

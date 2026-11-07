@@ -49,6 +49,20 @@ public final class Jobs {
     }
 
     /**
+     * Runs a job again later, without counting as a failure, for one that's waiting on purpose.
+     */
+    public static <T> CompletionHandler<T> rescheduleAt(Instant time) {
+        return (complete, operations) -> operations.reschedule(complete, time);
+    }
+
+    /**
+     * Like {@link #rescheduleAt(Instant)}, replacing the job's data, such as to remember a turn it was given.
+     */
+    public static <T> CompletionHandler<T> rescheduleAt(Instant time, T data) {
+        return (complete, operations) -> operations.reschedule(complete, time, data);
+    }
+
+    /**
      * What to do with a job whose activity isn't stored. An outbound one can have been cancelled, and then the job just
      * finishes. But an admin can retry a job for longer than activities are kept, so one that's old enough to have lost its
      * activity fails, which shows them why there's nothing to do. Failing parks it, and it's removed when that runs out.

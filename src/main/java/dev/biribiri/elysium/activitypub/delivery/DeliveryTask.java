@@ -84,7 +84,7 @@ class DeliveryTask {
 
         var now = Instant.now();
         if (!gate.tryAcquire(host)) {
-            return at(gate.nextTurn(host, now));
+            return Jobs.rescheduleAt(gate.nextTurn(host, now));
         }
         try {
             var activity = find(job);
@@ -102,7 +102,7 @@ class DeliveryTask {
                 if (signer.get().isDeleted() || whileSuspended == WhileSuspended.DROP || Jobs.hasOutlivedItsActivity(job)) {
                     return Jobs.done();
                 }
-                return at(now.plus(SUSPENDED_DELAY));
+                return Jobs.rescheduleAt(now.plus(SUSPENDED_DELAY));
             }
             if (!actors.suspendedInboxes(List.of(inbox)).isEmpty()) {
                 return Jobs.done();
@@ -115,7 +115,7 @@ class DeliveryTask {
                 return later(backingOff.get());
             }
             if (job.staysBehind() != null && isRunningFor(job.staysBehind(), host)) {
-                return at(now.plus(BEHIND_DELAY));
+                return Jobs.rescheduleAt(now.plus(BEHIND_DELAY));
             }
             send(activity.get(), signer, inbox, host);
             return Jobs.done();
@@ -200,14 +200,7 @@ class DeliveryTask {
      * Waits for a host's backoff to end. The time is spread out, so that all of the host's jobs don't arrive at once.
      */
     private static CompletionHandler<DeliveryJob> later(Instant time) {
-        return at(time.plusMillis(ThreadLocalRandom.current().nextLong(BACKOFF_SPREAD.toMillis())));
-    }
-
-    /**
-     * Waits without counting as a failure, because nothing about this job has gone wrong.
-     */
-    private static CompletionHandler<DeliveryJob> at(Instant time) {
-        return (complete, operations) -> operations.reschedule(complete, time);
+        return Jobs.rescheduleAt(time.plusMillis(ThreadLocalRandom.current().nextLong(BACKOFF_SPREAD.toMillis())));
     }
 
     private static final class TemporaryDeliveryFailure extends RuntimeException {

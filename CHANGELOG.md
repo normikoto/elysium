@@ -60,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FEDERATION.md` and `docs/api.md`.
 - Posts and accounts deleted on other servers are now removed here too, along with a deleted account's follows. A deleted
   account from another server can't come back, even if its server gives its address to a new account. See `FEDERATION.md`.
+- Replies from other servers to posts by local users, or by accounts that local users follow, are now stored even when they
+  don't address anyone here, including the replies that Mastodon forwards to the followers of the account being replied to.
+  `GET /api/v1/statuses/:id/context` shows a post's thread, from what's stored here. See `FEDERATION.md` and `docs/api.md`.
+- Fetches that other servers can point this server at, such as of forwarded activities, are now limited for each target
+  server, and fetches of any kind run at most 4 at once for one server. See `FEDERATION.md`.
 - Posts edited on other servers are now updated here too, with `edited_at` set in the API, though earlier versions aren't
   kept. Changes to accounts on other servers, such as a new key or inbox, are picked up as soon as the account's server
   announces them. See `FEDERATION.md`.

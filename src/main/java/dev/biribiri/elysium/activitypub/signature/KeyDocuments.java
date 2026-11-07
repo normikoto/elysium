@@ -25,7 +25,9 @@ import java.util.List;
  * where to look next, and the actor's real document has to list the key.
  * </ul>
  *
- * <p>Requests are signed as the instance actor, because some servers won't serve even an actor document without that.
+ * <p>Requests are signed as the instance actor, because some servers won't serve even an actor document without that. They
+ * aren't counted against {@link dev.biribiri.elysium.activitypub.http.HostRequests} here, because {@link PublicKeyResolver}
+ * holds a slot for the whole lookup.
  */
 @Component
 class KeyDocuments {
@@ -42,7 +44,7 @@ class KeyDocuments {
      * @throws DocumentFetchException if the key can't be fetched or confirmed
      */
     ResolvedKey fetch(KeyId keyId) throws DocumentFetchException {
-        var document = documents.fetch(keyId.document());
+        var document = documents.fetchUncounted(keyId.document());
         if (!hasId(document, keyId.document())) {
             return fromStub(keyId, document);
         }
@@ -112,7 +114,7 @@ class KeyDocuments {
     }
 
     private JsonNode fetchDocument(URI url) throws DocumentFetchException {
-        var document = documents.fetch(url);
+        var document = documents.fetchUncounted(url);
         // Otherwise a document could describe an actor somewhere other than where it was fetched from.
         if (!hasId(document, url)) {
             throw permanent("Document at " + url + " has a different id");

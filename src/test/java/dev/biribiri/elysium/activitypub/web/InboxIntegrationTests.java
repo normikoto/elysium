@@ -3,8 +3,8 @@ package dev.biribiri.elysium.activitypub.web;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.inbound.Inbox;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
+import dev.biribiri.elysium.activitypub.signature.DocumentStubs;
 import dev.biribiri.elysium.activitypub.signature.CavageRequestSigner;
-import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -31,7 +31,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doThrow;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -434,7 +433,7 @@ class InboxIntegrationTests {
         var domain = "g" + UUID.randomUUID() + ".test";
         var uri = URI.create("https://" + domain + "/users/gone");
         actors.upsertRemote(new RemoteActorProfile(uri, "gone", domain, URI.create(uri + "/inbox"), null, null, null));
-        doThrow(DocumentFetchException.gone("gone")).when(documents).fetch(uri);
+        DocumentStubs.gone(documents, uri);
         return uri;
     }
 

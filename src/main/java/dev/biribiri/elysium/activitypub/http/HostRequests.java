@@ -12,7 +12,8 @@ import org.springframework.stereotype.Component;
  * against them, that server's deliveries here would be refused for as long as it lasted, whenever several of its keys had to be
  * fetched at once. So a fetch that starts during a fan-out can pass the limit, and wait a moment for a connection.
  *
- * <p>Fetches of actor documents aren't counted, so they can also wait for a connection.
+ * <p>Every document fetch counts, whether of a key, an actor, or an object. A key lookup counts once, though it can take two
+ * requests.
  */
 @Component
 public class HostRequests {

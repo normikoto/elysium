@@ -7,6 +7,9 @@ import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +57,8 @@ class CreateIntegrationTests {
     private JsonMapper json;
     @Autowired
     private DomainBlocks blocks;
+    @Autowired
+    private StatusService statuses;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -279,6 +284,51 @@ class CreateIntegrationTests {
     }
 
     @Test
+    void storesAPublicReplyToAFollowedAccountFromSomeoneNobodyFollows() {
+        var parent = noteId();
+        handler.handle(create(note(parent, List.of(PUBLIC), List.of(followers))));
+        var replier = stranger();
+        var unlisted = replierNoteId(replier);
+        var publicReply = replierNoteId(replier);
+
+        handler.handle(reply(replier, publicReply, parent, List.of(PUBLIC), List.of(replier + "/followers")));
+        handler.handle(reply(replier, unlisted, parent, List.of(replier + "/followers"), List.of(PUBLIC)));
+
+        assertThat(status(publicReply).orElseThrow().get("in_reply_to_id")).isEqualTo(status(parent).orElseThrow().get("id"));
+        assertThat(status(unlisted).orElseThrow().get("visibility")).isEqualTo("unlisted");
+    }
+
+    @Test
+    void storesAPublicReplyToALocalAccountsStatusWithoutAddressingThem() {
+        var parent = statuses.create(bystander.id(), new NewStatus("hello", null, null, Visibility.PUBLIC, false, null));
+        var replier = stranger();
+        var reply = replierNoteId(replier);
+
+        handler.handle(reply(replier, reply, parent.uri().toString(), List.of(PUBLIC), List.of()));
+
+        assertThat(status(reply).orElseThrow().get("in_reply_to_id")).isEqualTo(parent.id());
+    }
+
+    @Test
+    void ignoresRepliesThatNobodyHereFollowsTheParentOf() {
+        var parent = noteId();
+        handler.handle(create(note(parent, List.of(PUBLIC), List.of(followers))));
+        var replier = stranger();
+        var followersOnly = replierNoteId(replier);
+        var toUnstored = replierNoteId(replier);
+        var afterUnfollow = replierNoteId(replier);
+
+        handler.handle(reply(replier, followersOnly, parent, List.of(replier + "/followers"), List.of(author.uri().toString())));
+        handler.handle(reply(replier, toUnstored, "https://" + host + "/notes/missing", List.of(PUBLIC), List.of()));
+        jdbc.sql("DELETE FROM follow WHERE followed_id = :id").param("id", author.id()).update();
+        handler.handle(reply(replier, afterUnfollow, parent, List.of(PUBLIC), List.of()));
+
+        assertThat(status(followersOnly)).isEmpty();
+        assertThat(status(toUnstored)).isEmpty();
+        assertThat(status(afterUnfollow)).isEmpty();
+    }
+
+    @Test
     void linksAReplyToASuspendedAuthorsStatus() {
         var other = actors.upsertRemote(new RemoteActorProfile(
                 URI.create("https://" + host + "/users/other"), "other", host,
@@ -338,6 +388,28 @@ class CreateIntegrationTests {
     private InboundActivity createOf(String id, URI actor, String object) {
         var body = "{\"id\":\"%s\",\"type\":\"Create\",\"actor\":\"%s\",\"object\":%s}".formatted(id, actor, object);
         return new InboundActivity(id, actor.toString(), "Create", body);
+    }
+
+    /**
+     * A remote actor on another server, whom nobody here follows.
+     */
+    private URI stranger() {
+        var strangerHost = "h" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + strangerHost + "/users/c");
+        actors.upsertRemote(new RemoteActorProfile(
+                uri, "c", strangerHost, URI.create(uri + "/inbox"), null, null, null, URI.create(uri + "/followers")));
+        return uri;
+    }
+
+    private static String replierNoteId(URI replier) {
+        return "https://" + replier.getHost() + "/notes/" + UUID.randomUUID();
+    }
+
+    private InboundActivity reply(URI replier, String id, String parent, List<String> to, List<String> cc) {
+        var note = new HashMap<>(note(id, to, cc));
+        note.put("attributedTo", replier.toString());
+        note.put("inReplyTo", parent);
+        return createOf(id + "/activity", replier, json.writeValueAsString(note));
     }
 
     private Optional<Map<String, Object>> status(String uri) {

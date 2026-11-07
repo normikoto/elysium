@@ -1,11 +1,17 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
+import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,17 +22,21 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -63,8 +73,14 @@ class ForwardedActivitiesIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private JsonMapper json;
+    @Autowired
+    private CreateHandler createHandler;
+    @Autowired
+    private StatusService statuses;
     @MockitoBean
     private ActivityDocuments documents;
+    @MockitoSpyBean
+    private TargetFetchTurns turns;
 
     private VerifiedSignature forwarder;
     private String origin;
@@ -107,6 +123,82 @@ class ForwardedActivitiesIntegrationTests {
         assertThat(storedBody()).contains("origin").doesNotContain("forwarded");
         assertThat(storedActor()).isEqualTo(actor);
         assertThat(inboundJobs()).isOne();
+    }
+
+    @Test
+    void waitsForTheOriginsTurnWithoutFetching() throws Exception {
+        var later = now().plusSeconds(30);
+        doReturn(Optional.of(later)).when(turns).take(any(), any(), any());
+        var job = new ForwardedJob(id, now(), null, null);
+
+        var handler = forwarded.fetch(job);
+
+        verify(documents, never()).fetch(any());
+        ExecutionComplete complete = mock();
+        ExecutionOperations<ForwardedJob> operations = mock();
+        handler.complete(complete, operations);
+        verify(operations).reschedule(complete, later, job.withTurn(later));
+    }
+
+    @Test
+    void usesATurnItWasGiven() throws Exception {
+        serve(activity(id, actor, "origin"));
+
+        var held = now().minusSeconds(1);
+        // A full budget, which a held turn doesn't need.
+        for (var i = 0; i < TargetFetchTurns.FETCHES_PER_MINUTE + 1; i++) {
+            turns.take(URI.create(id), null, Instant.now());
+        }
+
+        forwarded.fetch(new ForwardedJob(id, now(), null, null, held));
+
+        assertThat(storedBody()).contains("origin");
+    }
+
+    @Test
+    void dropsAForwardWhoseTurnIsTooFarAway() throws Exception {
+        doReturn(Optional.empty()).when(turns).take(any(), any(), any());
+
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
+
+        verify(documents, never()).fetch(any());
+        assertThat(stored()).isZero();
+    }
+
+    @Test
+    void storesAForwardedReplyToAFollowedAccount() throws Exception {
+        var followedHost = "p" + UUID.randomUUID() + ".test";
+        var followedUri = URI.create("https://" + followedHost + "/users/p");
+        var followed = actors.upsertRemote(new RemoteActorProfile(followedUri, "p", followedHost,
+                URI.create(followedUri + "/inbox"), null, null, null, URI.create(followedUri + "/followers")));
+        var follower = local();
+        jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
+                        VALUES (:id, :follower, :followed, 'accepted', :activity)
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("follower", follower.id())
+                .param("followed", followed.id())
+                .param("activity", follower.uri() + "#follows/" + UUID.randomUUID())
+                .update();
+        var parent = followedUri + "/statuses/1";
+        statuses.storeRemote(new RemoteStatus(URI.create(parent), null, followed.id(), "<p>Hi</p>", null, null,
+                Visibility.PUBLIC, false, null, Instant.now()));
+        actors.upsertRemote(new RemoteActorProfile(URI.create(actor), "a", origin, URI.create(actor + "/inbox"),
+                null, null, null, URI.create(actor + "/followers")));
+        var reply = "https://" + origin + "/notes/" + UUID.randomUUID();
+        var create = """
+                {"id":"%s","type":"Create","actor":"%s","object":{"id":"%s","type":"Note","attributedTo":"%s",
+                 "to":["https://www.w3.org/ns/activitystreams#Public"],"cc":["%s/followers","%s"],"inReplyTo":"%s",
+                 "content":"<p>Reply</p>"}}""".formatted(id, actor, reply, actor, actor, followedUri, parent);
+        receive(create);
+        serve(create);
+
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
+        createHandler.handle(stored.find(id).orElseThrow());
+
+        assertThat(jdbc.sql("SELECT in_reply_to_account_id FROM status WHERE uri = :uri").param("uri", reply)
+                .query(UUID.class).single()).isEqualTo(followed.id());
     }
 
     @Test

@@ -12,6 +12,17 @@ import java.time.Instant;
  * @param deletedObject for a {@code Delete}, the object it says is deleted, which is checked with its own server if the
  *                      origin doesn't serve the activity, and otherwise null
  * @param actorId       for a {@code Delete}, its actor, and otherwise null
+ * @param turn          the turn {@link TargetFetchTurns} gave it to fetch from the origin, or null if it hasn't waited for
+ *                      one
  */
-record ForwardedJob(String activityId, Instant queuedAt, String deletedObject, String actorId) implements QueuedJob {
+record ForwardedJob(String activityId, Instant queuedAt, String deletedObject, String actorId, Instant turn)
+        implements QueuedJob {
+
+    ForwardedJob(String activityId, Instant queuedAt, String deletedObject, String actorId) {
+        this(activityId, queuedAt, deletedObject, actorId, null);
+    }
+
+    ForwardedJob withTurn(Instant turn) {
+        return new ForwardedJob(activityId, queuedAt, deletedObject, actorId, turn);
+    }
 }

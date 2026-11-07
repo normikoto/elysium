@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
+import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import org.springframework.http.InvalidMediaTypeException;
@@ -13,11 +14,15 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Locale;
 import java.util.Set;
 
 /**
  * Fetches ActivityPub documents from other servers, signed as the instance actor. Documents are read as plain JSON, without a
  * JSON-LD processor, and no {@code @context} is ever fetched.
+ *
+ * <p>Each fetch counts against {@link HostRequests}, so that fetches of actors and objects can't take every connection to a
+ * host, and hold deliveries back while they run, as key fetches do.
  */
 @Component
 public class ActivityDocuments {
@@ -30,19 +35,42 @@ public class ActivityDocuments {
 
     private final SignedFetcher http;
     private final JsonMapper json;
+    private final HostRequests hostRequests;
 
-    ActivityDocuments(SignedFetcher http, JsonMapper json) {
+    ActivityDocuments(SignedFetcher http, JsonMapper json, HostRequests hostRequests) {
         this.http = http;
         this.json = json;
+        this.hostRequests = hostRequests;
     }
 
     /**
      * Blocks while fetching, so this mustn't be called inside a database transaction.
      *
      * @return the document, which is always a JSON object
-     * @throws DocumentFetchException if the document can't be fetched
+     * @throws DocumentFetchException if the document can't be fetched, which is temporary if too many fetches are running
+     *                                for its host
      */
     public JsonNode fetch(URI url) throws DocumentFetchException {
+        // A URL without a host can't be fetched anyway, and the client says why.
+        if (url.getHost() == null) {
+            return fetchUncounted(url);
+        }
+        var host = url.getHost().toLowerCase(Locale.ROOT);
+        if (!hostRequests.tryStartFetch(host)) {
+            throw DocumentFetchException.temporary("Too many fetches running for " + host, null);
+        }
+        try {
+            return fetchUncounted(url);
+        } finally {
+            hostRequests.finishFetch(host);
+        }
+    }
+
+    /**
+     * Like {@link #fetch}, for {@link PublicKeyResolver}, which counts its fetches itself. Counting them here as well would
+     * let each key fetch take two of a host's slots.
+     */
+    JsonNode fetchUncounted(URI url) throws DocumentFetchException {
         FederationHttpClient.Response response;
         try {
             response = http.get(url, ACCEPT);

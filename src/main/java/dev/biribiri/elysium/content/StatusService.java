@@ -25,10 +25,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 @Service
 public class StatusService {
+
+    private static final int MAX_ANCESTORS = 40;
+    private static final int MAX_DESCENDANTS = 60;
+    private static final int MAX_DESCENDANT_DEPTH = 20;
 
     private static final Pattern LANGUAGE = Pattern.compile("[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}");
 
@@ -243,9 +249,35 @@ public class StatusService {
      * by its author.
      */
     public boolean isVisible(Status status, Optional<UUID> viewer) {
+        return isVisible(status, viewer, author -> viewer.filter(id -> follows.isFollowing(id, author)).isPresent());
+    }
+
+    /**
+     * @param followsAuthor whether the viewer follows an author, for a caller that has looked that up already
+     */
+    private static boolean isVisible(Status status, Optional<UUID> viewer, Predicate<UUID> followsAuthor) {
         return status.isVisibleTo(viewer)
-                || (status.visibility() == Visibility.PRIVATE
-                && viewer.filter(id -> follows.isFollowing(id, status.actorId())).isPresent());
+                || (status.visibility() == Visibility.PRIVATE && followsAuthor.test(status.actorId()));
+    }
+
+    /**
+     * Finds the statuses around one in its thread that this viewer is allowed to see, as Mastodon's context does, with the
+     * same limits as Mastodon has for a viewer who isn't signed in. Only what's stored here is listed.
+     *
+     * @return empty if the viewer can't see the status itself
+     */
+    public Optional<StatusContext> findContext(UUID id, Optional<UUID> viewer) {
+        return findVisible(id, viewer).map(status -> {
+            var ancestors = statuses.findAncestors(id, MAX_ANCESTORS);
+            var descendants = statuses.findDescendants(id, MAX_DESCENDANT_DEPTH, MAX_DESCENDANTS);
+            // One lookup for the whole thread, rather than one for each followers-only status in it.
+            var needsFollows = viewer.isPresent() && Stream.concat(ancestors.stream(), descendants.stream())
+                    .anyMatch(found -> found.visibility() == Visibility.PRIVATE && !found.isVisibleTo(viewer));
+            Set<UUID> followed = needsFollows ? Set.copyOf(follows.followedIds(viewer.get())) : Set.of();
+            Predicate<Status> visible = found -> isVisible(found, viewer, followed::contains);
+            return new StatusContext(
+                    ancestors.stream().filter(visible).toList(), descendants.stream().filter(visible).toList());
+        });
     }
 
     /**
@@ -316,6 +348,13 @@ public class StatusService {
      */
     public boolean isPublicRemote(URI uri, URI authorUri) {
         return statuses.isPublicRemote(uri, authorUri);
+    }
+
+    /**
+     * @return the author of a stored status, if they're neither suspended nor deleted
+     */
+    public Optional<URI> findAuthorOf(URI statusUri) {
+        return statuses.findAuthorUriByUri(statusUri);
     }
 
     /**
