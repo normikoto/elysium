@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
@@ -33,6 +34,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.multipart.MultipartHttpServletRequest;
+import org.springframework.web.util.WebUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -72,6 +76,7 @@ public class AccountsController {
     private final AccountLookup lookup;
     private final JsonBodies json;
     private final InstanceProperties instance;
+    private final ProfileService profiles;
 
     AccountsController(
             ActorService actors,
@@ -82,7 +87,9 @@ public class AccountsController {
             DomainBlocks blocks,
             AccountLookup lookup,
             JsonBodies json,
-            InstanceProperties instance) {
+            InstanceProperties instance,
+            ProfileService profiles) {
+        this.profiles = profiles;
         this.actors = actors;
         this.statuses = statuses;
         this.responses = responses;
@@ -108,22 +115,23 @@ public class AccountsController {
     public ResponseEntity<CredentialAccountResponse> verifyCredentials(@AuthenticationPrincipal TokenPrincipal token) {
         var actorId = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
         return ResponseEntity.of(actors.findLocalById(actorId)
-                .map(actor -> CredentialAccountResponse.from(accounts.one(actor))));
+                .map(accounts::credential));
     }
 
     /**
-     * Only {@code hide_collections} can be changed, because profiles don't exist yet. Anything else that would change the
-     * account is refused, rather than ignored, so that a client doesn't tell someone their profile was saved. An empty value
-     * counts as missing, because form clients send fields they haven't filled in.
+     * Files only come in a multipart form. Its other values are read along with a URL-encoded form's, with the same names.
      */
     @PatchMapping(path = "/update_credentials",
             consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
     @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
     public CredentialAccountResponse updateCredentialsFromForm(
-            @AuthenticationPrincipal TokenPrincipal token, @RequestParam MultiValueMap<String, String> form) {
-        var values = new LinkedHashMap<String, Object>();
-        form.forEach((name, list) -> values.put(name, list.isEmpty() ? null : list.getLast()));
-        return updateCredentials(token, values);
+            @AuthenticationPrincipal TokenPrincipal token,
+            @RequestParam MultiValueMap<String, String> form,
+            HttpServletRequest request) {
+        // Spring Security wraps the request, so it's only multipart underneath.
+        var multipart = WebUtils.getNativeRequest(request, MultipartHttpServletRequest.class);
+        var files = multipart == null ? Map.<String, MultipartFile>of() : multipart.getFileMap();
+        return updateCredentials(token, CredentialsRequest.fromForm(form, files));
     }
 
     @PatchMapping(path = "/update_credentials", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -131,46 +139,53 @@ public class AccountsController {
     // The API docs combine both mappings into one operation, and this replaces what the other one documents.
     @Operation(
             operationId = "updateAccountCredentials",
-            summary = "Change the user's account settings",
+            summary = "Change the user's profile and account settings",
             description = """
-                    Differences from Mastodon: only `hide_collections` can be changed, because profiles don't exist \
-                    yet. Any other field with a value gets a 422 naming it, and then nothing is changed. Empty values \
-                    are ignored.
+                    Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, and \
+                    `hide_collections` can be changed. `locked`, `bot`, `discoverable`, `indexable`, and `source` are \
+                    accepted only with the values the account already has (false, and `public` for `source[privacy]`), \
+                    and any other value for them, or any other field with a value, gets a 422 naming it. Then nothing \
+                    is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it.
+
+                    `fields_attributes` can be a list, or an object keyed by position, as can a form's \
+                    `fields_attributes[0][name]` or `fields_attributes[][name]`. It replaces all of the fields, and \
+                    those with an empty name and value are left out. The instance's \
+                    `configuration.accounts.max_profile_fields` says how many there can be.
+
+                    `avatar` and `header` can only be sent as files in a multipart form, which is where every \
+                    field can go. They have to be a PNG, JPEG, GIF, or WebP, and are always re-encoded as WebP, cropped \
+                    to 400 × 400 and 1500 × 500. Animated ones stay animated, and `avatar_static` and `header_static` \
+                    are their first frame.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#update_credentials"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The user's account, as changed."),
-                    @ApiResponse(responseCode = "413", description = "The body is too large."),
+                    @ApiResponse(responseCode = "413", description = "The body, or an image, is too large."),
                     @ApiResponse(responseCode = "422", description = """
-                            A field other than `hide_collections` has a value, a value is of the wrong type, or the \
-                            token has no user.""")
+                            A value breaks a limit or is of the wrong type, an image can't be used, a field that \
+                            can't be changed has a different value, or the token has no user.""")
             })
     @RequestBody(required = true, content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CredentialsBody.class)))
     public CredentialAccountResponse updateCredentialsFromJson(
             @AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request) throws IOException {
-        return updateCredentials(token, json.read(request, MAX_CREDENTIALS_BODY_BYTES));
+        return updateCredentials(token, CredentialsRequest.fromJson(json.read(request, MAX_CREDENTIALS_BODY_BYTES)));
     }
 
-    private CredentialAccountResponse updateCredentials(TokenPrincipal token, Map<String, ?> values) {
+    /**
+     * The profile goes first, since it's what can be refused once the request has been read.
+     */
+    private CredentialAccountResponse updateCredentials(TokenPrincipal token, CredentialsRequest request) {
         var actorId = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
-        Boolean hide = null;
-        for (var entry : values.entrySet()) {
-            var value = entry.getValue();
-            if (value == null || "".equals(value)) {
-                continue;
-            }
-            if (!entry.getKey().equals("hide_collections")) {
-                throw new InvalidRequestException("Validation failed: " + entry.getKey() + " can't be changed yet");
-            }
-            hide = RequestParameters.flag(values, "hide_collections");
+        if (!profiles.update(actorId, request.profile())) {
+            throw new RecordNotFoundException();
         }
-        if (hide != null) {
-            actors.setHidesCollections(actorId, hide);
+        if (request.hideCollections() != null) {
+            actors.setHidesCollections(actorId, request.hideCollections());
         }
         return actors.findLocalById(actorId)
-                .map(actor -> CredentialAccountResponse.from(accounts.one(actor)))
+                .map(accounts::credential)
                 .orElseThrow(RecordNotFoundException::new);
     }
 
@@ -491,9 +506,27 @@ public class AccountsController {
      */
     @Schema(name = "AccountCredentials")
     private record CredentialsBody(
+            @Schema(description = "The name to show. Empty clears it.", maxLength = ProfileService.MAX_DISPLAY_NAME)
+            String display_name,
+            @Schema(description = "The bio, as plain text. Empty clears it.", maxLength = ProfileService.MAX_NOTE)
+            String note,
+            @Schema(description = """
+                    All of the profile's fields, replacing the ones it has. A field whose value is only an HTTPS \
+                    URL is verified if the page there links back to the profile with `rel="me"`.""")
+            List<FieldBody> fields_attributes,
+            @Schema(type = "string", format = "binary", description = "An image file, in a multipart form only.")
+            Object avatar,
+            @Schema(type = "string", format = "binary", description = "An image file, in a multipart form only.")
+            Object header,
             @Schema(description = """
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")
             Boolean hide_collections) {
+    }
+
+    @Schema(name = "AccountCredentialsField")
+    private record FieldBody(
+            @Schema(maxLength = ProfileService.MAX_FIELD_NAME) String name,
+            @Schema(maxLength = ProfileService.MAX_FIELD_VALUE) String value) {
     }
 }

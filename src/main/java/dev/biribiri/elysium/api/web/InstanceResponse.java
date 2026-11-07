@@ -49,7 +49,13 @@ record InstanceResponse(
                          @JsonProperty("media_attachments") MediaAttachments mediaAttachments, Polls polls) {
     }
 
-    record Accounts(@JsonProperty("max_featured_tags") int maxFeaturedTags) {
+    /**
+     * @param maxProfileFields not in Mastodon's entity, which has no setting for it
+     */
+    record Accounts(
+            @JsonProperty("max_featured_tags") int maxFeaturedTags,
+            @Schema(description = "How many fields a profile can have. Mastodon doesn't send this, and allows 4.")
+            @JsonProperty("max_profile_fields") int maxProfileFields) {
     }
 
     record Statuses(

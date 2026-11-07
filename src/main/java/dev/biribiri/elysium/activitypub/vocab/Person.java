@@ -3,6 +3,9 @@ package dev.biribiri.elysium.activitypub.vocab;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.Profile;
+import dev.biribiri.elysium.actor.ProfileImage;
 
 import java.net.URI;
 import java.util.List;
@@ -10,8 +13,12 @@ import java.util.List;
 /**
  * An ActivityPub actor document.
  *
- * @param context   null when this is part of an activity, which has the {@code @context} for both
- * @param suspended true if the actor is suspended. Otherwise this is left out, as other servers treat a missing one as false.
+ * @param context    null when this is part of an activity, which has the {@code @context} for both
+ * @param name       the display name, left out if there isn't one
+ * @param summary    the bio as HTML, left out if there isn't one
+ * @param attachment the profile's fields, as Mastodon sends them
+ * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
+ * @param suspended  true if the actor is suspended. Otherwise this is left out, as other servers treat a missing one as false.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record Person(
@@ -19,6 +26,8 @@ public record Person(
         URI id,
         String type,
         String preferredUsername,
+        String name,
+        String summary,
         URI url,
         URI inbox,
         URI outbox,
@@ -26,8 +35,29 @@ public record Person(
         URI following,
         Endpoints endpoints,
         PublicKey publicKey,
+        Image icon,
+        Image image,
+        List<PropertyValue> attachment,
+        String published,
+        String updated,
         Boolean suspended
 ) {
+
+    /**
+     * A profile image. They're always WebP, since every upload is re-encoded.
+     */
+    public record Image(String type, String mediaType, URI url) {
+
+        static Image of(ProfileImage image, InstanceProperties instance) {
+            return image == null ? null : new Image("Image", "image/webp", instance.resolve(image.path()));
+        }
+    }
+
+    /**
+     * @param value HTML
+     */
+    public record PropertyValue(String type, String name, String value) {
+    }
 
     /**
      * @return the followers collection of a local actor
@@ -43,53 +73,52 @@ public record Person(
         return URI.create(actor.uri() + "/following");
     }
 
-    /**
-     * @param sharedInbox this server's shared inbox
-     */
-    public static Person from(Actor actor, URI sharedInbox) {
+    public static Person from(Actor actor, Profile profile, InstanceProperties instance) {
         return new Person(
-                ActivityStreams.ACTOR_CONTEXT,
+                ActivityStreams.PERSON_CONTEXT,
                 actor.uri(),
                 "Person",
                 actor.username(),
+                profile.displayName().isEmpty() ? null : profile.displayName(),
+                profile.note().isEmpty() ? null : profile.noteHtml(),
                 // Browsers get the profile page from the same URL as the actor document.
                 actor.uri(),
                 actor.inboxUri(),
                 actor.outboxUri(),
                 followersOf(actor),
                 followingOf(actor),
-                new Endpoints(sharedInbox),
+                new Endpoints(instance.sharedInboxUri()),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
+                Image.of(profile.avatar(), instance),
+                Image.of(profile.header(), instance),
+                profile.fields().isEmpty()
+                        ? null
+                        : profile.fields().stream()
+                        .map(field -> new PropertyValue("PropertyValue", field.name(), field.valueHtml()))
+                        .toList(),
+                ActivityStreams.time(actor.createdAt()),
+                ActivityStreams.time(profile.updatedAt()),
                 null);
     }
 
     /**
      * What's served for a suspended actor. It keeps its key, so that other servers can check its signature on the activity
-     * saying this, and so that the actor is still there to come back. An actor has no other details to hide yet, but any added
-     * later shouldn't be shown here.
+     * saying this, and so that the actor is still there to come back. Its profile isn't shown, as Mastodon does.
      */
-    public static Person suspended(Actor actor, URI sharedInbox) {
-        var person = from(actor, sharedInbox);
-        return new Person(
-                ActivityStreams.SUSPENDED_ACTOR_CONTEXT,
-                person.id(),
-                person.type(),
-                person.preferredUsername(),
-                person.url(),
-                person.inbox(),
-                person.outbox(),
-                person.followers(),
-                person.following(),
-                person.endpoints(),
-                person.publicKey(),
-                true);
+    public static Person suspended(Actor actor, InstanceProperties instance) {
+        return from(actor, Profile.EMPTY, instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, true);
     }
 
     /**
      * This document as part of an activity, which has the {@code @context} for both.
      */
     Person withoutContext() {
+        return with(null, suspended);
+    }
+
+    private Person with(List<?> context, Boolean suspended) {
         return new Person(
-                null, id, type, preferredUsername, url, inbox, outbox, followers, following, endpoints, publicKey, suspended);
+                context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, endpoints,
+                publicKey, icon, image, attachment, published, updated, suspended);
     }
 }

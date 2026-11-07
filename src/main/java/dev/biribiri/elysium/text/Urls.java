@@ -1,14 +1,14 @@
-package dev.biribiri.elysium.content.internal;
+package dev.biribiri.elysium.text;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Finds the URLs in a status's text. Rendering and the length limit both use this, so that whatever becomes a link is
+ * Finds the URLs in text. Rendering and a status's length limit both use this, so that whatever becomes a link is
  * also what gets counted as one.
  */
-public final class StatusUrls {
+public final class Urls {
 
     /**
      * What each URL counts as toward the length limit, regardless of its length. This matches Mastodon, and clients
@@ -43,16 +43,16 @@ public final class StatusUrls {
             Pattern.CASE_INSENSITIVE);
     private static final String TRAILING_PUNCTUATION = ".,;:!?'*_~";
 
-    private StatusUrls() {
+    private Urls() {
     }
 
     /**
      * A URL's position in the text, from {@code start} up to but not including {@code end}.
      */
-    record Match(int start, int end) {
+    public record Match(int start, int end) {
     }
 
-    static List<Match> find(String text) {
+    public static List<Match> find(String text) {
         var matches = new ArrayList<Match>();
         var matcher = URL.matcher(text);
         while (matcher.find()) {

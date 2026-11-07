@@ -202,7 +202,7 @@ class RemoteActorLookupTests {
 
     @Test
     void limitsHowOftenAnAccountCanAsk() throws Exception {
-        when(http.get(any(), anyString(), any())).thenReturn(new FederationHttpClient.Response(404, null, null, new byte[0]));
+        when(http.get(any(), anyString(), any())).thenReturn(new FederationHttpClient.Response(404, null, null, new byte[0], null));
         for (var i = 0; i < 30; i++) {
             lookup.resolveAcct(REQUESTER, "bob" + i, "remote.example");
         }
@@ -217,7 +217,7 @@ class RemoteActorLookupTests {
     }
 
     private static FederationHttpClient.Response jrd(String body) {
-        return new FederationHttpClient.Response(200, "application/jrd+json", null, body.getBytes(StandardCharsets.UTF_8));
+        return new FederationHttpClient.Response(200, "application/jrd+json", null, body.getBytes(StandardCharsets.UTF_8), null);
     }
 
     private static Actor actor(Instant updatedAt) {

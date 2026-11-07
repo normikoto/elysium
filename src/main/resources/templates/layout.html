@@ -21,6 +21,16 @@
         .status-content { overflow-wrap: anywhere; }
         .status-content p { margin: 0.5rem 0; }
         summary { cursor: pointer; overflow-wrap: anywhere; }
+        textarea { box-sizing: border-box; font: inherit; padding: 0.5rem; width: 100%; }
+        fieldset { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); margin-top: 1rem; }
+        .error { color: #c00; font-weight: 600; }
+        .profile-header { aspect-ratio: 3 / 1; display: block; object-fit: cover; width: 100%; }
+        .avatar { border-radius: 0.5rem; height: 6rem; margin-top: 1rem; width: 6rem; }
+        .bio { overflow-wrap: anywhere; }
+        .fields { display: grid; gap: 0.25rem 1rem; grid-template-columns: minmax(6rem, auto) 1fr; overflow-wrap: anywhere; }
+        .fields dt { font-weight: 600; }
+        .fields dd { margin: 0; }
+        .fields .verified { color: #080; }
     </style>
 </head>
 <body>

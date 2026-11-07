@@ -2,7 +2,59 @@
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Settings', ~{::content})}">
 <th:block th:fragment="content">
     <p class="notice" role="status" th:if="${saved}">Your settings are saved.</p>
-    <form method="post" th:action="@{/settings}">
+    <p class="error" role="alert" th:if="${error != null}">
+        Nothing was saved: <span th:text="${error}"></span>. Any image you chose has to be chosen again.
+    </p>
+    <p><a th:href="@{/users/{username}(username=${username})}">See your profile</a></p>
+    <form method="post" enctype="multipart/form-data" th:action="@{/settings}">
+        <h2>Profile</h2>
+        <label>
+            Display name
+            <input type="text" name="displayName" th:value="${displayName}" th:maxlength="${maxDisplayName}">
+        </label>
+        <label>
+            Bio
+            <textarea name="note" rows="5" th:maxlength="${maxNote}" th:text="${note}"></textarea>
+        </label>
+        <fieldset th:if="${!fields.isEmpty()}">
+            <legend th:text="|Fields (up to ${maxFields})|"></legend>
+            <p>
+                A field whose value is only a link that starts with https:// is marked as verified if that page links
+                back to your profile with <code>rel="me"</code>.
+            </p>
+            <th:block th:each="field, row : ${fields}">
+                <label>
+                    <span th:text="|Name ${row.count}|"></span>
+                    <input type="text" name="fieldName" th:value="${field.name()}" th:maxlength="${maxFieldName}">
+                </label>
+                <label>
+                    <span th:text="|Value ${row.count}|"></span>
+                    <span th:if="${field.verified()}">(verified)</span>
+                    <input type="text" name="fieldValue" th:value="${field.value()}" th:maxlength="${maxFieldValue}">
+                </label>
+            </th:block>
+        </fieldset>
+        <label>
+            Avatar
+            <input type="file" name="avatar" accept="image/png, image/jpeg, image/gif, image/webp">
+        </label>
+        <th:block th:if="${avatar != null}">
+            <img class="avatar" th:src="${avatar}" alt="Your avatar">
+            <label><input type="checkbox" name="removeAvatar" value="true"> Remove your avatar</label>
+        </th:block>
+        <label>
+            Header
+            <input type="file" name="header" accept="image/png, image/jpeg, image/gif, image/webp">
+        </label>
+        <th:block th:if="${header != null}">
+            <img class="profile-header" th:src="${header}" alt="Your header">
+            <label><input type="checkbox" name="removeHeader" value="true"> Remove your header</label>
+        </th:block>
+        <p>
+            Images can be PNG, JPEG, GIF, or WebP. Avatars are cropped to a square, and headers to three times as wide
+            as they are tall.
+        </p>
+        <h2>Privacy</h2>
         <label>
             <input type="checkbox" name="hideCollections" value="true" th:checked="${hideCollections}">
             Hide who follows you and who you follow

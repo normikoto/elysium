@@ -87,6 +87,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   endpoints.
 - An experimental setting for how background jobs are picked up, which may help with more than one copy of the server. See
   [Background jobs](docs/configuration.md#background-jobs).
+- Profiles: a display name, a bio, fields, an avatar, and a header, edited at `/settings` or through
+  `PATCH /api/v1/accounts/update_credentials`, `DELETE /api/v1/profile/avatar`, and `DELETE /api/v1/profile/header`. They're
+  shown on profile pages, in the API, and in actor documents, and followers' servers get an `Update` when one changes.
+  Images are converted to WebP and cropped, and animations stay animated. A field that links to a page linking back with
+  `rel="me"` is shown as verified. See `docs/accounts.md`, `docs/api.md`, and `FEDERATION.md`.
+- `elysium.profiles.max-fields` and `elysium.profiles.max-image-size`, for how many fields a profile can have, which
+  defaults to 4, and how large an avatar or header can be, which defaults to 8 MB, and `elysium.media.directory`, for
+  where uploaded images are kept. See `docs/configuration.md`.
+  - **Upgrading:** uploaded images are kept on disk, and have to be backed up along with the database. With
+    `compose.yaml`, they're in the new `media-data` volume, which `docker compose up -d` creates. With `elysium.service`,
+    install the new file and run `systemctl daemon-reload`, and they're in `/var/lib/elysium/media`. Otherwise they go in
+    `media`, in the directory the server runs from, unless you set `elysium.media.directory`.
 
 ### Changed
 

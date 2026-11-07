@@ -83,6 +83,23 @@ servers can't be deleted, so suspend them instead.
 People can delete their own account at `/settings/delete-account`, with their password. At `/settings`, they can also hide
 who follows them and who they follow, from other people and other servers, which still see how many there are.
 
+## Profiles
+People can change their profile at `/settings`, or from an app: a display name of up to 30 characters, a bio of up to 500,
+an avatar, a header, and up to 4 fields, each a name and a value. You can change how many fields there can be with
+[`elysium.profiles.max-fields`](configuration.md). Lowering it doesn't remove anyone's fields, but they can't save their
+fields again until they've removed enough.
+
+Images can be PNG, JPEG, GIF, or WebP, up to [`elysium.profiles.max-image-size`](configuration.md). They're always
+converted to WebP and cropped to size, which removes the information that photos carry, such as where they were taken.
+Animations stay animated. Replaced images are deleted, and so is everything in a profile when its account is deleted. A
+suspended account's profile is hidden, but its images can still be loaded by anyone who already has their address.
+
+A field whose value is only a link starting with `https://` is marked as verified if the page there links back to the
+profile with `rel="me"`. The server fetches each of these pages when the profile is saved, which means anyone who can
+save a profile can make your server fetch a page. It only fetches public addresses.
+
+Other servers that follow the account are told about each change.
+
 When someone looks up an account on another server, this server asks that server about it. Each person can make 30 of these
 lookups a minute, so that nobody can use this server to flood another one with requests.
 

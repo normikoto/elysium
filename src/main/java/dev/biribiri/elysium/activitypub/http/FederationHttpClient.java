@@ -207,6 +207,7 @@ public class FederationHttpClient implements AutoCloseable {
         var entity = response.getEntity();
         var contentType = response.getFirstHeader(HttpHeaders.CONTENT_TYPE);
         var retryAfter = response.getFirstHeader(HttpHeaders.RETRY_AFTER);
+        var location = response.getFirstHeader(HttpHeaders.LOCATION);
         var body = new byte[0];
         if (entity != null) {
             if (entity.getContentLength() > MAX_RESPONSE_BYTES) {
@@ -223,14 +224,16 @@ public class FederationHttpClient implements AutoCloseable {
                 response.getCode(),
                 contentType == null ? null : contentType.getValue(),
                 retryAfter == null ? null : retryAfter.getValue(),
-                body);
+                body,
+                location == null ? null : location.getValue());
     }
 
     /**
      * @param contentType the {@code Content-Type} header, or null if it was missing
      * @param retryAfter  the {@code Retry-After} header, or null if it was missing
+     * @param location    the {@code Location} header, or null if it was missing. Redirects aren't followed.
      */
-    public record Response(int status, String contentType, String retryAfter, byte[] body) {
+    public record Response(int status, String contentType, String retryAfter, byte[] body, String location) {
 
         /**
          * @return how long the {@code Retry-After} header asks this server to wait, in either of its forms. This is zero if

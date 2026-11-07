@@ -20,6 +20,11 @@ services:
       # Only passed on if it's set in .env. Otherwise the default built into the JAR applies.
       ELYSIUM_REGISTRATION_ENABLED:
       ELYSIUM_RATELIMIT_ENABLED:
+      ELYSIUM_PROFILES_MAXFIELDS:
+      ELYSIUM_PROFILES_MAXIMAGESIZE:
+      SPRING_SERVLET_MULTIPART_MAXREQUESTSIZE:
+      # In the media-data volume below.
+      ELYSIUM_MEDIA_DIRECTORY: /home/cnb/media
       SERVER_SERVLET_SESSION_TIMEOUT:
       ELYSIUM_FEDERATION_INBOXLIMITS_ACTIVITIESPERMINUTE:
       ELYSIUM_FEDERATION_INBOXLIMITS_DATAPERHOUR:
@@ -36,6 +41,10 @@ services:
       SERVER_FORWARD_HEADERS_STRATEGY: native
     ports:
       - '127.0.0.1:8080:8080'
+    volumes:
+      # Mounted over the home directory of the user the server runs as, because a new volume takes its owner from what
+      # it's mounted over, and the server can only write to a directory it owns.
+      - 'media-data:/home/cnb'
 
   postgres:
     image: 'postgres:18-alpine'
@@ -56,3 +65,4 @@ services:
 
 volumes:
   postgres-data:
+  media-data:

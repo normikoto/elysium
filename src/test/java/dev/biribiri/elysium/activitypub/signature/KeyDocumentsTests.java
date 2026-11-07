@@ -374,7 +374,7 @@ class KeyDocumentsTests {
     @ParameterizedTest
     @ValueSource(ints = {301, 302, 400, 401, 403})
     void treatsOtherAnswersAsPermanent(int status) throws Exception {
-        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0]));
+        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0], null));
 
         assertPermanent(KEY_ID);
     }
@@ -382,7 +382,7 @@ class KeyDocumentsTests {
     @ParameterizedTest
     @ValueSource(ints = {404, 410})
     void treatsMissingDocumentsAsGone(int status) throws Exception {
-        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0]));
+        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0], null));
 
         assertThatThrownBy(() -> documents.fetch(keyId(KEY_ID)))
                 .isInstanceOfSatisfying(DocumentFetchException.class, e -> assertThat(e.isGone()).isTrue());
@@ -391,7 +391,7 @@ class KeyDocumentsTests {
     @ParameterizedTest
     @ValueSource(ints = {408, 429, 500, 502, 503, 504})
     void treatsOverloadedServersAsTemporary(int status) throws Exception {
-        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0]));
+        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0], null));
 
         assertTemporary(KEY_ID);
     }
@@ -437,7 +437,7 @@ class KeyDocumentsTests {
 
     private void serve(String url, String contentType, String body) throws Exception {
         when(http.get(eq(URI.create(url)), any()))
-                .thenReturn(new Response(200, contentType, null, body.getBytes(StandardCharsets.UTF_8)));
+                .thenReturn(new Response(200, contentType, null, body.getBytes(StandardCharsets.UTF_8), null));
     }
 
     private static KeyId keyId(String value) {

@@ -20,6 +20,10 @@ Environment=SPRING_PROFILES_ACTIVE=prod
 # those, because any local user can read them with systemctl show. systemd reads this file as root, so it can be readable
 # only by root.
 EnvironmentFile=-/etc/elysium/elysium.env
+# Uploaded images. systemd creates /var/lib/elysium for the server's user, and it stays writable with the sandbox below.
+# Back it up along with the database.
+StateDirectory=elysium
+Environment=ELYSIUM_MEDIA_DIRECTORY=/var/lib/elysium/media
 ExecStart=/usr/bin/java -jar elysium.jar
 Restart=on-failure
 RestartSec=5
@@ -37,7 +41,8 @@ AmbientCapabilities=
 RestrictSUIDSGID=true
 PrivateUsers=true
 
-# Filesystem. The server can only write to its private /tmp and /var/tmp, and to /dev/shm, which isn't private. Files it
+# Filesystem. The server can only write to its private /tmp and /var/tmp, to /dev/shm, which isn't private, and to its
+# StateDirectory. Image processing runs programs that it unpacks into /tmp, so /tmp can't be mounted noexec. Files it
 # creates are private to its user. /home, /root and /run/user aren't visible, so the JAR and JDK can't be installed there.
 # If you configure the server to write elsewhere, such as to a log file, allow that directory with ReadWritePaths.
 UMask=0077

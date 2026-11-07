@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
@@ -44,14 +45,17 @@ class PagesController {
     private final InstanceProperties instance;
     private final ContentNegotiationManager contentNegotiation;
     private final RegistrationProperties registration;
+    private final ProfileService profiles;
 
     PagesController(
             ActorService actors,
             StatusService statuses,
             InstanceProperties instance,
             ContentNegotiationManager contentNegotiation,
-            RegistrationProperties registration) {
+            RegistrationProperties registration,
+            ProfileService profiles) {
         this.actors = actors;
+        this.profiles = profiles;
         this.statuses = statuses;
         this.instance = instance;
         this.contentNegotiation = contentNegotiation;
@@ -85,7 +89,12 @@ class PagesController {
         var page = firstPage(maxId == null ? null : Ids.parse(maxId).orElseThrow(PagesController::notFound));
         var found = statuses.findByAccount(actor.id(), ANONYMOUS, true, page);
 
+        var profile = profiles.find(actor.id());
         model.addAttribute("actor", actor);
+        model.addAttribute("profile", profile);
+        model.addAttribute("name", profile.displayName().isEmpty() ? "@" + actor.username() : profile.displayName());
+        model.addAttribute("avatar", profile.avatar() == null ? null : instance.resolve(profile.avatar().path()));
+        model.addAttribute("header", profile.header() == null ? null : instance.resolve(profile.header().path()));
         model.addAttribute("joined", LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC));
         model.addAttribute("statuses", found.stream().map(status -> StatusView.from(status, actor)).toList());
         // Only a full page can have older statuses after it.

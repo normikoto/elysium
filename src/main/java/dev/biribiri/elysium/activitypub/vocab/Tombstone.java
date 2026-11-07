@@ -6,8 +6,6 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.content.DeletedStatus;
 
 import java.net.URI;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 
 /**
  * What's in place of a deleted status or actor.
@@ -30,7 +28,7 @@ public record Tombstone(
                 status.uri(),
                 "Tombstone",
                 "Note",
-                DateTimeFormatter.ISO_INSTANT.format(status.deletedAt().truncatedTo(ChronoUnit.SECONDS)));
+                ActivityStreams.time(status.deletedAt()));
     }
 
     /**
@@ -55,7 +53,7 @@ public record Tombstone(
                 uri,
                 "Tombstone",
                 formerType,
-                DateTimeFormatter.ISO_INSTANT.format(actor.deletedAt().truncatedTo(ChronoUnit.SECONDS)));
+                ActivityStreams.time(actor.deletedAt()));
     }
 
     static Tombstone inActivity(URI statusUri) {
