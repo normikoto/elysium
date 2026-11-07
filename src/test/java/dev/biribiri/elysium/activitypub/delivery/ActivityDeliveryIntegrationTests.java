@@ -2,7 +2,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import com.github.kagkarlsson.scheduler.Scheduler;
-import com.github.kagkarlsson.scheduler.boot.autoconfigure.Jackson3Serializer;
+import com.github.kagkarlsson.scheduler.serializer.Jackson3Serializer;
 import com.github.kagkarlsson.scheduler.task.Task;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

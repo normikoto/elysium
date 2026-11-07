@@ -1,6 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
-import com.github.kagkarlsson.scheduler.boot.autoconfigure.Jackson3Serializer;
+import com.github.kagkarlsson.scheduler.serializer.Jackson3Serializer;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;

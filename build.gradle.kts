@@ -33,7 +33,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("com.github.ben-manes.caffeine:caffeine")
     // Spring Boot doesn't manage these versions. Both need their Spring Boot 4 artifacts, not the ones without "4" in the name.
-    implementation("com.github.kagkarlsson:db-scheduler-spring-boot-4-starter:16.12.0")
+    implementation("com.github.kagkarlsson:db-scheduler-spring-boot-4-starter:17.0.0")
     implementation("info.picocli:picocli:4.7.7")
     // Unlike the JDK's client, this lets each client choose how hosts resolve, which is what keeps fetches from reaching
     // private addresses.
