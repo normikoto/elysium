@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, be followed and unfollowed by it, and receive its statuses and their deletion.
+# and unfollow it, be followed and unfollowed by it, and receive its statuses, their deletion, and profile changes.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -283,6 +283,55 @@ delete_from_elysium() {
 
     status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$private_uri")
     [[ $status == 404 ]] || fail "Fetching a deleted followers-only status got a $status, not a 404"
+}
+
+display_name='Alice in the lab'
+
+# The other server's lab user still follows alice, so it gets the Update, and has to show the new name.
+update_profile_from_elysium() {
+    local actor
+    driver curl -fsS -o /dev/null -X PATCH https://elysium.test/api/v1/accounts/update_credentials \
+        -H "Authorization: Bearer $elysium_token" --data-urlencode "display_name=$display_name"
+    actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
+    [[ $(jq -r .name <<<"$actor") == "$display_name" ]] || fail "The actor document doesn't have the new name: $actor"
+    expect_delivered "$expected_actor#profile/%"
+    "${target}_expect_display_name"
+    echo "$target shows alice's new display name"
+}
+
+gotosocial_expect_display_name() {
+    local found=''
+    for _ in $(seq 1 60); do
+        found=$(driver curl -fsS "https://gts.test/api/v1/accounts/$alice_id" -H "Authorization: Bearer $token" \
+            | jq -r .display_name)
+        [[ $found == "$display_name" ]] && return
+        sleep 2
+    done
+    fail "GoToSocial shows alice's display name as '$found', not '$display_name'"
+}
+
+mastodon_expect_display_name() {
+    local output
+    output=$(docker compose exec -T -e ACTOR_URI="$expected_actor" -e EXPECTED="$display_name" mastodon-web bin/rails runner '
+        name = nil
+        60.times do
+            name = Account.uncached { Account.find_by(uri: ENV["ACTOR_URI"]) }&.display_name
+            break if name == ENV["EXPECTED"]
+            sleep 2
+        end
+        puts "NAME #{name}"')
+    echo "$output"
+    grep -qxF "NAME $display_name" <<<"$output" || fail "Mastodon didn't take alice's new display name"
+}
+
+misskey_expect_display_name() {
+    local found=''
+    for _ in $(seq 1 60); do
+        found=$(misskey_api users/show "$(misskey_user_body)" | jq -r .name)
+        [[ $found == "$display_name" ]] && return
+        sleep 2
+    done
+    fail "Misskey shows alice's display name as '$found', not '$display_name'"
 }
 
 # Waits for the jobs that send an activity to finish. A refused delivery is kept as a failed job, so this also means that the
@@ -653,6 +702,7 @@ case "$target" in
         gotosocial_expect_statuses
         delete_from_elysium
         gotosocial_expect_deleted
+        update_profile_from_elysium
         moderate_from_elysium
         ;;
     mastodon)
@@ -664,6 +714,7 @@ case "$target" in
         mastodon_expect_statuses
         delete_from_elysium
         mastodon_expect_deleted
+        update_profile_from_elysium
         moderate_from_elysium
         ;;
     misskey)
@@ -675,8 +726,9 @@ case "$target" in
         misskey_expect_statuses
         delete_from_elysium
         misskey_expect_deleted
+        update_profile_from_elysium
         moderate_from_elysium
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, receive its statuses, and accept its suspension and deletion"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, receive its statuses and profile changes, and accept its suspension and deletion"

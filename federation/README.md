@@ -16,7 +16,7 @@ federation/smoke.sh gotosocial   # or mastodon, or misskey
 The script deletes any lab left over from an earlier run, starts a new one, and exits with an error if a check fails.
 Rebuild the image to test a change to Elysium, because the lab doesn't build it for you.
 
-The script checks eight things:
+The script checks nine things:
 
 - **Discovery:** Elysium serves its documents through the proxy, and the other server can resolve `@alice@elysium.test`.
 - **Refusing deliveries:** An unsigned `POST` to Elysium's inbox gets a `401`.
@@ -41,6 +41,8 @@ The script checks eight things:
 - **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
   for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
   a `404`.
+- **Changing a profile:** alice changes her display name through the client API, while the other server's `lab` user
+  still follows her. The other server has to accept the signed `Update` of her actor, and show the new name.
 - **Suspending and deleting accounts:** Another admin suspends alice, ends the suspension, and deletes alice's account through the
   admin API. The other server has to accept the signed `Update` and `Delete` for these, including the `Delete` while alice's
   actor document answers `410`. Mastodon also has to mark the account as suspended, then not suspended, and then remove it.
