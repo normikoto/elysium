@@ -408,8 +408,8 @@ even if it's public. Other object types, such as `Article`, `Page`, and `Questio
   tags, emoji, and polls aren't read yet.
 - **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again. An
   [`Update`](#receiving-updates) is how it's changed.
-- **Edits:** a `Note` that has an `updated` later than its `published` is stored as edited at that time, so an `Update`
-  that isn't newer can't replace it.
+- **Edits:** a `Note` that has an `updated` later than its `published`, and no more than an hour ahead of this server's
+  clock, is stored as edited at that time, so an `Update` that isn't newer can't replace it.
 
 What happens to the statuses of [suspended](#suspended-and-deleted-accounts) actors and [blocked](#domain-blocks) servers is
 described with those.
@@ -423,16 +423,18 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   since not every server says when an actor changed, so the document's server is the only one that knows what's current.
   What's stored is [what a `Follow` stores](#follows): the username, inboxes, `followers` collection, and key. A key
   that the new document has dropped, or has with a different value, isn't used for signatures from then on, and is
-  fetched again when it's next needed. A server error or timeout is tried again later. Other failures, including a `404`
-  or `410`, keep the older copy, since only a [`Delete`](#receiving-deletes) removes an actor. An `Update` of an actor
-  that isn't stored, or of another actor, is ignored.
+  fetched again when it's next needed, as is a key on the actor's server that it now lists and that couldn't be found
+  before. This holds even if the rest of the new document can't be used. A server error or timeout is tried again later.
+  Other failures, including a `404` or `410`, keep the older copy, since only a [`Delete`](#receiving-deletes) removes
+  an actor. An `Update` of an actor that isn't stored, or of another actor, is ignored.
 - **Statuses:** an `Update` whose `object` is a `Note` is read with [the same checks as a `Create`](#receiving-statuses):
   it has to be attributed to the `actor` alone, with an `id` on the same host and port, and one sent as an ID is fetched.
   It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, and the language
   are replaced, and sanitized as they are for a `Create`. Its visibility, `inReplyTo`, `url`, and `published` aren't
   changed. Other object types, such as `Question`, are ignored.
-- **Order:** the `Note` needs an `updated`, and is only applied if that's later than the edit stored last. Activities are
-  processed in no order, so one that's older is ignored, and one without `updated` is ignored too.
+- **Order:** the `Note` needs an `updated`, and is only applied if that's later than its `published` and the edit stored
+  last. Activities are processed in no order, so one that's older is ignored, and one without `updated` is ignored too, as
+  is one more than an hour ahead of this server's clock, which would keep later edits from being applied.
 - **Before its `Create`:** an `Update` of a `Note` that isn't stored is treated as its `Create`, with the same checks,
   including who it's for, if its `published` is less than 3 days before the `Update` arrived. The `Create` is then ignored
   when it's processed. A `Note` that's older, or has no `published`, is ignored, so that editing an old post doesn't make

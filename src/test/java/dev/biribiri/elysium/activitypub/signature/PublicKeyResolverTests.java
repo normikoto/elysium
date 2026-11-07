@@ -654,6 +654,28 @@ class PublicKeyResolverTests {
     }
 
     @Test
+    void forgetsAFailedLookupOfAKeyTheActorsDocumentNowLists() throws Exception {
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.permanent("not listed yet", null)).thenReturn(KEY);
+        assertFails(KEY_ID, Failure.REJECTED);
+
+        resolver.forgetChanged(OWNER, actorDocument(Map.of("id", KEY_ID, "publicKeyPem", SignatureFixtures.PUBLIC_KEY_PEM)));
+
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
+    }
+
+    @Test
+    void keepsAFailedLookupOfAKeyOnAnotherServer() throws Exception {
+        var elsewhere = "https://elsewhere.example/keys/1";
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.permanent("missing", null));
+        assertFails(elsewhere, Failure.REJECTED);
+
+        resolver.forgetChanged(OWNER, actorDocument(Map.of("id", elsewhere, "publicKeyPem", SignatureFixtures.PUBLIC_KEY_PEM)));
+
+        assertFails(elsewhere, Failure.REJECTED);
+        verify(documents, times(1)).fetch(any());
+    }
+
+    @Test
     void keepsAnotherActorsKeys() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
         resolver.resolve(keyId(KEY_ID), UNLIMITED);

@@ -241,9 +241,10 @@ public class ActorService {
     }
 
     /**
-     * Stores an actor from another server, or replaces what's stored about it, which counts as refreshing it.
+     * Stores an actor from another server, or replaces what's stored about it, which counts as refreshing it. A suspended or
+     * deleted actor isn't changed.
      *
-     * @return the stored actor
+     * @return the stored actor, which callers have to check is active
      * @throws IllegalArgumentException if the actor claims to be on this server, where it could take the URI that a local
      *                                  account would need
      */

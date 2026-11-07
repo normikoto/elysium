@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.RemoteEdit;
@@ -13,6 +14,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -34,9 +37,9 @@ class UpdateHandler implements InboundActivityHandler {
 
     /**
      * How old a note can be and still be stored from an {@code Update}. A {@code Create} and its {@code Update} are
-     * usually minutes apart, and this matches how long deliveries to a host that's backing off are kept.
+     * usually minutes apart, and a {@code Create} that's held up longer than jobs are retried for isn't coming.
      */
-    private static final Duration NEW_FOR = Duration.ofDays(3);
+    private static final Duration NEW_FOR = Jobs.RETRIED_FOR;
 
     private final ActorService actors;
     private final RemoteActors remoteActors;
@@ -96,8 +99,9 @@ class UpdateHandler implements InboundActivityHandler {
             return;
         }
         var note = read.get().note();
-        if (note.updated() == null) {
-            log.debug("Ignoring Update {}, whose Note doesn't say when it was updated", activity.id());
+        if (note.editedAt(note.published(), Instant.now()) == null) {
+            log.debug("Ignoring Update {}, whose Note doesn't say when it was edited, or says a time that can't be",
+                    activity.id());
             return;
         }
         // Fetching can take a while, and a block or suspension can have landed since the job started.
@@ -105,9 +109,8 @@ class UpdateHandler implements InboundActivityHandler {
             return;
         }
         // An author who isn't stored can't have a stored status, but can still have one to store, if its Create is late.
-        var outcome = actors.findByUri(actorUri)
-                .filter(found -> found.isActive() && !actors.isLocal(found))
-                .map(author -> edit(note, author.id()))
+        var outcome = storedAuthor(actorUri)
+                .map(author -> edit(note, author))
                 .orElse(RemoteEdit.Outcome.NOT_STORED);
         switch (outcome) {
             case EDITED -> {
@@ -129,12 +132,20 @@ class UpdateHandler implements InboundActivityHandler {
             log.debug("Ignoring Update {}, whose Note isn't stored, and isn't new", activity.id());
             return;
         }
-        if (storage.store(activity, document, read)) {
-            return;
+        if (storage.store(activity, document, read) == NoteStorage.Result.TAKEN) {
+            // Its Create was stored in between, with an older version, which can still be edited. Or it was deleted, which
+            // this finds nothing to edit for.
+            storedAuthor(URI.create(activity.actorUri())).ifPresent(author -> edit(read.note(), author));
         }
-        // A Create that's stored in between, with an older version, is still edited.
-        var author = actors.findByUri(URI.create(activity.actorUri())).filter(Actor::isActive);
-        author.ifPresent(found -> edit(read.note(), found.id()));
+    }
+
+    /**
+     * @return the ID of the actor, if it's stored here, active, and remote, as an author of remote statuses has to be
+     */
+    private Optional<UUID> storedAuthor(URI actorUri) {
+        return actors.findByUri(actorUri)
+                .filter(found -> found.isActive() && !actors.isLocal(found))
+                .map(Actor::id);
     }
 
     private RemoteEdit.Outcome edit(RemoteNote note, UUID authorId) {
@@ -145,6 +156,6 @@ class UpdateHandler implements InboundActivityHandler {
                 note.summary(),
                 note.language(),
                 note.sensitive(),
-                note.updated()));
+                note.editedAt(note.published(), Instant.now())));
     }
 }

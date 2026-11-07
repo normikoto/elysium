@@ -7,6 +7,7 @@ import dev.biribiri.elysium.activitypub.signature.SignatureVerifier;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -31,13 +32,19 @@ public class RemoteActors {
     private final ActivityDocuments documents;
     private final InstanceProperties instance;
     private final SignatureVerifier signatures;
+    private final DomainBlocks blocks;
 
     RemoteActors(
-            ActorService actors, ActivityDocuments documents, InstanceProperties instance, SignatureVerifier signatures) {
+            ActorService actors,
+            ActivityDocuments documents,
+            InstanceProperties instance,
+            SignatureVerifier signatures,
+            DomainBlocks blocks) {
         this.actors = actors;
         this.documents = documents;
         this.instance = instance;
         this.signatures = signatures;
+        this.blocks = blocks;
     }
 
     /**
@@ -57,9 +64,14 @@ public class RemoteActors {
             return existing.get();
         }
         var document = fetch(uri, existing.isPresent());
-        return document.map(fetched -> actors.upsertRemote(RemoteActorDocument.read(uri, fetched)))
+        var stored = document.map(fetched -> actors.upsertRemote(RemoteActorDocument.read(uri, fetched)))
                 .or(() -> existing)
                 .orElseThrow();
+        // It can have been suspended or deleted while it was being fetched, which the upsert leaves alone.
+        if (!stored.isActive()) {
+            throw new PermanentJobFailure("The actor " + uri + " is suspended or deleted");
+        }
+        return stored;
     }
 
     /**
@@ -68,7 +80,7 @@ public class RemoteActors {
      * the actor's activities run in. Blocks while fetching, so this mustn't be called inside a database transaction.
      *
      * @param uri an actor named by a valid signature
-     * @return the actor, or empty if it isn't stored here, or isn't active. The older copy is kept if its server refuses to
+     * @return the actor, or empty if it isn't stored here, isn't active, or its domain is blocked. The older copy is kept if its server refuses to
      * serve it, or says it's gone, since only its {@code Delete} removes it.
      * @throws PermanentJobFailure if the actor can never be stored, or its new document can't be used, which leaves the
      *                             older copy. Anything else thrown is worth trying again.
@@ -90,9 +102,16 @@ public class RemoteActors {
             log.debug("Keeping the older copy of {}: {}", uri, e.getMessage());
             return existing;
         }
-        var refreshed = actors.upsertRemote(RemoteActorDocument.read(uri, document));
+        // Before the document is checked, so that a key it drops isn't still trusted when the rest can't be used. The
+        // document came from the actor's own URI, so it speaks for the actor's keys whatever else is wrong with it.
         signatures.forgetChangedKeys(uri, document);
-        return Optional.of(refreshed);
+        var profile = RemoteActorDocument.read(uri, document);
+        // Fetching can take a while, and a block can have landed since the job started. A suspension or deletion is left
+        // alone by the upsert.
+        if (blocks.isBlocked(uri.getHost())) {
+            return Optional.empty();
+        }
+        return Optional.of(actors.upsertRemote(profile)).filter(Actor::isActive);
     }
 
     private void checkUri(URI uri) {

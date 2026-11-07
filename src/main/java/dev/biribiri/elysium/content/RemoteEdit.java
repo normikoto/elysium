@@ -28,7 +28,10 @@ public record RemoteEdit(
     public enum Outcome {
         /** The stored status was replaced. */
         EDITED,
-        /** A status with this URI is stored, but it's someone else's, or was already edited at this time or later. */
+        /**
+         * A status with this URI is stored, but it's someone else's, was already edited at this time or later, or was
+         * published at this time or later.
+         */
         UNCHANGED,
         /** No status with this URI is stored. */
         NOT_STORED

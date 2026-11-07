@@ -21,6 +21,11 @@ public final class Jobs {
      */
     static final Duration ACTIVITIES_KEPT = RetryPolicy.LONGEST_LIFE.plusDays(1);
 
+    /**
+     * How long a job that keeps failing is retried for, before it's parked.
+     */
+    public static final Duration RETRIED_FOR = RetryPolicy.GIVE_UP_AFTER;
+
     private Jobs() {
     }
 

@@ -265,7 +265,10 @@ public class ActorRepository {
 
     /**
      * Inserts an actor from another server, or replaces what's stored about it. Only the URI identifies it, so another actor
-     * on that server can have the same username.
+     * on that server can have the same username. A suspended or deleted actor is left as it is, so that a fetch that was
+     * running when it was suspended or deleted can't put back the key and inboxes that were removed with it.
+     *
+     * @return the stored actor, which is the one already stored if it's suspended or deleted
      */
     public Actor upsertRemote(RemoteActorProfile profile) {
         return jdbc.sql("""
@@ -281,6 +284,7 @@ public class ActorRepository {
                             public_key_pem = EXCLUDED.public_key_pem,
                             followers_uri = EXCLUDED.followers_uri,
                             updated_at = now()
+                        WHERE actor.suspended_at IS NULL AND actor.deleted_at IS NULL
                         RETURNING\s""" + COLUMNS)
                 .param("id", UUID.randomUUID())
                 .param("uri", profile.uri().toString())
@@ -292,7 +296,9 @@ public class ActorRepository {
                 .param("publicKeyPem", profile.publicKeyPem(), Types.VARCHAR)
                 .param("followersUri", text(profile.followersUri()), Types.VARCHAR)
                 .query(ACTOR_MAPPER)
-                .single();
+                .optional()
+                .or(() -> findByUri(profile.uri()))
+                .orElseThrow();
     }
 
     /**

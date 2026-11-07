@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
+import java.time.Instant;
 
 /**
  * Stores a {@code Note} from another server as a status, when it's for a local account, through a follow or by addressing
@@ -47,14 +48,23 @@ class NoteStorage {
     }
 
     /**
+     * What {@link #store} did with a note.
+     */
+    enum Result {
+        STORED,
+        /** It isn't for anyone here, or its author can't post here. */
+        IGNORED,
+        /** A status with its URI is already stored, or was deleted. */
+        TAKEN
+    }
+
+    /**
      * Blocks while fetching the author, so this mustn't be called inside a database transaction.
      *
      * @param document the activity's JSON
      * @param read     the activity's note, already checked to be its actor's by {@link ActorNotes}
-     * @return whether the note was stored. It isn't if it's not for anyone here, or a status with its URI is already stored
-     * or was deleted.
      */
-    boolean store(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read) {
+    Result store(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read) {
         var actorUri = URI.create(activity.actorUri());
         var note = read.note();
         // Before anything that reads the author's followers collection, which is only known once the actor is stored. It
@@ -63,19 +73,19 @@ class NoteStorage {
         var visibility = visibility(note.addressing(), author);
         if (visibility == Visibility.DIRECT) {
             log.debug("Ignoring {} {}, whose Note is direct", activity.type(), activity.id());
-            return false;
+            return Result.IGNORED;
         }
         var forWhom = recipients.of(activity, document, read.fetched() ? note.addressing() : Addressing.NONE);
         if (forWhom.isEmpty()) {
             log.debug("Ignoring {} {}, which isn't for any local account", activity.type(), activity.id());
-            return false;
+            return Result.IGNORED;
         }
         // Fetching can take a while, and a block or suspension can have landed since the job started.
         if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
-            return false;
+            return Result.IGNORED;
         }
         var published = note.published() == null ? activity.firstReceivedAt() : note.published();
-        return statuses.storeRemote(new RemoteStatus(
+        var stored = statuses.storeRemote(new RemoteStatus(
                 note.id(),
                 note.url(),
                 author.id(),
@@ -86,9 +96,9 @@ class NoteStorage {
                 note.sensitive(),
                 note.inReplyTo(),
                 published,
-                // So that an Update older than this version can't replace it. Some servers send updated with the same time
-                // as published, which isn't an edit.
-                note.updated() != null && note.updated().isAfter(published) ? note.updated() : null)).isPresent();
+                // So that an Update older than this version can't replace it.
+                note.editedAt(published, Instant.now())));
+        return stored.isPresent() ? Result.STORED : Result.TAKEN;
     }
 
     /**

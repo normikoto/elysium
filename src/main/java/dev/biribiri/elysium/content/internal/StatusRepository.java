@@ -177,8 +177,8 @@ public class StatusRepository {
     }
 
     /**
-     * @return whether the status was changed, which it isn't if it's someone else's, or if it was edited at this time or
-     * later already
+     * @return whether the status was changed, which it isn't if it's someone else's, if it was edited at this time or later
+     * already, or if it was published at this time or later, so this isn't an edit
      */
     public boolean updateRemote(
             URI uri, UUID actorId, String text, String content, String spoilerText, String language, boolean sensitive,
@@ -187,6 +187,7 @@ public class StatusRepository {
                         UPDATE status SET text = :text, content = :content, spoiler_text = :spoilerText,
                                           language = :language, sensitive = :sensitive, edited_at = :editedAt
                         WHERE uri = :uri AND actor_id = :actorId AND (edited_at IS NULL OR edited_at < :editedAt)
+                          AND published_at < :editedAt
                           AND NOT EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)
                         """)
                 .param("uri", uri.toString())

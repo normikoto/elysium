@@ -138,6 +138,38 @@ class UpdateIntegrationTests {
     }
 
     @Test
+    void anUpdatedThatIsntAfterPublishedIsntAnEdit() {
+        var noteId = stored();
+
+        handler.handle(update(edit(noteId, "2026-01-01T00:00:00Z", "<p>Same time</p>")));
+        handler.handle(update(edit(noteId, "2025-12-31T00:00:00Z", "<p>Earlier</p>")));
+
+        var row = status(noteId).orElseThrow();
+        assertThat(row.get("content")).isEqualTo("<p>Hi</p>");
+        assertThat(row.get("edited_at")).isNull();
+    }
+
+    @Test
+    void anUpdatedInTheFutureIsIgnored() {
+        var noteId = stored();
+        var future = Instant.now().plus(Duration.ofDays(1)).toString();
+
+        handler.handle(update(edit(noteId, future, "<p>Future</p>")));
+        handler.handle(update(edit(noteId, Instant.now().toString(), "<p>Now</p>")));
+
+        assertThat(status(noteId).orElseThrow().get("content")).isEqualTo("<p>Now</p>");
+    }
+
+    @Test
+    void aCreateWithAnUpdatedInTheFutureIsntStoredAsEdited() {
+        var noteId = noteId();
+
+        creates.handle(create(note(noteId, Instant.now().plus(Duration.ofDays(1)).toString())));
+
+        assertThat(status(noteId).orElseThrow().get("edited_at")).isNull();
+    }
+
+    @Test
     void anEditOlderThanTheStoredVersionIsIgnored() {
         var noteId = noteId();
         creates.handle(create(edit(noteId, "2026-03-01T00:00:00Z", "<p>Already edited</p>")));
@@ -360,6 +392,35 @@ class UpdateIntegrationTests {
 
         verify(documents, never()).fetch(any());
         assertThat(actors.findByUri(stranger)).isEmpty();
+    }
+
+    @Test
+    void anActorSuspendedWhileItsBeingFetchedIsLeftAlone() throws Exception {
+        when(documents.fetch(eq(author.uri()))).thenAnswer(invocation -> {
+            jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", author.id()).update();
+            return json.readTree(json.writeValueAsString(actorDocument(author.uri(), "/new-inbox", "new-key")));
+        });
+
+        handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
+
+        var kept = actors.findByUri(author.uri()).orElseThrow();
+        assertThat(kept.inboxUri()).hasToString(author.uri() + "/inbox");
+        assertThat(kept.publicKeyPem()).isNull();
+    }
+
+    @Test
+    void anActorDeletedWhileItsBeingFetchedIsLeftAlone() throws Exception {
+        when(documents.fetch(eq(author.uri()))).thenAnswer(invocation -> {
+            actors.markRemoteDeleted(author.id());
+            return json.readTree(json.writeValueAsString(actorDocument(author.uri(), "/new-inbox", "new-key")));
+        });
+
+        handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
+
+        var kept = actors.findByUri(author.uri()).orElseThrow();
+        assertThat(kept.isDeleted()).isTrue();
+        assertThat(kept.publicKeyPem()).isNull();
+        assertThat(kept.inboxUri()).hasToString(author.uri() + "/inbox");
     }
 
     @Test
