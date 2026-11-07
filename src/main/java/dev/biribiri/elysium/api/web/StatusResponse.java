@@ -16,8 +16,9 @@ import java.util.UUID;
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Favourites, boosts, media, polls, cards, mentions, hashtags, and edits don't exist \
-        yet, so those fields are always empty, null, zero, or false.""")
+        Mastodon's Status entity. Favourites, boosts, media, polls, cards, mentions, and hashtags don't exist yet, so \
+        those fields are always empty, null, zero, or false. Only statuses from other servers can have been edited, \
+        so `edited_at` is always null for a local one.""")
 record StatusResponse(
         String id,
         @JsonProperty("created_at") String createdAt,
@@ -56,7 +57,7 @@ record StatusResponse(
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
-                null,
+                status.editedAt() == null ? null : ApiTimestamps.format(status.editedAt()),
                 string(status.inReplyToId()),
                 string(status.inReplyToAccountId()),
                 status.sensitive(),

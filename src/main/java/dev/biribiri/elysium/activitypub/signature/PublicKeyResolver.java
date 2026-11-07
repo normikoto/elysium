@@ -12,8 +12,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.security.PublicKey;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -162,6 +167,82 @@ class PublicKeyResolver {
             refreshes.remove(keyId.value(), refresh);
         });
         return refreshResult(keyId, stale, await(refresh));
+    }
+
+    /**
+     * Forgets the actor's keys that its current document no longer has, or has with a different value, so that the next
+     * signature that uses one fetches it again rather than waiting for a failed signature and {@link #MIN_AGE_TO_REFRESH}.
+     * Failed lookups of keys it now lists are forgotten too, since a key can be used before the document lists it. Only
+     * keys on the actor's own server count, because it can't speak for any others. Nothing is added, so a key still has to
+     * be fetched and confirmed through {@link KeyDocuments}.
+     *
+     * @param document the actor's document, just fetched from its {@code id}
+     */
+    void forgetChanged(URI actor, JsonNode document) {
+        // Null for a key that's only an ID, or that can't be read, which says nothing about whether it changed.
+        var listed = new HashMap<String, PublicKey>();
+        var entries = KeyDocuments.entries(document);
+        for (var entry : entries) {
+            var id = KeyDocuments.entryId(entry);
+            if (id != null) {
+                listed.put(id, keyIn(entry));
+            }
+        }
+        // Some servers use the actor's own ID as the key ID, when an actor only has one key, as KeyDocuments accepts.
+        if (entries.size() == 1) {
+            listed.putIfAbsent(actor.toString(), keyIn(entries.getFirst()));
+        }
+        var keys = cache.synchronous().asMap();
+        // Only finished lookups are visited, and one that's still running fetches the current document anyway.
+        var changed = new HashMap<String, Lookup>();
+        keys.forEach((keyId, lookup) -> {
+            if (!(lookup instanceof Found found)) {
+                if (listed.containsKey(keyId) && onServerOf(keyId, actor)) {
+                    changed.put(keyId, lookup);
+                }
+                return;
+            }
+            if (!found.key().owner().equals(actor)) {
+                return;
+            }
+            var current = listed.get(keyId);
+            if (!listed.containsKey(keyId) || (current != null && !current.equals(found.key().key()))) {
+                changed.put(keyId, lookup);
+            }
+        });
+        // A refresh that failed is kept apart from the keys, and stops the key being fetched again for a while.
+        listed.keySet().stream()
+                .filter(keyId -> onServerOf(keyId, actor))
+                .forEach(failedRefreshes::invalidate);
+        changed.forEach((keyId, lookup) -> {
+            log.debug("Forgetting the key {}, which its actor's document changed", keyId);
+            keys.remove(keyId, lookup);
+            failedRefreshes.invalidate(keyId);
+        });
+    }
+
+    private static boolean onServerOf(String keyId, URI actor) {
+        URI key;
+        try {
+            key = new URI(keyId);
+        } catch (URISyntaxException e) {
+            return false;
+        }
+        return key.getScheme() != null && key.getHost() != null
+                && KeyId.authority(key.getScheme(), key.getHost(), key.getPort())
+                .equals(KeyId.authority(actor.getScheme(), actor.getHost(), actor.getPort()));
+    }
+
+    private static PublicKey keyIn(JsonNode entry) {
+        var pem = entry.path("publicKeyPem").stringValue(null);
+        if (pem == null) {
+            return null;
+        }
+        try {
+            return PublicKeyPem.parse(pem);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static Optional<ResolvedKey> refreshResult(KeyId keyId, ResolvedKey stale, Lookup lookup) {

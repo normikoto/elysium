@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
 # and unfollow it, be followed and unfollowed by it, and receive its statuses, their deletion, and profile changes, and that
-# Elysium removes a status and an account that the other server deletes.
+# Elysium takes the other server's profile changes and status edits, apart from on Misskey, which can't edit, and removes a
+# status and an account that the other server deletes.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -226,6 +227,7 @@ follow_from_elysium() {
 
     "$post"
     expect_home_status "$domain" "$read_token"
+    rename_lab "$domain"
 
     driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$lab_id/unfollow" \
         -H "Authorization: Bearer $write_token"
@@ -806,6 +808,88 @@ expect_follower() {
     fail "$username@$server never followed alice. Check Elysium's failed jobs and logs"
 }
 
+# Passing means that Elysium took the other server's Update of the lab user, and fetched its actor again. This runs while alice
+# follows the lab user, because servers send these to followers.
+rename_lab() {
+    local domain=$1 before found
+    before=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT updated_at FROM actor WHERE domain = '$domain' AND username = 'lab'")
+    [[ -n $before ]] || fail "Elysium has no lab@$domain"
+    case "$domain" in
+        mastodon.test)
+            docker compose exec -T mastodon-web bin/rails runner '
+                lab = Account.find_local("lab")
+                UpdateAccountService.new.call(lab, { display_name: "Renamed lab" })
+                ActivityPub::UpdateDistributionWorker.new.perform(lab.id)'
+            ;;
+        gts.test)
+            driver curl -fsS -o /dev/null -X PATCH https://gts.test/api/v1/accounts/update_credentials \
+                -H "Authorization: Bearer $token" --data-urlencode 'display_name=Renamed lab'
+            ;;
+        misskey.test)
+            misskey_api i/update '{"name": "Renamed lab"}' >/dev/null
+            ;;
+    esac
+    echo "Waiting for Elysium to fetch lab@$domain again"
+    for _ in $(seq 1 60); do
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM actor WHERE domain = '$domain' AND username = 'lab' AND updated_at > '$before'")
+        if [[ $found -eq 1 ]]; then
+            echo "Elysium fetched lab@$domain again after its Update"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium didn't fetch lab@$domain again after its Update. Check /admin/db-scheduler, and its logs at debug level"
+}
+
+# Passing means that Elysium took the other server's Update of its status that mentions alice.
+expect_status_edited() {
+    local server=$1 uri=$2 found
+    echo "Waiting for Elysium to edit $uri"
+    for _ in $(seq 1 60); do
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM status WHERE uri = '$uri' AND text LIKE '%Edited in the lab%' AND edited_at IS NOT NULL")
+        if [[ $found -eq 1 ]]; then
+            echo "Elysium edited lab@$server's status"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium didn't edit $uri after $server did. Check /admin/db-scheduler, and its logs at debug level"
+}
+
+edit_from_mastodon() {
+    local uri
+    uri=$(mentioned_status_uri mastodon.test)
+    [[ -n $uri ]] || fail "Elysium has no status from lab@mastodon.test to edit"
+    docker compose exec -T mastodon-web bin/rails runner '
+        lab = Account.find_local("lab")
+        lab.statuses.where("text LIKE ?", "%Hello from the lab%").each do |status|
+            UpdateStatusService.new.call(status, lab.id, text: "@alice@elysium.test Hello from the lab. Edited in the lab")
+        end'
+    expect_status_edited mastodon.test "$uri"
+}
+
+# Prints the GoToSocial ID of the lab user's status at a URI.
+gotosocial_status_id() {
+    local uri=$1 lab_id
+    lab_id=$(driver curl -fsS https://gts.test/api/v1/accounts/verify_credentials -H "Authorization: Bearer $token" | jq -r .id)
+    driver curl -fsS "https://gts.test/api/v1/accounts/$lab_id/statuses?limit=40" \
+        -H "Authorization: Bearer $token" | jq -r --arg uri "$uri" '.[] | select(.uri == $uri) | .id'
+}
+
+edit_from_gotosocial() {
+    local uri status_id
+    uri=$(mentioned_status_uri gts.test)
+    [[ -n $uri ]] || fail "Elysium has no status from lab@gts.test to edit"
+    status_id=$(gotosocial_status_id "$uri")
+    [[ -n $status_id ]] || fail "GoToSocial has no status at $uri"
+    driver curl -fsS -o /dev/null -X PUT "https://gts.test/api/v1/statuses/$status_id" -H "Authorization: Bearer $token" \
+        --data-urlencode 'status=@alice@elysium.test Hello from the lab. Edited in the lab'
+    expect_status_edited gts.test "$uri"
+}
+
 delete_from_mastodon() {
     local uri
     uri=$(mentioned_status_uri mastodon.test)
@@ -818,12 +902,10 @@ delete_from_mastodon() {
 }
 
 delete_from_gotosocial() {
-    local uri lab_id status_id
+    local uri status_id
     uri=$(mentioned_status_uri gts.test)
     [[ -n $uri ]] || fail "Elysium has no status from lab@gts.test to delete"
-    lab_id=$(driver curl -fsS https://gts.test/api/v1/accounts/verify_credentials -H "Authorization: Bearer $token" | jq -r .id)
-    status_id=$(driver curl -fsS "https://gts.test/api/v1/accounts/$lab_id/statuses?limit=40" \
-        -H "Authorization: Bearer $token" | jq -r --arg uri "$uri" '.[] | select(.uri == $uri) | .id')
+    status_id=$(gotosocial_status_id "$uri")
     [[ -n $status_id ]] || fail "GoToSocial has no status at $uri"
     driver curl -fsS -o /dev/null -X DELETE "https://gts.test/api/v1/statuses/$status_id" -H "Authorization: Bearer $token"
     expect_status_removed gts.test "$uri"
@@ -913,6 +995,7 @@ case "$target" in
         deliver_from_gotosocial
         follow_from_gotosocial
         follow_from_elysium gts.test post_from_gotosocial gotosocial_approve
+        edit_from_gotosocial
         delete_from_gotosocial
         delete_account_from_gotosocial
         post_from_elysium
@@ -927,6 +1010,7 @@ case "$target" in
         deliver_from_mastodon
         follow_from_mastodon
         follow_from_elysium mastodon.test post_from_mastodon
+        edit_from_mastodon
         delete_from_mastodon
         delete_account_from_mastodon
         post_from_elysium
@@ -952,4 +1036,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, and accept its suspension and deletion, and Elysium removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

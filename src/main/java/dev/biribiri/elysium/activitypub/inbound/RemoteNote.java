@@ -4,6 +4,7 @@ import dev.biribiri.elysium.content.StatusService;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -22,6 +23,7 @@ import java.util.Optional;
  * @param language     a key of {@code contentMap}, or null if it has none
  * @param inReplyTo    the ID of its {@code inReplyTo}, or null if it isn't a reply
  * @param published    its {@code published}, or null if that's missing or isn't a date
+ * @param updated      its {@code updated}, when it was last edited, or null if that's missing or isn't a date
  */
 record RemoteNote(
         URI id,
@@ -33,10 +35,30 @@ record RemoteNote(
         boolean sensitive,
         URI inReplyTo,
         Instant published,
+        Instant updated,
         Addressing addressing) {
+
+    /**
+     * How far ahead of this server's clock an {@code updated} can be, which is what signatures allow.
+     */
+    private static final Duration CLOCK_SKEW = Duration.ofHours(1);
 
     RemoteNote {
         attributedTo = List.copyOf(attributedTo);
+    }
+
+    /**
+     * When the note was edited, going by its {@code updated}, or null if it doesn't say, or what it says can't be an edit.
+     * Some servers send an {@code updated} equal to {@code published} for notes that were never edited. One in the future
+     * would keep every later edit from being applied, since edits are ordered by it.
+     *
+     * @param published when it was published, or null if that isn't known
+     */
+    Instant editedAt(Instant published, Instant now) {
+        if (updated == null || updated.isAfter(now.plus(CLOCK_SKEW))) {
+            return null;
+        }
+        return published == null || updated.isAfter(published) ? updated : null;
     }
 
     /**
@@ -62,7 +84,8 @@ record RemoteNote(
                 Optional.ofNullable(ActivityJson.idOf(node.path("inReplyTo")))
                         .flatMap(ActivityObject::parseUri)
                         .orElse(null),
-                published(node.path("published")),
+                timestamp(node.path("published")),
+                timestamp(node.path("updated")),
                 Addressing.of(node)));
     }
 
@@ -115,7 +138,7 @@ record RemoteNote(
                 .orElse(null);
     }
 
-    private static Instant published(JsonNode node) {
+    private static Instant timestamp(JsonNode node) {
         var text = ActivityJson.text(node);
         if (text == null) {
             return null;

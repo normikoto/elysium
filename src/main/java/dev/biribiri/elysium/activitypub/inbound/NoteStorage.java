@@ -1,0 +1,121 @@
+package dev.biribiri.elysium.activitypub.inbound;
+
+import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
+import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.moderation.DomainBlocks;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+
+import java.net.URI;
+import java.time.Instant;
+
+/**
+ * Stores a {@code Note} from another server as a status, when it's for a local account, through a follow or by addressing
+ * it. Notes that nobody here would see aren't kept, which also stops any server from filling the database by delivering to
+ * the shared inbox. Direct notes are left out until mentions exist, since nobody but their author could see them here.
+ *
+ * <p>This is for a {@code Create}, and for an {@code Update} of a note that isn't stored yet. Both have to pass the same
+ * checks, so that an {@code Update} can't store anything a {@code Create} couldn't.
+ */
+@Component
+class NoteStorage {
+
+    private static final Logger log = LoggerFactory.getLogger(NoteStorage.class);
+
+    private final ActorService actors;
+    private final RemoteActors remoteActors;
+    private final StatusService statuses;
+    private final LocalRecipients recipients;
+    private final DomainBlocks blocks;
+
+    NoteStorage(
+            ActorService actors,
+            RemoteActors remoteActors,
+            StatusService statuses,
+            LocalRecipients recipients,
+            DomainBlocks blocks) {
+        this.actors = actors;
+        this.remoteActors = remoteActors;
+        this.statuses = statuses;
+        this.recipients = recipients;
+        this.blocks = blocks;
+    }
+
+    /**
+     * What {@link #store} did with a note.
+     */
+    enum Result {
+        STORED,
+        /** It isn't for anyone here, or its author can't post here. */
+        IGNORED,
+        /** A status with its URI is already stored, or was deleted. */
+        TAKEN
+    }
+
+    /**
+     * Blocks while fetching the author, so this mustn't be called inside a database transaction.
+     *
+     * @param document the activity's JSON
+     * @param read     the activity's note, already checked to be its actor's by {@link ActorNotes}
+     */
+    Result store(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read) {
+        var actorUri = URI.create(activity.actorUri());
+        var note = read.note();
+        // Before anything that reads the author's followers collection, which is only known once the actor is stored. It
+        // can make a request to another server.
+        var author = remoteActors.fetchOrRefresh(actorUri);
+        var visibility = visibility(note.addressing(), author);
+        if (visibility == Visibility.DIRECT) {
+            log.debug("Ignoring {} {}, whose Note is direct", activity.type(), activity.id());
+            return Result.IGNORED;
+        }
+        var forWhom = recipients.of(activity, document, read.fetched() ? note.addressing() : Addressing.NONE);
+        if (forWhom.isEmpty()) {
+            log.debug("Ignoring {} {}, which isn't for any local account", activity.type(), activity.id());
+            return Result.IGNORED;
+        }
+        // Fetching can take a while, and a block or suspension can have landed since the job started.
+        if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
+            return Result.IGNORED;
+        }
+        var published = note.published() == null ? activity.firstReceivedAt() : note.published();
+        var stored = statuses.storeRemote(new RemoteStatus(
+                note.id(),
+                note.url(),
+                author.id(),
+                note.content() == null ? "" : note.content(),
+                note.summary(),
+                note.language(),
+                visibility,
+                note.sensitive(),
+                note.inReplyTo(),
+                published,
+                // So that an Update older than this version can't replace it.
+                note.editedAt(published, Instant.now())));
+        return stored.isPresent() ? Result.STORED : Result.TAKEN;
+    }
+
+    /**
+     * Read from the note, as Mastodon reads it, rather than from its activity, since the note is what's stored. A note to
+     * its author's followers is followers-only even if it also names other actors.
+     */
+    private Visibility visibility(Addressing addressing, Actor author) {
+        if (addressing.to().contains(ActivityStreams.PUBLIC)) {
+            return Visibility.PUBLIC;
+        }
+        if (addressing.cc().contains(ActivityStreams.PUBLIC)) {
+            return Visibility.UNLISTED;
+        }
+        var followers = actors.findFollowersUri(author.uri()).map(URI::toString);
+        if (followers.filter(uri -> addressing.to().contains(uri) || addressing.cc().contains(uri)).isPresent()) {
+            return Visibility.PRIVATE;
+        }
+        return Visibility.DIRECT;
+    }
+}

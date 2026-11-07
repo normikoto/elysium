@@ -8,11 +8,15 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -44,6 +48,7 @@ class PublicKeyResolverTests {
     private final AtomicLong nanos = new AtomicLong();
     private final ActorService actors = mock();
     private final KeyDocuments documents = mock();
+    private final JsonMapper json = JsonMapper.builder().build();
     private final PublicKeyResolver resolver = new PublicKeyResolver(actors, documents, nanos::get, Runnable::run, new HostRequests());
 
     @Test
@@ -597,6 +602,92 @@ class PublicKeyResolverTests {
         assertThat(resolver.refresh(id, resolver.resolve(id, UNLIMITED), UNLIMITED)).isEmpty();
 
         verify(documents, never()).fetch(any());
+    }
+
+    // Forgetting keys that an actor's document changed
+
+    @Test
+    void forgetsAKeyThatTheActorsDocumentChanged() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY, NEW_KEY);
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+
+        resolver.forgetChanged(OWNER, actorDocument(Map.of("id", KEY_ID, "publicKeyPem", SignatureFixtures.newPublicKeyPem(2048))));
+
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(NEW_KEY);
+        verify(documents, times(2)).fetch(any());
+    }
+
+    @Test
+    void forgetsAKeyThatTheActorsDocumentNoLongerHas() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY);
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+
+        resolver.forgetChanged(OWNER, actorDocument(Map.of("id", OWNER + "#other-key", "publicKeyPem", SignatureFixtures.PUBLIC_KEY_PEM)));
+
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+        verify(documents, times(2)).fetch(any());
+    }
+
+    @Test
+    void keepsAKeyThatTheActorsDocumentStillHas() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY);
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+
+        resolver.forgetChanged(OWNER, actorDocument(Map.of("id", KEY_ID, "publicKeyPem", SignatureFixtures.PUBLIC_KEY_PEM)));
+        // Only an ID, as when the key is a separate document, says nothing about whether it changed.
+        resolver.forgetChanged(OWNER, json.readTree("{\"publicKey\": \"" + KEY_ID + "\"}"));
+
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+        verify(documents, times(1)).fetch(any());
+    }
+
+    @Test
+    void keepsAKeyThatIsTheActorsOwnId() throws Exception {
+        var ownId = new ResolvedKey(OWNER.toString(), OWNER, SignatureFixtures.publicKey());
+        when(documents.fetch(any())).thenReturn(ownId);
+        resolver.resolve(keyId(OWNER.toString()), UNLIMITED);
+
+        resolver.forgetChanged(OWNER, actorDocument(Map.of("publicKeyPem", SignatureFixtures.PUBLIC_KEY_PEM)));
+
+        resolver.resolve(keyId(OWNER.toString()), UNLIMITED);
+        verify(documents, times(1)).fetch(any());
+    }
+
+    @Test
+    void forgetsAFailedLookupOfAKeyTheActorsDocumentNowLists() throws Exception {
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.permanent("not listed yet", null)).thenReturn(KEY);
+        assertFails(KEY_ID, Failure.REJECTED);
+
+        resolver.forgetChanged(OWNER, actorDocument(Map.of("id", KEY_ID, "publicKeyPem", SignatureFixtures.PUBLIC_KEY_PEM)));
+
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
+    }
+
+    @Test
+    void keepsAFailedLookupOfAKeyOnAnotherServer() throws Exception {
+        var elsewhere = "https://elsewhere.example/keys/1";
+        when(documents.fetch(any())).thenThrow(DocumentFetchException.permanent("missing", null));
+        assertFails(elsewhere, Failure.REJECTED);
+
+        resolver.forgetChanged(OWNER, actorDocument(Map.of("id", elsewhere, "publicKeyPem", SignatureFixtures.PUBLIC_KEY_PEM)));
+
+        assertFails(elsewhere, Failure.REJECTED);
+        verify(documents, times(1)).fetch(any());
+    }
+
+    @Test
+    void keepsAnotherActorsKeys() throws Exception {
+        when(documents.fetch(any())).thenReturn(KEY);
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+
+        resolver.forgetChanged(URI.create("https://remote.example/users/mallory"), actorDocument(Map.of()));
+
+        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+        verify(documents, times(1)).fetch(any());
+    }
+
+    private JsonNode actorDocument(Map<String, Object> key) {
+        return json.valueToTree(Map.of("publicKey", List.of(key)));
     }
 
     private static Actor localActor() {
