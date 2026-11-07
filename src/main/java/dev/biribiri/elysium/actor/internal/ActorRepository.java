@@ -112,8 +112,12 @@ public class ActorRepository {
         return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE id = :id").param("id", id).query(ACTOR_MAPPER).optional();
     }
 
-    public boolean isSuspended(URI uri) {
-        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM actor WHERE uri = :uri AND suspended_at IS NOT NULL)")
+    public boolean isInactive(URI uri) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM actor WHERE uri = :uri AND (suspended_at IS NOT NULL OR deleted_at IS NOT NULL)
+                        )
+                        """)
                 .param("uri", uri.toString())
                 .query(Boolean.class)
                 .single();
@@ -176,6 +180,20 @@ public class ActorRepository {
      */
     public boolean markDeleted(UUID id) {
         return jdbc.sql("UPDATE actor SET deleted_at = now() WHERE id = :id AND is_local AND deleted_at IS NULL")
+                .param("id", id)
+                .update() > 0;
+    }
+
+    /**
+     * Its key goes straight away, since nothing here signs as a remote actor.
+     *
+     * @return whether this deleted it, which it won't have if it's local, or was deleted already
+     */
+    public boolean markRemoteDeleted(UUID id) {
+        return jdbc.sql("""
+                        UPDATE actor SET deleted_at = now(), public_key_pem = NULL
+                        WHERE id = :id AND NOT is_local AND deleted_at IS NULL
+                        """)
                 .param("id", id)
                 .update() > 0;
     }

@@ -162,6 +162,32 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingARemoteActorRemovesItsDataAndSendsNothing() {
+        var deleted = remote();
+        follow(deleted, local);
+        follow(local, deleted);
+        jdbc.sql("""
+                        INSERT INTO status (id, uri, actor_id, text, content, visibility, published_at)
+                        VALUES (:id, :uri, :actorId, '', '', 'public', now())
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("uri", deleted.uri() + "/statuses/1")
+                .param("actorId", deleted.id())
+                .update();
+
+        assertThat(actors.markRemoteDeleted(deleted.id())).isTrue();
+
+        await().atMost(WAIT).until(() -> follows(deleted) == 0
+                && count("SELECT count(*) FROM status WHERE actor_id = :id", deleted.id()) == 0);
+        assertThat(actors.findById(deleted.id()).orElseThrow().isDeleted()).isTrue();
+        assertThat(actors.isInactive(deleted.uri())).isTrue();
+        assertThat(activities(deleted, "%")).isEmpty();
+        assertThat(activities(local, "%")).isEmpty();
+        assertThat(actors.markRemoteDeleted(deleted.id())).isFalse();
+        assertThat(actors.markRemoteDeleted(local.id())).isFalse();
+    }
+
+    @Test
     void deletingAnAccountWithdrawsItsFollowsOfOtherServers() {
         var followed = remote();
         var requested = remote();

@@ -110,7 +110,7 @@ class CreateHandler implements InboundActivityHandler {
             return;
         }
         // Fetching can take a while, and a block or suspension can have landed since the job started.
-        if (blocks.isBlocked(actorUri.getHost()) || actors.isSuspended(actorUri)) {
+        if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
             return;
         }
         statuses.storeRemote(new RemoteStatus(

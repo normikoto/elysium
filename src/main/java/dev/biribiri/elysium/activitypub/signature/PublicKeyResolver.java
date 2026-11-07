@@ -267,7 +267,8 @@ class PublicKeyResolver {
         return switch (lookup) {
             case Found found -> found.key();
             case Missing ignored -> throw rejected(keyId);
-            case Gone ignored -> throw rejected(keyId);
+            case Gone ignored -> throw SignatureVerificationException.keyGone(
+                    keyId.document(), "The key " + keyId.value() + " is gone");
             case Unavailable ignored -> throw unavailable("Couldn't fetch the key " + keyId.value());
         };
     }

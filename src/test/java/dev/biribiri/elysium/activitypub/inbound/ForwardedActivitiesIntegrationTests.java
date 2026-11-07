@@ -102,7 +102,7 @@ class ForwardedActivitiesIntegrationTests {
         receive(activity(id, actor, "forwarded"));
         serve(activity(id, actor, "origin"));
 
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         assertThat(storedBody()).contains("origin").doesNotContain("forwarded");
         assertThat(storedActor()).isEqualTo(actor);
@@ -114,7 +114,7 @@ class ForwardedActivitiesIntegrationTests {
         var arrivedAt = now().minusSeconds(60);
         serve(activity(id, actor, "origin"));
 
-        forwarded.fetch(id, arrivedAt);
+        forwarded.fetch(new ForwardedJob(id, arrivedAt, null, null));
 
         var activity = stored.find(id).orElseThrow();
         assertThat(activity.firstReceivedAt()).isEqualTo(arrivedAt);
@@ -157,7 +157,7 @@ class ForwardedActivitiesIntegrationTests {
 
         undoHandler.handle(new InboundActivity(undoId, actor, "Undo", undo, forwardedAt.plusSeconds(30)));
         serve(follow);
-        forwarded.fetch(id, forwardedAt);
+        forwarded.fetch(new ForwardedJob(id, forwardedAt, null, null));
         followHandler.handle(stored.find(id).orElseThrow());
 
         assertThat(jdbc.sql("SELECT count(*) FROM follow WHERE followed_id = :id").param("id", followed.id())
@@ -169,7 +169,7 @@ class ForwardedActivitiesIntegrationTests {
         var other = "https://" + origin + "/users/b";
         serve(activity(id, other, "origin"));
 
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         assertThat(storedActor()).isEqualTo(other);
     }
@@ -178,7 +178,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsWhatTheOriginServesUnderAnotherId() throws Exception {
         serve(activity("https://" + origin + "/activities/other", actor, "origin"));
 
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         assertThat(stored()).isZero();
     }
@@ -187,7 +187,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsWhatTheOriginSaysIsFromAnotherServer() throws Exception {
         serve(activity(id, "https://elsewhere.test/users/a", "origin"));
 
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         assertThat(stored()).isZero();
     }
@@ -196,7 +196,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsWhatTheOriginSaysHasSeveralActors() throws Exception {
         serve("{\"id\":\"" + id + "\",\"type\":\"Create\",\"actor\":[\"" + actor + "\",\"" + actor + "2\"]}");
 
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         assertThat(stored()).isZero();
     }
@@ -205,7 +205,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsWhatTheOriginSaysIsFromAnActorWithNoHost() throws Exception {
         serve(activity(id, "urn:x:y", "origin"));
 
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         assertThat(stored()).isZero();
     }
@@ -214,7 +214,7 @@ class ForwardedActivitiesIntegrationTests {
     void dropsAnActivityThatIsGoneOrRefused() throws Exception {
         when(documents.fetch(URI.create(id))).thenThrow(DocumentFetchException.gone("gone"));
 
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         assertThat(stored()).isZero();
     }
@@ -223,7 +223,7 @@ class ForwardedActivitiesIntegrationTests {
     void triesAgainWhenTheOriginCannotBeReached() throws Exception {
         when(documents.fetch(URI.create(id))).thenThrow(DocumentFetchException.temporary("down", null));
 
-        assertThatThrownBy(() -> forwarded.fetch(id, now())).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> forwarded.fetch(new ForwardedJob(id, now(), null, null))).isInstanceOf(IllegalStateException.class);
         assertThat(stored()).isZero();
     }
 
@@ -232,7 +232,7 @@ class ForwardedActivitiesIntegrationTests {
         inbound.accept(new InboundActivity(id, actor, "Create", activity(id, actor, "direct")));
 
         assertThat(receive(activity(id, actor, "forwarded")).outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         assertThat(forwardedJobs()).isZero();
         verify(documents, never()).fetch(any());
@@ -244,7 +244,7 @@ class ForwardedActivitiesIntegrationTests {
         receive(activity(id, actor, "forwarded"));
         blocks.create(origin, null);
 
-        forwarded.fetch(id, now());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null));
 
         verify(documents, never()).fetch(any());
     }

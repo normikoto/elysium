@@ -55,8 +55,8 @@ public class RemoteActors {
             throw new PermanentJobFailure("The actor " + uri + " claims to be on this server");
         }
         var existing = actors.findByUri(uri);
-        if (existing.filter(Actor::isSuspended).isPresent()) {
-            throw new PermanentJobFailure("The actor " + uri + " is suspended");
+        if (existing.filter(actor -> !actor.isActive()).isPresent()) {
+            throw new PermanentJobFailure("The actor " + uri + " is suspended or deleted");
         }
         if (existing.filter(RemoteActors::isFresh).isPresent()) {
             return existing.get();

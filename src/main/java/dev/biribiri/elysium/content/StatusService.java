@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
@@ -136,6 +137,10 @@ public class StatusService {
         }
 
         return transaction.execute(tx -> {
+            statuses.lockUri(remote.uri());
+            if (statuses.isRemoteDeleted(remote.uri(), author.uri())) {
+                return Optional.<UUID>empty();
+            }
             // Inside the lock, so that a reply and its parent arriving together can't miss each other: whichever is stored
             // second sees the other.
             var id = nextId(Instant.now());
@@ -248,6 +253,29 @@ public class StatusService {
                 .filter(parent -> parent.isVisibleTo(Optional.empty()))
                 .map(Status::actorId)
                 .orElse(null);
+    }
+
+    /**
+     * Removes a remote status because its author's server deleted it, and remembers that it did, since jobs have no order
+     * and its {@code Create} can still be waiting to run. Nothing is sent: other servers hear about it from its author's.
+     *
+     * @param authorUri the actor whose server said so, which can't remove anyone else's status
+     * @return whether a status was removed
+     */
+    public boolean deleteRemote(URI uri, URI authorUri) {
+        return Boolean.TRUE.equals(transaction.execute(tx -> {
+            statuses.lockUri(uri);
+            statuses.markRemoteDeleted(uri, authorUri);
+            return statuses.deleteRemote(uri, authorUri);
+        }));
+    }
+
+    /**
+     * Whether this actor has a stored remote status with this URI that anyone could see, which its server would show to
+     * anyone who asks.
+     */
+    public boolean isPublicRemote(URI uri, URI authorUri) {
+        return statuses.isPublicRemote(uri, authorUri);
     }
 
     /**

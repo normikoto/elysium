@@ -109,11 +109,12 @@ public class AccountCleanup {
      * This all happens in one transaction, before the jobs can run, because who to tell comes from the follows they remove.
      * This also cancels any {@code Update} about the account, which can't still be true. Followers get a {@code Delete}, and
      * each account it follows, or asked to, gets an {@code Undo} of the {@code Follow}, as if it had unfollowed, since
-     * servers can't all be relied on to stop sending to an actor that's deleted.
+     * servers can't all be relied on to stop sending to an actor that's deleted. A remote actor's own server tells everyone
+     * else, so nothing is sent for one.
      */
     @ApplicationModuleListener
     public void on(AccountDeleted event) {
-        actors.findById(event.actorId()).ifPresent(actor -> {
+        actors.findById(event.actorId()).filter(actors::isLocal).ifPresent(actor -> {
             var delete = Delete.of(actor);
             deliveries.cancelAllBy(actor.id(), delete.id().toString());
             send(actor, delete.id().toString(), json.writeValueAsString(delete));

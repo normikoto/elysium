@@ -2,7 +2,9 @@ package dev.biribiri.elysium.activitypub.web;
 
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.inbound.Inbox;
+import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.CavageRequestSigner;
+import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -18,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -28,6 +31,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doThrow;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -63,6 +67,8 @@ class InboxIntegrationTests {
     private DomainBlocks blocks;
     @Autowired
     private JdbcClient jdbc;
+    @MockitoSpyBean
+    private ActivityDocuments documents;
 
     @ParameterizedTest
     @ValueSource(strings = {"/users/alice/inbox", "/users/ALICE/inbox", "/inbox", "/actor/inbox"})
@@ -382,6 +388,60 @@ class InboxIntegrationTests {
         mockMvc.perform(get("/users/alice/inbox")).andExpect(status().isForbidden());
         mockMvc.perform(get("/inbox")).andExpect(status().isForbidden());
         mockMvc.perform(get("/actor/inbox")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void acceptsAStoredActorsOwnDeleteWhenItsKeyIsGone() throws Exception {
+        var deleted = goneRemote();
+        var body = "{\"id\":\"%s#delete\",\"type\":\"Delete\",\"actor\":\"%s\",\"object\":\"%s\"}"
+                .formatted(deleted, deleted, deleted);
+
+        send(signedAs(deleted + "#main-key", body)).andExpect(status().isAccepted());
+
+        assertThat(jdbc.sql("""
+                        SELECT count(*) FROM scheduled_tasks
+                        WHERE task_name = 'deletion-check' AND convert_from(task_data, 'UTF8') LIKE :actor
+                        """)
+                .param("actor", "%" + deleted + "%")
+                .query(Long.class)
+                .single()).isOne();
+    }
+
+    @Test
+    void refusesAnythingElseWhenItsKeyIsGone() throws Exception {
+        var deleted = goneRemote();
+
+        send(signedAs(deleted + "#main-key", activity(deleted + "/activities/1", deleted.toString())))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void acceptsASuspendedActorsOwnDeleteForChecking() throws Exception {
+        var suspended = goneRemote();
+        actors.suspend(actors.findByUri(suspended).orElseThrow().id());
+        var body = "{\"id\":\"%s#delete\",\"type\":\"Delete\",\"actor\":\"%s\",\"object\":\"%s\"}"
+                .formatted(suspended, suspended, suspended);
+
+        send(signedAs(suspended + "#main-key", body)).andExpect(status().isAccepted());
+        send(signedAs(suspended + "#main-key", activity(suspended + "/activities/1", suspended.toString())))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * @return a stored remote actor whose server now answers that its key is gone
+     */
+    private URI goneRemote() throws Exception {
+        var domain = "g" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + domain + "/users/gone");
+        actors.upsertRemote(new RemoteActorProfile(uri, "gone", domain, URI.create(uri + "/inbox"), null, null, null));
+        doThrow(DocumentFetchException.gone("gone")).when(documents).fetch(uri);
+        return uri;
+    }
+
+    private MockHttpServletRequestBuilder signedAs(String keyId, String body) {
+        var key = new SigningKey(keyId, signingKeys.forActor(alice()).orElseThrow().privateKey());
+        var headers = signer.sign("POST", URI.create(BASE + "/inbox"), bytes(body), key);
+        return post("/inbox").contentType(ACTIVITY_JSON).headers(headers).content(body);
     }
 
     private Actor alice() {
