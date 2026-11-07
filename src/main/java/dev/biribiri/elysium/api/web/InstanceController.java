@@ -51,9 +51,10 @@ public class InstanceController {
             summary = "View information about the server",
             description = """
                     Differences from Mastodon: the status length limit is in `max_toot_chars` and \
-                    `configuration.statuses.max_characters`, and defaults to 5000 rather than 500. \
-                    `/api/v2/instance` isn't implemented, so clients that don't read the limit from this may apply \
-                    their own limit of 500. `version` is a Mastodon version followed by `(compatible; Elysium)`, for \
+                    `configuration.statuses.max_characters`, and defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS
+                    + """
+                     rather than 500. `/api/v2/instance` isn't implemented, so clients that don't read the limit \
+                    from this may apply their own limit of 500. `version` is a Mastodon version followed by `(compatible; Elysium)`, for \
                     clients that check it to decide what to use. The streaming API isn't implemented, though \
                     `urls.streaming_api` is set.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v1"),

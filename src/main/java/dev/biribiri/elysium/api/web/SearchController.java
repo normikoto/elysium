@@ -61,8 +61,8 @@ public class SearchController {
                     matches the start of the usernames this server knows.
                     - Another server is only asked about an account for a signed-in user's request, when `resolve` is \
                     true. Each user can make 30 of those lookups a minute, and then gets a 429.
-                    - Only the first 200 matches can be paged through with `offset`, and an `offset` past them returns \
-                    no accounts.
+                    - Only the first\s""" + AccountFilter.MAX_LIMIT + """
+                     matches can be paged through with `offset`, and an `offset` past them returns no accounts.
                     - `following`, `account_id`, `exclude_unreviewed`, `min_id`, and `max_id` are ignored.
 
                     Suspended accounts are left out.""",
@@ -75,9 +75,10 @@ public class SearchController {
                             schema = @Schema(allowableValues = {"accounts", "statuses", "hashtags"})),
                     @Parameter(name = "resolve", description = """
                             Whether to ask another server about an address or URL this server doesn't know, or hasn't \
-                            refreshed for a while. Only works for a signed-in user.""" + " " + ApiDocs.FLAG),
-                    @Parameter(name = "limit", description = "How many accounts to return. Values outside 1 to 40 are "
-                            + "clamped to them.", schema = @Schema(type = "integer", defaultValue = "20")),
+                            refreshed for a while. Only works for a signed-in user.\s""" + ApiDocs.FLAG),
+                    @Parameter(name = "limit", description = "How many accounts to return. Values outside 1 to "
+                            + MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + DEFAULT_LIMIT)),
                     @Parameter(name = "offset", description = "How many matches to skip.",
                             schema = @Schema(type = "integer", defaultValue = "0"))
             },

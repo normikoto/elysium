@@ -20,7 +20,7 @@ import java.time.temporal.ChronoUnit;
  */
 public record InboundActivity(String id, String actorUri, String type, String body, Instant firstReceivedAt, Instant receivedAt) {
 
-    private static final int MAX_ID_BYTES = 2048;
+    public static final int MAX_ID_BYTES = 2048;
 
     public InboundActivity {
         if (!isStorableId(id)) {

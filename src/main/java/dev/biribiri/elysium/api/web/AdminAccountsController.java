@@ -79,8 +79,7 @@ public class AdminAccountsController {
             description = """
                     Differences from Mastodon: only `local`, `remote`, `suspended`, `username`, and `by_domain` filter \
                     the list, and other filters are ignored. Accounts are ordered by their IDs, which are random, \
-                    rather than by age, and the cursors follow that order. Deleted accounts aren't listed. \
-                    """ + ApiDocs.PAGE,
+                    rather than by age, and the cursors follow that order. Deleted accounts aren't listed.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#v1"),
             parameters = {
                     @Parameter(name = "local", description = "Only accounts on this server. " + ApiDocs.FLAG),
@@ -92,14 +91,10 @@ public class AdminAccountsController {
                     @Parameter(name = "by_domain", description = "Only accounts on this domain."),
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
                             + AccountFilter.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + AccountFilter.DEFAULT_LIMIT)),
-                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
-                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
-                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID)
+                            schema = @Schema(type = "integer", defaultValue = "" + AccountFilter.DEFAULT_LIMIT))
             },
             responses = {
-                    @ApiResponse(responseCode = "200", description = "The accounts."),
-                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+                    @ApiResponse(responseCode = "200", description = "The accounts.")
             })
     public ResponseEntity<List<AdminAccountResponse>> list(
             @RequestParam(required = false) String local,
@@ -176,9 +171,7 @@ public class AdminAccountsController {
             description = """
                     Differences from Mastodon: `type` has to be `suspend`, and other values get a 422, rather than \
                     doing more than an admin meant to. Other parameters are ignored. Suspending yourself, or the \
-                    server's last admin, gets a 403, with the reason in `error`.
-
-                    """ + ApiDocs.FORM_OR_JSON,
+                    server's last admin, gets a 403, with the reason in `error`.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#action"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
@@ -189,14 +182,8 @@ public class AdminAccountsController {
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = "`type` isn't `suspend`.")
             })
-    @RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = AccountActionBody.class)),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
-                    schema = @Schema(implementation = AccountActionBody.class)),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
-                    schema = @Schema(implementation = AccountActionBody.class))
-    })
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = AccountActionBody.class)))
     public Map<String, Object> actionFromJson(
             @AuthenticationPrincipal TokenPrincipal token,
             @Parameter(description = ApiDocs.ID) @PathVariable String id,

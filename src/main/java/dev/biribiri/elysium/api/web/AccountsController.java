@@ -51,6 +51,17 @@ public class AccountsController {
 
     private static final long MAX_CREDENTIALS_BODY_BYTES = 64 * 1024;
 
+    private static final String FOLLOWS = """
+            Differences from Mastodon: pages are by when each follow was made, so a cursor from a follow that's since been \
+            removed gives an empty page. For an account on another server, only accounts on this server are listed. \
+            Suspended accounts are left out.
+
+            If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A suspended \
+            account gets a 404.""";
+
+    private static final String FOLLOW_LIMIT =
+            "How many to return. Values outside 1 to " + FollowPage.MAX_LIMIT + " are clamped to them.";
+
     private final ActorService actors;
     private final StatusService statuses;
     private final StatusResponses responses;
@@ -125,7 +136,7 @@ public class AccountsController {
                     yet. Any other field with a value gets a 422 naming it, and then nothing is changed. Empty values \
                     are ignored.
 
-                    """ + ApiDocs.NEEDS_USER + " " + ApiDocs.FORM_OR_JSON,
+                    """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#update_credentials"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The user's account, as changed."),
@@ -134,14 +145,8 @@ public class AccountsController {
                             A field other than `hide_collections` has a value, a value is of the wrong type, or the \
                             token has no user.""")
             })
-    @RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = CredentialsBody.class)),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
-                    schema = @Schema(implementation = CredentialsBody.class)),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
-                    schema = @Schema(implementation = CredentialsBody.class))
-    })
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CredentialsBody.class)))
     public CredentialAccountResponse updateCredentialsFromJson(
             @AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request) throws IOException {
         return updateCredentials(token, json.read(request, MAX_CREDENTIALS_BODY_BYTES));
@@ -301,7 +306,7 @@ public class AccountsController {
             summary = "Unfollow an account",
             description = """
                     Also withdraws a request to follow that's still waiting. An account can be unfollowed while it's \
-                    suspended.""" + " " + ApiDocs.NEEDS_USER,
+                    suspended.\s""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unfollow"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
@@ -322,26 +327,15 @@ public class AccountsController {
     @Operation(
             operationId = "getAccountFollowers",
             summary = "List the accounts following an account",
-            description = """
-                    Differences from Mastodon: pages are by when each follow was made, so a cursor from a follow \
-                    that's since been removed gives an empty page. For an account on another server, only accounts on \
-                    this server are listed. Suspended accounts are left out.
-
-                    If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A \
-                    suspended account gets a 404.""" + " " + ApiDocs.PAGE,
+            description = FOLLOWS,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#followers"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + FollowPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT)),
-                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
-                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
-                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID)
+                    @Parameter(name = "limit", description = FOLLOW_LIMIT,
+                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent follow first."),
-                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
             })
     public ResponseEntity<List<AccountResponse>> followers(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -358,26 +352,15 @@ public class AccountsController {
     @Operation(
             operationId = "getAccountFollowing",
             summary = "List the accounts an account follows",
-            description = """
-                    Differences from Mastodon: pages are by when each follow was made, so a cursor from a follow \
-                    that's since been removed gives an empty page. For an account on another server, only accounts on \
-                    this server are listed. Suspended accounts are left out.
-
-                    If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A \
-                    suspended account gets a 404.""" + " " + ApiDocs.PAGE,
+            description = FOLLOWS,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#following"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + FollowPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT)),
-                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
-                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
-                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID)
+                    @Parameter(name = "limit", description = FOLLOW_LIMIT,
+                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent follow first."),
-                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
             })
     public ResponseEntity<List<AccountResponse>> following(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -433,15 +416,12 @@ public class AccountsController {
                     server gets a 404. Statuses can't be pinned, tagged, or have media, so `pinned`, `tagged`, and \
                     `only_media` return an empty list, and there are no boosts for `exclude_reblogs` to leave out.
 
-                    Only statuses the viewer can see are listed. A suspended account gets a 404.""" + " " + ApiDocs.PAGE,
+                    Only statuses the viewer can see are listed. A suspended account gets a 404.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
                             + StatusPage.MAX_LIMIT + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
-                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
-                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
-                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID),
                     @Parameter(name = "exclude_replies", description = "Leave out replies. " + ApiDocs.FLAG),
                     @Parameter(name = "exclude_reblogs", description = "Has no effect. " + ApiDocs.FLAG),
                     @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG),
@@ -450,8 +430,7 @@ public class AccountsController {
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
-                    @ApiResponse(responseCode = "404", description = "Not found, or the account is on another server."),
-                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is on another server.")
             })
     public ResponseEntity<List<StatusResponse>> statuses(
             @AuthenticationPrincipal TokenPrincipal token,

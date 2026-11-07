@@ -9,20 +9,34 @@ import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.ObjectSchema;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
+import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.responses.ApiResponse;
-import io.swagger.v3.oas.models.responses.ApiResponses;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.Ordered;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+
+import static org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED_VALUE;
+import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
+import static org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE;
 
 /**
- * The API documentation's description of the server and of the API's errors, and text that several endpoints' descriptions
- * share. The differences from Mastodon in each endpoint's description have to follow {@code docs/api.md}.
+ * The API documentation's description of the server, and what the API's endpoints have in common, so that their
+ * annotations only describe what's particular to each. The differences from Mastodon in each endpoint's description have to
+ * follow {@code docs/api.md}.
+ *
+ * <ul>
+ * <li>Every error has Mastodon's {@code Error} body. An endpoint that takes a token gets a 401 for one that's invalid, or
+ * for none at all if it needs one, and a 403 for one without any of the scopes it lists, which {@code ScopeRequirements}
+ * has already listed.
+ * <li>A body documented as JSON can also be form-encoded or multipart, with the same fields.
+ * <li>A list that takes {@code max_id} is paged by the cursors that {@link PageLinks} links to.
+ * </ul>
  */
 @Configuration(proxyBeanMethods = false)
 class ApiDocs {
@@ -33,14 +47,6 @@ class ApiDocs {
 
     static final String NOT_FOUND = "Not found, or the ID isn't a UUID.";
 
-    static final String PAGE = """
-            Pages go from newest to oldest. The `Link` header has a `next` link to the page after this one, if this page is \
-            full, and a `prev` link to newer results, if it isn't empty. A cursor that isn't a UUID gets a 422.""";
-
-    static final String MAX_ID = "Only results older than this ID.";
-    static final String SINCE_ID = "Only results newer than this ID.";
-    static final String MIN_ID = "Only results newer than this ID, starting with the oldest of them.";
-
     static final String FLAG = """
             Read as Mastodon does: missing or empty is false, `0`, `f`, `false`, and `off` are false, and anything else is \
             true.""";
@@ -49,31 +55,46 @@ class ApiDocs {
             Needs a user's token. A token from the `client_credentials` grant gets a 422, with "This method requires an \
             authenticated user".""";
 
-    static final String FORM_OR_JSON = """
+    private static final String FORM_OR_JSON = """
             The body can be form-encoded, multipart, or a JSON object. Values in a JSON body can be strings, or booleans \
             for flags.""";
+
+    private static final String PAGE = """
+            Pages go from newest to oldest. The `Link` header has a `next` link to the page after this one, if this page is \
+            full, and a `prev` link to newer results, if it isn't empty. A cursor that isn't a UUID gets a 422.""";
+
+    private static final Map<String, String> CURSORS = Map.of(
+            "max_id", "Only results older than this ID.",
+            "since_id", "Only results newer than this ID.",
+            "min_id", "Only results newer than this ID, starting with the oldest of them.");
 
     private static final String ERROR_SCHEMA = "Error";
 
     /**
      * The order the documentation lists its sections in, from what a client needs first. Sections not named here come
-     * after these.
+     * after these. This runs after the customizer that adds the OAuth tag, which is ordered first.
      */
     private static final List<String> TAG_ORDER = List.of(
             "Apps", "OAuth", "Accounts", "Statuses", "Timelines", "Search", "Instance", "Admin: accounts",
             "Admin: domain blocks", "ActivityPub", "WebFinger", "NodeInfo");
 
     @Bean
-    OpenApiCustomizer serverAndErrorDocs(BuildProperties build) {
+    OpenApiCustomizer clientApiDocs(BuildProperties build) {
         return openApi -> {
             describeServer(openApi, build);
-            describeErrors(openApi);
+            addErrorSchema(openApi);
+            openApi.getPaths().forEach((path, item) -> {
+                if (path.startsWith("/api/")) {
+                    item.readOperations().forEach(ApiDocs::describe);
+                }
+            });
+            if (openApi.getTags() != null) {
+                openApi.getTags().sort(Comparator.comparingInt(tag -> {
+                    var index = TAG_ORDER.indexOf(tag.getName());
+                    return index < 0 ? TAG_ORDER.size() : index;
+                }));
+            }
         };
-    }
-
-    @Bean
-    OpenApiCustomizer tagOrder() {
-        return new TagOrder();
     }
 
     private static void describeServer(OpenAPI openApi, BuildProperties build) {
@@ -94,12 +115,7 @@ class ApiDocs {
                         `FEDERATION.md` in the repository describes them in full."""));
     }
 
-    /**
-     * Every error from the API has the same body, so endpoints only describe when each status is sent. An endpoint that
-     * takes a token gets a 401 for one that's invalid, or for none at all if it needs one, and a 403 for one without any
-     * of the scopes it lists. {@code ScopeRequirements} has already listed those.
-     */
-    private static void describeErrors(OpenAPI openApi) {
+    private static void addErrorSchema(OpenAPI openApi) {
         var schema = new ObjectSchema()
                 .addProperty("error", new StringSchema().description("Why the request failed."))
                 .description("Mastodon's Error entity.");
@@ -108,68 +124,51 @@ class ApiDocs {
             openApi.setComponents(new Components());
         }
         openApi.getComponents().addSchemas(ERROR_SCHEMA, schema);
+    }
 
-        openApi.getPaths().forEach((path, item) -> {
-            if (!path.startsWith("/api/")) {
-                return;
+    private static void describe(Operation operation) {
+        var responses = operation.getResponses();
+        var security = operation.getSecurity() == null ? List.<SecurityRequirement>of() : operation.getSecurity();
+        if (!security.isEmpty()) {
+            var anonymous = security.stream().anyMatch(SecurityRequirement::isEmpty);
+            responses.putIfAbsent("401", new ApiResponse().description(anonymous
+                    ? "The token is invalid, or has been revoked."
+                    : "The token is missing or invalid, or has been revoked."));
+            if (security.stream().flatMap(requirement -> requirement.values().stream()).anyMatch(s -> !s.isEmpty())) {
+                responses.putIfAbsent("403", new ApiResponse().description("The token has none of the scopes listed."));
             }
-            for (var operation : item.readOperations()) {
-                var responses = operation.getResponses();
-                if (operation.getSecurity() != null && !operation.getSecurity().isEmpty()) {
-                    addIfMissing(responses, "401", allowsAnonymous(operation)
-                            ? "The token is invalid, or has been revoked."
-                            : "The token is missing or invalid, or has been revoked.");
-                    if (hasScopes(operation)) {
-                        addIfMissing(responses, "403", "The token has none of the scopes listed.");
-                    }
-                }
-                // Otherwise springdoc gives errors the body of a successful response.
-                responses.forEach((status, response) -> {
-                    if (status.startsWith("4")) {
-                        response.setContent(new Content().addMediaType(
-                                org.springframework.http.MediaType.APPLICATION_JSON_VALUE,
-                                new MediaType().schema(new Schema<>().$ref("#/components/schemas/" + ERROR_SCHEMA))));
-                    }
-                });
+        }
+
+        var body = operation.getRequestBody();
+        var json = body == null || body.getContent() == null ? null : body.getContent().get(APPLICATION_JSON_VALUE);
+        if (json != null) {
+            body.getContent()
+                    .addMediaType(APPLICATION_FORM_URLENCODED_VALUE, json)
+                    .addMediaType(MULTIPART_FORM_DATA_VALUE, json);
+            append(operation, FORM_OR_JSON);
+        }
+
+        var parameters = operation.getParameters() == null ? List.<Parameter>of() : operation.getParameters();
+        if (parameters.stream().anyMatch(parameter -> parameter.getName().equals("max_id"))) {
+            parameters.stream()
+                    .filter(parameter -> parameter.getDescription() == null && CURSORS.containsKey(parameter.getName()))
+                    .forEach(parameter -> parameter.setDescription(CURSORS.get(parameter.getName())));
+            responses.putIfAbsent("422", new ApiResponse().description("A cursor or `limit` is invalid."));
+            append(operation, PAGE);
+        }
+
+        // Otherwise springdoc gives errors the body of a successful response.
+        var error = new Content().addMediaType(APPLICATION_JSON_VALUE,
+                new MediaType().schema(new Schema<>().$ref(Components.COMPONENTS_SCHEMAS_REF + ERROR_SCHEMA)));
+        responses.forEach((status, response) -> {
+            if (status.startsWith("4")) {
+                response.setContent(error);
             }
         });
     }
 
-    private static boolean allowsAnonymous(Operation operation) {
-        return operation.getSecurity().stream().anyMatch(requirement -> requirement.isEmpty());
-    }
-
-    private static boolean hasScopes(Operation operation) {
-        return operation.getSecurity().stream()
-                .flatMap(requirement -> requirement.values().stream())
-                .anyMatch(scopes -> !scopes.isEmpty());
-    }
-
-    private static void addIfMissing(ApiResponses responses, String status, String description) {
-        if (!responses.containsKey(status)) {
-            responses.addApiResponse(status, new ApiResponse().description(description));
-        }
-    }
-
-    /**
-     * Runs after the customizers that add tags, which are either unordered or ordered before this. springdoc sorts
-     * customizers by {@link Ordered}, and doesn't see an {@code @Order} on a bean method.
-     */
-    private static final class TagOrder implements OpenApiCustomizer, Ordered {
-
-        @Override
-        public void customise(OpenAPI openApi) {
-            if (openApi.getTags() != null) {
-                openApi.getTags().sort(Comparator.comparingInt(tag -> {
-                    var index = TAG_ORDER.indexOf(tag.getName());
-                    return index < 0 ? TAG_ORDER.size() : index;
-                }));
-            }
-        }
-
-        @Override
-        public int getOrder() {
-            return Ordered.LOWEST_PRECEDENCE;
-        }
+    private static void append(Operation operation, String paragraph) {
+        var description = operation.getDescription();
+        operation.setDescription(description == null || description.isBlank() ? paragraph : description + " " + paragraph);
     }
 }

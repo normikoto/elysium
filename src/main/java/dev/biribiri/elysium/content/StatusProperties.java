@@ -8,7 +8,9 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *                      text counts as 23 characters.
  */
 @ConfigurationProperties("elysium.statuses")
-public record StatusProperties(@DefaultValue("5000") int maxCharacters) {
+public record StatusProperties(@DefaultValue("" + StatusProperties.DEFAULT_MAX_CHARACTERS) int maxCharacters) {
+
+    public static final int DEFAULT_MAX_CHARACTERS = 5000;
 
     public StatusProperties {
         if (maxCharacters < 1) {

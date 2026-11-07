@@ -31,6 +31,11 @@ public class NodeInfoController {
     private static final String PATH_2_1 = "/nodeinfo/2.1";
     private static final String SCHEMA_2_0 = "http://nodeinfo.diaspora.software/ns/schema/2.0";
     private static final String SCHEMA_2_1 = "http://nodeinfo.diaspora.software/ns/schema/2.1";
+    private static final String USAGE = """
+            Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the number of \
+            local users, and `localPosts`, which counts replies but not direct statuses. Active user counts and \
+            `localComments` aren't reported.""";
+
     private static final URI REPOSITORY = URI.create("https://github.com/normikoto/elysium");
 
     private final ActorService actors;
@@ -68,10 +73,7 @@ public class NodeInfoController {
     @Operation(
             operationId = "nodeInfo21",
             summary = "Get NodeInfo 2.1",
-            description = """
-                    Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the \
-                    number of local users, and `localPosts`, which counts replies but not direct statuses. Active user \
-                    counts and `localComments` aren't reported. The same as 2.0, plus the software's repository.""",
+            description = USAGE + " The same as 2.0, plus the software's repository.",
             responses = @ApiResponse(responseCode = "200", description = "The document."))
     NodeInfo nodeInfo2_1() {
         return nodeInfo("2.1", REPOSITORY);
@@ -84,10 +86,7 @@ public class NodeInfoController {
     @Operation(
             operationId = "nodeInfo20",
             summary = "Get NodeInfo 2.0",
-            description = """
-                    Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the \
-                    number of local users, and `localPosts`, which counts replies but not direct statuses. Active user \
-                    counts and `localComments` aren't reported.""",
+            description = USAGE,
             responses = @ApiResponse(responseCode = "200", description = "The document."))
     NodeInfo nodeInfo2_0() {
         return nodeInfo("2.0", null);

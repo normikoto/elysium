@@ -21,11 +21,14 @@ import java.util.stream.Collectors;
  */
 @ConfigurationProperties("elysium.federation.inbox-limits")
 public record InboxLimitProperties(
-        @DefaultValue("120") int activitiesPerMinute,
-        @DefaultValue("20MB") DataSize dataPerHour,
+        @DefaultValue("" + DEFAULT_ACTIVITIES_PER_MINUTE) int activitiesPerMinute,
+        @DefaultValue(DEFAULT_MEGABYTES_PER_HOUR + "MB") DataSize dataPerHour,
         @DefaultValue Set<String> exemptDomains) {
 
-    private static final DataSize DEFAULT_DATA_PER_HOUR = DataSize.ofMegabytes(20);
+    public static final int DEFAULT_ACTIVITIES_PER_MINUTE = 120;
+    public static final int DEFAULT_MEGABYTES_PER_HOUR = 20;
+
+    private static final DataSize DEFAULT_DATA_PER_HOUR = DataSize.ofMegabytes(DEFAULT_MEGABYTES_PER_HOUR);
     private static final String EXEMPT_DOMAINS = "elysium.federation.inbox-limits.exempt-domains";
 
     public InboxLimitProperties {

@@ -44,11 +44,11 @@ public class WebFingerController {
             operationId = "webFinger",
             summary = "Find an actor by its address or URL",
             description = """
-                    Gives a `self` link to the actor document, of type `application/activity+json`, and an \
-                    `http://webfinger.net/rel/profile-page` link to the profile page. The instance actor can be found \
-                    as `acct:instance.actor@{domain}` or by `/actor`, and its profile page is the front page. A \
-                    suspended user is still found. Served as `application/jrd+json` or `application/json`, and any \
-                    origin can read it through CORS.""",
+                    Gives a `self` link to the actor document, of type `""" + ActivityStreams.ACTIVITY_JSON + """
+                    `, and an `http://webfinger.net/rel/profile-page` link to the profile page. The instance actor can \
+                    be found as `acct:""" + InstanceActor.USERNAME + "@{domain}` or by `" + InstanceActor.PATH + """
+                    `, and its profile page is the front page. A suspended user is still found. Served as \
+                    `application/jrd+json` or `application/json`, and any origin can read it through CORS.""",
             parameters = @Parameter(name = "resource", required = true, description = """
                     `acct:{username}@{domain}`, or an actor's URL. Only this server's domain is found."""),
             responses = {

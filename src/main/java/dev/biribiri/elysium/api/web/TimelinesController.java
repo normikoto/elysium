@@ -49,22 +49,18 @@ public class TimelinesController {
                     server. `local` has no effect, and `remote` returns an empty list. Statuses can't have media, so \
                     `only_media` returns an empty list.
 
-                    Only public statuses are listed, and not ones from suspended accounts.""" + " " + ApiDocs.PAGE,
+                    Only public statuses are listed, and not ones from suspended accounts.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#public"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
                             + StatusPage.MAX_LIMIT + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
-                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
-                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
-                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID),
                     @Parameter(name = "local", description = "Has no effect. " + ApiDocs.FLAG),
                     @Parameter(name = "remote", description = "Returns an empty list if true. " + ApiDocs.FLAG),
                     @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG)
             },
             responses = {
-                    @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
-                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+                    @ApiResponse(responseCode = "200", description = "The statuses, newest first.")
             })
     public ResponseEntity<List<StatusResponse>> publicTimeline(
             @RequestParam(required = false) String limit,

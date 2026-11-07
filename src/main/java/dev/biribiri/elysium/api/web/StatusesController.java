@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.StatusService;
@@ -76,8 +77,9 @@ public class StatusesController {
 
                     - Media, polls, and scheduled statuses aren't supported, and `media_ids`, `poll`, or `scheduled_at` \
                     with a value gets a 422 rather than being ignored. Empty values are allowed.
-                    - The length limit defaults to 5000 characters rather than 500, and `GET /api/v1/instance` gives it. \
-                    As in Mastodon, each URL counts as 23 characters, unless it's longer than 2048 characters, when it \
+                    - The length limit defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS + """
+                     characters rather than 500, and `GET /api/v1/instance` gives it. As in Mastodon, each URL \
+                    counts as 23 characters, unless it's longer than 2048 characters, when it \
                     counts at its full length. URLs can save at most 4096 characters per status, and any after that \
                     also count at their full length.
                     - `visibility` defaults to `public` only when it's missing. An empty value gets a 422, as do a \
@@ -85,7 +87,7 @@ public class StatusesController {
                     - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a \
                     duplicate status.
 
-                    """ + ApiDocs.NEEDS_USER + " " + ApiDocs.FORM_OR_JSON,
+                    """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The new status."),
@@ -95,13 +97,8 @@ public class StatusesController {
                             The status is empty or too long, a value is unsupported or of the wrong type, or the token \
                             has no user.""")
             })
-    @RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewStatusBody.class)),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
-                    schema = @Schema(implementation = NewStatusBody.class)),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
-                    schema = @Schema(implementation = NewStatusBody.class))
-    })
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewStatusBody.class)))
     public StatusResponse createFromJson(@AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request)
             throws IOException {
         var body = json.read(request, statuses.maxStoredCharacters() * MAX_BYTES_PER_CHARACTER + OTHER_FIELDS_BYTES);

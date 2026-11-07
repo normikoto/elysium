@@ -66,19 +66,14 @@ public class DomainBlocksController {
     @Operation(
             operationId = "listDomainBlocks",
             summary = "List blocked domains",
-            description = ApiDocs.PAGE,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/#get"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
                             + DomainBlockPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + DomainBlockPage.DEFAULT_LIMIT)),
-                    @Parameter(name = "max_id", description = ApiDocs.MAX_ID),
-                    @Parameter(name = "since_id", description = ApiDocs.SINCE_ID),
-                    @Parameter(name = "min_id", description = ApiDocs.MIN_ID)
+                            schema = @Schema(type = "integer", defaultValue = "" + DomainBlockPage.DEFAULT_LIMIT))
             },
             responses = {
-                    @ApiResponse(responseCode = "200", description = "The blocks, newest first."),
-                    @ApiResponse(responseCode = "422", description = "A cursor or `limit` is invalid.")
+                    @ApiResponse(responseCode = "200", description = "The blocks, newest first.")
             })
     public ResponseEntity<List<DomainBlockResponse>> list(
             @RequestParam(required = false) String limit,
@@ -133,10 +128,10 @@ public class DomainBlocksController {
                     `faß.example`, has to be sent in its `xn--` form.
                     - A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one \
                     that's already blocked.
-                    - `private_comment` can be up to 1000 characters.
+                    - `private_comment` can be up to\s""" + DomainBlocks.MAX_COMMENT_LENGTH + """
+                     characters.
 
-                    Follows to and from the server's accounts are removed, and come back only if they're made again. \
-                    """ + ApiDocs.FORM_OR_JSON,
+                    Follows to and from the server's accounts are removed, and come back only if they're made again.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/#create"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The new block."),
@@ -145,14 +140,8 @@ public class DomainBlocksController {
                             The domain or severity is missing or refused, or the domain is already blocked, in which \
                             case the body also has the block as `existing_domain_block`.""")
             })
-    @RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = NewDomainBlockBody.class)),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
-                    schema = @Schema(implementation = NewDomainBlockBody.class)),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
-                    schema = @Schema(implementation = NewDomainBlockBody.class))
-    })
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewDomainBlockBody.class)))
     public DomainBlockResponse createFromJson(HttpServletRequest request) throws IOException {
         return create(json.read(request, MAX_BODY_BYTES));
     }
@@ -174,9 +163,7 @@ public class DomainBlocksController {
             description = """
                     Differences from Mastodon: only `private_comment` can be changed, and an empty one removes it. \
                     `severity` can be left out, but otherwise has to be `suspend`, and other fields are ignored. A \
-                    block's domain can't be changed, as on Mastodon.
-
-                    """ + ApiDocs.FORM_OR_JSON,
+                    block's domain can't be changed, as on Mastodon.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/#update"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The block, as changed."),
@@ -184,14 +171,8 @@ public class DomainBlocksController {
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = "The severity or comment is refused.")
             })
-    @RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DomainBlockChangeBody.class)),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
-                    schema = @Schema(implementation = DomainBlockChangeBody.class)),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
-                    schema = @Schema(implementation = DomainBlockChangeBody.class))
-    })
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = DomainBlockChangeBody.class)))
     public DomainBlockResponse updateFromJson(
             @Parameter(description = ApiDocs.ID) @PathVariable String id,
             HttpServletRequest request) throws IOException {

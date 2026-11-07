@@ -22,6 +22,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -50,7 +51,7 @@ public class ActivityPubController {
      */
     private static final Optional<UUID> ANONYMOUS = Optional.empty();
 
-    private static final int COLLECTION_PAGE_SIZE = 40;
+    static final int COLLECTION_PAGE_SIZE = 40;
 
     private final ActorService actors;
     private final StatusService statuses;
@@ -74,22 +75,19 @@ public class ActivityPubController {
             description = """
                     A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, and the shared inbox \
                     at `/inbox` as `endpoints.sharedInbox`. A suspended user's document has `suspended: true`, and the \
-                    same key.""" + " " + FederationDocs.NEGOTIATED
-                    + " " + FederationDocs.UNSIGNED,
+                    same key.\s""" + FederationDocs.NEGOTIATED,
             parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The actor, or the profile page for HTML.",
                             content = {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Person.class)),
-                            @Content(mediaType = LD_JSON, schema = @Schema(implementation = Person.class)),
-                            @Content(mediaType = "text/html", schema = @Schema(type = "string"))
+                            @Content(mediaType = MediaType.TEXT_HTML_VALUE, schema = @Schema(type = "string"))
                     }),
                     @ApiResponse(responseCode = "404", description = "There's no such user."),
                     @ApiResponse(responseCode = "406", description = "The `Accept` header allows neither type."),
                     @ApiResponse(responseCode = "410", description = """
                             The user was deleted, with a `Tombstone` whose `formerType` is `Person`.""", content = {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Tombstone.class)),
-                            @Content(mediaType = LD_JSON, schema = @Schema(implementation = Tombstone.class))
                     })
             })
     ResponseEntity<?> actor(@PathVariable String username) {
@@ -124,8 +122,6 @@ public class ActivityPubController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The collection or the page.", content = {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(oneOf = {
-                                    OrderedCollection.class, OrderedCollectionPage.class})),
-                            @Content(mediaType = LD_JSON, schema = @Schema(oneOf = {
                                     OrderedCollection.class, OrderedCollectionPage.class}))
                     }),
                     @ApiResponse(responseCode = "400", description = "`max_id` isn't valid."),
@@ -158,8 +154,6 @@ public class ActivityPubController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The collection or the page.", content = {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(oneOf = {
-                                    OrderedCollection.class, OrderedCollectionPage.class})),
-                            @Content(mediaType = LD_JSON, schema = @Schema(oneOf = {
                                     OrderedCollection.class, OrderedCollectionPage.class}))
                     }),
                     @ApiResponse(responseCode = "400", description = "`max_id` isn't valid."),
@@ -231,13 +225,12 @@ public class ActivityPubController {
             operationId = "getInstanceActor",
             summary = "Fetch the server's own actor document",
             description = """
-                    An `Application` with the `preferredUsername` `instance.actor`, for signing requests that no user \
-                    is behind, such as fetches of keys and actor documents. Its key is identified as \
-                    `{actor-uri}#main-key`, and its `url` is the front page. It can't be followed, so a `Follow` of it \
-                    is ignored. It never needs a signature.""" + " " + FederationDocs.DOCUMENT,
+                    An `Application` with the `preferredUsername` `""" + InstanceActor.USERNAME + """
+                    `, for signing requests that no user is behind, such as fetches of keys and actor documents. Its \
+                    key is identified as `{actor-uri}#main-key`, and its `url` is the front page. It can't be followed, \
+                    so a `Follow` of it is ignored. It never needs a signature.\s""" + FederationDocs.DOCUMENT,
             responses = @ApiResponse(responseCode = "200", description = "The actor.", content = {
                     @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Application.class)),
-                            @Content(mediaType = LD_JSON, schema = @Schema(implementation = Application.class))
             }))
     Application instanceActor() {
         return Application.from(actors.instanceActor(), instance.sharedInboxUri());
@@ -250,8 +243,7 @@ public class ActivityPubController {
             description = """
                     Public and unlisted statuses are `Note` objects, and private and direct ones get a 404, even for a \
                     follower. A deleted public or unlisted status gets a 410 with a `Tombstone`, and a deleted private \
-                    or direct one still gets a 404.""" + " " + FederationDocs.NEGOTIATED
-                    + " " + FederationDocs.UNSIGNED,
+                    or direct one still gets a 404.\s""" + FederationDocs.NEGOTIATED,
             parameters = {
                     @Parameter(name = "username", description = "The author's username, matched case-insensitively."),
                     @Parameter(name = "id", description = "The status's ID.")
@@ -260,8 +252,7 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "200", description = "The `Note`, or the status's page for HTML.",
                             content = {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Note.class)),
-                            @Content(mediaType = LD_JSON, schema = @Schema(implementation = Note.class)),
-                            @Content(mediaType = "text/html", schema = @Schema(type = "string"))
+                            @Content(mediaType = MediaType.TEXT_HTML_VALUE, schema = @Schema(type = "string"))
                     }),
                     @ApiResponse(responseCode = "403", description = "The author is suspended."),
                     @ApiResponse(responseCode = "404", description = """
@@ -271,7 +262,6 @@ public class ActivityPubController {
                             The status was deleted, with a `Tombstone` whose `formerType` is `Note`, or the author \
                             was deleted, which gives the same answer for any ID.""", content = {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Tombstone.class)),
-                            @Content(mediaType = LD_JSON, schema = @Schema(implementation = Tombstone.class))
                     })
             })
     ResponseEntity<?> note(@PathVariable String username, @PathVariable String id) {

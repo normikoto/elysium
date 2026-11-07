@@ -21,9 +21,9 @@ import java.util.Optional;
 @Component
 class AddressFetchBudgets {
 
-    private static final int MAX_STARTED_PER_MINUTE = 30;
+    static final int MAX_STARTED_PER_MINUTE = 30;
     /** The same as one host can have, so a real server's own limit is reached first. */
-    private static final int MAX_RUNNING = 4;
+    static final int MAX_RUNNING = 4;
     private static final int MAX_TRACKED_ADDRESSES = 100_000;
 
     private final RateLimiter started;

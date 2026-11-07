@@ -59,20 +59,15 @@ class AppsController {
             operationId = "createApp",
             summary = "Register an application",
             description = """
-                    Needs no token. The response is the only time `client_secret` is shown. The body can be \
-                    form-encoded, multipart, or a JSON object.""",
+                    Needs no token. The response is the only time `client_secret` is shown.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "apps/#create"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The application, with its credentials."),
                     @ApiResponse(responseCode = "422", description = """
                             The name, a redirect URI, the website, or a scope is missing or invalid.""")
             })
-    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = {
-            @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewAppBody.class)),
-            @Content(mediaType = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
-                    schema = @Schema(implementation = NewAppBody.class)),
-            @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE, schema = @Schema(implementation = NewAppBody.class))
-    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewAppBody.class)))
     ApplicationResponse registerFromJson(@RequestBody Map<String, Object> body) {
         var redirectUris = new ArrayList<String>();
         switch (body.get("redirect_uris")) {
