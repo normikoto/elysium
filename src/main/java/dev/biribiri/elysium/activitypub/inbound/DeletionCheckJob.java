@@ -13,10 +13,6 @@ import java.time.Instant;
  */
 record DeletionCheckJob(String objectId, String actorId, Instant queuedAt, Instant turn) implements QueuedJob {
 
-    DeletionCheckJob(String objectId, String actorId, Instant queuedAt) {
-        this(objectId, actorId, queuedAt, null);
-    }
-
     DeletionCheckJob withTurn(Instant turn) {
         return new DeletionCheckJob(objectId, actorId, queuedAt, turn);
     }

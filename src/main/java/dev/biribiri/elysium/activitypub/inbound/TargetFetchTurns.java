@@ -48,32 +48,24 @@ class TargetFetchTurns {
             .build();
 
     /**
-     * Takes a turn to fetch from this host.
+     * Takes a turn to fetch from this host, unless the job already holds one that's current.
      *
+     * @param held the turn the job was given before, or null if it hasn't waited for one
      * @return when the fetch can be made, which is {@code now} if there's room, or empty if it would be too long to wait. No
      * turn is taken then.
      */
-    Optional<Instant> take(URI target, Instant now) {
+    synchronized Optional<Instant> take(URI target, Instant held, Instant now) {
+        if (held != null && !now.isBefore(held) && now.isBefore(held.plus(TURN_LASTS))) {
+            return Optional.of(now);
+        }
         var host = target.getHost() == null ? "" : target.getHost().toLowerCase(Locale.ROOT);
-        var turn = new Instant[1];
-        nextFree.asMap().compute(host, (ignored, current) -> {
-            var free = current == null || current.isBefore(now) ? now : current;
-            var candidate = free.minus(BURST);
-            var at = candidate.isAfter(now) ? candidate : now;
-            if (Duration.between(now, at).compareTo(MAX_WAIT) > 0) {
-                return current;
-            }
-            turn[0] = at;
-            return free.plus(SPACING);
-        });
-        return Optional.ofNullable(turn[0]);
-    }
-
-    /**
-     * @param turn a turn given to a job, or null if it hasn't been given one
-     * @return whether a job given this turn can fetch now without taking another one
-     */
-    static boolean holds(Instant turn, Instant now) {
-        return turn != null && !now.isBefore(turn) && now.isBefore(turn.plus(TURN_LASTS));
+        var current = nextFree.getIfPresent(host);
+        var free = current == null || current.isBefore(now) ? now : current;
+        var turn = free.minus(BURST).isAfter(now) ? free.minus(BURST) : now;
+        if (Duration.between(now, turn).compareTo(MAX_WAIT) > 0) {
+            return Optional.empty();
+        }
+        nextFree.put(host, free.plus(SPACING));
+        return Optional.of(turn);
     }
 }

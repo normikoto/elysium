@@ -18,8 +18,9 @@ import java.time.Instant;
 /**
  * Stores a {@code Note} from another server as a status, when it's for a local account, through a follow or by addressing
  * it, or when it's a public or unlisted reply to a status of a local account or of one that's followed here, as Mastodon
- * keeps them. That last case is what a reply forwarded by the parent's server looks like. Notes that nobody here would see aren't kept, which also stops any server from filling the database by delivering to
- * the shared inbox. Direct notes are left out until mentions exist, since nobody but their author could see them here.
+ * keeps them. That last case is what a reply forwarded by the parent's server looks like. Notes that nobody here would see
+ * aren't kept, which also stops any server from filling the database by delivering to the shared inbox. Direct notes are
+ * left out until mentions exist, since nobody but their author could see them here.
  *
  * <p>This is for a {@code Create}, and for an {@code Update} of a note that isn't stored yet. Both have to pass the same
  * checks, so that an {@code Update} can't store anything a {@code Create} couldn't.
@@ -78,11 +79,9 @@ class NoteStorage {
         }
         var forWhom = recipients.of(activity, document, read.fetched() ? note.addressing() : Addressing.NONE);
         // Followers-only replies stay out, since only the replier's followers could see them.
-        if (forWhom.isEmpty() && note.inReplyTo() != null
-                && (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED)) {
-            forWhom = recipients.ofReplyTo(note.inReplyTo());
-        }
-        if (forWhom.isEmpty()) {
+        if (forWhom.isEmpty() && !(note.inReplyTo() != null
+                && (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED)
+                && recipients.repliesToSomeoneHere(note.inReplyTo()))) {
             log.debug("Ignoring {} {}, which isn't for any local account", activity.type(), activity.id());
             return Result.IGNORED;
         }

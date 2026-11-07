@@ -25,7 +25,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 @Service
 public class StatusService {
@@ -247,9 +249,15 @@ public class StatusService {
      * by its author.
      */
     public boolean isVisible(Status status, Optional<UUID> viewer) {
+        return isVisible(status, viewer, author -> viewer.filter(id -> follows.isFollowing(id, author)).isPresent());
+    }
+
+    /**
+     * @param followsAuthor whether the viewer follows an author, for a caller that has looked that up already
+     */
+    private static boolean isVisible(Status status, Optional<UUID> viewer, Predicate<UUID> followsAuthor) {
         return status.isVisibleTo(viewer)
-                || (status.visibility() == Visibility.PRIVATE
-                && viewer.filter(id -> follows.isFollowing(id, status.actorId())).isPresent());
+                || (status.visibility() == Visibility.PRIVATE && followsAuthor.test(status.actorId()));
     }
 
     /**
@@ -259,11 +267,17 @@ public class StatusService {
      * @return empty if the viewer can't see the status itself
      */
     public Optional<StatusContext> findContext(UUID id, Optional<UUID> viewer) {
-        return findVisible(id, viewer).map(status -> new StatusContext(
-                statuses.findAncestors(id, MAX_ANCESTORS).stream().filter(found -> isVisible(found, viewer)).toList(),
-                statuses.findDescendants(id, MAX_DESCENDANT_DEPTH, MAX_DESCENDANTS).stream()
-                        .filter(found -> isVisible(found, viewer))
-                        .toList()));
+        return findVisible(id, viewer).map(status -> {
+            var ancestors = statuses.findAncestors(id, MAX_ANCESTORS);
+            var descendants = statuses.findDescendants(id, MAX_DESCENDANT_DEPTH, MAX_DESCENDANTS);
+            // One lookup for the whole thread, rather than one for each followers-only status in it.
+            var needsFollows = viewer.isPresent() && Stream.concat(ancestors.stream(), descendants.stream())
+                    .anyMatch(found -> found.visibility() == Visibility.PRIVATE && !found.isVisibleTo(viewer));
+            Set<UUID> followed = needsFollows ? Set.copyOf(follows.followedIds(viewer.get())) : Set.of();
+            Predicate<Status> visible = found -> isVisible(found, viewer, followed::contains);
+            return new StatusContext(
+                    ancestors.stream().filter(visible).toList(), descendants.stream().filter(visible).toList());
+        });
     }
 
     /**

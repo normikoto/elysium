@@ -326,6 +326,24 @@ public class FollowRepository {
     }
 
     /**
+     * @return whether a local account follows an actor, leaving out suspended and deleted ones
+     */
+    public boolean hasLocalFollowers(URI followedUri) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM follow f
+                            JOIN actor a ON a.id = f.follower_id
+                            JOIN actor followed ON followed.id = f.followed_id
+                            WHERE followed.uri = :followedUri AND f.state = 'accepted' AND a.is_local
+                              AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        )
+                        """)
+                .param("followedUri", followedUri.toString())
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
      * @return the local accounts that follow an actor, leaving out suspended and deleted ones
      */
     public List<UUID> findLocalFollowerIds(URI followedUri) {

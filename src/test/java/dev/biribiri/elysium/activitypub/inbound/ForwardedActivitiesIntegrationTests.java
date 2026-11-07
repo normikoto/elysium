@@ -128,7 +128,7 @@ class ForwardedActivitiesIntegrationTests {
     @Test
     void waitsForTheOriginsTurnWithoutFetching() throws Exception {
         var later = now().plusSeconds(30);
-        doReturn(Optional.of(later)).when(turns).take(any(), any());
+        doReturn(Optional.of(later)).when(turns).take(any(), any(), any());
         var job = new ForwardedJob(id, now(), null, null);
 
         var handler = forwarded.fetch(job);
@@ -144,15 +144,20 @@ class ForwardedActivitiesIntegrationTests {
     void usesATurnItWasGiven() throws Exception {
         serve(activity(id, actor, "origin"));
 
-        forwarded.fetch(new ForwardedJob(id, now(), null, null, now().minusSeconds(1)));
+        var held = now().minusSeconds(1);
+        // A full budget, which a held turn doesn't need.
+        for (var i = 0; i < TargetFetchTurns.FETCHES_PER_MINUTE + 1; i++) {
+            turns.take(URI.create(id), null, Instant.now());
+        }
 
-        verify(turns, never()).take(any(), any());
+        forwarded.fetch(new ForwardedJob(id, now(), null, null, held));
+
         assertThat(storedBody()).contains("origin");
     }
 
     @Test
     void dropsAForwardWhoseTurnIsTooFarAway() throws Exception {
-        doReturn(Optional.empty()).when(turns).take(any(), any());
+        doReturn(Optional.empty()).when(turns).take(any(), any(), any());
 
         forwarded.fetch(new ForwardedJob(id, now(), null, null));
 

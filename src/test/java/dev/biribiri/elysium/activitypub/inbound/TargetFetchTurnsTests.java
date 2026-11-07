@@ -18,52 +18,57 @@ class TargetFetchTurnsTests {
     @Test
     void allowsABurstAndThenSpacesFetchesOut() {
         for (var i = 0; i < TargetFetchTurns.FETCHES_PER_MINUTE; i++) {
-            assertThat(turns.take(TARGET, NOW)).contains(NOW);
+            assertThat(turns.take(TARGET, null, NOW)).contains(NOW);
         }
 
-        assertThat(turns.take(TARGET, NOW)).contains(NOW.plusSeconds(1));
-        assertThat(turns.take(URI.create("https://victim.example/other"), NOW)).contains(NOW.plusSeconds(2));
+        assertThat(turns.take(TARGET, null, NOW)).contains(NOW.plusSeconds(1));
+        assertThat(turns.take(URI.create("https://victim.example/other"), null, NOW)).contains(NOW.plusSeconds(2));
     }
 
     @Test
     void keepsHostsApart() {
         for (var i = 0; i < TargetFetchTurns.FETCHES_PER_MINUTE; i++) {
-            turns.take(TARGET, NOW);
+            turns.take(TARGET, null, NOW);
         }
 
-        assertThat(turns.take(URI.create("https://bystander.example/x"), NOW)).contains(NOW);
+        assertThat(turns.take(URI.create("https://bystander.example/x"), null, NOW)).contains(NOW);
     }
 
     @Test
     void recoversAtTheSteadyRate() {
         for (var i = 0; i < TargetFetchTurns.FETCHES_PER_MINUTE; i++) {
-            turns.take(TARGET, NOW);
+            turns.take(TARGET, null, NOW);
         }
         var later = NOW.plusSeconds(10);
 
         for (var i = 0; i < 10; i++) {
-            assertThat(turns.take(TARGET, later)).contains(later);
+            assertThat(turns.take(TARGET, null, later)).contains(later);
         }
-        assertThat(turns.take(TARGET, later)).contains(later.plusSeconds(1));
+        assertThat(turns.take(TARGET, null, later)).contains(later.plusSeconds(1));
     }
 
     @Test
     void refusesATurnTooFarAwayWithoutTakingIt() {
         var perWait = (int) (TargetFetchTurns.MAX_WAIT.toSeconds() * TargetFetchTurns.FETCHES_PER_MINUTE / 60);
         for (var i = 0; i < TargetFetchTurns.FETCHES_PER_MINUTE + perWait; i++) {
-            assertThat(turns.take(TARGET, NOW)).isPresent();
+            assertThat(turns.take(TARGET, null, NOW)).isPresent();
         }
 
-        assertThat(turns.take(TARGET, NOW)).isEmpty();
-        assertThat(turns.take(TARGET, NOW.plusSeconds(1))).contains(NOW.plus(TargetFetchTurns.MAX_WAIT).plusSeconds(1));
+        assertThat(turns.take(TARGET, null, NOW)).isEmpty();
+        assertThat(turns.take(TARGET, null, NOW.plusSeconds(1))).contains(NOW.plus(TargetFetchTurns.MAX_WAIT).plusSeconds(1));
     }
 
     @Test
-    void aTurnOnlyHoldsForAShortTime() {
-        assertThat(TargetFetchTurns.holds(null, NOW)).isFalse();
-        assertThat(TargetFetchTurns.holds(NOW.plusSeconds(1), NOW)).isFalse();
-        assertThat(TargetFetchTurns.holds(NOW, NOW)).isTrue();
-        assertThat(TargetFetchTurns.holds(NOW.minus(TargetFetchTurns.TURN_LASTS), NOW)).isFalse();
-        assertThat(TargetFetchTurns.holds(NOW.minus(Duration.ofMinutes(1)), NOW)).isFalse();
+    void aTurnHeldByAJobOnlyLastsAShortTime() {
+        for (var i = 0; i < TargetFetchTurns.FETCHES_PER_MINUTE; i++) {
+            turns.take(TARGET, null, NOW);
+        }
+
+        assertThat(turns.take(TARGET, NOW, NOW)).contains(NOW);
+        assertThat(turns.take(TARGET, NOW.minusSeconds(1), NOW)).contains(NOW);
+        // Not yet its turn, or too long after it, so it waits like any other.
+        assertThat(turns.take(TARGET, NOW.plusSeconds(5), NOW)).contains(NOW.plusSeconds(1));
+        assertThat(turns.take(TARGET, NOW.minus(TargetFetchTurns.TURN_LASTS), NOW)).contains(NOW.plusSeconds(2));
+        assertThat(turns.take(TARGET, NOW.minus(Duration.ofMinutes(1)), NOW)).contains(NOW.plusSeconds(3));
     }
 }

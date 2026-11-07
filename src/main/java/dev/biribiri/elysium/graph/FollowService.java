@@ -340,6 +340,13 @@ public class FollowService {
     }
 
     /**
+     * @return whether a local account that's neither suspended nor deleted follows the actor
+     */
+    public boolean hasLocalFollowers(URI followedUri) {
+        return follows.hasLocalFollowers(followedUri);
+    }
+
+    /**
      * Like {@link #followerInboxes}, leaving out actors who started following after this time.
      */
     public List<URI> followerInboxesAsOf(UUID followedId, Instant time) {

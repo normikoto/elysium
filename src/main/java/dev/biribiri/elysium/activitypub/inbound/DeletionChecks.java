@@ -65,7 +65,7 @@ class DeletionChecks {
      *                 timed from then
      */
     void queue(URI object, URI actor, Instant queuedAt) {
-        Jobs.schedule(scheduler, TASK, new DeletionCheckJob(object.toString(), actor.toString(), queuedAt),
+        Jobs.schedule(scheduler, TASK, new DeletionCheckJob(object.toString(), actor.toString(), queuedAt, null),
                 "deletion-check", object.toString(), actor.toString());
     }
 
@@ -77,16 +77,18 @@ class DeletionChecks {
      */
     CompletionHandler<DeletionCheckJob> run(DeletionCheckJob job) {
         var object = URI.create(job.objectId());
+        // confirm checks again, but a blocked host shouldn't use up turns or wait for one.
+        if (blocks.isBlocked(object.getHost())) {
+            return Jobs.done();
+        }
         var now = Instant.now();
-        if (!blocks.isBlocked(object.getHost()) && !TargetFetchTurns.holds(job.turn(), now)) {
-            var turn = turns.take(object, now);
-            if (turn.isEmpty()) {
-                log.debug("Ignoring a Delete of {}, since too many fetches are waiting for its server", object);
-                return Jobs.done();
-            }
-            if (turn.get().isAfter(now)) {
-                return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
-            }
+        var turn = turns.take(object, job.turn(), now);
+        if (turn.isEmpty()) {
+            log.debug("Ignoring a Delete of {}, since too many fetches are waiting for its server", object);
+            return Jobs.done();
+        }
+        if (turn.get().isAfter(now)) {
+            return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
         }
         confirm(object, URI.create(job.actorId()));
         return Jobs.done();

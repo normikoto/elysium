@@ -52,10 +52,10 @@ public class ActivityDocuments {
      */
     public JsonNode fetch(URI url) throws DocumentFetchException {
         // A URL without a host can't be fetched anyway, and the client says why.
-        var host = url.getHost() == null ? null : url.getHost().toLowerCase(Locale.ROOT);
-        if (host == null) {
+        if (url.getHost() == null) {
             return fetchUncounted(url);
         }
+        var host = url.getHost().toLowerCase(Locale.ROOT);
         if (!hostRequests.tryStartFetch(host)) {
             throw DocumentFetchException.temporary("Too many fetches running for " + host, null);
         }

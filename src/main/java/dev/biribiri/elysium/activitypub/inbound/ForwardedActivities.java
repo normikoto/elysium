@@ -104,17 +104,15 @@ class ForwardedActivities {
             return Jobs.done();
         }
         var now = Instant.now();
-        if (!TargetFetchTurns.holds(job.turn(), now)) {
-            var turn = turns.take(uri, now);
-            if (turn.isEmpty()) {
-                log.debug("Dropping forwarded activity {}, since too many fetches are waiting for its origin", id);
-                return Jobs.done();
-            }
-            if (turn.get().isAfter(now)) {
-                return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
-            }
+        var turn = turns.take(uri, job.turn(), now);
+        if (turn.isEmpty()) {
+            log.debug("Dropping forwarded activity {}, since too many fetches are waiting for its origin", id);
+            return Jobs.done();
         }
-        if (!fetch(id, job.queuedAt()) && job.deletedObject() != null) {
+        if (turn.get().isAfter(now)) {
+            return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
+        }
+        if (!fetch(uri, job.queuedAt()) && job.deletedObject() != null) {
             deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt());
         }
         return Jobs.done();
@@ -126,8 +124,8 @@ class ForwardedActivities {
      *                  as an {@code Undo} of a forwarded {@code Follow}.
      * @return whether the activity is stored, by this
      */
-    private boolean fetch(String id, Instant arrivedAt) {
-        var uri = URI.create(id);
+    private boolean fetch(URI uri, Instant arrivedAt) {
+        var id = uri.toString();
         byte[] body;
         try {
             body = json.writeValueAsString(documents.fetch(uri)).getBytes(StandardCharsets.UTF_8);
