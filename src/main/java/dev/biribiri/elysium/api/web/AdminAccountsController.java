@@ -79,7 +79,8 @@ public class AdminAccountsController {
             description = """
                     Differences from Mastodon: only `local`, `remote`, `suspended`, `username`, and `by_domain` filter \
                     the list, and other filters are ignored. Accounts are ordered by their IDs, which are random, \
-                    rather than by age, and the cursors follow that order. Deleted accounts aren't listed.""",
+                    rather than by age, from highest to lowest, and the cursors follow that order. Deleted accounts \
+                    aren't listed.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#v1"),
             parameters = {
                     @Parameter(name = "local", description = "Only accounts on this server. " + ApiDocs.FLAG),
@@ -91,7 +92,12 @@ public class AdminAccountsController {
                     @Parameter(name = "by_domain", description = "Only accounts on this domain."),
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
                             + AccountFilter.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + AccountFilter.DEFAULT_LIMIT))
+                            schema = @Schema(type = "integer", defaultValue = "" + AccountFilter.DEFAULT_LIMIT)),
+                    // The generic cursor descriptions say older and newer, which these IDs don't mean.
+                    @Parameter(name = "max_id", description = "Only accounts with an ID lower than this."),
+                    @Parameter(name = "since_id", description = "Only accounts with an ID higher than this."),
+                    @Parameter(name = "min_id", description = """
+                            Only accounts with an ID higher than this, starting with the closest to it.""")
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts.")

@@ -15,6 +15,12 @@ import java.util.UUID;
 public interface RemoteActorResolver {
 
     /**
+     * How many lookups each local account can ask for in a minute. Each one can make a few requests to a server the caller
+     * chooses.
+     */
+    int LOOKUPS_PER_MINUTE = 30;
+
+    /**
      * Finds an actor through WebFinger, storing it if it's new or the stored copy is old.
      *
      * @param requester the local account asking, whose limit this counts toward

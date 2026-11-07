@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -60,7 +61,8 @@ public class SearchController {
                     - A query that's a `username@domain` or an `https` URL finds that one account. Any other query \
                     matches the start of the usernames this server knows.
                     - Another server is only asked about an account for a signed-in user's request, when `resolve` is \
-                    true. Each user can make 30 of those lookups a minute, and then gets a 429.
+                    true. Each user can make\s""" + RemoteActorResolver.LOOKUPS_PER_MINUTE + """
+                     of those lookups a minute, and then gets a 429.
                     - Only the first\s""" + AccountFilter.MAX_LIMIT + """
                      matches can be paged through with `offset`, and an `offset` past them returns no accounts.
                     - `following`, `account_id`, `exclude_unreviewed`, `min_id`, and `max_id` are ignored.

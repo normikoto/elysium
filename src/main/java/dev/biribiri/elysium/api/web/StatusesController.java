@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.api.web;
 
-import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;

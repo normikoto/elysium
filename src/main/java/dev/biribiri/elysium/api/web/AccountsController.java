@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
@@ -54,7 +55,7 @@ public class AccountsController {
     private static final String FOLLOWS = """
             Differences from Mastodon: pages are by when each follow was made, so a cursor from a follow that's since been \
             removed gives an empty page. For an account on another server, only accounts on this server are listed. \
-            Suspended accounts are left out.
+            Suspended and deleted accounts are left out.
 
             If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A suspended \
             account gets a 404.""";
@@ -184,8 +185,9 @@ public class AccountsController {
             summary = "Find an account by its address",
             description = """
                     Only asks another server about an account for a signed-in user's request, and so finds only the \
-                    accounts this server already knows otherwise. Each user can make 30 of those lookups a minute, \
-                    and then gets a 429. A suspended or deleted account isn't found.""",
+                    accounts this server already knows otherwise. Each user can make\s"""
+                    + RemoteActorResolver.LOOKUPS_PER_MINUTE
+                    + " of those lookups a minute, and then gets a 429. A suspended or deleted account isn't found.",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#lookup"),
             parameters = @Parameter(name = "acct", required = true, description = """
                     The username of an account on this server, or `username@domain` for one on another server. A \

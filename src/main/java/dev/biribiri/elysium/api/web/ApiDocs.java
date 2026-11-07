@@ -60,8 +60,9 @@ class ApiDocs {
             for flags.""";
 
     private static final String PAGE = """
-            Pages go from newest to oldest. The `Link` header has a `next` link to the page after this one, if this page is \
-            full, and a `prev` link to newer results, if it isn't empty. A cursor that isn't a UUID gets a 422.""";
+            Pages go from newest to oldest, unless the endpoint says otherwise. The `Link` header has a `next` link to the \
+            page after this one, if this page is full, and a `prev` link to newer results, if it isn't empty. A cursor that \
+            isn't a UUID gets a 422.""";
 
     private static final Map<String, String> CURSORS = Map.of(
             "max_id", "Only results older than this ID.",

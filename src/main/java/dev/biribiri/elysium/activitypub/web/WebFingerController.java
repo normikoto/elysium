@@ -46,7 +46,8 @@ public class WebFingerController {
             description = """
                     Gives a `self` link to the actor document, of type `""" + ActivityStreams.ACTIVITY_JSON + """
                     `, and an `http://webfinger.net/rel/profile-page` link to the profile page. The instance actor can \
-                    be found as `acct:""" + InstanceActor.USERNAME + "@{domain}` or by `" + InstanceActor.PATH + """
+                    be found as `acct:""" + InstanceActor.USERNAME + "@{domain}` or by its URL, `{base-url}"
+                    + InstanceActor.PATH + """
                     `, and its profile page is the front page. A suspended user is still found. Served as \
                     `application/jrd+json` or `application/json`, and any origin can read it through CORS.""",
             parameters = @Parameter(name = "resource", required = true, description = """

@@ -40,10 +40,6 @@ class RemoteActorLookup implements RemoteActorResolver {
 
     private static final Logger log = LoggerFactory.getLogger(RemoteActorLookup.class);
 
-    /**
-     * Each lookup can make a few requests to a server the caller chooses.
-     */
-    private static final int LOOKUPS_PER_MINUTE = 30;
     private static final int MAX_TRACKED_ACCOUNTS = 10_000;
 
     private static final Pattern USERNAME = Pattern.compile("[^\\s@/?#%]{1,255}");
@@ -78,7 +74,10 @@ class RemoteActorLookup implements RemoteActorResolver {
         this.instance = instance;
         this.json = json;
         this.lookups = new RateLimiter(
-                LOOKUPS_PER_MINUTE, Duration.ofMinutes(1), MAX_TRACKED_ACCOUNTS, Ticker.systemTicker());
+                RemoteActorResolver.LOOKUPS_PER_MINUTE,
+                Duration.ofMinutes(1),
+                MAX_TRACKED_ACCOUNTS,
+                Ticker.systemTicker());
     }
 
     @Override

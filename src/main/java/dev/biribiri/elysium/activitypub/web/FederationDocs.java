@@ -35,8 +35,9 @@ final class FederationDocs {
             An `OrderedCollection` with `totalItems` and a `first` page, at `?page=true`. A page is an \
             `OrderedCollectionPage` with `partOf`, up to\s""" + ActivityPubController.COLLECTION_PAGE_SIZE + """
              `orderedItems`, which are actor URIs, newest follow first, and a `next` page if there are more. Only \
-            accepted follows are counted or listed, and suspended actors are left out. If the user hides who's in their \
-            collections, the collection and every page only have `totalItems`.\s""" + DOCUMENT + " " + UNSIGNED;
+            accepted follows are counted or listed, and suspended and deleted actors are left out. If the user hides \
+            who's in their collections, the collection and every page only have `totalItems`.\s"""
+            + DOCUMENT + " " + UNSIGNED;
 
     static final String USERNAME = "The username, matched case-insensitively.";
 
