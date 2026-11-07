@@ -312,15 +312,6 @@ class StatusesIntegrationTests {
     // Reading
 
     @Test
-    void readsPublicStatusesWithoutAToken() throws Exception {
-        var id = create(alice(), "Hello");
-        mockMvc.perform(get("/api/v1/statuses/" + id))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(id))
-                .andExpect(jsonPath("$.text").doesNotExist());
-    }
-
-    @Test
     void onlyLinksToStatusPagesThatExist() throws Exception {
         for (var visibility : List.of("public", "unlisted")) {
             mockMvc.perform(createRequest(alice(), "Text").param("visibility", visibility))

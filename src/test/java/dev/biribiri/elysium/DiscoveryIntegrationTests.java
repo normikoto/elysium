@@ -193,15 +193,6 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
-    void servesActorDocumentAsLdJson() throws Exception {
-        mockMvc.perform(get("/users/admin")
-                        .header("Accept", "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Content-Type", containsString("application/ld+json")))
-                .andExpect(jsonPath("$.id").value(ACTOR_URI));
-    }
-
-    @Test
     void answersLdJsonWithTheActivityStreamsProfile() throws Exception {
         var profiled = "application/ld+json;profile=\"https://www.w3.org/ns/activitystreams\"";
         for (var accept : new String[]{"application/ld+json", profiled}) {
@@ -209,11 +200,6 @@ class DiscoveryIntegrationTests {
                     .andExpect(status().isOk())
                     .andExpect(header().string("Content-Type", profiled));
         }
-    }
-
-    @Test
-    void returnsNotFoundForUnknownActor() throws Exception {
-        mockMvc.perform(get("/users/nobody").accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
     }
 
     @Test

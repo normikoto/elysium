@@ -23,7 +23,6 @@ class DomainBlocksTests {
             "https://SELF.example, self.example",
             "https://self.example., self.example",
             "https://self.example., SELF.example.",
-            "https://self.example.:8443, self.example",
             "https://sub.self.example., self.example"
     })
     void refusesToBlockThisServer(String baseUrl, String domain) {

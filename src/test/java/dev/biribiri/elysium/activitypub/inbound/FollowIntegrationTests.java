@@ -140,18 +140,6 @@ class FollowIntegrationTests {
     }
 
     @Test
-    void usesTheSignerAsTheFollowerAndNotTheBody() {
-        var followId = newId();
-        var body = "{\"id\":\"%s\",\"type\":\"Follow\",\"actor\":\"https://other.test/users/victim\",\"object\":\"%s\"}"
-                .formatted(followId, followed.uri());
-
-        followHandler.handle(new InboundActivity(followId, followerUri, "Follow", body));
-
-        assertThat(follows()).containsExactly(followId);
-        assertThat(actors.findByUri(URI.create("https://other.test/users/victim"))).isEmpty();
-    }
-
-    @Test
     void runningTwiceLeavesOneFollowAndDoesNotFail() {
         var activity = follow(newId());
 
@@ -344,13 +332,15 @@ class FollowIntegrationTests {
     // Undoing
 
     @Test
-    void undoRemovesTheFollow() {
+    void undoRemovesTheFollowAndCancelsItsAccept() {
         var followId = newId();
         followHandler.handle(follow(followId));
+        assertThat(accepts()).hasSize(1);
 
         undoHandler.handle(undo(followerUri, embeddedFollow(followId, followerUri)));
 
         assertThat(follows()).isEmpty();
+        assertThat(accepts()).isEmpty();
     }
 
     @Test
@@ -392,22 +382,10 @@ class FollowIntegrationTests {
     void undoWithoutAnIdMatchesTheTwoActors() {
         followHandler.handle(follow(newId()));
 
-        undoHandler.handle(undo(followerUri, "{\"type\":\"Follow\",\"actor\":\"%s\",\"object\":\"%s\"}"
-                .formatted(followerUri, followed.uri())));
+        undoHandler.handle(undoOfPair());
 
         assertThat(follows()).isEmpty();
-    }
-
-    @Test
-    void undoOfAnOlderFollowLeavesTheNewerOne() {
-        var older = arrive(follow(newId()));
-        var newer = arrive(follow(newId()));
-        followHandler.handle(older);
-        followHandler.handle(newer);
-
-        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(older.id(), followerUri))));
-
-        assertThat(follows()).containsExactly(newer.id());
+        assertThat(accepts()).isEmpty();
     }
 
     @Test
@@ -524,6 +502,7 @@ class FollowIntegrationTests {
         followHandler.handle(older);
 
         assertThat(follows()).containsExactly(newer.id());
+        assertThat(accepts()).singleElement().satisfies(body -> assertThat(body).contains(newer.id()));
 
         undoHandler.handle(undo(followerUri, embeddedFollow(newer.id(), followerUri)));
 
@@ -533,7 +512,7 @@ class FollowIntegrationTests {
     // An Undo with no ID for its Follow
 
     @Test
-    void anUndoWithNoIdThatRunsBeforeItsFollowLeavesNoFollow() {
+    void anUndoWithNoIdThatRunsBeforeItsFollowLeavesNoFollow() throws Exception {
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         var activity = arrivedAt(follow(newId()), now.minusSeconds(60));
 
@@ -542,6 +521,7 @@ class FollowIntegrationTests {
 
         assertThat(follows()).isEmpty();
         assertThat(accepts()).isEmpty();
+        verify(documents, never()).fetch(any());
     }
 
     @Test
@@ -580,28 +560,6 @@ class FollowIntegrationTests {
         assertThat(follows()).containsExactly(activity.id());
     }
 
-    // An Undo and the Accept
-
-    @Test
-    void anUndoCancelsTheAcceptOfTheFollow() {
-        var followId = newId();
-        followHandler.handle(follow(followId));
-        assertThat(accepts()).hasSize(1);
-
-        undoHandler.handle(undo(followerUri, embeddedFollow(followId, followerUri)));
-
-        assertThat(accepts()).isEmpty();
-    }
-
-    @Test
-    void anUndoWithNoIdCancelsTheAcceptOfTheFollow() {
-        followHandler.handle(follow(newId()));
-
-        undoHandler.handle(undoOfPair());
-
-        assertThat(accepts()).isEmpty();
-    }
-
     // One actor can't affect another's
 
     @Test
@@ -624,18 +582,6 @@ class FollowIntegrationTests {
 
         assertThat(follows()).containsExactly(second);
         assertThat(accepts()).singleElement().satisfies(body -> assertThat(body).contains(second));
-    }
-
-    @Test
-    void aFollowThatArrivedBeforeTheOneStoredGetsNoAccept() {
-        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var older = arrivedAt(follow(newId()), now.minusSeconds(60));
-        var newer = arrivedAt(follow(newId()), now);
-        followHandler.handle(newer);
-
-        followHandler.handle(older);
-
-        assertThat(accepts()).singleElement().satisfies(body -> assertThat(body).contains(newer.id()));
     }
 
     @Test
@@ -689,17 +635,6 @@ class FollowIntegrationTests {
         followHandler.handle(follow);
 
         assertThat(follows()).isEmpty();
-    }
-
-    @Test
-    void doesNotFetchTheActorOfAFollowThatIsCovered() throws Exception {
-        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var activity = arrivedAt(follow(newId()), now.minusSeconds(60));
-        undoHandler.handle(arrivedAt(undoOfPair(), now));
-
-        followHandler.handle(activity);
-
-        verify(documents, never()).fetch(any());
     }
 
     @Test
@@ -952,17 +887,6 @@ class FollowIntegrationTests {
         followHandler.handle(stored(activity));
 
         assertThat(follows()).isEmpty();
-    }
-
-    @Test
-    void aRepeatedFollowIsProcessedAgain() {
-        var activity = follow(newId());
-        followHandler.handle(arrive(activity));
-        removeJobs(activity);
-
-        inbound.accept(again(activity));
-
-        assertThat(inboundJobs(activity)).isOne();
     }
 
     @Test

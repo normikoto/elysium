@@ -197,7 +197,14 @@ class RemoteActorLookupTests {
                 """);
         when(remoteActors.fetchOrRefresh(ACTOR)).thenThrow(new IllegalStateException("suspended"));
 
-        assertThat(lookup.resolveAcct(REQUESTER, "bob", "remote.example")).isEmpty();
+        for (var updatedAt : new Instant[]{Instant.now(), Instant.now().minus(Duration.ofDays(2))}) {
+            var bob = suspended(actor(updatedAt));
+            when(actors.findRemoteByAcct("bob", "remote.example")).thenReturn(Optional.of(bob));
+            when(actors.findByUri(ACTOR)).thenReturn(Optional.of(bob));
+
+            assertThat(lookup.resolveAcct(REQUESTER, "bob", "remote.example")).isEmpty();
+            assertThat(lookup.resolveUrl(REQUESTER, ACTOR)).isEmpty();
+        }
     }
 
     @Test
@@ -218,6 +225,12 @@ class RemoteActorLookupTests {
 
     private static FederationHttpClient.Response jrd(String body) {
         return new FederationHttpClient.Response(200, "application/jrd+json", null, body.getBytes(StandardCharsets.UTF_8), null);
+    }
+
+    private static Actor suspended(Actor actor) {
+        return new Actor(
+                actor.id(), actor.uri(), actor.username(), actor.domain(), actor.inboxUri(), actor.outboxUri(),
+                actor.sharedInboxUri(), actor.publicKeyPem(), actor.createdAt(), actor.updatedAt(), Instant.now(), null);
     }
 
     private static Actor actor(Instant updatedAt) {

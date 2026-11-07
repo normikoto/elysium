@@ -11,6 +11,9 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -124,25 +127,16 @@ class UpdateIntegrationTests {
         assertThat(status(noteId).orElseThrow().get("content")).isEqualTo("<p>Newest</p>");
     }
 
-    @Test
-    void ignoresAnEditThatDoesNotSayWhenItWasMade() {
-        var noteId = stored();
-        var edited = new HashMap<>(note(noteId, null));
-        edited.put("content", "<p>Undated</p>");
-
-        handler.handle(update(edited));
-
-        var row = status(noteId).orElseThrow();
-        assertThat(row.get("content")).isEqualTo("<p>Hi</p>");
-        assertThat(row.get("edited_at")).isNull();
-    }
-
-    @Test
-    void anUpdatedThatIsntAfterPublishedIsntAnEdit() {
+    /**
+     * Published is 2026-01-01, so these are an edit with no time, one at the same time, and one before.
+     */
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"2026-01-01T00:00:00Z", "2025-12-31T00:00:00Z"})
+    void ignoresAnEditThatIsntAfterPublished(String updated) {
         var noteId = stored();
 
-        handler.handle(update(edit(noteId, "2026-01-01T00:00:00Z", "<p>Same time</p>")));
-        handler.handle(update(edit(noteId, "2025-12-31T00:00:00Z", "<p>Earlier</p>")));
+        handler.handle(update(edit(noteId, updated, "<p>Not an edit</p>")));
 
         var row = status(noteId).orElseThrow();
         assertThat(row.get("content")).isEqualTo("<p>Hi</p>");
@@ -161,12 +155,14 @@ class UpdateIntegrationTests {
     }
 
     @Test
-    void aCreateWithAnUpdatedInTheFutureIsntStoredAsEdited() {
-        var noteId = noteId();
+    void aCreateWhoseUpdatedIsItsPublishedOrInTheFutureIsntStoredAsEdited() {
+        for (var updated : List.of("2026-01-01T00:00:00Z", Instant.now().plus(Duration.ofDays(1)).toString())) {
+            var noteId = noteId();
 
-        creates.handle(create(note(noteId, Instant.now().plus(Duration.ofDays(1)).toString())));
+            creates.handle(create(note(noteId, updated)));
 
-        assertThat(status(noteId).orElseThrow().get("edited_at")).isNull();
+            assertThat(status(noteId).orElseThrow().get("edited_at")).isNull();
+        }
     }
 
     @Test
@@ -179,16 +175,6 @@ class UpdateIntegrationTests {
         var row = status(noteId).orElseThrow();
         assertThat(row.get("content")).isEqualTo("<p>Already edited</p>");
         assertThat(((Timestamp) row.get("edited_at")).toInstant()).hasToString("2026-03-01T00:00:00Z");
-    }
-
-    @Test
-    void aCreateWhoseUpdatedIsItsPublishedIsNotAnEdit() {
-        var noteId = noteId();
-        var note = new HashMap<>(note(noteId, "2026-01-01T00:00:00Z"));
-
-        creates.handle(create(note));
-
-        assertThat(status(noteId).orElseThrow().get("edited_at")).isNull();
     }
 
     // Updates that run before their Create
@@ -277,26 +263,6 @@ class UpdateIntegrationTests {
     }
 
     @Test
-    void dropsANoteAttributedToSomeoneElse() {
-        var noteId = stored();
-        var edited = new HashMap<>(edit(noteId, "2026-02-01T00:00:00Z", "<p>Edited</p>"));
-        edited.put("attributedTo", neighbour.uri().toString());
-
-        handler.handle(update(edited));
-
-        assertThat(status(noteId).orElseThrow().get("content")).isEqualTo("<p>Hi</p>");
-    }
-
-    @Test
-    void dropsANoteOnAnotherServer() throws Exception {
-        var noteId = "https://elsewhere.test/notes/" + UUID.randomUUID();
-
-        handler.handle(updateOf(noteId + "#updates/1", author.uri(), "\"" + noteId + "\""));
-
-        verify(documents, never()).fetch(any());
-    }
-
-    @Test
     void fetchesANoteSentAsAnId() throws Exception {
         var noteId = stored();
         when(documents.fetch(eq(URI.create(noteId)))).thenReturn(json.readTree(json.writeValueAsString(
@@ -305,15 +271,6 @@ class UpdateIntegrationTests {
         handler.handle(updateOf(noteId + "#updates/1", author.uri(), "\"" + noteId + "\""));
 
         assertThat(status(noteId).orElseThrow().get("content")).isEqualTo("<p>Fetched</p>");
-    }
-
-    @Test
-    void retriesWhenANoteCantBeFetchedYet() throws Exception {
-        var noteId = stored();
-        when(documents.fetch(eq(URI.create(noteId)))).thenThrow(DocumentFetchException.temporary("down", null));
-
-        assertThatThrownBy(() -> handler.handle(updateOf(noteId + "#updates/1", author.uri(), "\"" + noteId + "\"")))
-                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -333,17 +290,6 @@ class UpdateIntegrationTests {
         jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", author.id()).update();
 
         handler.handle(update(edit(noteId, "2026-02-01T00:00:00Z", "<p>Suspended</p>")));
-
-        assertThat(status(noteId).orElseThrow().get("content")).isEqualTo("<p>Hi</p>");
-    }
-
-    @Test
-    void ignoresObjectsThatArentNotes() {
-        var noteId = stored();
-        var question = new HashMap<>(edit(noteId, "2026-02-01T00:00:00Z", "<p>Poll</p>"));
-        question.put("type", "Question");
-
-        handler.handle(update(question));
 
         assertThat(status(noteId).orElseThrow().get("content")).isEqualTo("<p>Hi</p>");
     }

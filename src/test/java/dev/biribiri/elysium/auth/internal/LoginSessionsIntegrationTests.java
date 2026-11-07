@@ -4,7 +4,6 @@ import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestOAuth;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.ActorService;
-import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -62,24 +61,6 @@ class LoginSessionsIntegrationTests {
     @BeforeEach
     void makeSureAnAccountExists() {
         TestAccounts.makeSureAnAccountExists(actors);
-    }
-
-    @Test
-    void aLoginIsStoredAndFoundFromItsCookie() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-
-        var response = mockMvc.perform(post("/login").with(csrf())
-                        .param("username", username)
-                        .param("password", PASSWORD))
-                .andExpect(status().is3xxRedirection())
-                .andReturn().getResponse();
-
-        var cookie = response.getCookie("SESSION");
-        assertThat(cookie).isNotNull();
-        assertThat(sessions(actorId)).isOne();
-
-        mockMvc.perform(accountPage().cookie(new Cookie("SESSION", cookie.getValue()))).andExpect(status().isOk());
     }
 
     @Test

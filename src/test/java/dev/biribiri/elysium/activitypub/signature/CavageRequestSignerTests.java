@@ -6,6 +6,7 @@ import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.core.annotation.Order;
@@ -70,12 +71,6 @@ class CavageRequestSignerTests {
     }
 
     @Test
-    void padsSingleDigitDaysInTheDate() {
-        assertThat(signer.sign("GET", INBOX, new byte[0], KEY).getFirst(HttpHeaders.DATE))
-                .isEqualTo("Tue, 03 Nov 2026 12:00:00 GMT");
-    }
-
-    @Test
     void signsWhatTheHostHeaderWillSay() {
         var withPort = signer.sign("GET", URI.create("https://Example.TEST:8443/a"), new byte[0], KEY);
         var defaultPort = signer.sign("GET", URI.create("https://example.test:443/a"), new byte[0], KEY);
@@ -133,32 +128,20 @@ class CavageRequestSignerTests {
                 .hasMessageContaining("valid host");
     }
 
-    @Test
-    void isRejectedIfTheBodyChanges() {
-        var request = received("POST", "/users/alice/inbox", "other".getBytes(StandardCharsets.UTF_8),
-                signer.sign("POST", INBOX, BODY, KEY));
-
-        assertThatThrownBy(() -> verifier().verify(request, SignatureFixtures.UNLIMITED)).isInstanceOf(SignatureVerificationException.class);
-    }
-
-    @Test
-    void isRejectedIfTheTargetChanges() {
-        var request = received("POST", "/users/mallory/inbox", BODY, signer.sign("POST", INBOX, BODY, KEY));
-
-        assertThatThrownBy(() -> verifier().verify(request, SignatureFixtures.UNLIMITED)).isInstanceOf(SignatureVerificationException.class);
-    }
-
-    @Test
-    void isRejectedIfTheMethodChanges() {
-        var request = received("PUT", "/users/alice/inbox", BODY, signer.sign("POST", INBOX, BODY, KEY));
-
-        assertThatThrownBy(() -> verifier().verify(request, SignatureFixtures.UNLIMITED)).isInstanceOf(SignatureVerificationException.class);
-    }
-
-    @Test
-    void isRejectedByAServerItWasNotSignedFor() {
-        var request = received("POST", "/users/alice/inbox", BODY,
-                signer.sign("POST", URI.create("https://other.example/users/alice/inbox"), BODY, KEY));
+    /**
+     * The changed body fails at its digest, and the rest fail at the signature. The last is the request sent again to another
+     * server.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "POST, /users/alice/inbox, other, https://example.test/users/alice/inbox",
+            "POST, /users/mallory/inbox, , https://example.test/users/alice/inbox",
+            "PUT, /users/alice/inbox, , https://example.test/users/alice/inbox",
+            "POST, /users/alice/inbox, , https://other.example/users/alice/inbox"
+    })
+    void isRejectedIfAnySignedPartChanges(String method, String target, String body, URI signedFor) {
+        var received = body == null ? BODY : body.getBytes(StandardCharsets.UTF_8);
+        var request = received(method, target, received, signer.sign("POST", signedFor, BODY, KEY));
 
         assertThatThrownBy(() -> verifier().verify(request, SignatureFixtures.UNLIMITED)).isInstanceOf(SignatureVerificationException.class);
     }

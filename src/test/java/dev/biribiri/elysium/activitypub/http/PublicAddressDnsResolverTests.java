@@ -67,18 +67,10 @@ class PublicAddressDnsResolverTests {
         assertThat(resolved).extracting(InetAddress::getHostAddress).containsExactly("8.8.8.8");
     }
 
-    @Test
-    void keepsPublicIpv6Answers() throws Exception {
-        var resolved = resolverAnswering(InetAddress.getByName("2606:4700:4700::1111")).resolve("host.example");
-
-        assertThat(resolved).hasSize(1);
-        assertThat(resolved[0]).isInstanceOf(Inet6Address.class);
-    }
-
     @ParameterizedTest
     @ValueSource(strings = {"8.8.8.8", "93.184.216.34", "172.32.0.1", "2606:4700:4700::1111"})
     void allowsPublicAddresses(String address) throws Exception {
-        assertThat(resolverReturning(address).resolve("host.example")).hasSize(1);
+        assertThat(resolverReturning(address).resolve("host.example")).containsExactly(InetAddress.getByName(address));
     }
 
     @Test

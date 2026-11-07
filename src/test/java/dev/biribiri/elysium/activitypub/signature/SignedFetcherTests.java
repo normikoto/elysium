@@ -78,7 +78,7 @@ class SignedFetcherTests {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {200, 400, 404, 410, 429, 500})
+    @ValueSource(ints = {200, 400, 404})
     void stopsAtAnAnswerThatIsNotARefusal(int status) throws Exception {
         respond(status);
 

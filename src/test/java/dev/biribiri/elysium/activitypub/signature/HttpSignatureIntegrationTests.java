@@ -60,19 +60,6 @@ class HttpSignatureIntegrationTests {
     }
 
     @Test
-    void rejectsATamperedRequest() {
-        var carol = actors.createLocalIfAbsent("carol", actor -> {
-        }).orElseThrow();
-        var key = signingKeys.forActor(carol).orElseThrow();
-        var signed = signed("/users/bob/inbox", BODY, key);
-        var tampered = new HttpRequestData("POST", "/users/mallory/inbox", signed.headers(), signed.body());
-
-        assertThatThrownBy(() -> verifier.verify(tampered, SignatureFixtures.UNLIMITED))
-                .isInstanceOfSatisfying(SignatureVerificationException.class,
-                        e -> assertThat(e.failure()).isEqualTo(SignatureVerificationException.Failure.REJECTED));
-    }
-
-    @Test
     void rejectsOneActorSigningWithAnothersKeyId() {
         var dave = actors.createLocalIfAbsent("dave", actor -> {
         }).orElseThrow();

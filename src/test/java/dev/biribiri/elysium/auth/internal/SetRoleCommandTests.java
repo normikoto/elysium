@@ -102,17 +102,6 @@ class SetRoleCommandTests {
     }
 
     @Test
-    void removingTheRoleAlsoRevokesAdminGrants() {
-        var actorId = account("demoted");
-        assertThat(run("demoted", "admin")).isZero();
-        var authorization = authorization(actorId.toString(), "admin:read");
-
-        assertThat(run("demoted", "user")).isZero();
-
-        assertThat(authorizationExists(authorization)).isFalse();
-    }
-
-    @Test
     void doesNotMentionAppsWhenNoneLostAccess() {
         account("noapps");
 

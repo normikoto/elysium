@@ -142,15 +142,6 @@ class OAuthIntegrationTests {
         }
     }
 
-    @Test
-    void hashesClientSecrets() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
-        assertThat(jdbc.sql("SELECT client_secret FROM oauth2_registered_client WHERE client_id = :id")
-                .param("id", app.clientId()).query(String.class).single())
-                .startsWith("{sha256}")
-                .doesNotContain(app.clientSecret());
-    }
-
     // Client credentials
 
     @Test
@@ -639,13 +630,14 @@ class OAuthIntegrationTests {
     }
 
     @Test
-    void keepsClientSecretsCheapToCheckAfterUse() throws Exception {
+    void hashesClientSecretsCheaplyEvenAfterUse() throws Exception {
         var app = registerApp("read", REDIRECT_URI);
         appToken(app);
         // Spring replaces a secret's hash after a login if the encoder says it needs upgrading.
         assertThat(jdbc.sql("SELECT client_secret FROM oauth2_registered_client WHERE client_id = :id")
                 .param("id", app.clientId()).query(String.class).single())
-                .startsWith("{sha256}");
+                .startsWith("{sha256}")
+                .doesNotContain(app.clientSecret());
     }
 
     /**

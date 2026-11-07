@@ -87,29 +87,20 @@ class ResetPasswordCommandTests {
     }
 
     @Test
-    void revokesOnlyThatAccountsAuthorizations() {
+    void revokesOnlyThatAccountsAuthorizationsAndConsent() {
         var actorId = account("revoked");
         var otherActorId = account("unaffected");
         var own = authorization(actorId.toString(), "authorization_code");
         var other = authorization(otherActorId.toString(), "authorization_code");
         var appOnly = authorization("some-client", "client_credentials");
+        consent(actorId);
+        consent(otherActorId);
 
         assertThat(run(() -> NEW_PASSWORD, "revoked")).isZero();
 
         assertThat(authorizationExists(own)).isFalse();
         assertThat(authorizationExists(other)).isTrue();
         assertThat(authorizationExists(appOnly)).isTrue();
-    }
-
-    @Test
-    void revokesOnlyThatAccountsConsent() {
-        var actorId = account("noconsent");
-        var otherActorId = account("hasconsent");
-        consent(actorId);
-        consent(otherActorId);
-
-        assertThat(run(() -> NEW_PASSWORD, "noconsent")).isZero();
-
         assertThat(consentExists(actorId)).isFalse();
         assertThat(consentExists(otherActorId)).isTrue();
     }
