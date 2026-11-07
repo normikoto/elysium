@@ -65,24 +65,34 @@ class CreateHandler implements InboundActivityHandler {
     @Override
     public void handle(InboundActivity activity) {
         var actorUri = URI.create(activity.actorUri());
-        var embedded = embeddedObject(json.readTree(activity.body()));
-        if (embedded.isEmpty()) {
+        var document = json.readTree(activity.body());
+        var object = embeddedObject(document);
+        if (object.isEmpty()) {
             log.debug("Ignoring Create {}, which doesn't have one object", activity.id());
             return;
         }
-        var fetched = !embedded.get().isObject();
-        var note = fetched ? fetch(activity, actorUri, embedded.get()) : RemoteNote.read(embedded.get());
+        var fetched = object.get().isString();
+        var embeddedNote = fetched ? Optional.<RemoteNote>empty() : RemoteNote.read(object.get());
+        var noteId = fetched
+                ? Optional.ofNullable(ActivityJson.text(object.get())).flatMap(ActivityObject::parseUri)
+                : embeddedNote.map(RemoteNote::id);
+        if (noteId.isEmpty()) {
+            log.debug("Ignoring Create {}, whose object isn't a Note", activity.id());
+            return;
+        }
+        // Checked before fetching, since the actor can't speak for anyone else's objects, and nothing should be fetched
+        // from another server on their word.
+        if (!InboundActivity.isStorableId(noteId.get().toString()) || !Inbox.isOnActorsServer(noteId.get(), actorUri)) {
+            log.debug("Dropping Create {}, whose object isn't on its actor's server", activity.id());
+            return;
+        }
+        var note = fetched ? fetch(activity, noteId.get()) : embeddedNote;
         if (note.isEmpty()) {
             log.debug("Ignoring Create {}, whose object isn't a Note", activity.id());
             return;
         }
         if (!note.get().attributedTo().equals(List.of(activity.actorUri()))) {
             log.debug("Dropping Create {}, whose Note isn't attributed to its actor alone", activity.id());
-            return;
-        }
-        if (!InboundActivity.isStorableId(note.get().id().toString())
-                || !Inbox.isOnActorsServer(note.get().id(), actorUri)) {
-            log.debug("Dropping Create {}, whose Note isn't on its actor's server", activity.id());
             return;
         }
 
@@ -94,7 +104,7 @@ class CreateHandler implements InboundActivityHandler {
             log.debug("Ignoring Create {}, whose Note is direct", activity.id());
             return;
         }
-        var forWhom = recipients.of(activity, fetched ? note.get().addressing() : Addressing.NONE);
+        var forWhom = recipients.of(activity, document, fetched ? note.get().addressing() : Addressing.NONE);
         if (forWhom.isEmpty()) {
             log.debug("Ignoring Create {}, which isn't for any local account", activity.id());
             return;
@@ -128,20 +138,13 @@ class CreateHandler implements InboundActivityHandler {
     }
 
     /**
-     * Only an object on the actor's own server is fetched, since the actor can't speak for anyone else's.
-     *
+     * @param id an object on the actor's own server
+     * @return the note, or empty if what's served there isn't a {@code Note} with this ID
      * @throws IllegalStateException if the actor's server couldn't be reached, which is worth trying again
      */
-    private Optional<RemoteNote> fetch(InboundActivity activity, URI actorUri, JsonNode idNode) {
-        var id = Optional.ofNullable(ActivityJson.text(idNode)).flatMap(ActivityObject::parseUri)
-                .filter(uri -> InboundActivity.isStorableId(uri.toString()))
-                .filter(uri -> Inbox.isOnActorsServer(uri, actorUri));
-        if (id.isEmpty()) {
-            log.debug("Dropping Create {}, whose object isn't on its actor's server", activity.id());
-            return Optional.empty();
-        }
+    private Optional<RemoteNote> fetch(InboundActivity activity, URI id) {
         try {
-            return RemoteNote.read(documents.fetch(id.get())).filter(note -> note.id().equals(id.get()));
+            return RemoteNote.read(documents.fetch(id)).filter(note -> note.id().equals(id));
         } catch (DocumentFetchException e) {
             if (e.isTemporary()) {
                 throw new IllegalStateException(e.getMessage(), e);

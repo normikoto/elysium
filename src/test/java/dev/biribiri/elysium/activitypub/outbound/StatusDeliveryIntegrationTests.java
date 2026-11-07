@@ -338,6 +338,34 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
+    void sendsNeitherAReplyNorItsDeleteToAuthorsOfParentsThatArentShown() {
+        var host = newHost();
+        var parentAuthor = remoteAuthor(host, "carol");
+        var parent = remoteStatus(parentAuthor, Visibility.PRIVATE);
+        // So that the author can see the followers-only parent, and reply to it.
+        jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
+                        VALUES (:id, :follower, :followed, 'accepted', :activity)
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("follower", author.id())
+                .param("followed", parentAuthor.id())
+                .param("activity", author.uri() + "#follows/" + UUID.randomUUID())
+                .update();
+        var followerHost = newHost();
+        follow(followerHost, "bob", false);
+        var reply = post(Visibility.PUBLIC, parent);
+        awaitCreate(followerHost, reply);
+
+        statuses.delete(reply.id(), author.id());
+
+        awaitDelete(followerHost, reply);
+        // Every inbox's job has run, so one for the parent's author would have been sent by now.
+        await().atMost(WAIT).until(() -> jobsFor(reply.uri() + "#delete") == 0);
+        assertThat(receivedBy(host)).isEmpty();
+    }
+
+    @Test
     void doesNotSendAFollowersOnlyReplyToTheRemoteParentsAuthor() {
         var host = newHost();
         var parentAuthor = remoteAuthor(host, "carol");

@@ -401,7 +401,7 @@ even if it's public. Other object types, such as `Article`, `Page`, and `Questio
   reduced to plain text and shown as a content warning, which also marks the status as sensitive.
 - **Other properties:** `url` is kept if it's an HTTP or HTTPS URL, or a `Link` to one that's `text/html` or has no
   `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
-  other than `und` is used as its language. `inReplyTo` links it to its parent if the parent is stored here. Attachments,
+  other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the parent arrives later. Attachments,
   tags, emoji, and polls aren't read yet.
 - **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again.
 

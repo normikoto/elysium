@@ -20,6 +20,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.sql.Timestamp;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -262,6 +263,54 @@ class CreateIntegrationTests {
         assertThat(unlinked.get("in_reply_to_uri")).isEqualTo("https://elsewhere.test/notes/1");
     }
 
+    @Test
+    void linksARepliesParentWhenTheParentArrivesLater() {
+        var parent = noteId();
+        var reply = noteId();
+        var replyNote = new HashMap<>(note(reply, List.of(PUBLIC), List.of(followers)));
+        replyNote.put("inReplyTo", parent);
+
+        handler.handle(create(replyNote));
+        handler.handle(create(note(parent, List.of(PUBLIC), List.of(followers))));
+
+        var linked = status(reply).orElseThrow();
+        assertThat(linked.get("in_reply_to_id")).isEqualTo(status(parent).orElseThrow().get("id"));
+        assertThat(linked.get("in_reply_to_account_id")).isEqualTo(author.id());
+    }
+
+    @Test
+    void linksAReplyToASuspendedAuthorsStatus() {
+        var other = actors.upsertRemote(new RemoteActorProfile(
+                URI.create("https://" + host + "/users/other"), "other", host,
+                URI.create("https://" + host + "/users/other/inbox"), null, null, null, null));
+        var parent = "https://" + host + "/notes/" + UUID.randomUUID();
+        var parentNote = new HashMap<>(note(parent, List.of(PUBLIC), List.of(follower.uri().toString())));
+        parentNote.put("attributedTo", other.uri().toString());
+        handler.handle(createOf(parent + "/activity", other.uri(), json.writeValueAsString(parentNote)));
+        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", other.id()).update();
+        var reply = noteId();
+        var replyNote = new HashMap<>(note(reply, List.of(PUBLIC), List.of(followers)));
+        replyNote.put("inReplyTo", parent);
+
+        handler.handle(create(replyNote));
+
+        assertThat(status(reply).orElseThrow().get("in_reply_to_account_id")).isEqualTo(other.id());
+    }
+
+    @Test
+    void takesTheFirstValidLanguage() {
+        var noteId = noteId();
+        var note = new HashMap<>(note(noteId, List.of(PUBLIC), List.of(followers)));
+        var contentMap = new LinkedHashMap<String, String>();
+        contentMap.put("not a language", "<p>Hi</p>");
+        contentMap.put("pt-BR", "<p>Oi</p>");
+        note.put("contentMap", contentMap);
+
+        handler.handle(create(note));
+
+        assertThat(status(noteId).orElseThrow().get("language")).isEqualTo("pt-BR");
+    }
+
     // Helpers
 
     private String noteId() {
@@ -283,8 +332,12 @@ class CreateIntegrationTests {
     }
 
     private InboundActivity createOf(String id, String object) {
-        var body = "{\"id\":\"%s\",\"type\":\"Create\",\"actor\":\"%s\",\"object\":%s}".formatted(id, author.uri(), object);
-        return new InboundActivity(id, author.uri().toString(), "Create", body);
+        return createOf(id, author.uri(), object);
+    }
+
+    private InboundActivity createOf(String id, URI actor, String object) {
+        var body = "{\"id\":\"%s\",\"type\":\"Create\",\"actor\":\"%s\",\"object\":%s}".formatted(id, actor, object);
+        return new InboundActivity(id, actor.toString(), "Create", body);
     }
 
     private Optional<Map<String, Object>> status(String uri) {

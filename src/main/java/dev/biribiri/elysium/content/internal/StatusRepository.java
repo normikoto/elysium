@@ -124,14 +124,39 @@ public class StatusRepository {
                 .update() == 1;
     }
 
-    /**
-     * Like {@link #findByIdAndLock}, by URI.
-     */
-    public Optional<Status> findByUriAndLock(URI uri) {
-        return jdbc.sql(SELECT + "WHERE s.uri = :uri FOR KEY SHARE OF s")
+    public boolean existsByUri(URI uri) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM status WHERE uri = :uri)")
                 .param("uri", uri.toString())
-                .query(STATUS_MAPPER)
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * Finds a status to link a reply to, and stops it from being deleted until the transaction ends. Unlike other lookups,
+     * this finds the statuses of suspended authors too, because a link made now still holds if the suspension ends.
+     */
+    public Optional<Parent> findParentByUriAndLock(URI uri) {
+        return jdbc.sql("SELECT id, actor_id FROM status WHERE uri = :uri FOR KEY SHARE")
+                .param("uri", uri.toString())
+                .query((rs, rowNum) -> new Parent(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class)))
                 .optional();
+    }
+
+    /**
+     * Links the replies that arrived before their parent did.
+     */
+    public void linkWaitingReplies(URI parentUri, Parent parent) {
+        jdbc.sql("""
+                        UPDATE status SET in_reply_to_id = :id, in_reply_to_account_id = :actorId
+                        WHERE in_reply_to_uri = :uri AND in_reply_to_id IS NULL
+                        """)
+                .param("id", parent.id())
+                .param("actorId", parent.actorId())
+                .param("uri", parentUri.toString())
+                .update();
+    }
+
+    public record Parent(UUID id, UUID actorId) {
     }
 
     public Optional<Status> findById(UUID id) {

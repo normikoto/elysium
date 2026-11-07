@@ -129,13 +129,17 @@ public class StatusService {
         var content = RemoteHtml.sanitize(remote.content());
         var text = RemoteHtml.plainText(content);
         var spoilerText = remote.spoilerText() == null ? "" : RemoteHtml.inlineText(remote.spoilerText());
-        var language = remote.language() != null && LANGUAGE.matcher(remote.language()).matches()
-                ? remote.language()
-                : null;
+        var language = isLanguageCode(remote.language()) ? remote.language() : null;
+        // Repeats are common, and this keeps them from waiting for the lock that every new status takes.
+        if (statuses.existsByUri(remote.uri())) {
+            return Optional.empty();
+        }
 
         return transaction.execute(tx -> {
-            var parent = Optional.ofNullable(remote.inReplyToUri()).flatMap(statuses::findByUriAndLock);
+            // Inside the lock, so that a reply and its parent arriving together can't miss each other: whichever is stored
+            // second sees the other.
             var id = nextId(Instant.now());
+            var parent = Optional.ofNullable(remote.inReplyToUri()).flatMap(statuses::findParentByUriAndLock);
             var status = new Status(
                     id,
                     remote.uri(),
@@ -147,14 +151,26 @@ public class StatusService {
                     remote.visibility(),
                     remote.sensitive() || !spoilerText.isEmpty(),
                     remote.inReplyToUri() != null,
-                    parent.map(Status::id).orElse(null),
-                    parent.map(Status::actorId).orElse(null),
+                    parent.map(StatusRepository.Parent::id).orElse(null),
+                    parent.map(StatusRepository.Parent::actorId).orElse(null),
                     remote.inReplyToUri(),
                     remote.url(),
                     remote.publishedAt().truncatedTo(ChronoUnit.MICROS),
                     0);
-            return statuses.insert(status) ? Optional.of(id) : Optional.<UUID>empty();
+            if (!statuses.insert(status)) {
+                return Optional.<UUID>empty();
+            }
+            // Jobs have no order, so replies can be stored before their parent.
+            statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
+            return Optional.of(id);
         });
+    }
+
+    /**
+     * Whether this is a language code that statuses can have, such as {@code en} or {@code pt-BR}.
+     */
+    public static boolean isLanguageCode(String value) {
+        return value != null && LANGUAGE.matcher(value).matches();
     }
 
     /**
@@ -214,10 +230,24 @@ public class StatusService {
                 }
                 events.publishEvent(new StatusDeleted(
                         status.id(), status.uri(), authorId, status.visibility(), status.publishedAt(),
-                        status.inReplyToAccountId()));
+                        shownParentAuthor(status)));
             });
             return deleted;
         });
+    }
+
+    /**
+     * The parent's author, if the parent is still one that anyone can see. That's when a public or unlisted reply's
+     * {@code Note} names its parent, so it's who was sent the reply. A parent's visibility can't change. One that's gone since
+     * was either this server's, whose author isn't sent anything, or removed with its author's account or server, which
+     * nothing is sent to any more.
+     */
+    private UUID shownParentAuthor(Status status) {
+        return Optional.ofNullable(status.inReplyToId())
+                .flatMap(statuses::findById)
+                .filter(parent -> parent.isVisibleTo(Optional.empty()))
+                .map(Status::actorId)
+                .orElse(null);
     }
 
     /**

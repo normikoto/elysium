@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.content.StatusService;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
@@ -101,7 +102,7 @@ record RemoteNote(
 
     /**
      * Mastodon sends the same text in {@code content} and under its language in {@code contentMap}. A note in several
-     * languages can't be told apart by which one {@code content} is, so the first one is taken.
+     * languages can't be told apart by which one {@code content} is, so the first valid one is taken.
      */
     private static String language(JsonNode contentMap) {
         if (!contentMap.isObject()) {
@@ -109,7 +110,7 @@ record RemoteNote(
         }
         return contentMap.properties().stream()
                 .map(Map.Entry::getKey)
-                .filter(key -> !key.equals("und"))
+                .filter(key -> !key.equals("und") && StatusService.isLanguageCode(key))
                 .findFirst()
                 .orElse(null);
     }
