@@ -49,10 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   followers on other servers. For a followers-only status, this only goes to those already following when it was posted. A
   `Delete` waits for a `Create` that's being sent to the same server. See `FEDERATION.md`.
 - A deleted public or unlisted status now tells other servers it's gone, with a `410`, rather than a 404.
+- `GET /api/v1/timelines/home`, with the user's own posts and those of the accounts they follow, on this server and
+  others. See `docs/api.md`.
 - Posts from other servers are stored when they're sent here, which is when a local user follows their author or is
   addressed by them. They're shown through the API, in `GET /api/v1/statuses/:id`, `GET /api/v1/accounts/:id/statuses`,
   and `GET /api/v1/timelines/public`, which now takes `local` and `remote`, but not on the public web pages. Older posts
-  aren't fetched, there's no home timeline yet, and direct posts, attachments, and edits aren't read. Their HTML is
+  aren't fetched, and direct posts, attachments, and edits aren't read. Their HTML is
   sanitized. A public or unlisted reply to one is also sent to its author. A domain block removes its server's posts, and
   a suspended account's posts are hidden until the suspension ends. The server's post count only counts local posts. See
   `FEDERATION.md` and `docs/api.md`.

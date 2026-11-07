@@ -190,8 +190,9 @@ follow_from_gotosocial() {
 # Passing means that Elysium found the other server's lab user through WebFinger, sent it a Follow that it accepted, and sent
 # an Undo that it took. The second argument, if given, is a function that approves the request, for a server whose users
 # approve followers by hand.
+# post has the lab user post with no mention, so the post only reaches alice through her follow.
 follow_from_elysium() {
-    local domain=$1 approve=${2:-} read_token write_token lab lab_id lab_uri following status
+    local domain=$1 post=$2 approve=${3:-} read_token write_token lab lab_id lab_uri following status
     read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
     write_token=$(driver sh /federation/elysium-token.sh alice "$password" write)
     [[ -n $read_token && -n $write_token ]] || fail "Couldn't get Elysium access tokens"
@@ -222,12 +223,47 @@ follow_from_elysium() {
         || fail "alice's following collection doesn't list $lab_uri: $page"
     echo "lab@$domain accepted, and alice's following collection lists it"
 
+    "$post"
+    expect_home_status "$domain" "$read_token"
+
     driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$lab_id/unfollow" \
         -H "Authorization: Bearer $write_token"
     expect_delivered "$expected_actor#follows/%/undo"
     status=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/following" | jq -r .totalItems)
     [[ $status == 0 ]] || fail "alice's following collection still has $status items after unfollowing"
     echo "lab@$domain took alice's Undo"
+}
+
+expect_home_status() {
+    local domain=$1 read_token=$2 home
+    echo "Waiting for lab@$domain's post to reach alice's home timeline"
+    for _ in $(seq 1 60); do
+        home=$(driver curl -fsS https://elysium.test/api/v1/timelines/home -H "Authorization: Bearer $read_token")
+        if jq -e --arg acct "lab@$domain" \
+            'any(.[]; .account.acct == $acct and (.content | contains("Hello to followers from the lab")))' \
+            <<<"$home" >/dev/null; then
+            echo "lab@$domain's post is in alice's home timeline"
+            return
+        fi
+        sleep 2
+    done
+    fail "lab@$domain's post never reached alice's home timeline. Check /admin/db-scheduler, and Elysium's logs at debug level"
+}
+
+post_from_mastodon() {
+    docker compose exec -T mastodon-web bin/rails runner '
+        PostStatusService.new.call(Account.find_local("lab"), text: "Hello to followers from the lab")'
+}
+
+post_from_gotosocial() {
+    driver curl -fsS -o /dev/null https://gts.test/api/v1/statuses \
+        -H "Authorization: Bearer $token" \
+        --data-urlencode 'status=Hello to followers from the lab' \
+        --data-urlencode 'visibility=public'
+}
+
+post_from_misskey() {
+    misskey_api notes/create '{"text": "Hello to followers from the lab", "visibility": "public"}' >/dev/null
 }
 
 # GoToSocial's users approve followers by hand unless they change a setting, so alice's request waits for this.
@@ -719,7 +755,7 @@ case "$target" in
         resolve_from_gotosocial
         deliver_from_gotosocial
         follow_from_gotosocial
-        follow_from_elysium gts.test gotosocial_approve
+        follow_from_elysium gts.test post_from_gotosocial gotosocial_approve
         post_from_elysium
         gotosocial_expect_statuses
         delete_from_elysium
@@ -731,7 +767,7 @@ case "$target" in
         resolve_from_mastodon
         deliver_from_mastodon
         follow_from_mastodon
-        follow_from_elysium mastodon.test
+        follow_from_elysium mastodon.test post_from_mastodon
         post_from_elysium
         mastodon_expect_statuses
         delete_from_elysium
@@ -743,7 +779,7 @@ case "$target" in
         resolve_from_misskey
         deliver_from_misskey
         follow_from_misskey
-        follow_from_elysium misskey.test
+        follow_from_elysium misskey.test post_from_misskey
         post_from_elysium
         misskey_expect_statuses
         delete_from_elysium
@@ -753,4 +789,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses, receive its statuses and profile changes, and accept its suspension and deletion"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, and accept its suspension and deletion"

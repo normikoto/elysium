@@ -66,6 +66,7 @@ class StatusesIntegrationTests {
 
     private static final String PASSWORD = "correct horse battery staple";
     private static final String TIMELINE = "/api/v1/timelines/public";
+    private static final String HOME = "/api/v1/timelines/home";
     private static final String VERIFY_CREDENTIALS = "/api/v1/accounts/verify_credentials";
 
     /**
@@ -92,6 +93,7 @@ class StatusesIntegrationTests {
     @BeforeEach
     void setUp() {
         jdbc.sql("DELETE FROM status").update();
+        jdbc.sql("DELETE FROM follow").update();
         TestAccounts.makeSureAnAccountExists(actors);
     }
 
@@ -584,6 +586,83 @@ class StatusesIntegrationTests {
         mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(1));
     }
 
+    // Home timeline
+
+    @Test
+    void homeTimelineHasOwnStatusesAndThoseOfFollowedAccounts() throws Exception {
+        var own = create(alice(), "Own");
+        var ownDirect = create(alice(), "Own direct", "direct");
+        var followedPublic = create(bob(), "Public");
+        var followedUnlisted = create(bob(), "Unlisted", "unlisted");
+        var followedPrivate = create(bob(), "Private", "private");
+        create(bob(), "Direct", "direct");
+        create(token("erin", "read write"), "Not followed");
+        var remote = remoteAuthor();
+        var remotePublic = remoteStatus(remote, Visibility.PUBLIC, null).toString();
+        var remotePrivate = remoteStatus(remote, Visibility.PRIVATE, null).toString();
+        follow(aliceId(), bobId(), "accepted");
+        follow(aliceId(), remote.toString(), "accepted");
+
+        expectIds(withToken(get(HOME), alice()),
+                remotePrivate, remotePublic, followedPrivate, followedUnlisted, followedPublic, ownDirect, own);
+    }
+
+    @Test
+    void homeTimelineLeavesOutPendingFollowsAndSuspendedAccounts() throws Exception {
+        create(bob(), "Pending");
+        var frank = token("frank", "read write");
+        create(frank, "Suspended");
+        follow(aliceId(), bobId(), "pending");
+        follow(aliceId(), actorId("frank"), "accepted");
+        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE username = 'frank'").update();
+        try {
+            expectIds(withToken(get(HOME), alice()));
+        } finally {
+            jdbc.sql("UPDATE actor SET suspended_at = NULL WHERE username = 'frank'").update();
+        }
+    }
+
+    @Test
+    void homeTimelineOnlyHasRepliesToSomeoneFollowed() throws Exception {
+        var grace = token("grace", "read write");
+        var aliceStatus = create(alice(), "Alice");
+        var bobStatus = create(bob(), "Bob");
+        var graceStatus = create(grace, "Grace");
+        follow(aliceId(), bobId(), "accepted");
+        var toSelf = create(bob(), "To self", "public", bobStatus);
+        var toViewer = create(bob(), "To alice", "public", aliceStatus);
+        var toGrace = create(bob(), "To grace", "public", graceStatus);
+        var remote = remoteAuthor();
+        follow(aliceId(), remote.toString(), "accepted");
+        remoteStatus(remote, Visibility.PUBLIC, URI.create("https://elsewhere.test/notes/1"));
+
+        expectIds(withToken(get(HOME), alice()), toViewer, toSelf, bobStatus, aliceStatus);
+
+        follow(aliceId(), actorId("grace"), "accepted");
+        expectIds(withToken(get(HOME), alice()), toGrace, toViewer, toSelf, graceStatus, bobStatus, aliceStatus);
+    }
+
+    @Test
+    void homeTimelinePagesAndLinks() throws Exception {
+        var first = create(alice(), "1");
+        var second = create(alice(), "2");
+        var third = create(alice(), "3");
+
+        expectIds(withToken(get(HOME), alice()).param("limit", "2"), third, second);
+        expectIds(withToken(get(HOME), alice()).param("max_id", second), first);
+        expectIds(withToken(get(HOME), alice()).param("min_id", first).param("limit", "1"), second);
+        mockMvc.perform(withToken(get(HOME), alice()).param("limit", "2"))
+                .andExpect(header().string("Link", containsString("/api/v1/timelines/home?limit=2&max_id=" + second)));
+    }
+
+    @Test
+    void homeTimelineNeedsAUser() throws Exception {
+        mockMvc.perform(get(HOME)).andExpect(status().isUnauthorized());
+        mockMvc.perform(withToken(get(HOME), appToken()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error").value("This method requires an authenticated user"));
+    }
+
     @Test
     void accountStatusesRespectTheViewer() throws Exception {
         create(alice(), "Public");
@@ -786,6 +865,33 @@ class StatusesIntegrationTests {
                 .param("username", username)
                 .query(String.class)
                 .single();
+    }
+
+    private UUID remoteAuthor() {
+        var host = "h" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/s");
+        return actors.upsertRemote(
+                new RemoteActorProfile(uri, "s", host, URI.create(uri + "/inbox"), null, null, null, null)).id();
+    }
+
+    private UUID remoteStatus(UUID authorId, Visibility visibility, URI inReplyTo) {
+        var author = actors.findById(authorId).orElseThrow();
+        return statuses.storeRemote(new RemoteStatus(
+                URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, authorId, "<p>Hi</p>", null, null,
+                visibility, false, inReplyTo, Instant.now())).orElseThrow();
+    }
+
+    private void follow(String followerId, String followedId, String state) {
+        jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
+                        VALUES (:id, :follower, :followed, :state, :activity)
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("follower", UUID.fromString(followerId))
+                .param("followed", UUID.fromString(followedId))
+                .param("state", state)
+                .param("activity", "https://elysium.example/follows/" + UUID.randomUUID())
+                .update();
     }
 
     /**

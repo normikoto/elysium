@@ -213,6 +213,13 @@ public class FollowRepository {
                 .list();
     }
 
+    public List<UUID> findFollowedIds(UUID followerId) {
+        return jdbc.sql("SELECT followed_id FROM follow WHERE follower_id = :followerId AND state = 'accepted'")
+                .param("followerId", followerId)
+                .query(UUID.class)
+                .list();
+    }
+
     public boolean isFollowing(UUID followerId, UUID followedId) {
         return jdbc.sql("""
                         SELECT EXISTS (

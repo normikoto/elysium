@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
@@ -12,6 +13,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/timelines")
@@ -27,6 +30,7 @@ import java.util.List;
 public class TimelinesController {
 
     private static final String PUBLIC_PATH = "/api/v1/timelines/public";
+    private static final String HOME_PATH = "/api/v1/timelines/home";
 
     private final TimelineService timelines;
     private final StatusResponses responses;
@@ -34,6 +38,46 @@ public class TimelinesController {
     TimelinesController(TimelineService timelines, StatusResponses responses) {
         this.timelines = timelines;
         this.responses = responses;
+    }
+
+    @GetMapping("/home")
+    @PreAuthorize("hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getHomeTimeline",
+            summary = "View statuses from followed accounts",
+            description = """
+                    Differences from Mastodon: the timeline is read from the statuses stored here each time, rather than \
+                    from a feed kept for each user, so it never answers `206`, and a newly followed account's stored \
+                    statuses show straight away, including older ones. Statuses from other servers are only those sent \
+                    here since the follow was accepted, or before it if someone else here follows the author. A reply to a \
+                    status that isn't stored here is left out, since who it's replying to isn't known. `local` has no \
+                    effect.
+
+                    Lists the user's own statuses, and the public, unlisted, and followers-only statuses of accounts they \
+                    follow. A reply is only listed when it's to its author, to the user, or to an account they follow.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#home"),
+            parameters = {
+                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                            + StatusPage.MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
+                    @Parameter(name = "local", description = "Has no effect. Mastodon has deprecated it.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public ResponseEntity<List<StatusResponse>> homeTimeline(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @RequestParam(required = false) String limit,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            @RequestParam(name = "since_id", required = false) String sinceId,
+            @RequestParam(name = "min_id", required = false) String minId,
+            @RequestParam(required = false) String local) {
+        var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
+        var page = RequestParameters.page(limit, maxId, sinceId, minId);
+        return responses.page(HOME_PATH, Map.of(), page, timelines.homeTimeline(viewer, page));
     }
 
     /**

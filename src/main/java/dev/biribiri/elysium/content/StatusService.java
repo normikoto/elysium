@@ -282,6 +282,18 @@ public class StatusService {
     }
 
     /**
+     * Lists a viewer's own statuses, and those of the accounts they follow that they can see. Direct statuses from others
+     * aren't stored yet, so they're left out. As on Mastodon, a reply is only listed when it's to its author, to the
+     * viewer, or to someone they follow, so that following one person doesn't show their side of every conversation. A
+     * reply to a status that isn't stored here has no known parent author, so it's left out too.
+     *
+     * @param followedIds the accounts the viewer follows
+     */
+    public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
+        return statuses.findHome(viewerId, followedIds, page);
+    }
+
+    /**
      * Lists the statuses of one account that this viewer is allowed to see.
      */
     public List<Status> findByAccount(UUID actorId, Optional<UUID> viewer, boolean excludeReplies, StatusPage page) {

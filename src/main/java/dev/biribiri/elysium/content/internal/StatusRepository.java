@@ -258,6 +258,25 @@ public class StatusRepository {
     }
 
     /**
+     * @param followedIds the accounts the viewer follows, which can be empty
+     */
+    public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
+        // An empty IN () isn't valid SQL, so the parts about followed accounts are only added when there are some.
+        var followed = !followedIds.isEmpty();
+        var filter = "(s.actor_id = :viewer"
+                + (followed ? " OR (s.actor_id IN (:followed) AND s.visibility IN ('public', 'unlisted', 'private'))" : "")
+                + ") AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = :viewer"
+                + (followed ? " OR s.in_reply_to_account_id IN (:followed)" : "")
+                + ")";
+        var parameters = new HashMap<String, Object>();
+        parameters.put("viewer", viewerId);
+        if (followed) {
+            parameters.put("followed", followedIds);
+        }
+        return findPage(filter, parameters, page);
+    }
+
+    /**
      * @param visibilities which statuses the viewer can see
      */
     public List<Status> findByAccount(
