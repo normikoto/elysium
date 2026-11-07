@@ -35,6 +35,11 @@ spring.datasource.password=
 # requests to any host, and could then reach anything on these networks.
 #elysium.federation.allowed-private-networks=
 
+# Experimental. Changes how background jobs are picked up, which may help with more than one copy of the server. Set both
+# or neither, because the first alone makes each copy hold jobs that other copies can't run. See docs/configuration.md.
+#db-scheduler.polling-strategy=LOCK_AND_FETCH
+#db-scheduler.polling-strategy-upper-limit-fraction-of-threads=1.0
+
 # Uncomment if a reverse proxy is the only way to reach this server, so that redirects use the public URL and rate limits
 # apply to each client's address. Without this behind a proxy, all clients share one limit. The server trusts the
 # forwarded headers it receives, so the proxy must set them itself, or clients can get around the rate limits by making up

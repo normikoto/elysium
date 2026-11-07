@@ -26,6 +26,9 @@ services:
       ELYSIUM_FEDERATION_INBOXLIMITS_EXEMPTDOMAINS:
       # This should not normally be set. See .env.example.
       ELYSIUM_FEDERATION_ALLOWED_PRIVATE_NETWORKS:
+      # Experimental. See .env.example.
+      DBSCHEDULER_POLLINGSTRATEGY:
+      DBSCHEDULER_POLLINGSTRATEGYUPPERLIMITFRACTIONOFTHREADS:
       # The server trusts forwarded headers, which is why the port below is only published on the loopback interface.
       # Keep it that way, with a reverse proxy on this host handling HTTPS, unless you also remove this setting. The proxy
       # must add the client's address to X-Forwarded-For, or clients can get around the rate limits by making up their
