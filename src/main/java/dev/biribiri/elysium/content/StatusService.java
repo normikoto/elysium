@@ -30,6 +30,10 @@ import java.util.regex.Pattern;
 @Service
 public class StatusService {
 
+    private static final int MAX_ANCESTORS = 40;
+    private static final int MAX_DESCENDANTS = 60;
+    private static final int MAX_DESCENDANT_DEPTH = 20;
+
     private static final Pattern LANGUAGE = Pattern.compile("[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}");
 
     /**
@@ -249,6 +253,20 @@ public class StatusService {
     }
 
     /**
+     * Finds the statuses around one in its thread that this viewer is allowed to see, as Mastodon's context does, with the
+     * same limits as Mastodon has for a viewer who isn't signed in. Only what's stored here is listed.
+     *
+     * @return empty if the viewer can't see the status itself
+     */
+    public Optional<StatusContext> findContext(UUID id, Optional<UUID> viewer) {
+        return findVisible(id, viewer).map(status -> new StatusContext(
+                statuses.findAncestors(id, MAX_ANCESTORS).stream().filter(found -> isVisible(found, viewer)).toList(),
+                statuses.findDescendants(id, MAX_DESCENDANT_DEPTH, MAX_DESCENDANTS).stream()
+                        .filter(found -> isVisible(found, viewer))
+                        .toList()));
+    }
+
+    /**
      * Finds one of the author's own statuses, and stops it from being deleted until the transaction ends. Whatever is queued
      * for the status in this transaction is then there to be found by the listeners for {@link StatusDeleted}.
      *
@@ -316,6 +334,13 @@ public class StatusService {
      */
     public boolean isPublicRemote(URI uri, URI authorUri) {
         return statuses.isPublicRemote(uri, authorUri);
+    }
+
+    /**
+     * @return the author of a stored status, if they're neither suspended nor deleted
+     */
+    public Optional<URI> findAuthorOf(URI statusUri) {
+        return statuses.findAuthorUriByUri(statusUri);
     }
 
     /**

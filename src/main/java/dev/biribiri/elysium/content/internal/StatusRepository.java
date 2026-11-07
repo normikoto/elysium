@@ -223,6 +223,19 @@ public class StatusRepository {
     }
 
     /**
+     * @return the URI of the author of a stored status, if the author is neither suspended nor deleted
+     */
+    public Optional<URI> findAuthorUriByUri(URI uri) {
+        return jdbc.sql("""
+                        SELECT a.uri FROM status s JOIN actor a ON a.id = s.actor_id
+                        WHERE s.uri = :uri AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        """)
+                .param("uri", uri.toString())
+                .query((rs, rowNum) -> URI.create(rs.getString("uri")))
+                .optional();
+    }
+
+    /**
      * Finds a status to link a reply to, and stops it from being deleted until the transaction ends. Unlike other lookups,
      * this finds the statuses of suspended authors too, because a link made now still holds if the suspension ends.
      */
@@ -252,6 +265,50 @@ public class StatusRepository {
 
     public Optional<Status> findById(UUID id) {
         return jdbc.sql(SELECT + "WHERE s.id = :id").param("id", id).query(STATUS_MAPPER).optional();
+    }
+
+    /**
+     * Lists the statuses that a status replies to, oldest first. Replies are linked when their parent arrives, so other
+     * servers can make a loop of replies, and the depth limit is also what ends one.
+     *
+     * @param limit the most to list, counted from the status upward
+     */
+    public List<Status> findAncestors(UUID id, int limit) {
+        return jdbc.sql("""
+                        WITH RECURSIVE up (id, parent, depth) AS (
+                            SELECT id, in_reply_to_id, 0 FROM status WHERE id = :id
+                            UNION ALL
+                            SELECT p.id, p.in_reply_to_id, up.depth + 1 FROM status p JOIN up ON p.id = up.parent
+                            WHERE up.depth < :limit
+                        )
+                        """ + SELECT + "JOIN up ON up.id = s.id WHERE up.depth > 0 ORDER BY up.depth DESC")
+                .param("id", id)
+                .param("limit", limit)
+                .query(STATUS_MAPPER)
+                .list();
+    }
+
+    /**
+     * Lists the replies to a status and their replies, depth first, with each status's replies in the order they arrived.
+     * A status in a loop of replies is only listed once.
+     *
+     * @param maxDepth how many levels of replies to follow
+     * @param limit    the most to list
+     */
+    public List<Status> findDescendants(UUID id, int maxDepth, int limit) {
+        return jdbc.sql("""
+                        WITH RECURSIVE down (id, path) AS (
+                            SELECT id, ARRAY[id] FROM status WHERE id = :id
+                            UNION ALL
+                            SELECT r.id, down.path || r.id FROM status r JOIN down ON r.in_reply_to_id = down.id
+                            WHERE cardinality(down.path) <= :maxDepth AND r.id <> ALL (down.path)
+                        )
+                        """ + SELECT + "JOIN down ON down.id = s.id WHERE s.id <> :id ORDER BY down.path LIMIT :limit")
+                .param("id", id)
+                .param("maxDepth", maxDepth)
+                .param("limit", limit)
+                .query(STATUS_MAPPER)
+                .list();
     }
 
     /**

@@ -4,7 +4,7 @@ Elysium is an early work in progress and can't fully federate yet. Other servers
 statuses, and followers and following collections, deliver activities to them, and follow them. Its users can find accounts
 on other servers by `username@domain` or URL, and follow and unfollow them. Other servers are sent its users' new and deleted
 statuses, and are told when an account is suspended or deleted. Other servers' statuses are stored when they're for a local
-user, updated when they're edited, and removed when they're deleted, as are deleted actors. Other activities are ignored, apart
+user or reply to one they follow, including replies forwarded by the parent's server, updated when they're edited, and removed when they're deleted, as are deleted actors. Other activities are ignored, apart
 from follows and the answers to them, and updates of actors. This file only describes what's implemented today.
 
 ## Supported federation protocols and standards
@@ -181,6 +181,12 @@ same host and port. That actor is the one believed, even if the forwarded copy n
 refusal drops the activity, and a server error or timeout is tried again later. This means an activity that its origin
 doesn't serve is lost when it's forwarded, except for a `Delete`, such as Mastodon's, whose `id` has a fragment. Its `object`
 is [checked with its own server](#receiving-deletes) instead, if it's on the same host and port as the `actor`.
+
+The sender chooses where these fetches go, so each host gets at most 60 of them a minute, with bursts of up to 60, counting
+the fetches of forwarded activities and of objects [checked for a `Delete`](#receiving-deletes) together. A fetch over that
+waits for its turn, and is dropped if that's more than an hour away. This is counted by each of this server's nodes
+separately. No more than 4 requests to one host are made at once for fetches of any kind, and a fetch that would be over
+that is tried again later.
 
 #### Reading activities
 
@@ -387,8 +393,11 @@ again with the same `id`.
 #### Receiving statuses
 
 A `Create` whose `object` is a `Note` is stored as a status, if the `Note` is for a local user: one who follows its author,
-with the author's `followers` collection addressed, or one it addresses. A `Note` that isn't for anyone here is ignored,
-even if it's public. Other object types, such as `Article`, `Page`, and `Question`, are ignored.
+with the author's `followers` collection addressed, or one it addresses. A public or unlisted `Note` is also stored if its
+`inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does. That covers a
+reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
+followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
+that isn't for anyone here is ignored, even if it's public. Other object types, such as `Article`, `Page`, and `Question`, are ignored.
 
 - **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
   same host and port. Anything else is dropped.
@@ -467,7 +476,8 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
 ### Notable differences
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
-- Only `Note`s are stored, and only ones that are for a local user. Direct `Note`s, `Announce`, and `Like` are ignored.
+- Only `Note`s are stored, and only ones that are for a local user or reply to a status of someone followed here. Direct
+  `Note`s, `Announce`, and `Like` are ignored. A reply's parent isn't fetched, and neither are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
 - An edited status's earlier versions aren't kept.
 - `Reject` is never sent.

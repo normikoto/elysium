@@ -77,7 +77,8 @@ class SecurityConfig {
      * matched by an ID's characters, so that paths such as {@code verify_credentials} still need a token.
      */
     private static final String[] PUBLIC_API_PATHS = {
-            "/api/v1/instance", "/api/v1/statuses/*", "/api/v1/accounts/*/statuses", "/api/v1/timelines/public",
+            "/api/v1/instance", "/api/v1/statuses/*", "/api/v1/statuses/*/context", "/api/v1/accounts/*/statuses",
+            "/api/v1/timelines/public",
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}", "/api/v1/accounts/{id:[0-9a-fA-F-]+}/followers",
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}/following", "/api/v1/accounts/lookup", "/api/v2/search"
     };

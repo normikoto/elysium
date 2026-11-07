@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -11,6 +12,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -23,19 +25,22 @@ import java.util.UUID;
  * or {@code audience}, of the activity or of the object embedded in a {@code Create} or {@code Update}, if it follows the activity's actor and that actor's followers
  * collection is addressed, or if it's the {@code object} of a {@code Follow}. Suspended and deleted accounts are left out.
  * This only reads what's stored, so it never makes a request, and it can't see collections of any other actor, such as the
- * followers of someone being replied to.
+ * followers of someone being replied to. {@link #ofReplyTo} covers those, for a caller that decides a reply is for them.
  */
 @Component
 class LocalRecipients {
 
     private final ActorService actors;
     private final FollowService follows;
+    private final StatusService statuses;
     private final InstanceProperties instance;
     private final JsonMapper json;
 
-    LocalRecipients(ActorService actors, FollowService follows, InstanceProperties instance, JsonMapper json) {
+    LocalRecipients(
+            ActorService actors, FollowService follows, StatusService statuses, InstanceProperties instance, JsonMapper json) {
         this.actors = actors;
         this.follows = follows;
+        this.statuses = statuses;
         this.instance = instance;
         this.json = json;
     }
@@ -75,6 +80,25 @@ class LocalRecipients {
         if (actors.findFollowersUri(sender).filter(followers -> addressed.contains(followers.toString())).isPresent()) {
             recipients.addAll(follows.localFollowerIds(sender));
         }
+        return recipients;
+    }
+
+    /**
+     * The accounts that a reply concerns, whether or not it addresses them: the author of the status it replies to, if that
+     * author is local, and that author's local followers. This is Mastodon's rule for replies, and it's what lets a reply
+     * forwarded by the parent's server be kept, since the reply only addresses its own author's followers.
+     *
+     * @param parentUri the status being replied to, which has to be stored here
+     */
+    Set<UUID> ofReplyTo(URI parentUri) {
+        var recipients = new HashSet<UUID>();
+        statuses.findAuthorOf(parentUri).ifPresent(author -> {
+            if (RemoteActorDocument.isOnDomain(author, instance.domain())) {
+                actors.findLocalByUris(List.of(author)).stream().map(Actor::id).forEach(recipients::add);
+            } else {
+                recipients.addAll(follows.localFollowerIds(author));
+            }
+        });
         return recipients;
     }
 

@@ -20,9 +20,6 @@ class ForwardedActivityTask {
 
     @Bean
     Task<ForwardedJob> forwardedActivity() {
-        return Jobs.task(ForwardedActivities.TASK, job -> {
-            forwarded.fetch(job);
-            return Jobs.done();
-        });
+        return Jobs.task(ForwardedActivities.TASK, forwarded::fetch);
     }
 }

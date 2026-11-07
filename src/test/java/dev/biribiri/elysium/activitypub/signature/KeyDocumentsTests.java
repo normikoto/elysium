@@ -1,7 +1,9 @@
 package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
+import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
+import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,7 +36,9 @@ class KeyDocumentsTests {
     private static final String PEM = jsonString(SignatureFixtures.PUBLIC_KEY_PEM);
 
     private final SignedFetcher http = mock();
-    private final KeyDocuments documents = new KeyDocuments(new ActivityDocuments(http, JsonMapper.builder().build()));
+    private final HostRequests hostRequests = new HostRequests();
+    private final KeyDocuments documents =
+            new KeyDocuments(new ActivityDocuments(http, JsonMapper.builder().build(), hostRequests));
 
     @Test
     void readsAKeyFromAnActor() throws Exception {
@@ -42,6 +46,16 @@ class KeyDocumentsTests {
 
         assertThat(documents.fetch(keyId(KEY_ID)))
                 .isEqualTo(new ResolvedKey(KEY_ID, URI.create(ACTOR), SignatureFixtures.publicKey()));
+    }
+
+    @Test
+    void leavesCountingToTheResolver() throws Exception {
+        for (var i = 0; i < FederationHttpClient.MAX_CONNECTIONS_PER_HOST; i++) {
+            hostRequests.tryStartFetch("remote.example");
+        }
+        serve(ACTOR, actorWith(keyObject(KEY_ID, ACTOR)));
+
+        assertThat(documents.fetch(keyId(KEY_ID)).owner()).hasToString(ACTOR);
     }
 
     @Test

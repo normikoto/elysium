@@ -207,7 +207,7 @@ class DeliveryTask {
      * Waits without counting as a failure, because nothing about this job has gone wrong.
      */
     private static CompletionHandler<DeliveryJob> at(Instant time) {
-        return (complete, operations) -> operations.reschedule(complete, time);
+        return Jobs.rescheduleAt(time);
     }
 
     private static final class TemporaryDeliveryFailure extends RuntimeException {

@@ -246,6 +246,9 @@ class DeleteIntegrationTests {
         when(documents.fetch(URI.create(status))).thenThrow(DocumentFetchException.gone("gone"));
         forwarded.fetch(new ForwardedJob(id, Instant.now(), status, author.uri().toString()));
 
+        assertThat(exists(status)).isTrue();
+        assertThat(checkJobs(URI.create(status))).isOne();
+        checks.confirm(URI.create(status), author.uri());
         assertThat(exists(status)).isFalse();
     }
 

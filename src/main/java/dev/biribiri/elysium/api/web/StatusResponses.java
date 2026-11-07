@@ -43,6 +43,13 @@ class StatusResponses {
         return only(build(List.of(status), true));
     }
 
+    /**
+     * Leaves out statuses whose author can't be loaded, like {@link #page}.
+     */
+    List<StatusResponse> list(List<Status> found) {
+        return build(found, false);
+    }
+
     private static StatusResponse only(List<StatusResponse> built) {
         return built.stream().findFirst().orElseThrow(RecordNotFoundException::new);
     }

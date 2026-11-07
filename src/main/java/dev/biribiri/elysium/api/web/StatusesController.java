@@ -127,6 +127,31 @@ public class StatusesController {
                 .orElseThrow(RecordNotFoundException::new);
     }
 
+    @GetMapping("/{id}/context")
+    @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getStatusContext",
+            summary = "View a status's thread",
+            description = """
+                    Works without a token for public and unlisted statuses. Lists up to 40 ancestors, and up to 60 \
+                    descendants at most 20 replies deep, as Mastodon does for a request without a token, whatever the \
+                    token. Statuses the user can't see are left out after those limits apply, so fewer can be listed. \
+                    Only statuses stored here are listed: missing parents and replies aren't fetched from other \
+                    servers.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#context"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status's ancestors and descendants."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
+            })
+    public ContextResponse context(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        return RequestParameters.uuid(id)
+                .flatMap(statusId -> statuses.findContext(statusId, RequestParameters.viewer(token)))
+                .map(context -> new ContextResponse(
+                        responses.list(context.ancestors()), responses.list(context.descendants())))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
     @Operation(

@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
+import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -41,6 +42,7 @@ class ForwardedActivities {
     private final DomainBlocks blocks;
     private final ActorService actors;
     private final DeletionChecks deletions;
+    private final TargetFetchTurns turns;
     private final JsonMapper json;
 
     ForwardedActivities(
@@ -51,6 +53,7 @@ class ForwardedActivities {
             DomainBlocks blocks,
             ActorService actors,
             DeletionChecks deletions,
+            TargetFetchTurns turns,
             JsonMapper json) {
         this.scheduler = scheduler;
         this.stored = stored;
@@ -59,6 +62,7 @@ class ForwardedActivities {
         this.blocks = blocks;
         this.actors = actors;
         this.deletions = deletions;
+        this.turns = turns;
         this.json = json;
     }
 
@@ -80,34 +84,50 @@ class ForwardedActivities {
     }
 
     /**
-     * Fetches the activity, and stores it if the origin vouches for it. A {@code Delete} that the origin doesn't vouch for
-     * is checked with its object's server instead. This has to be called with no transaction open, because it waits on
-     * other servers.
+     * Fetches the activity, and stores it if the origin vouches for it, once the origin's host has a turn in
+     * {@link TargetFetchTurns}. A {@code Delete} that the origin doesn't vouch for is checked with its object's server
+     * instead, in a job of its own, which takes its own turn. This has to be called with no transaction open, because it
+     * waits on other servers.
      *
+     * @return what to do with the job, which is to wait for its turn if it hasn't come yet
      * @throws IllegalStateException if a server couldn't be reached, which is worth trying again
      */
-    void fetch(ForwardedJob job) {
-        if (!fetch(job.activityId(), job.queuedAt()) && job.deletedObject() != null) {
-            deletions.confirm(URI.create(job.deletedObject()), URI.create(job.actorId()));
+    CompletionHandler<ForwardedJob> fetch(ForwardedJob job) {
+        var id = job.activityId();
+        // It can have been delivered by its own actor since this was queued.
+        if (stored.exists(id)) {
+            return Jobs.done();
         }
+        var uri = URI.create(id);
+        // A block can have been added since this was queued.
+        if (blocks.isBlocked(uri.getHost())) {
+            return Jobs.done();
+        }
+        var now = Instant.now();
+        if (!TargetFetchTurns.holds(job.turn(), now)) {
+            var turn = turns.take(uri, now);
+            if (turn.isEmpty()) {
+                log.debug("Dropping forwarded activity {}, since too many fetches are waiting for its origin", id);
+                return Jobs.done();
+            }
+            if (turn.get().isAfter(now)) {
+                return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
+            }
+        }
+        if (!fetch(id, job.queuedAt()) && job.deletedObject() != null) {
+            deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt());
+        }
+        return Jobs.done();
     }
 
     /**
      * @param arrivedAt when the forwarded copy arrived, which is stored as when the activity did. Handlers order activities
      *                  by arrival, so the time of the fetch would put this after anything that arrived while it waited, such
      *                  as an {@code Undo} of a forwarded {@code Follow}.
-     * @return whether the activity is stored, by this or before it
+     * @return whether the activity is stored, by this
      */
     private boolean fetch(String id, Instant arrivedAt) {
-        // It can have been delivered by its own actor since this was queued.
-        if (stored.exists(id)) {
-            return true;
-        }
         var uri = URI.create(id);
-        // A block can have been added since this was queued.
-        if (blocks.isBlocked(uri.getHost())) {
-            return false;
-        }
         byte[] body;
         try {
             body = json.writeValueAsString(documents.fetch(uri)).getBytes(StandardCharsets.UTF_8);
