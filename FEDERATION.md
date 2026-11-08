@@ -628,9 +628,9 @@ GoToSocial answer the same way.
 ### HTTP Signatures
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
-[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Inboxes require signatures, and fetches of `Note`s check one if it's sent. The only requests this
-server makes are fetches of keys and actor documents, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`,
-`Accept`, `Create`, `Update`, `Delete`, and `Like`.
+[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Inboxes require signatures, and fetches of `Note`s
+check one if it's sent. The only requests this server makes are fetches of keys and actor documents, unsigned WebFinger
+lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, and `Like`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.
