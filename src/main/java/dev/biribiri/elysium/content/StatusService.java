@@ -323,7 +323,8 @@ public class StatusService {
      * <p>Its ID comes from its {@code published} date, or now if that's later, so that it sorts among its author's statuses
      * by when it was posted, rather than putting old ones at the top of every timeline. This is the one exception to IDs
      * following commits: a client that's already seen later IDs won't be given it as new, which is what's wanted for an old
-     * status. Nothing is published either, so the accounts it mentions aren't told about it long after it was posted.
+     * status. Its {@link StatusStored} says it was backfilled, so the accounts it mentions aren't told about it long after it
+     * was posted.
      *
      * @return the stored status's ID, or empty if a status with its URI is already stored
      * @throws IllegalArgumentException if the author isn't an active remote actor
@@ -382,9 +383,7 @@ public class StatusService {
             // Jobs have no order, so replies can be stored before their parent.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
             threads.assign(status, remote.inReplyToUri());
-            if (!backfilled) {
-                events.publishEvent(new StatusStored(id));
-            }
+            events.publishEvent(new StatusStored(id, backfilled));
             return Optional.of(id);
         });
     }

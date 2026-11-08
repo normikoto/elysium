@@ -23,6 +23,7 @@ import tools.jackson.databind.JsonNode;
 import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,7 +43,9 @@ import java.util.stream.StreamSupport;
 @Component
 class OutboxBackfill {
 
-    static final TaskDescriptor<OutboxBackfillJob> TASK = TaskDescriptor.of("outbox-backfill", OutboxBackfillJob.class);
+    static final String TASK_NAME = "outbox-backfill";
+
+    static final TaskDescriptor<OutboxBackfillJob> TASK = TaskDescriptor.of(TASK_NAME, OutboxBackfillJob.class);
 
     /**
      * Mastodon's pages have 20, and this server's 40.
@@ -92,8 +95,7 @@ class OutboxBackfill {
     public void on(FollowAccepted event) {
         var actorId = event.followedId().toString();
         Jobs.schedule(scheduler, TASK,
-                OutboxBackfillJob.of(actorId, Instant.now().truncatedTo(ChronoUnit.MICROS)),
-                "outbox-backfill", actorId);
+                OutboxBackfillJob.of(actorId, Instant.now().truncatedTo(ChronoUnit.MICROS)), TASK_NAME, actorId);
     }
 
     /**
@@ -101,28 +103,29 @@ class OutboxBackfill {
      * @throws IllegalStateException if the actor's server couldn't be reached, which is worth trying again
      */
     CompletionHandler<OutboxBackfillJob> run(OutboxBackfillJob job) {
-        var stored = actors.findById(UUID.fromString(job.actorId()))
-                .filter(actor -> actor.isActive() && !actors.isLocal(actor));
+        var note = Optional.ofNullable(job.note()).map(URI::create);
+        // It can have arrived another way while this waited.
+        if (note.filter(statuses::isStored).isPresent()) {
+            return Jobs.done();
+        }
+        var uri = actors.findById(UUID.fromString(job.actorId()))
+                .filter(found -> found.isActive() && !actors.isLocal(found))
+                .map(Actor::uri);
         // Unfollowed while this waited, or never followed here at all, such as for a job an admin retried.
-        if (stored.isEmpty() || blocks.isBlocked(stored.get().uri().getHost())
-                || !follows.hasLocalFollowers(stored.get().uri())) {
+        if (uri.isEmpty() || blocks.isBlocked(uri.get().getHost()) || !follows.hasLocalFollowers(uri.get())) {
             return Jobs.done();
         }
         Actor actor;
         try {
             // Throws if the actor has been suspended or deleted, and refreshes its outbox.
-            actor = remoteActors.fetchOrRefresh(stored.get().uri());
+            actor = remoteActors.fetchOrRefresh(uri.get());
         } catch (PermanentJobFailure e) {
-            log.debug("Not backfilling {}: {}", stored.get().uri(), e.getMessage());
+            log.debug("Not backfilling {}: {}", uri.get(), e.getMessage());
             return Jobs.done();
         }
-        var outbox = actor.outboxUri();
-        // It can have arrived another way while this waited.
-        if (job.note() != null && statuses.isStored(URI.create(job.note()))) {
-            return Jobs.done();
-        }
-        var target = job.note() != null ? URI.create(job.note()) : job.page() != null ? URI.create(job.page()) : outbox;
-        if (outbox == null || !Inbox.isOnActorsServer(target, actor.uri())) {
+        var target = note.or(() -> Optional.ofNullable(job.page()).map(URI::create))
+                .orElse(actor.outboxUri());
+        if (target == null || !Inbox.isOnActorsServer(target, actor.uri())) {
             return Jobs.done();
         }
         var now = Instant.now();
@@ -138,10 +141,10 @@ class OutboxBackfill {
         if (document.isEmpty()) {
             return Jobs.done();
         }
-        if (job.note() != null) {
+        if (note.isPresent()) {
             RemoteNote.read(document.get())
-                    .filter(note -> note.id().equals(target) && isActors(note, actor))
-                    .ifPresent(note -> storage.storeBackfilled(note, actor));
+                    .filter(found -> found.id().equals(target) && isActors(found, actor))
+                    .ifPresent(found -> storage.storeBackfilled(found, actor));
             return Jobs.done();
         }
         if (job.page() != null) {
@@ -163,10 +166,7 @@ class OutboxBackfill {
             store(document.get(), actor, job);
             return Jobs.done();
         }
-        var page = Optional.ofNullable(ActivityJson.text(first))
-                .filter(InboundActivity::isStorableId)
-                .flatMap(ActivityObject::parseUri)
-                .filter(uri -> Inbox.isOnActorsServer(uri, actor.uri()));
+        var page = idOnActorsServer(first, actor);
         if (page.isEmpty()) {
             log.debug("Not backfilling {}, whose outbox's first page isn't on its server", actor.uri());
             return Jobs.done();
@@ -182,7 +182,7 @@ class OutboxBackfill {
     private static boolean hasId(JsonNode document, URI fetched, String... types) {
         var found = ActivityJson.types(document.path("type"));
         return fetched.toString().equals(ActivityJson.text(document.path("id")))
-                && List.of(types).stream().anyMatch(found::contains);
+                && Arrays.stream(types).anyMatch(found::contains);
     }
 
     /**
@@ -206,13 +206,9 @@ class OutboxBackfill {
                 }
                 continue;
             }
-            var named = Optional.ofNullable(ActivityJson.text(object.get()))
-                    .filter(InboundActivity::isStorableId)
-                    .flatMap(ActivityObject::parseUri)
-                    .filter(uri -> Inbox.isOnActorsServer(uri, actor.uri()) && !statuses.isStored(uri));
+            var named = idOnActorsServer(object.get(), actor).filter(id -> !statuses.isStored(id));
             if (named.isPresent()) {
-                Jobs.schedule(scheduler, TASK, job.forNote(named.get()), "outbox-backfill", job.actorId(),
-                        named.get().toString());
+                Jobs.schedule(scheduler, TASK, job.forNote(named.get()), TASK_NAME, job.actorId(), named.get().toString());
                 queued++;
             }
         }
@@ -232,6 +228,16 @@ class OutboxBackfill {
             object = object.size() == 1 ? object.get(0) : null;
         }
         return object == null || !(object.isObject() || object.isString()) ? Optional.empty() : Optional.of(object);
+    }
+
+    /**
+     * The actor's server serves what it says is at these, so they're the only IDs that are fetched on its word.
+     */
+    private static Optional<URI> idOnActorsServer(JsonNode node, Actor actor) {
+        return Optional.ofNullable(ActivityJson.text(node))
+                .filter(InboundActivity::isStorableId)
+                .flatMap(ActivityObject::parseUri)
+                .filter(id -> Inbox.isOnActorsServer(id, actor.uri()));
     }
 
     /**

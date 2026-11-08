@@ -17,7 +17,9 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Stores a {@code Note} from another server as a status, when it's for a local account, through a follow or by addressing
@@ -96,7 +98,7 @@ class NoteStorage {
             return Result.IGNORED;
         }
         return save(note, author, visibility, activity.firstReceivedAt(),
-                Addressing.ofActivity(document).with(note.addressing()), false);
+                Addressing.ofActivity(document).with(note.addressing()), statuses::storeRemote);
     }
 
     /**
@@ -110,16 +112,7 @@ class NoteStorage {
         if (blocks.isBlocked(author.getHost())) {
             return Result.IGNORED;
         }
-        var actor = remoteActors.fetchOrRefresh(author);
-        var visibility = visibility(note.addressing(), actor);
-        if (visibility != Visibility.PUBLIC && visibility != Visibility.UNLISTED) {
-            log.debug("Ignoring boosted note {}, which not everyone can see", note.id());
-            return Result.IGNORED;
-        }
-        if (blocks.isBlocked(author.getHost()) || actors.isInactive(author)) {
-            return Result.IGNORED;
-        }
-        return save(note, actor, visibility, Instant.now(), note.addressing(), false);
+        return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), statuses::storeRemote);
     }
 
     /**
@@ -133,23 +126,33 @@ class NoteStorage {
         if (note.published() == null) {
             return Result.IGNORED;
         }
+        return storeFetched(note, author, note.published(), statuses::storeBackfilled);
+    }
+
+    /**
+     * For a note fetched on its own rather than sent to someone here, which only anyone can be shown, so its addressing
+     * decides nothing else.
+     */
+    private Result storeFetched(
+            RemoteNote note, Actor author, Instant arrivedAt, Function<RemoteStatus, Optional<UUID>> store) {
         var visibility = visibility(note.addressing(), author);
         if (visibility != Visibility.PUBLIC && visibility != Visibility.UNLISTED) {
+            log.debug("Ignoring fetched note {}, which not everyone can see", note.id());
             return Result.IGNORED;
         }
         if (blocks.isBlocked(author.uri().getHost()) || actors.isInactive(author.uri())) {
             return Result.IGNORED;
         }
-        return save(note, author, visibility, note.published(), note.addressing(), true);
+        return save(note, author, visibility, arrivedAt, note.addressing(), store);
     }
 
     /**
      * @param arrivedAt when the note arrived, which stands in for a missing {@code published}
      * @param addressed the addressing that decides who it mentions
-     * @param backfilled whether it came from the author's outbox rather than being sent
+     * @param store     how it's stored, which decides how it sorts
      */
-    private Result save(
-            RemoteNote note, Actor author, Visibility visibility, Instant arrivedAt, Addressing addressed, boolean backfilled) {
+    private Result save(RemoteNote note, Actor author, Visibility visibility, Instant arrivedAt, Addressing addressed,
+                        Function<RemoteStatus, Optional<UUID>> store) {
         var published = note.published() == null ? arrivedAt : note.published();
         var remote = new RemoteStatus(
                 note.id(),
@@ -165,8 +168,7 @@ class NoteStorage {
                 // So that an Update older than this version can't replace it.
                 note.editedAt(published, Instant.now()),
                 mentions(note, addressed, visibility));
-        var stored = backfilled ? statuses.storeBackfilled(remote) : statuses.storeRemote(remote);
-        return stored.isPresent() ? Result.STORED : Result.TAKEN;
+        return store.apply(remote).isPresent() ? Result.STORED : Result.TAKEN;
     }
 
     /**

@@ -215,11 +215,9 @@ public class ActivityPubController {
      */
     private ResponseEntity<?> collection(String username, String page, String maxId, boolean followers) {
         var actor = actors.findAnyLocalByUsername(username);
-        if (actor.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        if (!actor.get().isActive()) {
-            return ResponseEntity.status(actor.get().isDeleted() ? HttpStatus.GONE : HttpStatus.FORBIDDEN).build();
+        var unavailable = unavailable(actor);
+        if (unavailable.isPresent()) {
+            return unavailable.get();
         }
         var found = actor.get();
         var uri = followers ? Person.followersOf(found) : Person.followingOf(found);
@@ -274,11 +272,9 @@ public class ActivityPubController {
             @RequestParam(required = false) String page,
             @RequestParam(name = "max_id", required = false) String maxId) {
         var actor = actors.findAnyLocalByUsername(username);
-        if (actor.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        if (!actor.get().isActive()) {
-            return ResponseEntity.status(actor.get().isDeleted() ? HttpStatus.GONE : HttpStatus.FORBIDDEN).build();
+        var unavailable = unavailable(actor);
+        if (unavailable.isPresent()) {
+            return unavailable.get();
         }
         var author = actor.get();
         var uri = author.outboxUri();
@@ -334,6 +330,21 @@ public class ActivityPubController {
             }))
     OrderedCollection instanceActorOutbox() {
         return OrderedCollection.ofSize(actors.instanceActor().outboxUri(), 0);
+    }
+
+    /**
+     * The answer for a user's collection when the user can't be served, as for followers, following, and the outbox.
+     *
+     * @return empty if the user exists and is active
+     */
+    private static Optional<ResponseEntity<?>> unavailable(Optional<Actor> actor) {
+        if (actor.isEmpty()) {
+            return Optional.of(ResponseEntity.notFound().build());
+        }
+        if (!actor.get().isActive()) {
+            return Optional.of(ResponseEntity.status(actor.get().isDeleted() ? HttpStatus.GONE : HttpStatus.FORBIDDEN).build());
+        }
+        return Optional.empty();
     }
 
     private static URI pageUri(URI collection, UUID maxId) {

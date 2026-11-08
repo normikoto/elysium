@@ -52,17 +52,17 @@ final class RemoteActorDocument {
             throw refused(uri, "doesn't have a usable preferredUsername");
         }
         var domain = domainOf(uri);
-        var inbox = inboxOnSameHost(uri, document.path("inbox").stringValue(null));
+        var inbox = onActorsServer(uri, document.path("inbox").stringValue(null));
         if (inbox == null) {
             throw refused(uri, "doesn't have an inbox that's an HTTPS URL on the actor's host");
         }
         // Nothing sends to this yet, so a bad one is a reason to leave it out rather than to lose the actor.
-        var sharedInbox = inboxOnSameHost(uri, document.path("endpoints").path("sharedInbox").stringValue(null));
+        var sharedInbox = onActorsServer(uri, document.path("endpoints").path("sharedInbox").stringValue(null));
         // Only used to see who an activity is addressed to, so a bad one is left out too. One on another host could make
         // an activity look addressed to the followers of someone else.
-        var followers = inboxOnSameHost(uri, document.path("followers").stringValue(null));
+        var followers = onActorsServer(uri, document.path("followers").stringValue(null));
         // Backfill fetches it, and trusts what it embeds as the actor's, so it has to be the actor's server's word.
-        var outbox = inboxOnSameHost(uri, document.path("outbox").stringValue(null));
+        var outbox = onActorsServer(uri, document.path("outbox").stringValue(null));
         return new RemoteActorProfile(
                 uri,
                 username,
@@ -78,9 +78,9 @@ final class RemoteActorDocument {
      * Inboxes are where this server sends requests when it's told to, so one on another host would let any server aim this
      * one at a third party. Followers collections and outboxes are checked the same way.
      *
-     * @return the inbox, or null if there isn't one that can be used
+     * @return the URI, or null if there isn't one that can be used
      */
-    private static URI inboxOnSameHost(URI actor, String value) {
+    private static URI onActorsServer(URI actor, String value) {
         if (value == null || !InboundActivity.isStorableId(value)) {
             return null;
         }
