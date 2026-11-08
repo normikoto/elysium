@@ -13,13 +13,17 @@ import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockPart;
+import org.springframework.test.context.bean.override.mockito.MockReset;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
@@ -28,7 +32,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,7 +44,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.hamcrest.Matchers.containsString;
@@ -89,7 +91,10 @@ class StatusesIntegrationTests {
     @Autowired
     private ApplicationEvents events;
 
-    @MockitoSpyBean
+    /**
+     * Never reset, so that the stub {@link HiddenAuthors} installs stays.
+     */
+    @MockitoSpyBean(reset = MockReset.NONE)
     private ActorService actors;
 
     @Autowired
@@ -595,22 +600,19 @@ class StatusesIntegrationTests {
         var orphan = create(token("dave", "read write"), "Orphan");
         var kept = create(bob(), "Kept");
         var older = create(token("dave", "read write"), "Older orphan");
-        // Listeners for those statuses call the spy from other threads. Mockito keeps a pending doAnswer on the mock,
-        // not per thread, so a call during stubbing would take the answer and leave this stubbing unfinished.
-        settled();
         // As if dave's account were deleted between reading the statuses and loading their authors.
-        doAnswer(invocation -> ((List<?>) invocation.callRealMethod()).stream()
-                .filter(actor -> !((Actor) actor).username().equals("dave"))
-                .toList())
-                .when(actors).findByIds(any());
-
-        expectIds(get(TIMELINE), kept);
-        mockMvc.perform(get("/api/v1/statuses/" + orphan)).andExpect(status().isNotFound());
-        // The page is full before statuses are left out, so it still links to whatever is older.
-        mockMvc.perform(get(TIMELINE).param("limit", "1"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$", empty()))
-                .andExpect(header().string("Link", containsString("max_id=" + older)));
+        HiddenAuthors.username = "dave";
+        try {
+            expectIds(get(TIMELINE), kept);
+            mockMvc.perform(get("/api/v1/statuses/" + orphan)).andExpect(status().isNotFound());
+            // The page is full before statuses are left out, so it still links to whatever is older.
+            mockMvc.perform(get(TIMELINE).param("limit", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", empty()))
+                    .andExpect(header().string("Link", containsString("max_id=" + older)));
+        } finally {
+            HiddenAuthors.username = null;
+        }
     }
 
     // Lists
@@ -1175,8 +1177,28 @@ class StatusesIntegrationTests {
         return JsonPath.read(body, "$.access_token");
     }
 
-    private void settled() {
-        await().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql("SELECT count(*) FROM event_publication WHERE completion_date IS NULL")
-                .query(Long.class).single() == 0);
+    /**
+     * Stubs the spy while the context starts, before jobs and listeners can call it. Stubbing it during a test races
+     * with their threads, since Mockito keeps a stubbing in progress on the mock rather than per thread, and a call from
+     * another thread then takes the stub's answer.
+     */
+    @TestConfiguration
+    static class HiddenAuthors {
+
+        /**
+         * Whose actor {@link ActorService#findByIds} leaves out, or null for nobody.
+         */
+        static volatile String username;
+
+        @Bean
+        SmartInitializingSingleton hideAuthors(ActorService actors) {
+            return () -> doAnswer(invocation -> {
+                var found = (List<?>) invocation.callRealMethod();
+                var hidden = username;
+                return hidden == null ? found : found.stream()
+                        .filter(actor -> !((Actor) actor).username().equals(hidden))
+                        .toList();
+            }).when(actors).findByIds(any());
+        }
     }
 }
