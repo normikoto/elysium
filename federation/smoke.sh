@@ -3,7 +3,7 @@
 # and unfollow it, be followed and unfollowed by it, and receive its statuses, their deletion, and profile changes, and that
 # Elysium takes the other server's profile changes and status edits, apart from on Misskey, which can't edit, and removes a
 # status and an account that the other server deletes. Both servers also like and unlike, and boost and unboost, each other's
-# posts.
+# posts, and Elysium fetches a post that a followed account boosts.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -228,6 +228,7 @@ follow_from_elysium() {
 
     "$post"
     expect_home_status "$domain" "$read_token"
+    boost_other_from_peer "$domain" "$read_token"
     rename_lab "$domain"
 
     driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$lab_id/unfollow" \
@@ -236,6 +237,82 @@ follow_from_elysium() {
     status=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/following" | jq -r .totalItems)
     [[ $status == 0 ]] || fail "alice's following collection still has $status items after unfollowing"
     echo "lab@$domain took alice's Undo"
+}
+
+# The lab user boosts a post by another account on its server, which Elysium hasn't been sent, so Elysium has to fetch it
+# before alice's home timeline can show the boost. Run while alice follows the lab user.
+boost_other_from_peer() {
+    local domain=$1 read_token=$2 other_token other_id status_id output account home
+    case "$target" in
+        mastodon)
+            docker compose exec -T mastodon-web bin/tootctl accounts create other --email other@mastodon.test --confirmed --approve
+            output=$(docker compose exec -T mastodon-web bin/rails runner '
+                status = PostStatusService.new.call(Account.find_local("other"), text: "Hello from another lab account")
+                ReblogService.new.call(Account.find_local("lab"), status)
+                puts "DONE"')
+            grep -qxF DONE <<<"$output" || fail "Mastodon couldn't boost other's post: $output"
+            ;;
+        gotosocial)
+            gts_admin account create --username other --email other@gts.test --password "$password"
+            gts_admin account confirm --username other
+            other_token=$(driver sh /federation/gotosocial-token.sh other@gts.test "$password")
+            [[ -n $other_token ]] || fail "Couldn't get a GoToSocial access token for other"
+            status_id=$(driver curl -fsS https://gts.test/api/v1/statuses -H "Authorization: Bearer $other_token" \
+                --data-urlencode 'status=Hello from another lab account' --data-urlencode 'visibility=public' | jq -r .id)
+            driver curl -fsS -o /dev/null -X POST "https://gts.test/api/v1/statuses/$status_id/reblog" \
+                -H "Authorization: Bearer $token"
+            ;;
+        misskey)
+            account=$(misskey_api admin/accounts/create \
+                "$(jq -cn --arg password "$password" '{username: "other", password: $password}')")
+            other_token=$(jq -r .token <<<"$account")
+            [[ -n $other_token && $other_token != null ]] || fail "Couldn't create Misskey's other account: $account"
+            status_id=$(driver curl -fsS https://misskey.test/api/notes/create -H 'Content-Type: application/json' \
+                -d "$(jq -cn --arg token "$other_token" '{i: $token, text: "Hello from another lab account", visibility: "public"}')" \
+                | jq -r .createdNote.id)
+            misskey_api notes/create "$(jq -cn --arg id "$status_id" '{renoteId: $id}')" >/dev/null
+            ;;
+    esac
+    echo "Waiting for lab@$domain's boost of other@$domain's post to reach alice's home timeline"
+    local found=false
+    for _ in $(seq 1 60); do
+        home=$(driver curl -fsS https://elysium.test/api/v1/timelines/home -H "Authorization: Bearer $read_token")
+        if jq -e --arg lab "lab@$domain" --arg other "other@$domain" \
+            'any(.[]; .account.acct == $lab and .reblog.account.acct == $other
+                and (.reblog.content | contains("Hello from another lab account")))' <<<"$home" >/dev/null; then
+            found=true
+            break
+        fi
+        sleep 2
+    done
+    [[ $found == true ]] || fail "lab@$domain's boost never reached alice's home timeline: $home"
+    echo "Elysium fetched other@$domain's post, and alice's home timeline shows lab@$domain's boost of it"
+
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T mastodon-web bin/rails runner '
+                original = Account.find_local("other").statuses.order(:id).last
+                RemoveStatusService.new.call(Account.find_local("lab").statuses.find_by!(reblog_of_id: original.id))
+                puts "DONE"')
+            grep -qxF DONE <<<"$output" || fail "Mastodon couldn't unboost other's post: $output"
+            ;;
+        gotosocial)
+            driver curl -fsS -o /dev/null -X POST "https://gts.test/api/v1/statuses/$status_id/unreblog" \
+                -H "Authorization: Bearer $token"
+            ;;
+        misskey)
+            misskey_api notes/unrenote "$(jq -cn --arg id "$status_id" '{noteId: $id}')" >/dev/null
+            ;;
+    esac
+    for _ in $(seq 1 60); do
+        home=$(driver curl -fsS https://elysium.test/api/v1/timelines/home -H "Authorization: Bearer $read_token")
+        if ! jq -e --arg lab "lab@$domain" 'any(.[]; .account.acct == $lab and .reblog != null)' <<<"$home" >/dev/null; then
+            echo "Elysium took lab@$domain's Undo of the boost"
+            return
+        fi
+        sleep 2
+    done
+    fail "lab@$domain's boost is still in alice's home timeline after it was undone"
 }
 
 expect_home_status() {
@@ -1288,4 +1365,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, exchange likes and unlikes, and boosts and unboosts, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

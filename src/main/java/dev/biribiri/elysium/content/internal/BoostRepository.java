@@ -52,6 +52,11 @@ public class BoostRepository {
                 .single();
     }
 
+    public Optional<UUID> findStatusIdByUri(URI uri) {
+        return jdbc.sql("SELECT id FROM status WHERE uri = :uri AND reblog_of_id IS NULL")
+                .param("uri", uri.toString()).query(UUID.class).optional();
+    }
+
     public Optional<StatusBoost> find(UUID id) {
         return jdbc.sql("SELECT " + COLUMNS + " FROM status b WHERE b.id = :id AND b.reblog_of_id IS NOT NULL")
                 .param("id", id).query(MAPPER).optional();

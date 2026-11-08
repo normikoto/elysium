@@ -52,6 +52,9 @@ The script checks:
 - **Boosts:** alice boosts and unboosts the remote lab post, and the peer's count has to follow. The peer then boosts and
   unboosts alice's public post. Elysium must update `reblogs_count`, emit a reblog notification, and list the `Announce` in
   the post's shares collection.
+- **Boosts of other posts:** while alice follows the `lab` user, it boosts a post by another account on its server, `other`,
+  which Elysium hasn't been sent. Elysium has to fetch that post and show the boost in alice's home timeline, and remove the
+  boost when it's undone.
 - **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
   for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
   a `404`.

@@ -32,7 +32,8 @@ import java.util.UUID;
  * note can't make this server fetch them.
  *
  * <p>This is for a {@code Create}, and for an {@code Update} of a note that isn't stored yet. Both have to pass the same
- * checks, so that an {@code Update} can't store anything a {@code Create} couldn't.
+ * checks, so that an {@code Update} can't store anything a {@code Create} couldn't. A note that a boost names is stored
+ * through {@link #storeBoosted}, since who it's for comes from the boost.
  */
 @Component
 class NoteStorage {
@@ -94,7 +95,39 @@ class NoteStorage {
         if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
             return Result.IGNORED;
         }
-        var published = note.published() == null ? activity.firstReceivedAt() : note.published();
+        return save(note, author, visibility, activity.firstReceivedAt(),
+                Addressing.ofActivity(document).with(note.addressing()));
+    }
+
+    /**
+     * Stores a note that a boost names, fetched from its author's server. A boost can only show a note that anyone can see,
+     * so a followers-only or direct one isn't kept, and nothing else decides who it's for. Blocks while fetching the author,
+     * so this mustn't be called inside a database transaction.
+     *
+     * @param author the note's only {@code attributedTo}, already checked to be on the note's server
+     */
+    Result storeBoosted(RemoteNote note, URI author) {
+        if (blocks.isBlocked(author.getHost())) {
+            return Result.IGNORED;
+        }
+        var actor = remoteActors.fetchOrRefresh(author);
+        var visibility = visibility(note.addressing(), actor);
+        if (visibility != Visibility.PUBLIC && visibility != Visibility.UNLISTED) {
+            log.debug("Ignoring boosted note {}, which not everyone can see", note.id());
+            return Result.IGNORED;
+        }
+        if (blocks.isBlocked(author.getHost()) || actors.isInactive(author)) {
+            return Result.IGNORED;
+        }
+        return save(note, actor, visibility, Instant.now(), note.addressing());
+    }
+
+    /**
+     * @param arrivedAt when the note arrived, which stands in for a missing {@code published}
+     * @param addressed the addressing that decides who it mentions
+     */
+    private Result save(RemoteNote note, Actor author, Visibility visibility, Instant arrivedAt, Addressing addressed) {
+        var published = note.published() == null ? arrivedAt : note.published();
         var stored = statuses.storeRemote(new RemoteStatus(
                 note.id(),
                 note.url(),
@@ -108,7 +141,7 @@ class NoteStorage {
                 published,
                 // So that an Update older than this version can't replace it.
                 note.editedAt(published, Instant.now()),
-                mentions(note, Addressing.ofActivity(document).with(note.addressing()), visibility)));
+                mentions(note, addressed, visibility)));
         return stored.isPresent() ? Result.STORED : Result.TAKEN;
     }
 

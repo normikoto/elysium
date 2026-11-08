@@ -108,6 +108,21 @@ public class BoostService {
     }
 
     /**
+     * Finds a stored status that a boost from another server can name, from this server or another, which isn't itself a
+     * boost.
+     */
+    public Optional<Status> storedTarget(URI uri) {
+        return boosts.findStatusIdByUri(uri).flatMap(repository::findById);
+    }
+
+    /**
+     * Whether an {@code Announce} has been undone or deleted, so that it isn't worth fetching what it boosts.
+     */
+    public boolean wasWithdrawn(URI announceUri, URI actorUri) {
+        return repository.isRemoteDeleted(announceUri, actorUri);
+    }
+
+    /**
      * Whether this is one of the account's own boosts.
      */
     public boolean isOwnBoost(UUID statusId, UUID actorId) {

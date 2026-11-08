@@ -58,8 +58,9 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   boost that's there. A boost's ID stands for the status it boosts when it's boosted, favourited, replied to, or asked for
   its context, and `DELETE /api/v1/statuses/:id` with a boost's ID unboosts it. `GET /api/v1/statuses/:id/reblogged_by`
   isn't implemented.
-- Only boosts of local statuses are stored from other servers, so a remote account's boosts of other servers' statuses
-  aren't shown, and `reblogs_count` only counts the boosts this server knows of. The home timeline lists every boost from
+- A boost from another server is only stored when it's of a local status, or when a local account follows the booster or
+  is addressed by the boost. A boosted status that isn't stored yet is fetched first, so the boost can show up a little
+  later than on Mastodon. `reblogs_count` only counts the boosts this server knows of. The home timeline lists every boost from
   the accounts the user follows, even of a status that's already there.
 
 Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/notifications/) and

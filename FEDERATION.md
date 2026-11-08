@@ -5,13 +5,13 @@ statuses, and followers and following collections, deliver activities to them, a
 on other servers by `username@domain` or URL, and follow and unfollow them. Other servers are sent its users' new and deleted
 statuses, and are told when an account is suspended or deleted. Other servers' statuses are stored when they're for a local
 user or reply to one they follow, including replies forwarded by the parent's server, updated when they're edited, and removed when they're deleted, as are deleted actors. Other activities are ignored, apart
-from follows and the answers to them, updates of actors, likes, and boosts of local statuses. This file only describes what's
+from follows and the answers to them, updates of actors, likes, and boosts. This file only describes what's
 implemented today.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
-  activities at an inbox, receiving `Follow`, `Like`, `Announce` of a local status, `Undo` of any of those, `Accept` and
+  activities at an inbox, receiving `Follow`, `Like`, `Announce`, `Undo` of any of those, `Accept` and
   `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete`, and sending `Follow`, `Like`,
   `Announce`, `Undo` of any of those, `Accept`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
@@ -197,7 +197,8 @@ doesn't serve is lost when it's forwarded, except for a `Delete`, such as Mastod
 is [checked with its own server](#receiving-deletes) instead, if it's on the same host and port as the `actor`.
 
 The sender chooses where these fetches go, so each host gets at most 60 of them a minute, with bursts of up to 60, counting
-the fetches of forwarded activities and of objects [checked for a `Delete`](#receiving-deletes) together. A fetch over that
+the fetches of forwarded activities, of objects [checked for a `Delete`](#receiving-deletes), and of
+[boosted statuses](#boosts) together. A fetch over that
 waits for its turn, and is dropped if that's more than an hour away. This is counted by each of this server's nodes
 separately. No more than 4 requests to one host are made at once for fetches of any kind, and a fetch that would be over
 that is tried again later.
@@ -549,13 +550,19 @@ the `Announce` if it's still waiting to be sent, and sends an `Undo` that embeds
 still being sent to them. So does deleting the boosted status, here or on its server. A local status's `Delete` also goes to
 the followers of local users who boosted it.
 
-A received `Announce` is stored only if its `object` is the ID of a local public or unlisted status, which isn't fetched, and
-an embedded copy is never read. Its visibility comes from its own `to` and `cc`, read as for a `Note`, and one that's
-direct is ignored. A boost is stored under the `Announce`'s `id`. A second `Announce` of the same status from the same actor
+A received `Announce` is only read for its `object`'s ID, and an embedded copy is never used. A boost of a local public or
+unlisted status is always kept. A boost of another server's status is only kept if a local user follows the booster, or
+the `Announce` addresses a local user. If that status isn't stored here, it's fetched from its `id`, signed as the
+[instance actor](#instance-actor), once its host has a [turn](#forwarded-activities). It has to come back as a `Note` with
+exactly that `id`, attributed to one actor on the same host and port, and addressed to the public in `to` or `cc`.
+Anything else drops the boost, and a server error or timeout is tried again later. The `Note` is then stored as that
+actor's status. A `Note` can't be boosted by anyone but its author if it's followers-only or direct, and a boost of one
+that's stored here is only kept if its author sent it. The `Announce`'s visibility comes from its own `to` and `cc`, read
+as for a `Note`, and one that's direct is ignored. A boost is stored under the `Announce`'s `id`. A second `Announce` of the same status from the same actor
 takes over that boost if it arrived later, so an `Undo` of the older one leaves it in place. An `Undo` needs the
 `Announce`'s `id`, embedded or alone, and so does a `Delete` of a boost. Only the actor that sent the `Announce` can withdraw
-it, and one that arrives before its `Announce` stops it from being stored, for about 34 days. `Announce`s of statuses from
-other servers are ignored.
+it, and one that arrives before its `Announce` stops it from being stored, or what it boosts from being fetched, for about
+34 days.
 
 A local `Note` links to `{note-uri}/shares`, an `OrderedCollection` like [its likes](#likes), served under the same rules.
 It counts and lists only public and unlisted boosts, newest first, as embedded `Announce`s whose only addressing is the
@@ -569,7 +576,7 @@ unsuspension, and boosts of a suspended author's statuses are hidden the same wa
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
 - Only `Note`s are stored, and only ones that are for a local user or reply to a status of someone followed here.
-  `Like` and `Announce` are accepted only for local posts. A reply's parent isn't fetched, and neither are the replies to a status.
+  `Like` is accepted only for local posts. A reply's parent isn't fetched, and neither are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
 - An edited status's earlier versions aren't kept.
 - `Reject` is never sent.
@@ -638,7 +645,8 @@ compared in lowercase ASCII, without a trailing dot. A block is only ever a full
   any limits. This also applies to keys this server has already cached. A signature that's malformed or out of date still
   gets its usual `400` or `401`, because those are checked first. Activities that were already queued are dropped without
   being processed.
-- **Fetching:** Keys and actors are never fetched from a blocked domain.
+- **Fetching:** Keys, actors, and boosted statuses are never fetched from a blocked domain, and a boost by one of its
+  actors isn't stored.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
 - **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, and boosts of
