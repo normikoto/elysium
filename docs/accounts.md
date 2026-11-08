@@ -64,7 +64,7 @@ in the list.
 
 ### Invites
 Invites let someone sign up in any mode, without giving an email address, confirming one, or waiting for approval. So with
-`closed`, the server doesn't need an SMTP server at all. Only admins can make them, with a command:
+`closed`, the server doesn't need an SMTP server at all. Only admins can make them, at `/admin/invites` or with a command:
 ```shell
 java -jar elysium.jar create-invite                                 # Works for any number of accounts, forever
 java -jar elysium.jar create-invite --max-uses 1 --expires-in 7d    # One account, within a week
@@ -72,9 +72,10 @@ java -jar elysium.jar list-invites
 java -jar elysium.jar revoke-invite 5f0c6c1e-...                    # By the ID that list-invites shows
 ```
 
-`create-invite` prints a link to `/signup` to send to whoever you're inviting. Only a hash of it is stored, so it can't be
-shown again. Anyone with the link can use it, so give it only to the people it's for. Revoking an invite doesn't affect the
-accounts it has already made. Accounts made with an invite have no email address, so they won't get any email.
+The page and `create-invite` show a link to `/signup` to send to whoever you're inviting. Only a hash of it is stored, so
+it can't be shown again. Anyone with the link can use it, so give it only to the people it's for. Revoking an invite
+doesn't affect the accounts it has already made. Accounts made with an invite have no email address, so they won't get any
+email.
 
 ### Approving sign-ups
 With `approval`, the sign-up page also asks why they want to join. After they've confirmed their address, they're listed at

@@ -14,8 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A sign-up page, at `/signup`. `elysium.registration.mode` decides who can use it: `closed`, the default, for only people
   with an invite, `open` for anyone who confirms their email address, or `approval` for those who also wait for an admin.
   `open` and `approval` need an SMTP server, set with `spring.mail.*` and `elysium.mail.from`.
-- Invites, which let someone sign up in any mode without an email address or approval, with the `create-invite`,
-  `list-invites`, and `revoke-invite` commands
+- Invites, which let someone sign up in any mode without an email address or approval, at `/admin/invites` or with the
+  `create-invite`, `list-invites`, and `revoke-invite` commands
 - Approving sign-ups at `/admin/sign-ups`, or with the `list-sign-ups`, `approve-sign-up`, and `reject-sign-up` commands
 - `email` in the admin API's accounts, for those that confirmed one. `approval_required` in `GET /api/v1/instance`
 - `create-user` command to create a local account, and `reset-password` command to replace an account's password and

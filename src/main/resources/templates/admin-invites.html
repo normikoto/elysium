@@ -1,0 +1,42 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Invites', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>
+            An invite is a link that lets someone create an account whatever the registration mode, without an email address
+            or approval. Anyone with the link can use it, so give it only to the people it's for. Revoking an invite doesn't
+            affect the accounts it has already made.
+        </p>
+        <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+        <th:block th:if="${created != null}">
+            <p class="notice" role="status">Copy this link now. It can't be shown again.</p>
+            <code th:text="${created}"></code>
+        </th:block>
+        <form method="post" th:action="@{/admin/invites}">
+            <label for="max_uses">Number of accounts it can make (optional)</label>
+            <input type="number" id="max_uses" name="max_uses" min="1" placeholder="No limit">
+            <label for="expires_in">Works for</label>
+            <select id="expires_in" name="expires_in">
+                <option value="">Forever</option>
+                <option th:each="choice : ${expiryChoices}" th:value="${choice}" th:text="${choice}"></option>
+            </select>
+            <button type="submit">Create invite</button>
+        </form>
+
+        <h2>Invites</h2>
+        <p th:if="${invites.isEmpty()}">There are no invites.</p>
+        <div class="status" th:each="invite : ${invites}">
+            <p class="status-meta">
+                <span>Created <time th:datetime="${invite.createdAt()}" th:text="${invite.createdAt()}"></time></span>
+                <span th:text="${invite.uses()}"></span>
+                <span th:text="${invite.state()}"></span>
+            </p>
+            <form class="actions" method="post" th:if="${invite.usable()}"
+                  th:action="@{/admin/invites/{id}/revoke(id=${invite.id()})}">
+                <button type="submit">Revoke</button>
+            </form>
+        </div>
+        <p><a href="/admin/accounts">Accounts</a></p>
+    </div>
+</th:block>
+</html>

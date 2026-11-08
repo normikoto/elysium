@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.auth.internal;
 
 import dev.biribiri.elysium.TestAccounts;
+import dev.biribiri.elysium.TestOAuth;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.ActorService;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import picocli.CommandLine;
@@ -18,6 +20,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -165,6 +168,85 @@ class InviteIntegrationTests {
         assertThat(run(createInvite(), "--max-uses", "0")).isOne();
         assertThat(run(createInvite(), "--expires-in", "soon")).isOne();
         assertThat(err.toString()).contains("--max-uses", "--expires-in");
+    }
+
+    @Test
+    void anAdminCanCreateAnInviteFromTheAdminPage() throws Exception {
+        var admin = adminSession();
+
+        var page = mockMvc.perform(post("/admin/invites").session(admin).with(csrf())
+                        .param("max_uses", "3")
+                        .param("expires_in", "7 days"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("can't be shown again")))
+                .andReturn().getResponse().getContentAsString();
+        var code = page.replaceAll("(?s).*https://invites\\.example/signup\\?invite=([^<\"&]+).*", "$1");
+        assertThat(invites.isUsable(code)).isTrue();
+        var created = invites.list().getFirst();
+        assertThat(created.maxUses()).isEqualTo(3);
+        assertThat(created.expiresAt()).isBetween(Instant.now().plusSeconds(6 * 86400), Instant.now().plusSeconds(7 * 86400));
+
+        mockMvc.perform(get("/admin/invites").session(admin))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("0 of 3 uses")))
+                .andExpect(content().string(not(containsString(code))));
+    }
+
+    @Test
+    void theAdminPageRefusesBadInvites() throws Exception {
+        var admin = adminSession();
+        var before = invites.list().size();
+
+        for (var maxUses : List.of("0", "-1", "lots")) {
+            mockMvc.perform(post("/admin/invites").session(admin).with(csrf()).param("max_uses", maxUses))
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(content().string(containsString("at least 1")));
+        }
+        mockMvc.perform(post("/admin/invites").session(admin).with(csrf()).param("expires_in", "a century"))
+                .andExpect(status().isUnprocessableContent());
+
+        assertThat(invites.list()).hasSize(before);
+    }
+
+    @Test
+    void anAdminCanRevokeAnInviteFromTheAdminPage() throws Exception {
+        var admin = adminSession();
+        var invite = invites.create(null, null);
+
+        mockMvc.perform(post("/admin/invites/" + invite.id() + "/revoke").session(admin).with(csrf()))
+                .andExpect(redirectedUrl("/admin/invites"));
+        assertThat(invites.isUsable(invite.code())).isFalse();
+
+        mockMvc.perform(post("/admin/invites/" + invite.id() + "/revoke").session(admin).with(csrf()))
+                .andExpect(redirectedUrl("/admin/invites"));
+        mockMvc.perform(post("/admin/invites/not-an-id/revoke").session(admin).with(csrf()))
+                .andExpect(redirectedUrl("/admin/invites"));
+        mockMvc.perform(get("/admin/invites").session(admin))
+                .andExpect(content().string(containsString("Revoked")))
+                .andExpect(content().string(not(containsString("/admin/invites/" + invite.id() + "/revoke"))));
+    }
+
+    @Test
+    void onlyAdminsCanManageInvites() throws Exception {
+        var username = "notadmin" + UUID.randomUUID().toString().substring(0, 8);
+        assertThat(accounts.signUp(username, PASSWORD)).isTrue();
+        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
+        var invite = invites.create(null, null);
+
+        mockMvc.perform(get("/admin/invites").session(session)).andExpect(status().isForbidden());
+        mockMvc.perform(post("/admin/invites").session(session).with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(post("/admin/invites/" + invite.id() + "/revoke").session(session).with(csrf()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/admin/invites").session(adminSession())).andExpect(status().isForbidden());
+
+        assertThat(invites.isUsable(invite.code())).isTrue();
+    }
+
+    private MockHttpSession adminSession() throws Exception {
+        var username = "admin" + UUID.randomUUID().toString().substring(0, 8);
+        assertThat(accounts.signUp(username, PASSWORD)).isTrue();
+        accounts.setRole(actors.findLocalByUsername(username).orElseThrow().id(), AccountRole.ADMIN);
+        return TestOAuth.logIn(mockMvc, username, PASSWORD);
     }
 
     private ResultActions signUp(String invite, String username) throws Exception {
