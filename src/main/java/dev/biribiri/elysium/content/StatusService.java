@@ -351,9 +351,7 @@ public class StatusService {
             // Inside the lock, so that a reply and its parent arriving together can't miss each other: whichever is stored
             // second sees the other.
             var now = Instant.now();
-            var id = backfilled
-                    ? StatusIds.fromTimestamp(remote.publishedAt().isBefore(now) ? remote.publishedAt() : now)
-                    : nextId(now);
+            var id = backfilled ? backfilledId(remote.publishedAt(), now) : nextId(now);
             var parent = Optional.ofNullable(remote.inReplyToUri()).flatMap(statuses::findParentByUriAndLock);
             var status = new Status(
                     id,
@@ -447,6 +445,17 @@ public class StatusService {
         return statuses.findNewestId()
                 .map(newest -> StatusIds.after(newest, now))
                 .orElseGet(() -> StatusIds.fromTimestamp(now));
+    }
+
+    /**
+     * Takes the same lock as {@link #nextId}, because one dated close to now could otherwise commit ahead of a status that
+     * was given an earlier ID, which clients would then miss. A date before 1970 doesn't fit in an ID, and would make one
+     * that sorts after every other, so that every later ID would be worked out from it.
+     */
+    private UUID backfilledId(Instant published, Instant now) {
+        statuses.lockIdAssignment();
+        var timestamp = published.isAfter(now) ? now : published.isBefore(Instant.EPOCH) ? Instant.EPOCH : published;
+        return StatusIds.fromTimestamp(timestamp);
     }
 
     /** Batch visibility lookup for notifications and conversation summaries. */
