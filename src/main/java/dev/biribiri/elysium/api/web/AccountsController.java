@@ -275,7 +275,8 @@ public class AccountsController {
     }
 
     /**
-     * Mastodon's {@code reblogs}, {@code notify} and {@code languages} have nothing to apply to yet, so they're ignored.
+     * Mastodon's {@code reblogs}, {@code notify} and {@code languages} are ignored: home timelines don't hide anyone's
+     * boosts yet, and notifications of new statuses and languages don't exist.
      */
     @PostMapping("/{id}/follow")
     @PreAuthorize("hasAuthority('SCOPE_write:follows')")
@@ -429,8 +430,9 @@ public class AccountsController {
             summary = "List an account's statuses",
             description = """
                     Differences from Mastodon: for an account on another server, only the statuses it has sent here \
-                    are listed, and older ones aren't fetched. Statuses can't be pinned, tagged, or have media, so \
-                    `pinned`, `tagged`, and `only_media` return an empty list.
+                    are listed, and older ones aren't fetched. Only boosts of local statuses are stored from other \
+                    servers, so its boosts of other servers' statuses aren't listed. Statuses can't be pinned, tagged, \
+                    or have media, so `pinned`, `tagged`, and `only_media` return an empty list.
 
                     Only statuses the viewer can see are listed. A suspended account gets a 404.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
