@@ -235,9 +235,9 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
-     * Frees the usernames and addresses of sign-ups whose links have expired, under {@link #lockAccountCreation}. This has to
-     * happen wherever those are checked, not only when someone signs up without an invite, or a mode without those sign-ups
-     * would keep them forever.
+     * Frees the usernames and addresses of sign-ups whose links have expired. Callers that then check those hold
+     * {@link #lockAccountCreation}, so that the answer is current. {@link SignUpCleanupTask} doesn't need it, since removing
+     * expired sign-ups can only free a name, never take one.
      */
     void removeExpiredSignUps() {
         jdbc.sql("DELETE FROM pending_sign_up WHERE verified_at IS NULL AND created_at <= :cutoff")
