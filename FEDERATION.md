@@ -1,18 +1,17 @@
 # Federation
 
-Elysium is an early work in progress and can't fully federate yet. Other servers can discover its users, fetch their actors,
-statuses, and followers and following collections, deliver activities to them, and follow them. Its users can find accounts
-on other servers by `username@domain` or URL, and follow and unfollow them. Other servers are sent its users' new and deleted
-statuses, and are told when an account is suspended or deleted. Other servers' statuses are stored when they're for a local
-user or reply to one they follow, including replies forwarded by the parent's server, updated when they're edited, and removed when they're deleted, as are deleted actors. Other activities are ignored, apart
-from follows and the answers to them, and updates of actors. This file only describes what's implemented today.
+Elysium is an early work in progress, and this file only describes what's implemented today. Other servers can find and
+follow its users, and fetch their actors, statuses, and collections. Its users can follow accounts on other servers and like
+their posts. Their statuses, edits to their profiles, and suspensions and deletions of their accounts are sent to their
+followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user or
+reply to a status that's stored here. Likes of local statuses are counted. Boosts, attachments, polls, and other activities
+aren't supported yet.
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
-  activities at an inbox, receiving `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`,
-  `Update` of an actor or a `Note`, and `Delete`, and sending
-  `Follow`, `Undo` of a `Follow`, `Accept`, `Create`, `Update`, and `Delete`
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow` and `Like` and their `Undo`,
+  `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete`, and sending
+  `Follow` and `Like` and their `Undo`, `Accept`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -138,7 +137,7 @@ shared inbox at `/inbox`, which every actor document gives as its `endpoints.sha
 who an activity is for comes from the activity rather than the inbox it was sent to. They accept a `POST` with a
 `Content-Type` of
 `application/activity+json`, or `application/ld+json` with any profile, and a body of up to 1 MiB. Activities are read as
-plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
+plain JSON, without a JSON-LD processor, and no `@context` is ever fetched. Inboxes can't be read, so a `GET` gets a 403.
 
 | Status | Meaning                                                                                                      |
 |--------|--------------------------------------------------------------------------------------------------------------|
@@ -378,7 +377,8 @@ When a local user deletes a status, any delivery of its `Create` that hasn't sta
 their followers on other servers and the actors it mentioned, the same way as a `Create`. It's addressed like the `Create`,
 except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. The `Delete` of
 a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
-that the status existed.
+that the status existed. Since it goes to who follows the author when it's deleted, a server whose followers have all left
+since keeps its copy.
 
 A `Delete` doesn't overtake a `Create` that's already being sent: it waits until that request to the same server has ended,
 which takes at most 30 seconds. This server can only control when each is sent, so a server that handles activities out of order
@@ -478,7 +478,7 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
   is ignored. Activities are processed in no order, so the `id` is remembered for 34 days, and a `Create` of it from the same
   actor that's processed later is ignored.
 - **Actors:** a `Delete` whose `object` is its own `actor` deletes that actor, if it's stored, and removes its statuses and
-  its follows in both directions. Nothing is sent back. This is for good: the actor's URI is refused from then on, with a
+  its follows in both directions and likes. Nothing is sent back. This is for good: the actor's URI is refused from then on, with a
   `403` for deliveries signed with its key, even if its server later gives the URI to a new actor. A `Delete` of an actor
   that isn't stored is ignored.
 - **Checked with the object's server:** when a `Delete` can't be shown to come from its actor, its `object` is fetched,
@@ -493,55 +493,52 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
 
 ### Likes
 
-Local users favourite and unfavourite local and stored remote posts through
-`POST /api/v1/statuses/{id}/favourite` and `/unfavourite`, with a user token granting `write:favourites`.
-Both return the updated Status and are idempotent. The user must be able to see the post; inaccessible, missing,
-and malformed IDs get a 404. Status responses include locally known `favourites_count` and the viewer's `favourited`
-state, including in timelines, threads, notifications, and conversations. Anonymous viewers get `favourited: false`.
+When a local user likes a status from another server, a `Like` signed as the user is sent to the author's `inbox`, and
+addressed only to them. Its `id` is `{actor-uri}#likes/{uuid}`, which is new each time. Liking a local status sends
+nothing.
 
-For a remote post, a signed `Like` is delivered to its author's personal inbox, addressed only to that author.
-Unfavouriting cancels any pending Like and sends an `Undo` embedding its original identity, waiting behind an in-flight
-Like to the same server. Refavouriting uses a new identity. Local-post likes aren't delivered anywhere.
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice#likes/5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+  "type": "Like",
+  "actor": "https://elysium.example/users/alice",
+  "object": "https://remote.example/users/bob/statuses/1",
+  "to": ["https://remote.example/users/bob"]
+}
+```
 
-A received `Like` is stored only if its target is an existing local post its actor can see. Followers-only posts allow
-followers and mentioned actors; direct posts allow their author and addressed actors. Remote targets aren't fetched.
-An `Undo` may embed the Like, name its ID, or embed its actor and target without an ID. Only the verified liker can
-withdraw it. Actor-scoped Undo receipts and first-arrival cutoffs handle jobs running in either order, as for follows:
-older Undos don't remove newer likes, and a retry doesn't resurrect an undone Like. Receipts last for the same period
-as other activities, about 34 days. Current likes retain their activity IDs after inbound history expires.
+Unliking cancels the `Like` if it hasn't been sent, and sends an `Undo` either way, with the `id` `{like-id}/undo` and the
+`Like` embedded. It waits until any request with the `Like` to the same server has ended.
 
-A local Note links to `/users/{username}/statuses/{id}/likes`, an `OrderedCollection` with `totalItems` and `first`.
-Its `?page=true` pages contain up to 40 embedded Like activities, newest first, with `max_id` cursors and `next` links.
-Entries are constructed from stored identities, without copying arbitrary inbound fields. The collection is only served
-for existing public and unlisted posts; private, direct, and deleted posts get a 404. A suspended author gets a 403.
-It uses the Note's ActivityPub media types, CORS, and `Vary: Accept`; HTML requests, including wildcard or missing
-Accept headers, redirect to the post's page. Other media types get a 406.
+A `Like` is stored if its `object` is a local status that its actor can see: a public or unlisted one, a followers-only one
+if they follow the author or are mentioned, or a direct one that addresses them. A `Like` of anything else is ignored, and
+nothing is fetched for it. A repeated `Like` of the same status counts once.
 
-A like notifies a local post's author with a `favourite` notification, except for self-likes. Favourites group by post.
-Unliking removes the notification, listener retries preserve dismissal, and refavouriting creates a new notification.
-Suspended likers are hidden from counts, collections, and notifications, and return after unsuspension. Deleted actors'
-likes and likes from blocked domains are removed. Counts for remote posts reflect only likes known to this server.
+An `Undo` removes a like if its `object` names the `Like` by `id`, embeds it, or embeds a `Like` with no `id` whose `object`
+is the status. Only the actor that signed the `Like` can undo it. As with [follows](#follows), activities are ordered by
+when they arrived here: an `Undo` covers that actor's likes of the status that arrived before it, but not a newer one, and
+stops a `Like` it names from counting if that's processed later, for about 34 days.
 
-### Notable differences
+A `Note`'s `likes` collection is an `OrderedCollection` with a `totalItems` and a `first` page, paged like
+[followers and following](#actors), with up to 40 `Like` activities a page, newest first. Each has the `id` it was received
+with. It's served the same way as the `Note`, except that a request that accepts HTML is redirected to the status's page.
+Only public and unlisted statuses have one, and others get a 404, or a 403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if
+the suspension ends.
 
-- Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
-- Only `Note`s are stored, and only ones that are for a local user or reply to a status of someone followed here.
-  `Announce` is ignored; `Like` is accepted only for local posts. A reply's parent isn't fetched, and neither are the replies to a status.
+### Differences from Mastodon
+
+- Local users can't approve followers by hand, and actor documents don't include `manuallyApprovesFollowers`. `Reject` is
+  never sent.
+- Only `Note`s are stored. `Announce` is ignored, and so is a `Like` of a status from another server. A reply's parent isn't
+  fetched, and neither are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
-- An edited status's earlier versions aren't kept.
-- `Reject` is never sent.
-- A deleted actor's URI can't be used again by a new actor on its server.
-- Actor documents advertise an `outbox`, but it isn't implemented yet.
-- A reply only has a `Mention` tag for its parent's author if its text mentions them, as clients usually add.
-- An `Update` doesn't change who a stored status mentions, so an edit can't show a followers-only or direct status to more
-  local users.
-- A reply's `inReplyTo` is left out if its parent is deleted or can't be shown, so it looks like it isn't a reply.
-- Followers-only and direct statuses are only sent, and can't be fetched, even by a follower or a mentioned actor.
-- A `Delete` goes to whoever follows the author when it's deleted, so a server whose only follower has since unfollowed keeps
-  its copy. For a followers-only status, that includes a follower who unfollowed and then followed again after it was posted.
-- Inboxes can't be read, so a `GET` gets a 403.
-- The `outbox` that the instance actor advertises isn't implemented yet.
-- Fetching actors and objects from this server doesn't need a signature, and any signature on those requests is ignored.
+- An edited status's earlier versions aren't kept, and an `Update` doesn't change who it mentions, so an edit can't show a
+  followers-only or direct status to more local users.
+- A reply's `inReplyTo` is left out if its parent can't be shown, so it doesn't look like a reply.
+- Followers-only and direct statuses can't be fetched, even by a follower or a mentioned actor. Fetches don't need a
+  signature, and any signature on them is ignored.
+- Actor documents, including the instance actor's, advertise an `outbox`, but it isn't implemented yet.
 
 ### Suspended and deleted accounts
 
