@@ -28,6 +28,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -40,6 +41,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.hamcrest.Matchers.containsString;
@@ -593,6 +595,9 @@ class StatusesIntegrationTests {
         var orphan = create(token("dave", "read write"), "Orphan");
         var kept = create(bob(), "Kept");
         var older = create(token("dave", "read write"), "Older orphan");
+        // Listeners for those statuses call the spy from other threads. Mockito keeps a pending doAnswer on the mock,
+        // not per thread, so a call during stubbing would take the answer and leave this stubbing unfinished.
+        settled();
         // As if dave's account were deleted between reading the statuses and loading their authors.
         doAnswer(invocation -> ((List<?>) invocation.callRealMethod()).stream()
                 .filter(actor -> !((Actor) actor).username().equals("dave"))
@@ -1168,5 +1173,10 @@ class StatusesIntegrationTests {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.access_token");
+    }
+
+    private void settled() {
+        await().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql("SELECT count(*) FROM event_publication WHERE completion_date IS NULL")
+                .query(Long.class).single() == 0);
     }
 }
