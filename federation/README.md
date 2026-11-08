@@ -32,7 +32,9 @@ The script checks:
   WebFinger, and follows it. The other server has to accept the signed `Follow`, which Elysium shows as `following`. On
   GoToSocial, whose users approve followers by hand by default, the request waits until `lab` approves it, which tests the
   waiting state too. alice's `following` collection then has to list `lab`. While alice follows it, `lab` changes its
-  display name, and Elysium has to take the `Update` and fetch `lab`'s actor again. alice then unfollows, and the other
+  display name, and Elysium has to take the `Update` and fetch `lab`'s actor again. `lab` also posts once before alice
+  follows it, which Elysium is never sent, and the post has to appear among `lab`'s statuses once the follow is accepted,
+  which means Elysium read it from `lab`'s outbox. alice then unfollows, and the other
   server has to take the `Undo`.
 - **Receiving edits:** on Mastodon and GoToSocial, `lab` edits its status that mentions alice, and Elysium has to store the
   new text, marked as edited. Misskey can't edit notes.

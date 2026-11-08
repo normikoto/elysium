@@ -9,6 +9,7 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowAccepted;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -31,12 +32,12 @@ import java.util.stream.StreamSupport;
  * Stores what a remote actor posted before anyone here followed them, from the first page of their outbox, once a local
  * account's follow of them is accepted. Without this, following someone shows nothing of theirs until they next post.
  *
- * <p>Only {@code Create}s that embed a public or unlisted {@code Note} by the actor are read. The outbox and its page are
+ * <p>Only {@code Create}s by the actor of a public or unlisted {@code Note} of its own are read. The outbox and its page are
  * fetched from the actor's own server, which {@link RemoteActorDocument} requires of the outbox, and redirects aren't
- * followed, so what they embed is that server's word, as it would be if each {@code Note} were fetched. Nothing else is
- * fetched, so a page costs at most two requests. An ID-only item would cost a request each, and an {@code Announce} is
- * someone else's status. Each fetch takes a turn in {@link TargetFetchTurns}, since a follow is accepted on the other
- * server's word.
+ * followed, so a {@code Note} they embed is that server's word, as it would be if it were fetched. GoToSocial only names
+ * each {@code Note} by its ID, so those are fetched, each in a job of its own, unless they're stored already. An
+ * {@code Announce} is someone else's status, so it isn't read. Each fetch takes a turn in {@link TargetFetchTurns}, since
+ * a follow is accepted on the other server's word.
  */
 @Component
 class OutboxBackfill {
@@ -51,6 +52,7 @@ class OutboxBackfill {
     private static final Logger log = LoggerFactory.getLogger(OutboxBackfill.class);
 
     private final ActorService actors;
+    private final StatusService statuses;
     private final RemoteActors remoteActors;
     private final FollowService follows;
     private final NoteStorage storage;
@@ -64,6 +66,7 @@ class OutboxBackfill {
      */
     OutboxBackfill(
             ActorService actors,
+            StatusService statuses,
             RemoteActors remoteActors,
             FollowService follows,
             NoteStorage storage,
@@ -72,6 +75,7 @@ class OutboxBackfill {
             DomainBlocks blocks,
             @Lazy SchedulerClient scheduler) {
         this.actors = actors;
+        this.statuses = statuses;
         this.remoteActors = remoteActors;
         this.follows = follows;
         this.storage = storage;
@@ -88,7 +92,7 @@ class OutboxBackfill {
     public void on(FollowAccepted event) {
         var actorId = event.followedId().toString();
         Jobs.schedule(scheduler, TASK,
-                new OutboxBackfillJob(actorId, Instant.now().truncatedTo(ChronoUnit.MICROS), null, null),
+                OutboxBackfillJob.of(actorId, Instant.now().truncatedTo(ChronoUnit.MICROS)),
                 "outbox-backfill", actorId);
     }
 
@@ -113,7 +117,11 @@ class OutboxBackfill {
             return Jobs.done();
         }
         var outbox = actor.outboxUri();
-        var target = job.page() == null ? outbox : URI.create(job.page());
+        // It can have arrived another way while this waited.
+        if (job.note() != null && statuses.isStored(URI.create(job.note()))) {
+            return Jobs.done();
+        }
+        var target = job.note() != null ? URI.create(job.note()) : job.page() != null ? URI.create(job.page()) : outbox;
         if (outbox == null || !Inbox.isOnActorsServer(target, actor.uri())) {
             return Jobs.done();
         }
@@ -130,9 +138,15 @@ class OutboxBackfill {
         if (document.isEmpty()) {
             return Jobs.done();
         }
+        if (job.note() != null) {
+            RemoteNote.read(document.get())
+                    .filter(note -> note.id().equals(target) && isActors(note, actor))
+                    .ifPresent(note -> storage.storeBackfilled(note, actor));
+            return Jobs.done();
+        }
         if (job.page() != null) {
             if (hasId(document.get(), target, "OrderedCollectionPage", "CollectionPage")) {
-                store(document.get(), actor);
+                store(document.get(), actor, job);
             }
             return Jobs.done();
         }
@@ -141,12 +155,12 @@ class OutboxBackfill {
         }
         var first = document.get().path("first");
         if (first.isObject()) {
-            store(first, actor);
+            store(first, actor, job);
             return Jobs.done();
         }
         if (first.isMissingNode() || first.isNull()) {
             // A collection can list its items itself.
-            store(document.get(), actor);
+            store(document.get(), actor, job);
             return Jobs.done();
         }
         var page = Optional.ofNullable(ActivityJson.text(first))
@@ -171,40 +185,62 @@ class OutboxBackfill {
                 && List.of(types).stream().anyMatch(found::contains);
     }
 
-    private void store(JsonNode page, Actor actor) {
+    /**
+     * Stores the notes the page embeds, and queues a fetch of each one it only names.
+     */
+    private void store(JsonNode page, Actor actor, OutboxBackfillJob job) {
         var items = page.has("orderedItems") ? page.path("orderedItems") : page.path("items");
         var listed = items.isArray() ? StreamSupport.stream(items.spliterator(), false).limit(MAX_ITEMS).toList()
                 : List.of(items);
         var stored = 0;
+        var queued = 0;
         for (var item : listed) {
-            var note = note(item, actor);
-            if (note.isPresent() && storage.storeBackfilled(note.get(), actor) == NoteStorage.Result.STORED) {
-                stored++;
+            var object = createdObject(item, actor);
+            if (object.isEmpty()) {
+                continue;
+            }
+            if (object.get().isObject()) {
+                var note = RemoteNote.read(object.get()).filter(found -> isActors(found, actor));
+                if (note.isPresent() && storage.storeBackfilled(note.get(), actor) == NoteStorage.Result.STORED) {
+                    stored++;
+                }
+                continue;
+            }
+            var named = Optional.ofNullable(ActivityJson.text(object.get()))
+                    .filter(InboundActivity::isStorableId)
+                    .flatMap(ActivityObject::parseUri)
+                    .filter(uri -> Inbox.isOnActorsServer(uri, actor.uri()) && !statuses.isStored(uri));
+            if (named.isPresent()) {
+                Jobs.schedule(scheduler, TASK, job.forNote(named.get()), "outbox-backfill", job.actorId(),
+                        named.get().toString());
+                queued++;
             }
         }
-        log.debug("Backfilled {} statuses of {}", stored, actor.uri());
+        log.debug("Backfilled {} statuses of {}, and queued fetches of {}", stored, actor.uri(), queued);
     }
 
     /**
-     * @return the note a {@code Create} by the actor embeds, if it's the actor's and could be stored
+     * @return the {@code object} of a {@code Create} by the actor, embedded or an ID
      */
-    private static Optional<RemoteNote> note(JsonNode item, Actor actor) {
-        var actorUri = actor.uri().toString();
+    private static Optional<JsonNode> createdObject(JsonNode item, Actor actor) {
         if (!item.isObject() || !ActivityJson.types(item.path("type")).contains("Create")
-                || !ActivityJson.ids(item.path("actor")).equals(List.of(actorUri))) {
+                || !ActivityJson.ids(item.path("actor")).equals(List.of(actor.uri().toString()))) {
             return Optional.empty();
         }
         var object = item.path("object");
         if (object.isArray()) {
             object = object.size() == 1 ? object.get(0) : null;
         }
-        if (object == null || !object.isObject()) {
-            return Optional.empty();
-        }
-        return RemoteNote.read(object)
-                .filter(note -> note.attributedTo().equals(List.of(actorUri)))
-                .filter(note -> InboundActivity.isStorableId(note.id().toString())
-                        && Inbox.isOnActorsServer(note.id(), actor.uri()));
+        return object == null || !(object.isObject() || object.isString()) ? Optional.empty() : Optional.of(object);
+    }
+
+    /**
+     * Whether the note is attributed to the actor alone, with an ID on its server that could be stored.
+     */
+    private static boolean isActors(RemoteNote note, Actor actor) {
+        return note.attributedTo().equals(List.of(actor.uri().toString()))
+                && InboundActivity.isStorableId(note.id().toString())
+                && Inbox.isOnActorsServer(note.id(), actor.uri());
     }
 
     /**

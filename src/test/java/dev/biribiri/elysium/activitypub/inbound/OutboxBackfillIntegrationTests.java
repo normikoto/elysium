@@ -163,11 +163,42 @@ class OutboxBackfillIntegrationTests {
 
         runToTheEnd(job());
 
-        for (var uri : List.of(otherServers, someoneElses, forFollowers, undated, announced, onlyAnId, notForMe)) {
+        for (var uri : List.of(otherServers, someoneElses, forFollowers, undated, announced, notForMe)) {
             assertThat(statusId(uri)).as(uri.toString()).isEmpty();
         }
         verify(documents, never()).fetch(announced);
-        verify(documents, never()).fetch(onlyAnId);
+        // Named by its ID only, so it's left to a job of its own.
+        assertThat(jobs()).isOne();
+    }
+
+    @Test
+    void fetchesANoteThatThePageOnlyNamesInAJobOfItsOwn() throws Exception {
+        follow(alice, remote);
+        var named = noteUri();
+        var stored = noteUri();
+        var misattributed = noteUri();
+        statuses.storeRemote(new RemoteStatus(stored, null, remote.id(), "<p>sent</p>", null, null,
+                Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
+        serve(remote.outboxUri(), withItems(collection(null), List.of(
+                Map.of("id", named + "#create", "type", "Create", "actor", remote.uri().toString(), "object", named.toString()),
+                Map.of("id", stored + "#create", "type", "Create", "actor", remote.uri().toString(), "object", stored.toString()),
+                Map.of("id", misattributed + "#create", "type", "Create", "actor", remote.uri().toString(),
+                        "object", misattributed.toString()))));
+        serve(named, note(named, List.of(PUBLIC), List.of(), Instant.parse("2025-03-01T00:00:00Z")));
+        serve(misattributed, withAuthor(note(misattributed, List.of(PUBLIC), List.of(), Instant.now().minusSeconds(60)),
+                remote()));
+
+        runToTheEnd(job());
+
+        // One for each that isn't stored yet.
+        assertThat(jobs()).isEqualTo(2);
+        assertThat(statusId(named)).isEmpty();
+        runToTheEnd(job().forNote(named));
+        runToTheEnd(job().forNote(misattributed));
+
+        assertThat(statusId(named)).isPresent();
+        assertThat(statusId(misattributed)).isEmpty();
+        verify(documents, never()).fetch(stored);
     }
 
     @Test
@@ -195,7 +226,7 @@ class OutboxBackfillIntegrationTests {
         var blocked = remote();
         follow(alice, blocked);
         blocks.create(blocked.domain(), null);
-        backfill.run(new OutboxBackfillJob(blocked.id().toString(), Instant.now(), null, null));
+        backfill.run(OutboxBackfillJob.of(blocked.id().toString(), Instant.now()));
 
         verify(documents, never()).fetch(any());
     }
@@ -265,7 +296,7 @@ class OutboxBackfillIntegrationTests {
     }
 
     private OutboxBackfillJob job() {
-        return new OutboxBackfillJob(remote.id().toString(), Instant.now().truncatedTo(ChronoUnit.MICROS), null, null);
+        return OutboxBackfillJob.of(remote.id().toString(), Instant.now().truncatedTo(ChronoUnit.MICROS));
     }
 
     /**

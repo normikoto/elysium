@@ -716,6 +716,13 @@ public class StatusService {
     }
 
     /**
+     * Whether a status with this URI is stored, whoever can see it.
+     */
+    public boolean isStored(URI uri) {
+        return statuses.existsByUri(uri);
+    }
+
+    /**
      * Counts what {@link #findByAccount} lists for a viewer who isn't signed in, boosts and replies included.
      */
     public long countVisibleToAnyone(UUID actorId) {

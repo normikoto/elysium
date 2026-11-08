@@ -374,10 +374,12 @@ fetches made on another server's word.
   be an `OrderedCollection` or `Collection` whose `id` is the URL fetched. Its `first` page can be embedded, or an ID on the
   actor's host, which is fetched and has to be an `OrderedCollectionPage` or `CollectionPage` with that `id`. A collection
   with no `first` is read for its own items. Only that first page is read, and `next` is never followed.
-- Up to 40 items of `orderedItems`, or `items`, are read. Only a `Create` whose `actor` is the followed actor, and that embeds a
-  `Note`, is used. The `Note` has to be attributed to that actor alone, with an `id` on its host and port, and be public or
-  unlisted, read [as for a `Create`](#receiving-statuses). It also needs a `published`. Nothing else is fetched, so items that
-  are only an ID, `Announce`s, and other activities are skipped.
+- Up to 40 items of `orderedItems`, or `items`, are read. Only a `Create` whose `actor` is the followed actor is used, and
+  `Announce`s, items that are only an ID, and other activities are skipped. The `Create`'s `object` can be an embedded
+  `Note`, as Mastodon and Misskey send it, or the `Note`'s ID, as GoToSocial sends it. An ID on the actor's host and port
+  that isn't stored here is fetched, signed as the instance actor, each taking its own turn, and has to come back with the
+  same `id`. Either way, the `Note` has to be attributed to that actor alone, with an `id` on its host and port, and be
+  public or unlisted, read [as for a `Create`](#receiving-statuses). It also needs a `published`.
 - These are stored as if they'd been sent then, with the same checks on content and repeats, except that they're sorted by
   their `published` time, so they don't look newer than statuses that arrived before them. Local accounts they mention
   aren't notified.
@@ -670,7 +672,7 @@ ends.
 - A local user's boost of a status that's removed with its author's account, or with a blocked domain's statuses, goes
   without an `Undo`.
 - Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.
-- Backfill only reads the first page of an outbox, and only `Create`s that embed their `Note`.
+- Backfill only reads the first page of an outbox, and only its `Create`s.
 
 ### Suspended and deleted accounts
 
