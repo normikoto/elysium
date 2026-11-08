@@ -127,7 +127,8 @@ In the `content`, a mention is a link to the actor's ID, in Mastodon's markup:
 Only the username is shown, also for an actor on another server.
 
 A reply's `inReplyTo` is shown if the parent is public or unlisted, or if a followers-only status replies to its author's own
-followers-only status.
+followers-only status. A direct reply also shows a followers-only or direct parent if it mentions the parent's author, so
+that direct conversations stay threaded.
 
 ### Inboxes
 
@@ -418,7 +419,7 @@ that isn't for anyone here is ignored, even if it's public. Other object types, 
   and in `cc` unlisted. Otherwise, the author's `followers` collection in either makes it followers-only. Anything else is
   direct.
 - **Mentions:** `Mention` tags are read, up to 100 of them. A followers-only or direct `Note` is only shown to the local
-  users it addresses one by one in its own `to`, `cc`, `bto`, `bcc`, or `audience`, besides followers for a followers-only
+  users that it or its `Create` addresses one by one in `to`, `cc`, `bto`, `bcc`, or `audience`, besides followers for a followers-only
   one. A `Mention` tag alone doesn't show it to anyone. A local user it addresses without a `Mention` tag can see it, but
   isn't listed as mentioned, as on Mastodon. A public or unlisted `Note` lists every local user it tags. Actors on other
   servers are only listed as mentioned if they're already known here, and they're never fetched for this.

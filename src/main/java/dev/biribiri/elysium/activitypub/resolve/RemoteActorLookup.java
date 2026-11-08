@@ -101,6 +101,15 @@ class RemoteActorLookup implements RemoteActorResolver {
                 .filter(Actor::isActive);
     }
 
+    @Override
+    public Optional<Actor> findStored(String username, String domain) {
+        var normalized = domain.toLowerCase(Locale.ROOT);
+        if (normalized.equals(instance.domain()) || blocks.isBlocked(hostOf(normalized))) {
+            return Optional.empty();
+        }
+        return actors.findRemoteByAcct(username, normalized).filter(Actor::isActive);
+    }
+
     /**
      * Whether an actor that a WebFinger answer pointed to really has the address looked up, since any server can point to
      * any actor. An actor on another domain can still have it, when its server serves WebFinger for a domain that isn't its

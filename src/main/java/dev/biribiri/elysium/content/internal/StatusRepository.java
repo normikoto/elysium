@@ -473,14 +473,25 @@ public class StatusRepository {
      * @param mentions each account mentioned, and whether that's silently
      */
     public void insertMentions(UUID statusId, Map<UUID, Boolean> mentions) {
-        mentions.forEach((actorId, silent) -> jdbc.sql("""
-                        INSERT INTO status_mention (status_id, actor_id, silent) VALUES (:statusId, :actorId, :silent)
+        if (mentions.isEmpty()) {
+            return;
+        }
+        var entries = List.copyOf(mentions.entrySet());
+        // One statement, rather than one for each of up to a hundred mentions a note from another server can have.
+        jdbc.sql("""
+                        INSERT INTO status_mention (status_id, actor_id, silent)
+                        SELECT :statusId, m.actor_id, m.silent
+                        FROM unnest(CAST(:actorIds AS uuid[]), CAST(:silent AS boolean[])) AS m (actor_id, silent)
                         ON CONFLICT DO NOTHING
                         """)
                 .param("statusId", statusId)
-                .param("actorId", actorId)
-                .param("silent", silent)
-                .update());
+                .param("actorIds", entries.stream()
+                        .map(entry -> entry.getKey().toString())
+                        .collect(Collectors.joining(",", "{", "}")))
+                .param("silent", entries.stream()
+                        .map(entry -> entry.getValue().toString())
+                        .collect(Collectors.joining(",", "{", "}")))
+                .update();
     }
 
     /**

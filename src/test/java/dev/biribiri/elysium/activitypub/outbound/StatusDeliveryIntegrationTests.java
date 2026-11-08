@@ -538,6 +538,40 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
+    void aDirectReplyLinksToADirectParentWhoseAuthorItMentions() {
+        var host = newHost();
+        var carol = mentionable(host, "carol");
+        var parentId = statuses.storeRemote(new RemoteStatus(
+                URI.create(carol.uri() + "/notes/" + UUID.randomUUID()), null, carol.id(), "<p>Psst</p>", null, null,
+                Visibility.DIRECT, false, null, Instant.now(), null, Map.of(author.id(), false))).orElseThrow();
+        var parent = statuses.findVisible(parentId, Optional.of(author.id())).orElseThrow();
+
+        var reply = statuses.create(author.id(), new NewStatus(
+                "@carol@" + host + " hi", null, null, Visibility.DIRECT, false, parent.id()));
+
+        var note = awaitCreate(host, reply).body().path("object");
+        assertThat(note.path("inReplyTo").stringValue()).isEqualTo(parent.uri().toString());
+        assertThat(strings(note.path("to"))).containsExactly(carol.uri().toString());
+    }
+
+    @Test
+    void aDirectReplyDoesNotLinkToADirectParentWhoseAuthorItDoesNotMention() {
+        var host = newHost();
+        var carol = mentionable(host, "carol");
+        var dave = mentionable(host, "dave");
+        var parentId = statuses.storeRemote(new RemoteStatus(
+                URI.create(carol.uri() + "/notes/" + UUID.randomUUID()), null, carol.id(), "<p>Psst</p>", null, null,
+                Visibility.DIRECT, false, null, Instant.now(), null, Map.of(author.id(), false))).orElseThrow();
+
+        var reply = statuses.create(author.id(), new NewStatus(
+                "@dave@" + host + " look", null, null, Visibility.DIRECT, false, parentId));
+
+        var note = awaitCreate(host, reply).body().path("object");
+        assertThat(note.has("inReplyTo")).isFalse();
+        assertThat(strings(note.path("to"))).containsExactly(dave.uri().toString());
+    }
+
+    @Test
     void sendsNothingForADeletedDirectStatusThatMentionedNobody() {
         var host = newHost();
         follow(host, "bob", false);

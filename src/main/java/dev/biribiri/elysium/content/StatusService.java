@@ -96,9 +96,14 @@ public class StatusService {
 
         var author = actors.findLocalById(authorId)
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
+        // Before looking up mentions on other servers, so that a reply to nothing doesn't make those requests or use up the
+        // author's lookups. The parent is checked again under a lock below, since it can be deleted in between.
+        if (draft.inReplyToId() != null && findVisible(draft.inReplyToId(), Optional.of(authorId)).isEmpty()) {
+            throw new ReplyParentNotFoundException();
+        }
         var mentioned = resolveMentions(author, text);
         var content = PlainText.render(text, match -> Optional.ofNullable(mentioned.get(acct(match)))
-                .map(actor -> new PlainText.MentionLink(actor.uri(), actor.username() + "@" + domainOf(actor)))
+                .map(actor -> new PlainText.MentionLink(actor.uri(), actor.username() + "@" + actor.domain()))
                 .orElse(null));
 
         return transaction.execute(tx -> {
@@ -164,7 +169,7 @@ public class StatusService {
         try {
             return resolver.resolveAcct(author.id(), match.username(), domain);
         } catch (RemoteActorResolver.ResolveLimitException e) {
-            return actors.findRemoteByAcct(match.username(), domain).filter(Actor::isActive);
+            return resolver.findStored(match.username(), domain);
         }
     }
 
@@ -174,10 +179,6 @@ public class StatusService {
     private String acct(Mentions.Match match) {
         var domain = match.domain() == null ? instance.domain() : match.domain();
         return (match.username() + "@" + domain).toLowerCase(Locale.ROOT);
-    }
-
-    private String domainOf(Actor actor) {
-        return actors.isLocal(actor) ? instance.domain() : actor.domain();
     }
 
     /**

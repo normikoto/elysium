@@ -26,8 +26,8 @@ import java.util.UUID;
  * aren't kept, which also stops any server from filling the database by delivering to the shared inbox.
  *
  * <p>Who a followers-only or direct note is shown to here comes from its mentions, so a local account only counts as
- * mentioned by one of those if the note is addressed to it. Otherwise a {@code Mention} tag alone would show it to anyone
- * here. A local account the note is addressed to without a tag is mentioned silently, which shows it the note without
+ * mentioned by one of those if the note or its activity is addressed to it. Otherwise a {@code Mention} tag alone would show
+ * it to anyone here. A local account that's addressed without a tag is mentioned silently, which shows it the note without
  * listing it as mentioned, as Mastodon does. Accounts on other servers are only looked up among those stored, so that a
  * note can't make this server fetch them.
  *
@@ -108,27 +108,33 @@ class NoteStorage {
                 published,
                 // So that an Update older than this version can't replace it.
                 note.editedAt(published, Instant.now()),
-                mentions(note, visibility)));
+                mentions(note, Addressing.ofActivity(document).with(note.addressing()), visibility)));
         return stored.isPresent() ? Result.STORED : Result.TAKEN;
     }
 
     /**
+     * The local accounts named in the {@code Create} count as well as those named in its note, since the note's author
+     * addressed both, and the {@code Create} is what decides that a note is for someone here. Otherwise a direct note sent
+     * to a local account that only its {@code Create} names would be stored and shown to nobody.
+     *
+     * @param addressed the addressing of the activity and its note
      * @return each mentioned account, and whether it's mentioned silently
      */
-    private Map<UUID, Boolean> mentions(RemoteNote note, Visibility visibility) {
+    private Map<UUID, Boolean> mentions(RemoteNote note, Addressing addressed, Visibility visibility) {
         var mentions = new HashMap<UUID, Boolean>();
         var tagged = new HashSet<UUID>();
-        actors.findLocalByUris(note.mentions()).forEach(local -> tagged.add(local.id()));
-        var named = recipients.named(note.addressing());
+        var remote = new HashSet<UUID>();
+        for (var actor : actors.findByUris(note.mentions())) {
+            if (actor.isActive()) {
+                (actors.isLocal(actor) ? tagged : remote).add(actor.id());
+            }
+        }
+        var named = recipients.named(addressed);
         named.forEach(local -> mentions.put(local, !tagged.contains(local)));
         if (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED) {
             tagged.forEach(local -> mentions.put(local, false));
         }
-        for (var uri : note.mentions()) {
-            actors.findByUri(uri)
-                    .filter(actor -> actor.isActive() && !actors.isLocal(actor))
-                    .ifPresent(remote -> mentions.put(remote.id(), false));
-        }
+        remote.forEach(actor -> mentions.put(actor, false));
         return mentions;
     }
 

@@ -65,13 +65,14 @@ public class StatusDeliveries {
         if (status.isEmpty() || author.isEmpty()) {
             return;
         }
-        var note = notes.of(status.get(), author.get());
+        var mentioned = notes.mentioned(status.get());
+        var note = notes.of(status.get(), author.get(), mentioned);
         var inboxes = inboxes(
                 author.get().id(),
                 status.get().visibility(),
                 status.get().publishedAt(),
                 note.inReplyTo() == null ? null : status.get().inReplyToAccountId(),
-                statuses.findMentions(List.of(status.get().id())).getOrDefault(status.get().id(), List.of()));
+                mentioned);
         if (inboxes.isEmpty()) {
             return;
         }

@@ -189,12 +189,20 @@ class StatusServiceTests {
         var carol = actor("c", "r.example");
         when(resolver.resolveAcct(any(), anyString(), anyString()))
                 .thenThrow(new RemoteActorResolver.ResolveLimitException());
-        when(actors.findRemoteByAcct("c", "r.example")).thenReturn(Optional.of(carol));
+        when(resolver.findStored("c", "r.example")).thenReturn(Optional.of(carol));
 
         var status = service.create(AUTHOR, draft("@c@r.example @d@r.example", null));
 
         assertThat(status.content()).contains("class=\"u-url mention\"").contains("@d@r.example");
         verify(repository).insertMentions(status.id(), Map.of(carol.id(), false));
+    }
+
+    @Test
+    void checksTheParentBeforeLookingUpMentions() {
+        var draft = new NewStatus("@c@r.example hi", null, null, Visibility.PUBLIC, false, UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.create(AUTHOR, draft)).isInstanceOf(ReplyParentNotFoundException.class);
+        verify(resolver, never()).resolveAcct(any(), anyString(), anyString());
     }
 
     @Test

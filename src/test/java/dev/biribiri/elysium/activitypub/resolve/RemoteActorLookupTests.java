@@ -79,6 +79,17 @@ class RemoteActorLookupTests {
     }
 
     @Test
+    void findsAStoredActorWithoutAskingUnlessItsServerIsBlocked() throws Exception {
+        var bob = actor(Instant.now().minus(Duration.ofDays(2)));
+        when(actors.findRemoteByAcct("bob", "remote.example")).thenReturn(Optional.of(bob));
+
+        assertThat(lookup.findStored("bob", "Remote.Example")).contains(bob);
+        when(blocks.isBlocked("remote.example")).thenReturn(true);
+        assertThat(lookup.findStored("bob", "remote.example")).isEmpty();
+        verify(http, never()).get(any(), any(), any());
+    }
+
+    @Test
     void usesAnOlderCopyWhenTheServerCantBeReached() throws Exception {
         var bob = actor(Instant.now().minus(Duration.ofDays(2)));
         when(actors.findRemoteByAcct("bob", "remote.example")).thenReturn(Optional.of(bob));

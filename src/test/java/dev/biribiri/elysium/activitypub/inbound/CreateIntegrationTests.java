@@ -141,6 +141,21 @@ class CreateIntegrationTests {
     }
 
     @Test
+    void showsADirectNoteToAnAccountThatOnlyItsCreateAddresses() {
+        var noteId = noteId();
+        var body = """
+                {"id":"%s/activity","type":"Create","actor":"%s","to":["%s"],"object":%s}"""
+                .formatted(noteId, author.uri(), follower.uri(), json.writeValueAsString(note(noteId, List.of(), List.of())));
+
+        handler.handle(new InboundActivity(noteId + "/activity", author.uri().toString(), "Create", body));
+
+        var id = statusId(noteId);
+        assertThat(status(noteId).orElseThrow().get("visibility")).isEqualTo("direct");
+        assertThat(mentions(id)).containsExactlyEntriesOf(Map.of(follower.id(), true));
+        assertThat(statuses.findVisible(id, Optional.of(follower.id()))).isPresent();
+    }
+
+    @Test
     void mentionsAnAccountSilentlyWhenItsAddressedWithoutATag() {
         var noteId = noteId();
 
