@@ -68,7 +68,7 @@ public class InstanceActorKeys {
 
     private Optional<RsaKeys> read() {
         return jdbc.sql("SELECT public_key_pem, private_key_pem FROM instance_actor")
-                .query((rs, rowNum) -> new RsaKeys(rs.getString("public_key_pem"), rs.getString("private_key_pem")))
+                .query(RsaKeys.class)
                 .optional();
     }
 }

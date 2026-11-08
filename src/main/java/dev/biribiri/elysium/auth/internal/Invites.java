@@ -6,8 +6,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -60,7 +58,7 @@ class Invites {
 
     List<Invite> list() {
         return jdbc.sql("SELECT * FROM invite ORDER BY created_at DESC")
-                .query((rs, rowNum) -> invite(rs))
+                .query(Invite.class)
                 .list();
     }
 
@@ -108,19 +106,6 @@ class Invites {
                 .queryParam("invite", code)
                 .build()
                 .toUri();
-    }
-
-    private static Invite invite(ResultSet rs) throws SQLException {
-        var maxUses = rs.getObject("max_uses", Integer.class);
-        var expiresAt = rs.getTimestamp("expires_at");
-        var revokedAt = rs.getTimestamp("revoked_at");
-        return new Invite(
-                rs.getObject("id", UUID.class),
-                maxUses,
-                rs.getInt("uses"),
-                expiresAt == null ? null : expiresAt.toInstant(),
-                revokedAt == null ? null : revokedAt.toInstant(),
-                rs.getTimestamp("created_at").toInstant());
     }
 
     /**

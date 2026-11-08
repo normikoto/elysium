@@ -37,7 +37,7 @@ public class StatusThreads {
                             WHERE a.uri = :uri AND b.uri = :parent
                             """)
                     .param("uri", status.uri().toString()).param("parent", parentUri.toString())
-                    .query((rs, n) -> new Pair(rs.getObject("keep", UUID.class), rs.getObject("remove", UUID.class)))
+                    .query(Pair.class)
                     .single();
             if (!pair.keep().equals(pair.remove())) {
                 jdbc.sql("UPDATE status SET thread_id = :keep WHERE thread_id = :remove")

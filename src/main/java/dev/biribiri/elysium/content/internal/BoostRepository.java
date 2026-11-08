@@ -2,15 +2,14 @@ package dev.biribiri.elysium.content.internal;
 
 import dev.biribiri.elysium.content.BoostStats;
 import dev.biribiri.elysium.content.StatusBoost;
-import dev.biribiri.elysium.content.Visibility;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.SimplePropertyRowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.net.URI;
 import java.sql.Types;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
@@ -25,16 +24,9 @@ import java.util.stream.Collectors;
 @Repository
 public class BoostRepository {
 
-    private static final String COLUMNS = "b.id, b.uri, b.actor_id, b.reblog_of_id, b.visibility, b.published_at, b.activity_at";
+    private static final String COLUMNS = "b.id, b.uri, b.actor_id, b.reblog_of_id AS status_id, b.visibility, b.published_at, b.activity_at";
 
-    private static final RowMapper<StatusBoost> MAPPER = (rs, row) -> new StatusBoost(
-            rs.getObject("id", UUID.class),
-            URI.create(rs.getString("uri")),
-            rs.getObject("actor_id", UUID.class),
-            rs.getObject("reblog_of_id", UUID.class),
-            Visibility.fromValue(rs.getString("visibility")),
-            rs.getObject("published_at", OffsetDateTime.class).toInstant(),
-            Optional.ofNullable(rs.getObject("activity_at", OffsetDateTime.class)).map(OffsetDateTime::toInstant).orElse(null));
+    private static final RowMapper<StatusBoost> MAPPER = new SimplePropertyRowMapper<>(StatusBoost.class, ContentRows.CONVERSIONS);
 
     private final JdbcClient jdbc;
 

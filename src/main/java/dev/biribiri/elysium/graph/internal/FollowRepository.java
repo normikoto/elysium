@@ -210,7 +210,7 @@ public class FollowRepository {
                         WHERE f.follower_id = :followerId AND NOT a.is_local AND f.activity_uri IS NOT NULL
                         """)
                 .param("followerId", followerId)
-                .query((rs, row) -> new SentFollow(rs.getObject("followed_id", UUID.class), rs.getString("activity_uri")))
+                .query(SentFollow.class)
                 .list();
     }
 
@@ -341,7 +341,7 @@ public class FollowRepository {
                         WHERE f.followed_id = :followedId AND f.state = 'accepted' AND NOT a.is_local
                         """)
                 .param("followedId", followedId)
-                .query((rs, row) -> URI.create(rs.getString(1)))
+                .query(URI.class)
                 .list();
     }
 
@@ -393,7 +393,7 @@ public class FollowRepository {
                         """)
                 .param("followedId", followedId)
                 .param("time", time(time))
-                .query((rs, row) -> URI.create(rs.getString(1)))
+                .query(URI.class)
                 .list();
     }
 

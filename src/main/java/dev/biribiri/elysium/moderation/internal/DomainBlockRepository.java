@@ -2,11 +2,9 @@ package dev.biribiri.elysium.moderation.internal;
 
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlockPage;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.HashMap;
@@ -20,12 +18,6 @@ import java.util.UUID;
 public class DomainBlockRepository {
 
     private static final String COLUMNS = "id, domain, private_comment, created_at";
-
-    private static final RowMapper<DomainBlock> ROW_MAPPER = (rs, rowNum) -> new DomainBlock(
-            rs.getObject("id", UUID.class),
-            rs.getString("domain"),
-            rs.getString("private_comment"),
-            rs.getObject("created_at", OffsetDateTime.class).toInstant());
 
     private final JdbcClient jdbc;
 
@@ -56,7 +48,7 @@ public class DomainBlockRepository {
                         """.formatted(COLUMNS))
                 .param("id", id)
                 .param("comment", comment)
-                .query(ROW_MAPPER)
+                .query(DomainBlock.class)
                 .optional();
     }
 
@@ -67,7 +59,7 @@ public class DomainBlockRepository {
     public Optional<DomainBlock> find(UUID id) {
         return jdbc.sql("SELECT " + COLUMNS + " FROM domain_block WHERE id = :id")
                 .param("id", id)
-                .query(ROW_MAPPER)
+                .query(DomainBlock.class)
                 .optional();
     }
 
@@ -82,7 +74,7 @@ public class DomainBlockRepository {
                         LIMIT 1
                         """.formatted(COLUMNS))
                 .param("domains", domains.toArray(String[]::new))
-                .query(ROW_MAPPER)
+                .query(DomainBlock.class)
                 .optional();
     }
 
@@ -103,7 +95,7 @@ public class DomainBlockRepository {
         sql.append(ascending ? " ORDER BY id ASC" : " ORDER BY id DESC").append(" LIMIT :limit");
         parameters.put("limit", page.limit());
 
-        var blocks = jdbc.sql(sql.toString()).params(parameters).query(ROW_MAPPER).list();
+        var blocks = jdbc.sql(sql.toString()).params(parameters).query(DomainBlock.class).list();
         return ascending ? blocks.reversed() : blocks;
     }
 
