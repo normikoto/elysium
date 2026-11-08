@@ -29,11 +29,17 @@ final class PageLinks {
             ResponseEntity.BodyBuilder response,
             InstanceProperties instance,
             String path,
-            Map<String, String> filters,
+            Map<String, ?> filters,
             int limit,
             List<UUID> found) {
         var base = UriComponentsBuilder.fromUri(instance.resolve(path)).queryParam("limit", limit);
-        filters.forEach(base::queryParam);
+        filters.forEach((name, value) -> {
+            if (value instanceof java.util.Collection<?> values) {
+                base.queryParam(name, values);
+            } else {
+                base.queryParam(name, value);
+            }
+        });
         var links = new ArrayList<String>();
         if (found.size() == limit) {
             links.add(link(base, "max_id", found.getLast(), "next"));

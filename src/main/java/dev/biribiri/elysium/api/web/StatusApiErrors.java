@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.InvalidProfileException;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.InvalidStatusException;
+import dev.biribiri.elysium.inbox.MarkerConflictException;
 import dev.biribiri.elysium.content.ReplyParentNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,10 @@ import java.util.Map;
  */
 @RestControllerAdvice(assignableTypes = {
         AccountsController.class,
+        NotificationsController.class,
+        GroupedNotificationsController.class,
+        ConversationsController.class,
+        MarkersController.class,
         AdminAccountsController.class,
         DomainBlocksController.class,
         ProfileController.class,
@@ -25,6 +30,11 @@ import java.util.Map;
         StatusesController.class,
         TimelinesController.class})
 class StatusApiErrors {
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> markerConflict(MarkerConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+    }
 
     @ExceptionHandler
     ResponseEntity<Map<String, String>> invalidStatus(InvalidStatusException e) {

@@ -10,6 +10,7 @@ import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.StatusDeleted;
+import dev.biribiri.elysium.content.StatusThreadsMerged;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -370,7 +371,7 @@ class StatusesIntegrationTests {
         mockMvc.perform(withToken(get(path), bob())).andExpect(status().isOk());
         mockMvc.perform(withToken(get(path), carol())).andExpect(status().isNotFound());
         mockMvc.perform(get(path)).andExpect(status().isNotFound());
-        expectIds(withToken(get(HOME), bob()), id);
+        expectIds(withToken(get(HOME), bob()));
         expectIds(withToken(get(HOME), carol()));
         expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), bob()), id);
         expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), carol()));
@@ -381,7 +382,7 @@ class StatusesIntegrationTests {
         var id = create(alice(), "@bob only followers and you", "private");
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob())).andExpect(status().isOk());
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), carol())).andExpect(status().isNotFound());
-        expectIds(withToken(get(HOME), bob()), id);
+        expectIds(withToken(get(HOME), bob()));
     }
 
     @Test
@@ -411,7 +412,7 @@ class StatusesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mentions", empty()));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), carol())).andExpect(status().isNotFound());
-        expectIds(withToken(get(HOME), bob()), id.toString());
+        expectIds(withToken(get(HOME), bob()));
     }
 
     @Test
@@ -535,6 +536,16 @@ class StatusesIntegrationTests {
 
         create(bob(), "Hidden reply", "private", parent);
         mockMvc.perform(get("/api/v1/statuses/" + parent)).andExpect(jsonPath("$.replies_count").value(1));
+    }
+
+    @Test
+    void aReplyToAStoredStatusJoinsItsThreadWithoutMerging() throws Exception {
+        var parent = create(alice(), "Parent");
+        var reply = create(bob(), "Reply", "public", parent);
+
+        assertThat(jdbc.sql("SELECT count(DISTINCT thread_id) FROM status WHERE id IN (:ids)")
+                .param("ids", List.of(UUID.fromString(parent), UUID.fromString(reply))).query(Long.class).single()).isEqualTo(1);
+        assertThat(events.stream(StatusThreadsMerged.class)).isEmpty();
     }
 
     @Test

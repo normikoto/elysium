@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Mention and follow notifications, including grouped notifications for newer Mastodon clients, unread counts, and
+  saved read positions. Notifications start with new activity after upgrading.
+- Direct-message conversations with per-user read and hide controls. Existing direct messages appear as read
+  conversations after upgrading.
+
 - Initial scaffolding
 - Local accounts with username and password login, hashed with Argon2id
 - A sign-up page, at `/signup`. `elysium.registration.mode` decides who can use it: `closed`, the default, for only people
@@ -129,6 +134,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `media`, in the directory the server runs from, unless you set `elysium.media.directory`.
 
 ### Changed
+
+- Mentions from accounts the user does not follow now appear in notifications and conversations instead of the home
+  timeline. Direct messages from followed accounts remain in the home timeline when addressed to the user.
 
 - `elysium.registration.enabled` is replaced by `elysium.registration.mode`, and sign-ups without an invite now have to
   confirm an email address before they can log in.

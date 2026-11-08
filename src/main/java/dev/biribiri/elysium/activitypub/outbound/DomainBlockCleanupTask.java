@@ -5,6 +5,7 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.inbox.InboxService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,11 +17,13 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 class DomainBlockCleanupTask {
 
+    private final InboxService inbox;
     private final DomainBlocks blocks;
     private final FollowService follows;
     private final StatusService statuses;
 
-    DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, StatusService statuses) {
+    DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, StatusService statuses, InboxService inbox) {
+        this.inbox = inbox;
         this.blocks = blocks;
         this.follows = follows;
         this.statuses = statuses;
@@ -42,6 +45,7 @@ class DomainBlockCleanupTask {
         blocks.blockedHosts(follows.remoteDomains()).forEach(domain -> {
             follows.removeForDomain(domain);
             statuses.removeForDomain(domain);
+            inbox.removeForDomain(domain);
         });
         return Jobs.done();
     }

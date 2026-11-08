@@ -74,7 +74,9 @@ public class FollowService {
         }
         var id = UUID.randomUUID();
         if (actors.isLocal(followed)) {
-            follows.insertOutgoing(id, follower.id(), followed.id(), null);
+            if (follows.insertOutgoing(id, follower.id(), followed.id(), null)) {
+                events.publishEvent(new FollowEstablished(id, follower.id(), followed.id()));
+            }
             return;
         }
         var activityUri = followActivityUri(follower, id);
@@ -258,6 +260,10 @@ public class FollowService {
             return Optional.empty();
         }
         follows.saveAccepted(followerId, followedId, activityUri, arrival.first());
+        if (existing.isEmpty() || !existing.get().accepted()) {
+            var saved = follows.findByPair(followerId, followedId).orElseThrow();
+            events.publishEvent(new FollowEstablished(saved.id(), followerId, followedId));
+        }
         return Optional.of(new Accepted(existing
                 .map(FollowRepository.Row::activityUri)
                 .filter(previous -> !previous.equals(activityUri))));

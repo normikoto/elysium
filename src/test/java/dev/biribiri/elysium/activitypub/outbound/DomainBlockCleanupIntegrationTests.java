@@ -19,6 +19,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -117,6 +118,24 @@ class DomainBlockCleanupIntegrationTests {
 
         await().atMost(WAIT).until(() -> jobs(block.id()) == 0);
         assertThat(follows(follower)).isEqualTo(1);
+    }
+
+    @Test
+    void cleansInboxDataForADomainWithNoFollows() {
+        var blocked = remote("social." + domain + ":8443");
+        var id = statuses.storeRemote(new RemoteStatus(URI.create(blocked.uri() + "/notes/1"), null, blocked.id(),
+                "<p>direct</p>", null, null, Visibility.DIRECT, false, null, Instant.now(), null,
+                Map.of(local.id(), false))).orElseThrow();
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM inbox_notification WHERE status_id = :id")
+                .param("id", id).query(Long.class).single() == 1);
+        blocks.create(domain, null);
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM inbox_conversation WHERE owner_id = :id")
+                .param("id", local.id()).query(Long.class).single() == 0);
+        assertThat(statusExists(id)).isFalse();
+        assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE sender_id = :id")
+                .param("id", blocked.id()).query(Long.class).single()).isZero();
+        assertThat(jdbc.sql("SELECT count(*) FROM status_thread_alias WHERE actor_id = :id")
+                .param("id", blocked.id()).query(Long.class).single()).isZero();
     }
 
     private UUID post(Actor author) {

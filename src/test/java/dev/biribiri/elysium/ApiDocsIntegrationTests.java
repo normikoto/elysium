@@ -14,6 +14,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -285,6 +286,55 @@ class ApiDocsIntegrationTests {
         mockMvc.perform(get("/v3/api-docs")).andExpect(status().isForbidden());
         mockMvc.perform(get("/swagger-ui.html")).andExpect(status().isForbidden());
         mockMvc.perform(get("/swagger-ui/index.html")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void documentsInboxPathsSchemasAndScopes() throws Exception {
+        var document = document();
+        var expected = Map.ofEntries(
+                Map.entry("/api/v1/notifications", "get"),
+                Map.entry("/api/v1/notifications/{id}", "get"),
+                Map.entry("/api/v1/notifications/clear", "post"),
+                Map.entry("/api/v1/notifications/{id}/dismiss", "post"),
+                Map.entry("/api/v1/notifications/unread_count", "get"),
+                Map.entry("/api/v2/notifications", "get"),
+                Map.entry("/api/v2/notifications/{group_key}", "get"),
+                Map.entry("/api/v2/notifications/{group_key}/accounts", "get"),
+                Map.entry("/api/v2/notifications/{group_key}/dismiss", "post"),
+                Map.entry("/api/v2/notifications/unread_count", "get"),
+                Map.entry("/api/v1/conversations", "get"),
+                Map.entry("/api/v1/conversations/{id}", "delete"),
+                Map.entry("/api/v1/conversations/{id}/read", "post"),
+                Map.entry("/api/v1/markers", "post"));
+        for (var entry : expected.entrySet()) {
+            var operation = document.get("paths").get(entry.getKey()).get(entry.getValue());
+            assertThat(operation).as(entry.toString()).isNotNull();
+            var notification = entry.getKey().contains("notifications");
+            var read = entry.getValue().equals("get");
+            var scope = notification ? (read ? "read:notifications" : "write:notifications")
+                    : entry.getKey().contains("markers") ? "write:statuses" : read ? "read:statuses" : "write:conversations";
+            assertThat(operation.at("/security/0/oauth2/0").asString()).isEqualTo(scope);
+            assertThat(operation.path("responses").propertyNames()).contains("200", "401", "403", "422");
+        }
+        assertThat(document.get("components").get("schemas").propertyNames()).contains(
+                "Notification", "NotificationGroup", "GroupedNotificationsResults", "Conversation", "Marker", "UnreadCount", "PartialAccountWithAvatar");
+        assertThat(document.get("paths").get("/api/v1/markers").get("get").at("/security/0/oauth2/0").asString()).isEqualTo("read:statuses");
+    }
+
+    @Test
+    void documentsInboxPagingAndMarkerRequestFormats() throws Exception {
+        var document = document();
+        for (var path : List.of("/api/v1/notifications", "/api/v2/notifications", "/api/v1/conversations")) {
+            var operation = document.get("paths").get(path).get("get");
+            assertThat(operation.at("/responses/200/headers/Link").isMissingNode()).isFalse();
+            for (var parameter : operation.path("parameters")) {
+                assertThat(parameter.path("in").asString()).as(path + " " + parameter).isEqualTo("query");
+            }
+        }
+        var marker = document.get("paths").get("/api/v1/markers").get("post");
+        assertThat(marker.at("/requestBody/content").propertyNames()).contains(
+                "application/json", "application/x-www-form-urlencoded", "multipart/form-data");
+        assertThat(marker.path("responses").propertyNames()).contains("409", "413");
     }
 
     private JsonNode document() throws Exception {
