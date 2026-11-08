@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -26,10 +28,12 @@ class LocalAccounts implements UserDetailsService {
     static final int MAX_PASSWORD_LENGTH = 128;
 
     /**
-     * Identifies the advisory lock that's held while deciding whether a new account is the first. PostgreSQL's advisory
-     * locks are shared by the whole database, so this is just an arbitrary number that nothing else uses.
+     * Identifies the advisory lock that's held while deciding whether a new account is the first, and whether a username or
+     * email address is free. A username has to be free of both accounts and {@link SignUps pending sign-ups}, which are in
+     * different tables, so no unique index can decide that. PostgreSQL's advisory locks are shared by the whole database, so
+     * this is just an arbitrary number that nothing else uses.
      */
-    private static final long FIRST_ACCOUNT_LOCK = 7_391_046_215L;
+    private static final long ACCOUNT_CREATION_LOCK = 7_391_046_215L;
 
     /**
      * Identifies the advisory lock that's held while deciding whether an account can be suspended or deleted, so that two
@@ -85,7 +89,8 @@ class LocalAccounts implements UserDetailsService {
      * @throws FirstAccountRefusedException if no other account exists yet, in which case nothing is created
      */
     boolean signUp(String username, String password) {
-        return create(username, password, false).isPresent();
+        return create(username, hash(password), null, false, () -> {
+        }).isPresent();
     }
 
     /**
@@ -94,7 +99,8 @@ class LocalAccounts implements UserDetailsService {
      * @return the new account's role, or empty if the username is taken
      */
     Optional<AccountRole> createAccount(String username, String password) {
-        return create(username, password, true);
+        return create(username, hash(password), null, true, () -> {
+        });
     }
 
     /**
@@ -165,28 +171,99 @@ class LocalAccounts implements UserDetailsService {
         return authorizations + consents > 0;
     }
 
-    private Optional<AccountRole> create(String username, String password, boolean mayBeFirst) {
+    /**
+     * Checks and hashes a password for {@link #create}. Hashing is slow, so this mustn't be called inside a transaction.
+     *
+     * @throws IllegalArgumentException     if the password isn't valid
+     * @throws PasswordHashingBusyException if too many passwords are being hashed already
+     */
+    String hash(String password) {
         requireValidPassword(password);
-        // Hashing is slow, so it happens before the transaction takes a database connection.
-        var hash = passwordEncoder.encode(password);
+        return passwordEncoder.encode(password);
+    }
+
+    /**
+     * Creates an account.
+     *
+     * @param passwordHash  from {@link #hash}
+     * @param email         a confirmed address, or null
+     * @param inTransaction runs in the same transaction, once the lock is held and before the username and email address are
+     *                      checked, so that whatever it changes is undone if the account isn't created. If it throws, nothing is
+     *                      created.
+     * @return the new account's role, or empty if the username or email address is taken
+     * @throws FirstAccountRefusedException if no other account exists yet and {@code mayBeFirst} is false
+     */
+    Optional<AccountRole> create(
+            String username, String passwordHash, String email, boolean mayBeFirst, Runnable inTransaction) {
         var role = new AtomicReference<AccountRole>();
-        var created = actors.createLocalIfAbsent(username, actor -> {
-            // Each transaction can only see the others' accounts once they've committed, so only one at a time can
-            // decide. This has to be a separate statement from the count, so that the count sees whatever was committed
-            // while waiting. It's not a table lock because this transaction has already written to the table, so two of
-            // them upgrading their locks could deadlock.
-            jdbc.sql("SELECT pg_advisory_xact_lock(:key)").param("key", FIRST_ACCOUNT_LOCK).query(rs -> {
+        try {
+            var created = actors.createLocalIfAbsent(username, actor -> {
+                // It's not a table lock because this transaction has already written to the actor table, so two of them
+                // upgrading their locks could deadlock.
+                lockAccountCreation();
+                inTransaction.run();
+                if (isUsernamePending(username) || (email != null && isEmailTaken(email))) {
+                    throw new TakenException();
+                }
+                // This includes the account being created. It also includes suspended accounts, since one of those isn't
+                // a reason to make a stranger an admin.
+                var first = actors.countExistingLocal() == 1;
+                if (first && !mayBeFirst) {
+                    throw new FirstAccountRefusedException();
+                }
+                role.set(first ? AccountRole.ADMIN : AccountRole.USER);
+                insertCredential(actor.id(), passwordHash, role.get(), email);
             });
-            // This includes the account being created. It also includes suspended accounts, since one of those isn't a reason
-            // to make a stranger an admin.
-            var first = actors.countExistingLocal() == 1;
-            if (first && !mayBeFirst) {
-                throw new FirstAccountRefusedException();
-            }
-            role.set(first ? AccountRole.ADMIN : AccountRole.USER);
-            insertCredential(actor.id(), hash, role.get());
+            return created.map(actor -> role.get());
+        } catch (TakenException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Makes other transactions wait here until this one ends, before they decide whether an account can be created: see
+     * {@link #ACCOUNT_CREATION_LOCK}. Each transaction can only see the others' accounts once they've committed, so only one
+     * at a time can decide. This has to be a separate statement from the checks, so that they see whatever was committed
+     * while waiting.
+     */
+    void lockAccountCreation() {
+        jdbc.sql("SELECT pg_advisory_xact_lock(:key)").param("key", ACCOUNT_CREATION_LOCK).query(rs -> {
         });
-        return created.map(actor -> role.get());
+    }
+
+    /**
+     * Whether an account or a pending sign-up has this email address. Only {@link #lockAccountCreation} keeps the answer
+     * true until the transaction ends.
+     */
+    boolean isEmailTaken(String email) {
+        return jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM account_credential WHERE lower(email) = lower(:email))
+                            OR EXISTS (SELECT 1 FROM pending_sign_up WHERE lower(email) = lower(:email))
+                        """)
+                .param("email", email)
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * Whether a pending sign-up has this username. Suspended and deleted accounts keep theirs too, which the actor table
+     * decides.
+     */
+    boolean isUsernamePending(String username) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM pending_sign_up WHERE lower(username) = lower(:username))")
+                .param("username", username)
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * Thrown inside the transaction, to undo creating the actor.
+     */
+    private static final class TakenException extends RuntimeException {
+
+        TakenException() {
+            super(null, null, false, false);
+        }
     }
 
     /**
@@ -305,15 +382,31 @@ class LocalAccounts implements UserDetailsService {
                 .isPresent();
     }
 
-    private void insertCredential(UUID actorId, String hash, AccountRole role) {
+    private void insertCredential(UUID actorId, String hash, AccountRole role, String email) {
         jdbc.sql("""
-                        INSERT INTO account_credential (actor_id, password_hash, role)
-                        VALUES (:actorId, :hash, :role)
+                        INSERT INTO account_credential (actor_id, password_hash, role, email)
+                        VALUES (:actorId, :hash, :role, :email)
                         """)
                 .param("actorId", actorId)
                 .param("hash", hash)
                 .param("role", role.name())
+                .param("email", email)
                 .update();
+    }
+
+    /**
+     * @return which of these accounts have an email address, and what it is
+     */
+    Map<UUID, String> emailsOf(Collection<UUID> actorIds) {
+        if (actorIds.isEmpty()) {
+            return Map.of();
+        }
+        var emails = new HashMap<UUID, String>();
+        jdbc.sql("SELECT actor_id, email FROM account_credential WHERE email IS NOT NULL AND actor_id IN (:ids)")
+                .param("ids", actorIds)
+                .query((rs, rowNum) -> emails.put(rs.getObject("actor_id", UUID.class), rs.getString("email")))
+                .list();
+        return emails;
     }
 
     private Optional<Credential> credential(UUID actorId) {

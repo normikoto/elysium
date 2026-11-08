@@ -11,7 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial scaffolding
 - Local accounts with username and password login, hashed with Argon2id
-- Optional sign-up page, turned on with `elysium.registration.enabled`
+- A sign-up page, at `/signup`. `elysium.registration.mode` decides who can use it: `closed`, the default, for only people
+  with an invite, `open` for anyone who confirms their email address, or `approval` for those who also wait for an admin.
+  `open` and `approval` need an SMTP server, set with `spring.mail.*` and `elysium.mail.from`.
+- Invites, which let someone sign up in any mode without an email address or approval, with the `create-invite`,
+  `list-invites`, and `revoke-invite` commands
+- Approving sign-ups at `/admin/sign-ups`, or with the `list-sign-ups`, `approve-sign-up`, and `reject-sign-up` commands
+- `email` in the admin API's accounts, for those that confirmed one. `approval_required` in `GET /api/v1/instance`
 - `create-user` command to create a local account, and `reset-password` command to replace an account's password and
   revoke its applications' access
 - An admin role. The first account from `create-user` becomes an admin, and the `set-role` command gives or removes the
@@ -124,6 +130,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `elysium.registration.enabled` is replaced by `elysium.registration.mode`, and sign-ups without an invite now have to
+  confirm an email address before they can log in.
+  - **Upgrading:** the server won't start while `elysium.registration.enabled` (or `ELYSIUM_REGISTRATION_ENABLED`) is
+    set, so remove it. If it was `true`, set `elysium.registration.mode=open` and an SMTP server, as in
+    `docs/configuration.md`, or keep the default `closed` and send people invites. With `compose.yaml`, use the new
+    `ELYSIUM_REGISTRATION_MODE` and mail settings from `.env.example`.
 - Login sessions are now stored in the database. `reset-password` logs the account out of every browser straight away, with no
   restart, and so does suspending an account. Sessions survive restarts, and multiple instances no longer need sticky sessions.
   Only a hash of each session's ID is stored, so what's in the database or a backup can't be used to take over a session.

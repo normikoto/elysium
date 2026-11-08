@@ -56,7 +56,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
         "elysium.instance.base-url=https://moderation.example",
-        "elysium.registration.enabled=true",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -460,6 +459,7 @@ class AccountModerationIntegrationTests {
         accounts.delete(user.id(), Optional.empty());
 
         mockMvc.perform(post("/signup").with(csrf())
+                        .param("invite", TestAccounts.invite(jdbc))
                         .param("username", user.username())
                         .param("password", PASSWORD)
                         .param("confirmPassword", PASSWORD))
@@ -642,6 +642,7 @@ class AccountModerationIntegrationTests {
 
     private void signUp(String username) throws Exception {
         mockMvc.perform(post("/signup").with(csrf())
+                        .param("invite", TestAccounts.invite(jdbc))
                         .param("username", username)
                         .param("password", PASSWORD)
                         .param("confirmPassword", PASSWORD))

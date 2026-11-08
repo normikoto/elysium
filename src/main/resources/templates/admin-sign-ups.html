@@ -1,0 +1,29 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Sign-ups', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>
+            These people have confirmed their email address and are waiting for an account. Approving one creates it, and
+            rejecting one frees the username and address. Either way, they get an email saying so.
+        </p>
+        <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+
+        <p th:if="${signUps.isEmpty()}">No sign-ups are waiting.</p>
+        <div class="status" th:each="signUp : ${signUps}">
+            <p class="status-meta">
+                <strong th:text="${signUp.username()}"></strong>
+                <span th:text="${signUp.email()}"></span>
+                <time th:datetime="${signUp.confirmedAt()}" th:text="${signUp.confirmedAt()}"></time>
+            </p>
+            <p class="status-content" th:if="${signUp.reason() != null}" th:text="${signUp.reason()}"></p>
+            <form class="actions" method="post" th:action="@{/admin/sign-ups/{id}/approve(id=${signUp.id()})}">
+                <button type="submit">Approve</button>
+            </form>
+            <form class="actions" method="post" th:action="@{/admin/sign-ups/{id}/reject(id=${signUp.id()})}">
+                <button type="submit">Reject</button>
+            </form>
+        </div>
+        <p><a href="/admin/accounts">Accounts</a></p>
+    </div>
+</th:block>
+</html>

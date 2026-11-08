@@ -40,6 +40,12 @@ class CommandRunnerTests {
                         "suspend-account",
                         "unsuspend-account",
                         "delete-account",
+                        "create-invite",
+                        "list-invites",
+                        "revoke-invite",
+                        "list-sign-ups",
+                        "approve-sign-up",
+                        "reject-sign-up",
                         "help");
     }
 

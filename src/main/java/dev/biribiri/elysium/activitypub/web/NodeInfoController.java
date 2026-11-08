@@ -98,7 +98,7 @@ public class NodeInfoController {
                 new NodeInfo.Software("elysium", build.getVersion(), repository),
                 List.of("activitypub"),
                 new NodeInfo.Services(List.of(), List.of()),
-                registration.enabled(),
+                registration.acceptsUninvited(),
                 new NodeInfo.Usage(new NodeInfo.Users(actors.countLocal()), statuses.countLocal()),
                 Map.of());
     }

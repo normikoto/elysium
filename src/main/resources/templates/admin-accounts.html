@@ -32,6 +32,7 @@
             <a th:if="${account.local()}" th:href="@{/admin/accounts/{id}/delete(id=${account.id()})}">Delete</a>
         </div>
         <p th:if="${older != null}"><a th:href="@{/admin/accounts(max_id=${older}, username=${username})}">More accounts</a></p>
+        <p><a href="/admin/sign-ups">Sign-ups waiting for approval</a></p>
     </div>
 </th:block>
 </html>

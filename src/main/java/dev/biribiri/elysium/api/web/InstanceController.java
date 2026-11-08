@@ -78,8 +78,9 @@ public class InstanceController {
                 new InstanceResponse.Stats(actors.countLocal(), statuses.countLocal(), 0),
                 null,
                 List.of(),
-                registration.enabled(),
-                false,
+                registration.acceptsUninvited(),
+                registration.approvalRequired(),
+                // Mastodon means whether users can make invites, which only admins can, from the command line.
                 false,
                 maxCharacters,
                 new InstanceResponse.Configuration(

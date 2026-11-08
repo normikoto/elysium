@@ -1,0 +1,7 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Link not valid', ~{::content})}">
+<th:block th:fragment="content">
+    <p>This link has expired, or has already been used. If you haven't got an account yet, <a href="/signup">sign up
+        again</a>.</p>
+</th:block>
+</html>

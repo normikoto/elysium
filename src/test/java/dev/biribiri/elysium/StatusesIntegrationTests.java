@@ -60,8 +60,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://elysium.example",
-        "elysium.registration.enabled=true"
+        "elysium.instance.base-url=https://elysium.example"
 })
 @AutoConfigureMockMvc
 @RecordApplicationEvents
@@ -977,7 +976,7 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.configuration.accounts.max_featured_tags").value(0))
                 .andExpect(jsonPath("$.stats.status_count").value(1))
                 .andExpect(jsonPath("$.stats.domain_count").value(0))
-                .andExpect(jsonPath("$.registrations").value(true))
+                .andExpect(jsonPath("$.registrations").value(false))
                 .andExpect(jsonPath("$.contact_account").value(nullValue()))
                 .andExpect(jsonPath("$.rules", empty()));
     }
@@ -1126,6 +1125,7 @@ class StatusesIntegrationTests {
         }
         if (TOKENS.keySet().stream().noneMatch(key -> key.startsWith(username + " "))) {
             mockMvc.perform(post("/signup").with(csrf())
+                            .param("invite", TestAccounts.invite(jdbc))
                             .param("username", username)
                             .param("password", PASSWORD)
                             .param("confirmPassword", PASSWORD))

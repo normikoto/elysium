@@ -1,0 +1,8 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Check your email', ~{::content})}">
+<th:block th:fragment="content">
+    <p>We've sent a link to <strong th:text="${email}"></strong>. Open it to confirm your address.</p>
+    <p>You can't log in until then. If the email doesn't arrive, check your spam folder. The link stops working after a
+        day, and you can sign up again after that.</p>
+</th:block>
+</html>

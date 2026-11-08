@@ -33,13 +33,65 @@ systemd-run --pty --wait --collect --uid=elysium --gid=elysium \
 
 With Docker Compose, some JVM startup messages are printed around the command's output. They don't mean anything went wrong.
 
-People can't change their own passwords yet, and sign-ups have no email confirmation. To replace someone's password, run
-`reset-password alice`. This also logs them out everywhere and revokes their applications' access, so they'll need to
-authorize them again.
+People can't change their own passwords yet. To replace someone's password, run `reset-password alice`. This also logs them
+out everywhere and revokes their applications' access, so they'll need to authorize them again.
+
+## Sign-ups
+Once the first account exists, people can create their own at `/signup`. Who can depends on
+[`elysium.registration.mode`](configuration.md):
+
+| Mode               | Who can sign up                                                                     |
+|--------------------|-------------------------------------------------------------------------------------|
+| `closed` (default) | Only people with an [invite](#invites)                                              |
+| `open`             | Anyone, once they've confirmed their email address                                  |
+| `approval`         | Anyone who confirms their email address, but they also have to wait for an admin   |
+
+`open` and `approval` need an SMTP server to send the confirmation links, set with
+[`spring.mail.host` and `elysium.mail.from`](configuration.md). The server won't start in those modes without one.
+
+Someone signing up without an invite gives an email address, and gets a link to confirm it. The link works for a day. Until
+they've confirmed it, they can't log in, and nobody else can see the account or take its username or address. If the email
+doesn't arrive, they can sign up again once the day is up. The server only keeps addresses for accounts that confirmed one.
+Admins can see them through the [admin API](api.md), and they go when the account is deleted. No other email is sent apart
+from the [approval](#approving-sign-ups) messages.
+
+An address can only be used by one account or sign-up at a time. The server only checks that an address looks like one,
+then relies on the confirmation link, so it can't stop someone with many addresses from making many accounts. The
+`approval` mode can.
+
+Changing to `closed` stops links that haven't been opened yet from working, but sign-ups that are waiting for approval stay
+in the list.
+
+### Invites
+Invites let someone sign up in any mode, without giving an email address, confirming one, or waiting for approval. So with
+`closed`, the server doesn't need an SMTP server at all. Only admins can make them, with a command:
+```shell
+java -jar elysium.jar create-invite                                 # Works for any number of accounts, forever
+java -jar elysium.jar create-invite --max-uses 1 --expires-in 7d    # One account, within a week
+java -jar elysium.jar list-invites
+java -jar elysium.jar revoke-invite 5f0c6c1e-...                    # By the ID that list-invites shows
+```
+
+`create-invite` prints a link to `/signup` to send to whoever you're inviting. Only a hash of it is stored, so it can't be
+shown again. Anyone with the link can use it, so give it only to the people it's for. Revoking an invite doesn't affect the
+accounts it has already made. Accounts made with an invite have no email address, so they won't get any email.
+
+### Approving sign-ups
+With `approval`, the sign-up page also asks why they want to join. After they've confirmed their address, they're listed at
+`/admin/sign-ups`, along with their reason, until an admin approves or rejects them. They're emailed either way. Approving
+one creates the account. Rejecting one frees its username and address. The commands do the same:
+```shell
+java -jar elysium.jar list-sign-ups
+java -jar elysium.jar approve-sign-up alice
+java -jar elysium.jar reject-sign-up alice
+```
+
+Sign-ups waiting for approval never expire, and they aren't accounts yet, so they don't appear at `/admin/accounts` or in
+the API.
 
 ## Admins
-The server's first account becomes an admin, and later accounts are regular users. If sign-ups are turned on, `/signup`
-refuses to create the first account until `create-user` has been run, so that a stranger can't become the admin.
+The server's first account becomes an admin, and later accounts are regular users. `/signup` refuses to create the first
+account until `create-user` has been run, even with an invite, so that a stranger can't become the admin.
 
 To give or remove the role:
 ```shell
@@ -150,9 +202,8 @@ clients can share one limit, or clients can get around the limits by making up t
 To turn the limits off, because you enforce your own elsewhere, set `elysium.rate-limit.enabled=false`. This doesn't turn off
 the [limit on inboxes](../FEDERATION.md#inboxes), which can't be replaced by one elsewhere.
 
-**Warning:** These limits only slow down abuse from a small number of addresses, and there's still no email confirmation,
-approval queue, or invite system for sign-ups. For this reason, it's _strongly recommended_ to not use this software on a
-public facing server at this time.
+These limits only slow down abuse from a small number of addresses. To stop people with many addresses, use
+[`approval` or `closed`](#sign-ups).
 
 ## Login sessions
 Login sessions are stored in the database, so restarting doesn't log anyone out, and with more than one copy of the server,

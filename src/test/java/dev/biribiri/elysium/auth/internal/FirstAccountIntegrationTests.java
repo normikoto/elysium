@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.ActorService;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
         "elysium.instance.base-url=https://first-account.example",
-        "elysium.registration.enabled=true"
+        "elysium.registration.mode=open"
 })
 @AutoConfigureMockMvc
 class FirstAccountIntegrationTests {
@@ -319,6 +320,7 @@ class FirstAccountIntegrationTests {
 
     private org.springframework.test.web.servlet.ResultActions signUp(String username) throws Exception {
         return mockMvc.perform(post("/signup").with(csrf())
+                .param("invite", TestAccounts.invite(jdbc))
                 .param("username", username)
                 .param("password", PASSWORD)
                 .param("confirmPassword", PASSWORD));

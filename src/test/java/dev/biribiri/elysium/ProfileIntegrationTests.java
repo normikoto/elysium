@@ -13,6 +13,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
@@ -46,7 +47,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
         "elysium.instance.base-url=https://profiles.example",
-        "elysium.registration.enabled=true",
         "elysium.jobs.worker-enabled=false",
         "elysium.profiles.max-fields=2",
         "elysium.profiles.max-image-size=200KB"
@@ -64,6 +64,8 @@ class ProfileIntegrationTests {
 
     @Autowired
     private MockMvc mockMvc;
+    @Autowired
+    private JdbcClient jdbc;
     @Autowired
     private ActorService actors;
     @Autowired
@@ -387,6 +389,7 @@ class ProfileIntegrationTests {
             return cached;
         }
         mockMvc.perform(post("/signup").with(csrf())
+                        .param("invite", TestAccounts.invite(jdbc))
                         .param("username", username)
                         .param("password", PASSWORD)
                         .param("confirmPassword", PASSWORD))

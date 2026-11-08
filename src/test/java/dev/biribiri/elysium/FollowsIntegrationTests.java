@@ -55,7 +55,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
         "elysium.instance.base-url=https://follows.example",
-        "elysium.registration.enabled=true",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -610,6 +609,7 @@ class FollowsIntegrationTests {
         }
         if (TOKENS.keySet().stream().noneMatch(key -> key.startsWith(username + " "))) {
             mockMvc.perform(post("/signup").with(csrf())
+                            .param("invite", TestAccounts.invite(jdbc))
                             .param("username", username)
                             .param("password", PASSWORD)
                             .param("confirmPassword", PASSWORD))

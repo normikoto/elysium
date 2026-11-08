@@ -2,15 +2,28 @@
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Create an account', ~{::content})}">
 <th:block th:fragment="content">
     <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+    <p th:if="${invite == null}">
+        We'll email you a link to confirm your address.
+        <th:block th:if="${askForReason}">After that, an admin has to approve your account before you can log in.</th:block>
+    </p>
     <form method="post" action="/signup">
         <input type="hidden" th:name="${csrfParameter}" th:value="${csrfToken}">
+        <input type="hidden" name="invite" th:if="${invite != null}" th:value="${invite}">
         <label for="username">Username</label>
         <input type="text" id="username" name="username" th:value="${username}" autocomplete="username" required autofocus>
+        <th:block th:if="${invite == null}">
+            <label for="email">Email address</label>
+            <input type="email" id="email" name="email" th:value="${email}" autocomplete="email" maxlength="254" required>
+        </th:block>
         <label for="password">Password</label>
         <input type="password" id="password" name="password" autocomplete="new-password" minlength="8" maxlength="128"
                required>
         <label for="confirmPassword">Confirm password</label>
         <input type="password" id="confirmPassword" name="confirmPassword" autocomplete="new-password" required>
+        <th:block th:if="${askForReason}">
+            <label for="reason">Why do you want to join?</label>
+            <textarea id="reason" name="reason" th:maxlength="${maxReasonLength}" th:text="${reason}"></textarea>
+        </th:block>
         <button type="submit">Create account</button>
     </form>
     <p><a href="/login">Log in instead</a></p>
