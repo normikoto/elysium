@@ -37,6 +37,16 @@ public record Announce(
     }
 
     /**
+     * Like {@link #of}, leaving the author out when the booster boosted their own status.
+     *
+     * @param author the boosted status's author, or null if it isn't known
+     */
+    public static Announce fromHere(URI id, Actor booster, URI status, Actor author, Visibility visibility, Instant published) {
+        var other = author == null || author.id().equals(booster.id()) ? null : author.uri();
+        return of(id.toString(), booster, status, other, visibility, published);
+    }
+
+    /**
      * A boost in a {@code shares} collection, which may be from another server, so it's only addressed to the public, as
      * the only part of who it was sent to that's known here.
      */

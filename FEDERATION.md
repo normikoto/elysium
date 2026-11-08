@@ -1,8 +1,8 @@
 # Federation
 
 Elysium is an early work in progress, and this file only describes what's implemented today. Other servers can find and
-follow its users, and fetch their actors, statuses, and collections. Its users can follow accounts on other servers, and like
-and boost their posts. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
+follow its users, and fetch their actors, statuses, outboxes, and collections. Its users can follow accounts on other servers,
+whose recent posts are then fetched from their outbox, and like and boost their posts. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
 are sent to their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
 reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
 statuses are counted. Attachments, polls, and other activities aren't supported yet.
@@ -67,6 +67,13 @@ Each collection has a `totalItems` and a `first` page, at `?page=true`. A page i
 up to 40 `orderedItems`, which are actor URIs, newest follow first, and a `next` page if there are more, at
 `?page=true&max_id={cursor}`. Only accepted follows are counted or listed, and suspended actors are left out. A user can hide
 who's in their collections, and then a collection, or any page of it, only has its `totalItems`, with no `first` or items.
+
+An actor's `outbox` is an `OrderedCollection` at `/users/{username}/outbox`, served like followers and following, with the
+same paging, 403, and 410. It lists the user's public and unlisted posts and boosts, newest first, and `totalItems` counts
+them. A post is the `Create` that was [sent](#statuses) for it, embedding the `Note` as it's served now, and a boost is its
+[`Announce`](#boosts). Followers-only and direct posts, followers-only boosts, and boosts of posts that can't be shown are left
+out, so a page can have fewer than 40 items and still have a `next`. Any signature is ignored. The
+[instance actor](#instance-actor)'s outbox, at `/actor/outbox`, is always empty.
 
 Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively. A deleted account's username
 can't be used again, because other servers can still know its URI.
@@ -354,7 +361,28 @@ has ended:
 ```
 
 What the followed actor posts is stored once following them is accepted, as [Receiving statuses](#receiving-statuses)
-describes. Older posts aren't fetched. Following an actor on a [blocked domain](#domain-blocks) is refused.
+describes. Following an actor on a [blocked domain](#domain-blocks) is refused.
+
+#### Backfill
+
+When a `Follow` from here is accepted, the followed actor's `outbox` is fetched, signed as the
+[instance actor](#instance-actor), to store what they posted before. This happens again for a later accepted follow, and once
+for several follows of the same actor at the same time. Fetches share the per-host [turns](#forwarded-activities) of other
+fetches made on another server's word.
+
+- The `outbox` given in the actor document is only used if it's an HTTPS URL on the same host and port as the actor. It has to
+  be an `OrderedCollection` or `Collection` whose `id` is the URL fetched. Its `first` page can be embedded, or an ID on the
+  actor's host, which is fetched and has to be an `OrderedCollectionPage` or `CollectionPage` with that `id`. A collection
+  with no `first` is read for its own items. Only that first page is read, and `next` is never followed.
+- Up to 40 items of `orderedItems`, or `items`, are read. Only a `Create` whose `actor` is the followed actor, and that embeds a
+  `Note`, is used. The `Note` has to be attributed to that actor alone, with an `id` on its host and port, and be public or
+  unlisted, read [as for a `Create`](#receiving-statuses). It also needs a `published`. Nothing else is fetched, so items that
+  are only an ID, `Announce`s, and other activities are skipped.
+- These are stored as if they'd been sent then, with the same checks on content and repeats, except that they're sorted by
+  their `published` time, so they don't look newer than statuses that arrived before them. Local accounts they mention
+  aren't notified.
+- A `404`, `410`, or other refusal ends the backfill, and a server error or timeout is tried again later. Nothing is fetched
+  if no local account still follows the actor, or the actor is suspended or on a blocked domain.
 
 ### Statuses
 
@@ -466,7 +494,7 @@ with the author's `followers` collection addressed, or one it addresses. A publi
 `inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does. That covers a
 reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
 followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
-that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts). Other object types, such as `Article`, `Page`, and `Question`, are ignored.
+that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts) or [backfilled](#backfill). Other object types, such as `Article`, `Page`, and `Question`, are ignored.
 
 - **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
   same host and port. Anything else is dropped.
@@ -642,7 +670,7 @@ ends.
 - A local user's boost of a status that's removed with its author's account, or with a blocked domain's statuses, goes
   without an `Undo`.
 - Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.
-- Actor documents, including the instance actor's, advertise an `outbox`, but it isn't implemented yet.
+- Backfill only reads the first page of an outbox, and only `Create`s that embed their `Note`.
 
 ### Suspended and deleted accounts
 
@@ -716,8 +744,8 @@ GoToSocial answer the same way.
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Inboxes require signatures, and fetches of `Note`s
-check one if it's sent. The only requests this server makes are fetches of keys, actors, and other servers' activities and
-`Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`, and `Announce`.
+check one if it's sent. The only requests this server makes are fetches of keys, actors, outboxes, and other servers' activities
+and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`, and `Announce`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

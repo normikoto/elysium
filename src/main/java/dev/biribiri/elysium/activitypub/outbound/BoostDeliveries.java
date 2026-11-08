@@ -58,7 +58,7 @@ public class BoostDeliveries {
         boosts.findAndHold(event.boostId()).ifPresent(boost ->
                 statuses.findVisible(boost.statusId(), Optional.of(boost.actorId())).ifPresent(status -> {
                     var author = actors.findById(status.actorId()).orElse(null);
-                    var announce = announce(boost.uri(), booster.get(), status.uri(), author, boost.visibility(),
+                    var announce = Announce.fromHere(boost.uri(), booster.get(), status.uri(), author, boost.visibility(),
                             boost.publishedAt());
                     var inboxes = inboxes(booster.get().id(), author, boost.visibility(), boost.publishedAt());
                     if (inboxes.isEmpty()) return;
@@ -79,16 +79,10 @@ public class BoostDeliveries {
         var author = actors.findById(event.authorId()).orElse(null);
         var inboxes = inboxes(booster.get().id(), author, event.visibility(), event.publishedAt());
         if (inboxes.isEmpty()) return;
-        var undo = Undo.of(announce(event.boostUri(), booster.get(), event.statusUri(), author, event.visibility(),
+        var undo = Undo.of(Announce.fromHere(event.boostUri(), booster.get(), event.statusUri(), author, event.visibility(),
                 event.publishedAt()));
         deliveries.enqueueAfter(new OutboundActivity(undo.id(), booster.get().id(), json.writeValueAsString(undo),
                 WhileSuspended.WAIT), inboxes, event.boostUri().toString());
-    }
-
-    private static Announce announce(
-            URI id, Actor booster, URI status, Actor author, Visibility visibility, Instant publishedAt) {
-        var other = author == null || author.id().equals(booster.id()) ? null : author.uri();
-        return Announce.of(id.toString(), booster, status, other, visibility, publishedAt);
     }
 
     /**

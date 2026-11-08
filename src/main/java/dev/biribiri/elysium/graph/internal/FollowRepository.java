@@ -128,16 +128,18 @@ public class FollowRepository {
     /**
      * Accepts a follow that's waiting for an answer from the actor followed.
      *
-     * @return whether one was waiting
+     * @return the follower, if one was waiting
      */
-    public boolean acceptOutgoing(UUID followedId, String activityUri) {
+    public Optional<UUID> acceptOutgoing(UUID followedId, String activityUri) {
         return jdbc.sql("""
                         UPDATE follow SET state = 'accepted'
                         WHERE followed_id = :followedId AND activity_uri = :activityUri AND state = 'pending'
+                        RETURNING follower_id
                         """)
                 .param("followedId", followedId)
                 .param("activityUri", activityUri)
-                .update() > 0;
+                .query(UUID.class)
+                .optional();
     }
 
     /**

@@ -125,7 +125,9 @@ public class FollowService {
      */
     @Transactional
     public boolean acceptRequest(UUID followedId, String activityUri) {
-        return follows.acceptOutgoing(followedId, activityUri);
+        var follower = follows.acceptOutgoing(followedId, activityUri);
+        follower.ifPresent(id -> events.publishEvent(new FollowAccepted(id, followedId)));
+        return follower.isPresent();
     }
 
     /**
@@ -133,7 +135,11 @@ public class FollowService {
      */
     @Transactional
     public boolean acceptRequestFrom(UUID followerId, UUID followedId) {
-        return follows.acceptOutgoing(followerId, followedId);
+        var accepted = follows.acceptOutgoing(followerId, followedId);
+        if (accepted) {
+            events.publishEvent(new FollowAccepted(followerId, followedId));
+        }
+        return accepted;
     }
 
     /**

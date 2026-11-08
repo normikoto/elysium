@@ -314,6 +314,25 @@ public class StatusService {
      * @throws IllegalArgumentException if the author isn't an active remote actor
      */
     public Optional<UUID> storeRemote(RemoteStatus remote) {
+        return store(remote, false);
+    }
+
+    /**
+     * Like {@link #storeRemote}, for an older status fetched from its author's outbox rather than sent here.
+     *
+     * <p>Its ID comes from its {@code published} date, or now if that's later, so that it sorts among its author's statuses
+     * by when it was posted, rather than putting old ones at the top of every timeline. This is the one exception to IDs
+     * following commits: a client that's already seen later IDs won't be given it as new, which is what's wanted for an old
+     * status. Nothing is published either, so the accounts it mentions aren't told about it long after it was posted.
+     *
+     * @return the stored status's ID, or empty if a status with its URI is already stored
+     * @throws IllegalArgumentException if the author isn't an active remote actor
+     */
+    public Optional<UUID> storeBackfilled(RemoteStatus remote) {
+        return store(remote, true);
+    }
+
+    private Optional<UUID> store(RemoteStatus remote, boolean backfilled) {
         var author = actors.findById(remote.authorId())
                 .filter(found -> found.isActive() && !actors.isLocal(found))
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't an active remote actor"));
@@ -330,7 +349,10 @@ public class StatusService {
             }
             // Inside the lock, so that a reply and its parent arriving together can't miss each other: whichever is stored
             // second sees the other.
-            var id = nextId(Instant.now());
+            var now = Instant.now();
+            var id = backfilled
+                    ? StatusIds.fromTimestamp(remote.publishedAt().isBefore(now) ? remote.publishedAt() : now)
+                    : nextId(now);
             var parent = Optional.ofNullable(remote.inReplyToUri()).flatMap(statuses::findParentByUriAndLock);
             var status = new Status(
                     id,
@@ -360,7 +382,9 @@ public class StatusService {
             // Jobs have no order, so replies can be stored before their parent.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
             threads.assign(status, remote.inReplyToUri());
-            events.publishEvent(new StatusStored(id));
+            if (!backfilled) {
+                events.publishEvent(new StatusStored(id));
+            }
             return Optional.of(id);
         });
     }
@@ -689,6 +713,13 @@ public class StatusService {
                 ? Set.of(Visibility.PUBLIC, Visibility.UNLISTED, Visibility.PRIVATE)
                 : Set.of(Visibility.PUBLIC, Visibility.UNLISTED);
         return statuses.findByAccount(actorId, visibilities, viewer.orElse(null), excludeReplies, excludeReblogs, page);
+    }
+
+    /**
+     * Counts what {@link #findByAccount} lists for a viewer who isn't signed in, boosts and replies included.
+     */
+    public long countVisibleToAnyone(UUID actorId) {
+        return statuses.countByAccount(actorId, Set.of(Visibility.PUBLIC, Visibility.UNLISTED));
     }
 
     /**

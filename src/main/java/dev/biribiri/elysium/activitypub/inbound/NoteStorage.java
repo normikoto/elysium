@@ -96,7 +96,7 @@ class NoteStorage {
             return Result.IGNORED;
         }
         return save(note, author, visibility, activity.firstReceivedAt(),
-                Addressing.ofActivity(document).with(note.addressing()));
+                Addressing.ofActivity(document).with(note.addressing()), false);
     }
 
     /**
@@ -119,16 +119,39 @@ class NoteStorage {
         if (blocks.isBlocked(author.getHost()) || actors.isInactive(author)) {
             return Result.IGNORED;
         }
-        return save(note, actor, visibility, Instant.now(), note.addressing());
+        return save(note, actor, visibility, Instant.now(), note.addressing(), false);
+    }
+
+    /**
+     * Stores a public or unlisted note from its author's outbox. Like {@link #storeBoosted}, who it's for comes from the
+     * follow that asked for it, not from its addressing, and the caller has to have checked that it's the author's. One
+     * with no {@code published} is ignored, since it would sort as new.
+     *
+     * @param author already fetched or refreshed by the caller
+     */
+    Result storeBackfilled(RemoteNote note, Actor author) {
+        if (note.published() == null) {
+            return Result.IGNORED;
+        }
+        var visibility = visibility(note.addressing(), author);
+        if (visibility != Visibility.PUBLIC && visibility != Visibility.UNLISTED) {
+            return Result.IGNORED;
+        }
+        if (blocks.isBlocked(author.uri().getHost()) || actors.isInactive(author.uri())) {
+            return Result.IGNORED;
+        }
+        return save(note, author, visibility, note.published(), note.addressing(), true);
     }
 
     /**
      * @param arrivedAt when the note arrived, which stands in for a missing {@code published}
      * @param addressed the addressing that decides who it mentions
+     * @param backfilled whether it came from the author's outbox rather than being sent
      */
-    private Result save(RemoteNote note, Actor author, Visibility visibility, Instant arrivedAt, Addressing addressed) {
+    private Result save(
+            RemoteNote note, Actor author, Visibility visibility, Instant arrivedAt, Addressing addressed, boolean backfilled) {
         var published = note.published() == null ? arrivedAt : note.published();
-        var stored = statuses.storeRemote(new RemoteStatus(
+        var remote = new RemoteStatus(
                 note.id(),
                 note.url(),
                 author.id(),
@@ -141,7 +164,8 @@ class NoteStorage {
                 published,
                 // So that an Update older than this version can't replace it.
                 note.editedAt(published, Instant.now()),
-                mentions(note, addressed, visibility)));
+                mentions(note, addressed, visibility));
+        var stored = backfilled ? statuses.storeBackfilled(remote) : statuses.storeRemote(remote);
         return stored.isPresent() ? Result.STORED : Result.TAKEN;
     }
 

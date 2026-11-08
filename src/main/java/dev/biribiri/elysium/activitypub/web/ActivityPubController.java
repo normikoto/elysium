@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.web;
 
 import dev.biribiri.elysium.activitypub.outbound.Notes;
 import dev.biribiri.elysium.activitypub.vocab.Application;
+import dev.biribiri.elysium.activitypub.vocab.Create;
 import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollectionPage;
@@ -20,6 +21,7 @@ import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.StatusLike;
+import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.activitypub.vocab.Like;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
@@ -46,6 +48,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -239,6 +242,98 @@ public class ActivityPubController {
         var next = entries.size() == COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().followId()) : null;
         return ResponseEntity.ok(OrderedCollectionPage.of(
                 pageUri(uri, cursor.orElse(null)), total, uri, next, entries.stream().map(FollowEntry::actorUri).toList()));
+    }
+
+    /**
+     * Like {@link #followers}. Statuses that anyone can see are served whoever asks, so the signature isn't read.
+     */
+    @CrossOrigin
+    @GetMapping(path = "/users/{username}/outbox", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getOutbox",
+            summary = "Fetch a user's outbox",
+            description = FederationDocs.OUTBOX,
+            parameters = {
+                    @Parameter(name = "username", description = FederationDocs.USERNAME),
+                    @Parameter(name = "page", description = "Any value asks for a page rather than the collection."),
+                    @Parameter(name = "max_id", description = "The cursor from a `next` link.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The collection or the page.", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(oneOf = {
+                                    OrderedCollection.class, OrderedCollectionPage.class}))
+                    }),
+                    @ApiResponse(responseCode = "400", description = "`max_id` isn't valid."),
+                    @ApiResponse(responseCode = "403", description = "The user is suspended."),
+                    @ApiResponse(responseCode = "404", description = "There's no such user."),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
+    ResponseEntity<?> outbox(
+            @PathVariable String username,
+            @RequestParam(required = false) String page,
+            @RequestParam(name = "max_id", required = false) String maxId) {
+        var actor = actors.findAnyLocalByUsername(username);
+        if (actor.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!actor.get().isActive()) {
+            return ResponseEntity.status(actor.get().isDeleted() ? HttpStatus.GONE : HttpStatus.FORBIDDEN).build();
+        }
+        var author = actor.get();
+        var uri = author.outboxUri();
+        var total = statuses.countVisibleToAnyone(author.id());
+        if (page == null) {
+            return ResponseEntity.ok(OrderedCollection.paged(uri, total, pageUri(uri, null)));
+        }
+        var cursor = maxId == null ? Optional.<UUID>empty() : Ids.parse(maxId);
+        if (maxId != null && cursor.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        var entries = statuses.findByAccount(author.id(), ANONYMOUS, false, false,
+                new StatusPage(COLLECTION_PAGE_SIZE, cursor.orElse(null), null, null));
+        // A boost whose status can't be listed is left out, but still moves the cursor, so a page can be short.
+        var next = entries.size() == COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().id()) : null;
+        return ResponseEntity.ok(OrderedCollectionPage.of(
+                pageUri(uri, cursor.orElse(null)), total, uri, next, outboxItems(author, entries)));
+    }
+
+    private List<Object> outboxItems(Actor author, List<Status> entries) {
+        var mentions = statuses.findMentions(entries.stream().filter(status -> !status.isReblog()).map(Status::id).toList());
+        var boosted = statuses.findVisibleToAnyone(entries.stream().filter(Status::isReblog).map(Status::reblogOfId).toList())
+                .stream().collect(Collectors.toMap(Status::id, Function.identity()));
+        var boostedAuthors = activeActors(boosted.values().stream().map(Status::actorId).distinct().toList());
+        var items = new ArrayList<Object>();
+        for (var status : entries) {
+            if (!status.isReblog()) {
+                var note = notes.of(status, author, mentions.getOrDefault(status.id(), List.of()));
+                items.add(Create.of(note).withoutContext());
+                continue;
+            }
+            var original = boosted.get(status.reblogOfId());
+            var originalAuthor = original == null ? null : boostedAuthors.get(original.actorId());
+            if (originalAuthor != null) {
+                items.add(Announce.fromHere(status.uri(), author, original.uri(), originalAuthor, status.visibility(),
+                        status.publishedAt()).withoutContext());
+            }
+        }
+        return items;
+    }
+
+    /**
+     * The instance actor posts nothing, but its document advertises an outbox, as ActivityPub requires of an actor.
+     */
+    @CrossOrigin
+    @GetMapping(path = InstanceActor.PATH + "/outbox", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getInstanceActorOutbox",
+            summary = "Fetch the server's own actor's outbox",
+            description = "An empty `OrderedCollection`. " + FederationDocs.DOCUMENT + " " + FederationDocs.UNSIGNED,
+            responses = @ApiResponse(responseCode = "200", description = "The collection.", content = {
+                    @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = OrderedCollection.class)),
+            }))
+    OrderedCollection instanceActorOutbox() {
+        return OrderedCollection.ofSize(actors.instanceActor().outboxUri(), 0);
     }
 
     private static URI pageUri(URI collection, UUID maxId) {

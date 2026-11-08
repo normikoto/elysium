@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   posts and the edits that other servers send, and `GET /api/v1/statuses/:id/history` lists them.
   `GET /api/v1/statuses/:id/source` gives a post's text for editing it. Versions from before upgrading aren't there. See
   `docs/api.md` and `FEDERATION.md`.
+- Outboxes, at `/users/{username}/outbox`, list each user's public and unlisted posts and boosts, so other servers can
+  fetch a user's older posts.
+- Following an account on another server fetches its recent posts from its outbox, up to 40, so its profile and the home
+  timeline aren't empty until it next posts. They're sorted by when they were posted, and mentions in them don't notify
+  anyone. Only follows accepted after upgrading do this. See `FEDERATION.md`.
 - Other servers can fetch a followers-only or direct post again when they sign the request as an account that was sent
   it, such as a follower or a mentioned account. Before, they got a 404, so they couldn't refresh it or fill in a thread.
 

@@ -31,9 +31,9 @@ public class Notes {
     }
 
     /**
-     * @param mentioned the accounts {@link #mentioned} gives, for a caller that has looked them up already
+     * @param mentioned the accounts {@link StatusService#findMentions} gives, for a caller that has looked them up already
      */
-    Note of(Status status, Actor author, List<Actor> mentioned) {
+    public Note of(Status status, Actor author, List<Actor> mentioned) {
         var parent = shownParent(status, mentioned);
         return Note.from(
                 status,

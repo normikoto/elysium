@@ -7,7 +7,6 @@ import dev.biribiri.elysium.actor.RemoteActorProfile;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 
 /**
  * Decides what to believe from another server's actor document. These values get stored and activities get sent to them, so
@@ -62,12 +61,14 @@ final class RemoteActorDocument {
         // Only used to see who an activity is addressed to, so a bad one is left out too. One on another host could make
         // an activity look addressed to the followers of someone else.
         var followers = inboxOnSameHost(uri, document.path("followers").stringValue(null));
+        // Backfill fetches it, and trusts what it embeds as the actor's, so it has to be the actor's server's word.
+        var outbox = inboxOnSameHost(uri, document.path("outbox").stringValue(null));
         return new RemoteActorProfile(
                 uri,
                 username,
                 domain,
                 inbox,
-                outbox(document.path("outbox").stringValue(null)),
+                outbox,
                 sharedInbox,
                 publicKeyPem(document.path("publicKey")),
                 followers);
@@ -75,7 +76,7 @@ final class RemoteActorDocument {
 
     /**
      * Inboxes are where this server sends requests when it's told to, so one on another host would let any server aim this
-     * one at a third party. Followers collections are checked the same way.
+     * one at a third party. Followers collections and outboxes are checked the same way.
      *
      * @return the inbox, or null if there isn't one that can be used
      */
@@ -84,20 +85,6 @@ final class RemoteActorDocument {
             return null;
         }
         return ActivityObject.parseUri(value).filter(inbox -> Inbox.isOnActorsServer(inbox, actor)).orElse(null);
-    }
-
-    /**
-     * Nothing uses this yet, so a bad one is a reason to leave it out rather than to lose the actor.
-     */
-    private static URI outbox(String value) {
-        if (value == null || !InboundActivity.isStorableId(value)) {
-            return null;
-        }
-        try {
-            return new URI(value);
-        } catch (URISyntaxException e) {
-            return null;
-        }
     }
 
     /**
