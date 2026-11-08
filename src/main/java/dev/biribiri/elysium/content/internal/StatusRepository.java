@@ -5,6 +5,7 @@ import dev.biribiri.elysium.content.DeletedStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.Visibility;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -205,16 +206,55 @@ public class StatusRepository {
     public boolean updateRemote(
             URI uri, UUID actorId, String text, String content, String spoilerText, String language, boolean sensitive,
             Instant editedAt) {
+        return edit("""
+                        uri = :uri AND actor_id = :actorId AND reblog_of_id IS NULL
+                        AND (edited_at IS NULL OR edited_at < :editedAt)
+                        AND published_at < :editedAt
+                        AND NOT EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)""",
+                Map.of("uri", uri.toString(), "actorId", actorId),
+                text, content, spoilerText, language, sensitive, editedAt);
+    }
+
+    /**
+     * Replaces the text of one of a local author's own statuses.
+     *
+     * @return whether the status was changed, which it isn't if it's someone else's, a boost, or isn't local
+     */
+    public boolean editLocal(
+            UUID id, UUID actorId, String text, String content, String spoilerText, String language, boolean sensitive,
+            Instant editedAt) {
+        return edit("""
+                        id = :id AND actor_id = :actorId AND reblog_of_id IS NULL
+                        AND EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)""",
+                Map.of("id", id, "actorId", actorId),
+                text, content, spoilerText, language, sensitive, editedAt);
+    }
+
+    /**
+     * Replaces a status's text, and keeps the version it replaces as an edit, in one statement. The row is locked before
+     * it's read, so two edits at once can't both keep the same earlier version: the second waits, then reads the first's.
+     *
+     * @param condition which status, from columns of {@code status}
+     */
+    private boolean edit(
+            String condition, Map<String, Object> parameters, String text, String content, String spoilerText,
+            String language, boolean sensitive, Instant editedAt) {
         return jdbc.sql("""
-                        UPDATE status SET text = :text, content = :content, spoiler_text = :spoilerText,
-                                          language = :language, sensitive = :sensitive, edited_at = :editedAt
-                        WHERE uri = :uri AND actor_id = :actorId AND reblog_of_id IS NULL
-                          AND (edited_at IS NULL OR edited_at < :editedAt)
-                          AND published_at < :editedAt
-                          AND NOT EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)
-                        """)
-                .param("uri", uri.toString())
-                .param("actorId", actorId)
+                        WITH old AS (
+                            SELECT id, text, content, spoiler_text, language, sensitive,
+                                   coalesce(edited_at, published_at) AS since
+                            FROM status WHERE %s
+                            FOR NO KEY UPDATE
+                        ), replaced AS (
+                            UPDATE status s SET text = :text, content = :content, spoiler_text = :spoilerText,
+                                                language = :language, sensitive = :sensitive, edited_at = :editedAt
+                            FROM old WHERE s.id = old.id
+                            RETURNING old.*
+                        )
+                        INSERT INTO status_edit (status_id, text, content, spoiler_text, language, sensitive, created_at)
+                        SELECT id, text, content, spoiler_text, language, sensitive, since FROM replaced
+                        """.formatted(condition))
+                .params(parameters)
                 .param("text", text)
                 .param("content", content)
                 .param("spoilerText", spoilerText)
@@ -222,6 +262,32 @@ public class StatusRepository {
                 .param("sensitive", sensitive)
                 .param("editedAt", editedAt.atOffset(ZoneOffset.UTC))
                 .update() == 1;
+    }
+
+    /**
+     * @return the versions of a status that edits replaced, oldest first
+     */
+    public List<StatusVersion> findEdits(UUID statusId) {
+        return jdbc.sql("""
+                        SELECT text, content, spoiler_text, language, sensitive, created_at FROM status_edit
+                        WHERE status_id = :statusId ORDER BY created_at, id
+                        """)
+                .param("statusId", statusId)
+                .query((rs, row) -> new StatusVersion(
+                        rs.getString("text"),
+                        rs.getString("content"),
+                        rs.getString("spoiler_text"),
+                        rs.getString("language"),
+                        rs.getBoolean("sensitive"),
+                        rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+                .list();
+    }
+
+    /**
+     * Locks a status against other edits and deletion until the transaction ends.
+     */
+    public Optional<Status> findByIdForEdit(UUID id) {
+        return jdbc.sql(SELECT + "WHERE s.id = :id FOR NO KEY UPDATE OF s").param("id", id).query(STATUS_MAPPER).optional();
     }
 
     public boolean isPublicRemote(URI uri, URI actorUri) {
@@ -539,6 +605,34 @@ public class StatusRepository {
                         .map(entry -> entry.getValue().toString())
                         .collect(Collectors.joining(",", "{", "}")))
                 .update();
+    }
+
+    /**
+     * Makes these the accounts a status shows as mentioned. Accounts it mentioned before stay as silent mentions rather than
+     * going, so that an edit can't take the status away from anyone who was sent it, and its {@code Delete} still reaches
+     * them.
+     *
+     * @return the accounts that it didn't mention before, silently or not
+     */
+    public List<UUID> replaceMentions(UUID statusId, Collection<UUID> current) {
+        var ids = current.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
+        jdbc.sql("""
+                        UPDATE status_mention SET silent = NOT (actor_id = ANY (CAST(:ids AS uuid[])))
+                        WHERE status_id = :statusId
+                        """)
+                .param("statusId", statusId)
+                .param("ids", ids)
+                .update();
+        return jdbc.sql("""
+                        INSERT INTO status_mention (status_id, actor_id, silent)
+                        SELECT :statusId, m.actor_id, false FROM unnest(CAST(:ids AS uuid[])) AS m (actor_id)
+                        ON CONFLICT DO NOTHING
+                        RETURNING actor_id
+                        """)
+                .param("statusId", statusId)
+                .param("ids", ids)
+                .query(UUID.class)
+                .list();
     }
 
     /**

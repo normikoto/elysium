@@ -14,6 +14,8 @@ import java.util.Map;
 /**
  * An ActivityPub object for a status.
  *
+ * @param updated    when it was last edited, or null if it never was, which tells a server that gets two {@code Update}s
+ *                   which is newer
  * @param summary    the content warning as plain text, or null for none. ActivityStreams allows HTML here, but Mastodon
  *                   sends and reads this as plain text, so escaping it would show the escapes in its content warnings.
  * @param inReplyTo  the parent status, or null if this isn't a reply or the parent can't be shown
@@ -28,6 +30,7 @@ public record Note(
         URI attributedTo,
         URI url,
         String published,
+        String updated,
         List<String> to,
         List<String> cc,
         String content,
@@ -68,6 +71,7 @@ public record Note(
                 // Browsers get the status's page from the same URL as this document.
                 status.uri(),
                 ActivityStreams.time(status.publishedAt()),
+                status.editedAt() == null ? null : ActivityStreams.time(status.editedAt()),
                 audience.to(),
                 audience.cc(),
                 status.content(),
@@ -85,6 +89,6 @@ public record Note(
      */
     public Note withoutContext() {
         return new Note(
-                null, id, type, attributedTo, url, published, to, cc, content, sensitive, summary, inReplyTo, contentMap, tag, likes, shares);
+                null, id, type, attributedTo, url, published, updated, to, cc, content, sensitive, summary, inReplyTo, contentMap, tag, likes, shares);
     }
 }

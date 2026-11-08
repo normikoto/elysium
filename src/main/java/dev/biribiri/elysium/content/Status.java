@@ -20,8 +20,8 @@ import java.util.UUID;
  *                           stored here. Null for a local status
  * @param url                the page that shows a status from another server, or null if it didn't give one, or for a
  *                           local status, whose page is its URI
- * @param editedAt           when a status from another server was last edited, as its server gave it, or null if it
- *                           never was
+ * @param editedAt           when the status was last edited, as its server gave it for one from another server, or
+ *                           null if it never was
  * @param reblogOfId         the status this boosts, or null if it isn't a boost. A boost has no text of its own, and its
  *                           URI is its {@code Announce}'s ID
  * @param repliesCount       the number of public and unlisted replies

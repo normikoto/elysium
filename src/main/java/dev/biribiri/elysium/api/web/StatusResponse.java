@@ -21,8 +21,8 @@ import java.util.UUID;
         Mastodon's Status entity. Media, polls, cards, and hashtags don't exist yet, so those fields \
         are always empty, null, zero, or false. A boost has the boosted status in `reblog`, and no content of its own. \
         `reblogs_count` and `favourites_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
-        a status from another server was sent to without mentioning them. Only statuses from other servers can have \
-        been edited, so `edited_at` is always null for a local one.""")
+        a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
+        edited, or null if it never was.""")
 record StatusResponse(
         String id,
         @JsonProperty("created_at") String createdAt,

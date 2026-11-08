@@ -8,10 +8,12 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
+import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
@@ -78,6 +80,8 @@ class StatusDeliveryIntegrationTests {
     private StatusService statuses;
     @Autowired
     private LikeService likes;
+    @Autowired
+    private BoostService boosts;
     @Autowired
     private ActorService actors;
     @MockitoSpyBean
@@ -787,6 +791,120 @@ class StatusDeliveryIntegrationTests {
     // Helpers
 
     @Test
+    void sendsAnEditToFollowers() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+
+        var edited = edit(status, "Hello again");
+
+        var update = awaitUpdate(host, status);
+        assertThat(update.request().path()).isEqualTo("/users/bob/inbox");
+        assertThat(update.request().signature()).contains("keyId=\"" + author.uri() + "#main-key\"");
+        var body = update.body();
+        assertThat(body.path("@context").path(1).path("sensitive").stringValue()).isEqualTo("as:sensitive");
+        assertThat(body.path("id").stringValue())
+                .isEqualTo(status.uri() + "#updates/" + edited.editedAt().toEpochMilli());
+        assertThat(body.path("type").stringValue()).isEqualTo("Update");
+        assertThat(body.path("actor").stringValue()).isEqualTo(author.uri().toString());
+        assertThat(strings(body.path("to"))).containsExactly(PUBLIC);
+        assertThat(strings(body.path("cc"))).containsExactly(followers());
+        var note = body.path("object");
+        assertThat(note.has("@context")).isFalse();
+        assertThat(note.path("id").stringValue()).isEqualTo(status.uri().toString());
+        assertThat(note.path("content").stringValue()).isEqualTo("<p>Hello again</p>");
+        assertThat(Instant.parse(note.path("updated").stringValue()))
+                .isAfter(Instant.parse(note.path("published").stringValue()));
+    }
+
+    @Test
+    void sendsAnEditToTheAccountsItMentionsAndThoseItNoLongerDoes() {
+        var before = newHost();
+        mentionable(before, "carol");
+        var after = newHost();
+        var dave = mentionable(after, "dave");
+        var status = mention(Visibility.DIRECT, before, "carol");
+        awaitCreate(before, status);
+
+        edit(status, "Hello @dave@" + after);
+
+        var note = awaitUpdate(after, status).body().path("object");
+        assertThat(strings(note.path("to"))).containsExactly(dave.uri().toString());
+        assertThat(note.path("tag").path(0).path("href").stringValue()).isEqualTo(dave.uri().toString());
+        assertThat(awaitUpdate(before, status).request().path()).isEqualTo("/users/carol/inbox");
+    }
+
+    @Test
+    void sendsAnEditToTheFollowersOfLocalAccountsThatBoostedIt() {
+        var status = post(Visibility.PUBLIC, null);
+        var booster = actors.createLocalIfAbsent("booster" + next.incrementAndGet(), actor -> {
+        }).orElseThrow();
+        var host = newHost();
+        follow(host, "bob", false, booster);
+        boosts.reblog(status.id(), booster.id(), Visibility.PUBLIC).orElseThrow();
+        awaitNothingLeftFor(status);
+
+        edit(status, "Hello again");
+
+        awaitUpdate(host, status);
+    }
+
+    @Test
+    void doesNotSendTheEditOfAFollowersOnlyStatusToSomeoneWhoFollowedAfterItWasPosted() {
+        var earlier = newHost();
+        follow(earlier, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        awaitCreate(earlier, status);
+        var later = newHost();
+        follow(later, "carol", false);
+
+        edit(status, "Hello again");
+
+        awaitUpdate(earlier, status);
+        awaitNothingLeftFor(status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
+    }
+
+    @Test
+    void aQueuedCreateCarriesTheEdit() {
+        var status = post(Visibility.PUBLIC, null);
+        awaitNothingLeftFor(status);
+        // As if its Create were still waiting to be sent.
+        jdbc.sql("INSERT INTO outbound_activity (activity_id, actor_id, body) VALUES (:id, :actorId, '{}')")
+                .param("id", status.uri() + "#create")
+                .param("actorId", author.id())
+                .update();
+
+        edit(status, "Hello again");
+
+        await().atMost(WAIT).until(() -> createBody(status).contains("Hello again"));
+        var create = json.readTree(createBody(status));
+        assertThat(create.path("type").stringValue()).isEqualTo("Create");
+        assertThat(create.path("object").path("updated").isString()).isTrue();
+    }
+
+    @Test
+    void aDeleteCancelsAQueuedEdit() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+        awaitNothingLeftFor(status);
+        var update = status.uri() + "#updates/1";
+        jdbc.sql("INSERT INTO outbound_activity (activity_id, actor_id, body) VALUES (:id, :actorId, '{}')")
+                .param("id", update)
+                .param("actorId", author.id())
+                .update();
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(host, status);
+        assertThat(jdbc.sql("SELECT count(*) FROM outbound_activity WHERE activity_id = :id")
+                .param("id", update).query(Long.class).single()).isZero();
+    }
+
+    @Test
     void sendsSignedLikesAndUndosToTheRemoteAuthorsPersonalInbox() {
         var host = newHost();
         var remote = remoteAuthor(host, "bob");
@@ -850,6 +968,10 @@ class StatusDeliveryIntegrationTests {
     }
 
     private URI follow(String host, String username, boolean sharedInbox) {
+        return follow(host, username, sharedInbox, author);
+    }
+
+    private URI follow(String host, String username, boolean sharedInbox, Actor followed) {
         var domain = host + ":" + server.getAddress().getPort();
         var uri = URI.create("http://" + domain + "/users/" + username);
         var follower = actors.upsertRemote(new RemoteActorProfile(
@@ -862,7 +984,7 @@ class StatusDeliveryIntegrationTests {
                 null));
         var now = Instant.now();
         transactions.executeWithoutResult(transaction -> follows.accept(
-                follower.id(), uri, author.id(), uri + "#follow", new FollowService.Arrival(now, now)));
+                follower.id(), uri, followed.id(), uri + "#follow", new FollowService.Arrival(now, now)));
         return uri;
     }
 
@@ -929,6 +1051,21 @@ class StatusDeliveryIntegrationTests {
                         """)
                 .param("id", "%" + activityId + "%")
                 .query(Long.class)
+                .single();
+    }
+
+    private Status edit(Status status, String text) {
+        return statuses.edit(status.id(), author.id(), new StatusEdit(text, null, null, null)).orElseThrow();
+    }
+
+    private Delivered awaitUpdate(String host, Status status) {
+        return awaitActivity(host, status.uri() + "#updates/");
+    }
+
+    private String createBody(Status status) {
+        return jdbc.sql("SELECT body FROM outbound_activity WHERE activity_id = :id")
+                .param("id", status.uri() + "#create")
+                .query(String.class)
                 .single();
     }
 

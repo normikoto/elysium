@@ -23,6 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -110,9 +111,7 @@ public class StatusService {
             throw new ReplyParentNotFoundException();
         }
         var mentioned = resolveMentions(author, text);
-        var content = PlainText.render(text, match -> Optional.ofNullable(mentioned.get(acct(match)))
-                .map(actor -> new PlainText.MentionLink(actor.uri(), actor.username() + "@" + actor.domain()))
-                .orElse(null));
+        var content = render(text, mentioned);
 
         return transaction.execute(tx -> {
             var parent = draft.inReplyToId() == null
@@ -145,16 +144,113 @@ public class StatusService {
                     null,
                     0);
             statuses.insert(status);
-            statuses.insertMentions(id, mentioned.values().stream()
-                    .map(Actor::id)
-                    .filter(mentionedId -> !mentionedId.equals(authorId))
-                    .distinct()
+            statuses.insertMentions(id, mentionedIds(mentioned, authorId).stream()
                     .collect(Collectors.toMap(Function.identity(), mentionedId -> false)));
             threads.assign(status, parent.map(Status::uri).orElse(null));
             events.publishEvent(new StatusStored(id));
             events.publishEvent(new StatusPublished(id, authorId));
             return status;
         });
+    }
+
+    /**
+     * Replaces the text of one of the author's own statuses, as on Mastodon: its visibility and parent stay as they were.
+     * Mentions are looked up again, as for {@link #create}, and an account that the new text no longer mentions keeps the
+     * status as a silent mention. Each earlier version is kept. An edit that changes nothing does nothing.
+     *
+     * @return the status as it is now, or empty if the author has no status with this ID, or it's a boost
+     * @throws InvalidStatusException if the new version breaks a validation rule
+     */
+    public Optional<Status> edit(UUID id, UUID authorId, StatusEdit draft) {
+        var text = normalize(draft.text());
+        var spoilerText = looksBlank(normalize(draft.spoilerText())) ? "" : normalize(draft.spoilerText());
+        var language = draft.language() == null || draft.language().isBlank() ? null : draft.language().strip();
+        validate(text, spoilerText, language);
+
+        var author = actors.findLocalById(authorId)
+                .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
+        // Before looking up mentions, so that trying to edit someone else's status makes no requests. It's checked again
+        // under a lock below.
+        if (statuses.findById(id).filter(found -> isEditableBy(found, authorId)).isEmpty()) {
+            return Optional.empty();
+        }
+        var mentioned = resolveMentions(author, text);
+        var content = render(text, mentioned);
+
+        return transaction.execute(tx -> {
+            var found = statuses.findByIdForEdit(id).filter(candidate -> isEditableBy(candidate, authorId));
+            if (found.isEmpty()) {
+                return Optional.<Status>empty();
+            }
+            var old = found.get();
+            var newLanguage = language == null ? old.language() : language;
+            var sensitive = (draft.sensitive() == null ? old.sensitive() : draft.sensitive()) || !spoilerText.isEmpty();
+            // The content links each mention, so it changes whenever they do.
+            var unchanged = text.equals(old.text()) && content.equals(old.content())
+                    && spoilerText.equals(old.spoilerText()) && Objects.equals(newLanguage, old.language())
+                    && sensitive == old.sensitive();
+            if (unchanged) {
+                return found;
+            }
+            // In a later second than the version it replaces, even when that's in the future, since other servers are sent
+            // whole seconds and ignore an edit that isn't later than what they have.
+            var since = old.editedAt() == null ? old.publishedAt() : old.editedAt();
+            var next = since.truncatedTo(ChronoUnit.SECONDS).plusSeconds(1);
+            var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+            var editedAt = now.isBefore(next) ? next : now;
+            if (!statuses.editLocal(id, authorId, text, content, spoilerText, newLanguage, sensitive, editedAt)) {
+                return Optional.<Status>empty();
+            }
+            var added = statuses.replaceMentions(id, mentionedIds(mentioned, authorId));
+            events.publishEvent(new StatusEdited(id, authorId, editedAt, added));
+            return statuses.findById(id);
+        });
+    }
+
+    private static boolean isEditableBy(Status status, UUID authorId) {
+        return status.actorId().equals(authorId) && !status.isReblog();
+    }
+
+    /**
+     * Each version of a status, oldest first, ending with the one it has now. A status from another server only has the
+     * versions this server was sent.
+     */
+    public List<StatusVersion> findHistory(Status status) {
+        var versions = new ArrayList<>(statuses.findEdits(status.id()));
+        versions.add(StatusVersion.current(status));
+        return List.copyOf(versions);
+    }
+
+    /**
+     * Every account a status mentions, silently or not, including those that are suspended, which is who it was sent to
+     * besides followers.
+     */
+    public List<UUID> findAllMentioned(UUID statusId) {
+        return statuses.findAllMentioned(statusId);
+    }
+
+    /**
+     * The local accounts that boosted a status, whose followers can have it from their boosts.
+     */
+    public List<UUID> findLocalBoosters(UUID statusId) {
+        return boosts.findLocal(statusId).stream().map(StatusBoost::actorId).toList();
+    }
+
+    private String render(String text, Map<String, Actor> mentioned) {
+        return PlainText.render(text, match -> Optional.ofNullable(mentioned.get(acct(match)))
+                .map(actor -> new PlainText.MentionLink(actor.uri(), actor.username() + "@" + actor.domain()))
+                .orElse(null));
+    }
+
+    /**
+     * An author mentioning themselves isn't stored as a mention, as on Mastodon.
+     */
+    private static List<UUID> mentionedIds(Map<String, Actor> mentioned, UUID authorId) {
+        return mentioned.values().stream()
+                .map(Actor::id)
+                .filter(mentionedId -> !mentionedId.equals(authorId))
+                .distinct()
+                .toList();
     }
 
     /**
@@ -273,7 +369,7 @@ public class StatusService {
      * Replaces a remote status with a version its author's server edited. Only what an author can change in an edit on
      * Mastodon is replaced, so its visibility, its parent and when it was published stay as they were. So do its mentions,
      * which decide who can see a followers-only or direct status, so that an edit can't show it to anyone it wasn't sent
-     * to. Nothing is published for this edit, since it isn't this server's to send.
+     * to. The version it replaces is kept. Nothing is published for this edit, since it isn't this server's to send.
      *
      * @return what happened to the edit
      */
@@ -367,8 +463,8 @@ public class StatusService {
     /**
      * Finds a status if this actor, fetching it from another server, is allowed to see it. Unlike {@link #isVisible}, a
      * followers-only status is only shown to followers who were already following when it was posted, and to the accounts it
-     * shows as mentioned. Those are who its {@code Create} and {@code Delete} are sent to, so a fetch tells nobody else that
-     * it exists, and nobody can have it without being sent its deletion.
+     * mentions, or mentioned before an edit. Those are who its {@code Create}, {@code Update}s and {@code Delete} are sent
+     * to, so a fetch tells nobody else that it exists, and nobody can have it without being sent its deletion.
      *
      * @param fetcher an active actor, or empty for a fetch that nobody is known to be behind
      */
@@ -380,7 +476,8 @@ public class StatusService {
             if (fetcher.isEmpty()) {
                 return false;
             }
-            var mentioned = statuses.findMentions(List.of(id)).getOrDefault(id, List.of()).contains(fetcher.get());
+            // Silent mentions too, which an edit leaves the accounts it no longer mentions, so they keep what they were sent.
+            var mentioned = statuses.findAllMentioned(id).contains(fetcher.get());
             return mentioned || (status.visibility() == Visibility.PRIVATE
                     && follows.wasFollowingAsOf(fetcher.get(), status.actorId(), status.publishedAt()));
         });

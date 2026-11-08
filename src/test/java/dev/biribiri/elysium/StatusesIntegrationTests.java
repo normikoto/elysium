@@ -5,7 +5,9 @@ import org.hamcrest.Matcher;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.RemoteEdit;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -33,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
@@ -55,6 +58,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -423,6 +427,173 @@ class StatusesIntegrationTests {
         var deleted = events.stream(StatusDeleted.class).filter(event -> event.statusId().toString().equals(id)).findFirst();
         assertThat(deleted).hasValueSatisfying(event -> assertThat(event.mentioned()).containsExactly(bob));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob())).andExpect(status().isNotFound());
+    }
+
+    // Editing
+
+    @Test
+    void editsFromJson() throws Exception {
+        var id = create(alice(), "Hello");
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), alice())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status": "Hello again", "spoiler_text": "Greeting", "media_ids": [], "poll": null}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.content").value("<p>Hello again</p>"))
+                .andExpect(jsonPath("$.spoiler_text").value("Greeting"))
+                .andExpect(jsonPath("$.sensitive").value(true))
+                .andExpect(jsonPath("$.edited_at").isString());
+        mockMvc.perform(get("/api/v1/statuses/" + id))
+                .andExpect(jsonPath("$.content").value("<p>Hello again</p>"))
+                .andExpect(jsonPath("$.edited_at").isString());
+    }
+
+    @Test
+    void editsFromAFormAndKeepsTheLanguageAndSensitivityWhenTheyreMissing() throws Exception {
+        var id = expectCreated(createRequest(alice(), "Hello").param("language", "en").param("sensitive", "true"));
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), alice())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Hi")
+                        .param("language", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("<p>Hi</p>"))
+                .andExpect(jsonPath("$.language").value("en"))
+                .andExpect(jsonPath("$.sensitive").value(true));
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), alice())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Hi")
+                        .param("language", "de")
+                        .param("sensitive", "false"))
+                .andExpect(jsonPath("$.language").value("de"))
+                .andExpect(jsonPath("$.sensitive").value(false));
+    }
+
+    @Test
+    void anEditThatChangesNothingDoesNothing() throws Exception {
+        var id = create(alice(), "Hello");
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), alice())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Hello "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.edited_at").value(nullValue()));
+        assertThat(events.stream(StatusEdited.class).filter(event -> event.statusId().toString().equals(id))).isEmpty();
+        mockMvc.perform(get("/api/v1/statuses/" + id + "/history")).andExpect(jsonPath("$", hasSize(1)));
+    }
+
+    @Test
+    void cannotEditAnotherUsersStatusOrABoost() throws Exception {
+        var id = create(alice(), "Hello");
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), bob())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Mine now"))
+                .andExpect(status().isNotFound());
+        var boost = expectCreated(withToken(post("/api/v1/statuses/" + id + "/reblog"), bob()));
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + boost), bob())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Mine now"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(withToken(put("/api/v1/statuses/not-an-id"), bob())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Mine now"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/statuses/" + id)).andExpect(jsonPath("$.content").value("<p>Hello</p>"));
+    }
+
+    @Test
+    void refusesAnEditThatBreaksTheRules() throws Exception {
+        var id = create(alice(), "Hello");
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), alice())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", " "))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), alice())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"Hi\", \"media_ids\": [\"1\"]}"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), alice())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "x".repeat(5001)))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(get("/api/v1/statuses/" + id)).andExpect(jsonPath("$.edited_at").value(nullValue()));
+    }
+
+    @Test
+    void anEditKeepsTheStatusForTheAccountsItNoLongerMentions() throws Exception {
+        var carolId = actorId("carol");
+        var id = create(alice(), "@bob psst", "direct");
+        edit(alice(), id, "@carol psst");
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mentions", hasSize(1)))
+                .andExpect(jsonPath("$.mentions[0].acct").value("carol"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), carol())).andExpect(status().isOk());
+        var edited = events.stream(StatusEdited.class).filter(event -> event.statusId().toString().equals(id)).toList();
+        assertThat(edited).singleElement()
+                .satisfies(event -> assertThat(event.addedMentions()).containsExactly(UUID.fromString(carolId)));
+    }
+
+    @Test
+    void givesTheSourceOnlyToTheAuthor() throws Exception {
+        var id = expectCreated(createRequest(alice(), "See https://a.example").param("spoiler_text", "Link"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/source"), alice()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.text").value("See https://a.example"))
+                .andExpect(jsonPath("$.spoiler_text").value("Link"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/source"), bob())).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/statuses/" + id + "/source")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void listsEachVersionOldestFirst() throws Exception {
+        var id = create(alice(), "One");
+        edit(alice(), id, "Two");
+        edit(alice(), id, "Three");
+        var body = mockMvc.perform(get("/api/v1/statuses/" + id + "/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(3)))
+                .andExpect(jsonPath("$[0].content").value("<p>One</p>"))
+                .andExpect(jsonPath("$[1].content").value("<p>Two</p>"))
+                .andExpect(jsonPath("$[2].content").value("<p>Three</p>"))
+                .andExpect(jsonPath("$[2].account.username").value("alice"))
+                .andExpect(jsonPath("$[2].media_attachments", empty()))
+                .andReturn().getResponse().getContentAsString();
+        List<String> times = JsonPath.read(body, "$[*].created_at");
+        assertThat(times).isSorted().doesNotHaveDuplicates();
+        var current = mockMvc.perform(get("/api/v1/statuses/" + id)).andReturn().getResponse().getContentAsString();
+        assertThat(times.getLast()).isEqualTo(JsonPath.read(current, "$.edited_at"));
+    }
+
+    @Test
+    void onlyShowsTheHistoryToThoseWhoCanSeeTheStatus() throws Exception {
+        var id = create(alice(), "Secret", "private");
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/history"), alice())).andExpect(status().isOk());
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/history"), carol())).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/statuses/" + id + "/history")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void keepsTheVersionsThatARemoteEditReplaced() throws Exception {
+        var authorId = remoteAuthor();
+        var id = remoteStatus(authorId, Visibility.PUBLIC, null);
+        var uri = statuses.findVisible(id, Optional.empty()).orElseThrow().uri();
+        var edit = Instant.now().plusSeconds(1);
+        statuses.updateRemote(new RemoteEdit(uri, authorId, "<p>Edited</p>", null, null, false, edit));
+        // Older, so it's ignored and keeps nothing.
+        statuses.updateRemote(new RemoteEdit(uri, authorId, "<p>Old</p>", null, null, false, edit.minusMillis(500)));
+        mockMvc.perform(get("/api/v1/statuses/" + id + "/history"))
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].content").value("<p>Hi</p>"))
+                .andExpect(jsonPath("$[1].content").value("<p>Edited</p>"));
+    }
+
+    private void edit(String token, String id, String text) throws Exception {
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), token)
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", text))
+                .andExpect(status().isOk());
     }
 
     // Deleting

@@ -12,10 +12,16 @@ differs from Mastodon in these ways:
 
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
-- Statuses can't be edited, and media, polls, and scheduled posts aren't implemented.
-  Statuses from other servers can have been edited there, and then have an `edited_at`, but
-  `GET /api/v1/statuses/:id/history` and `GET /api/v1/statuses/:id/source` aren't implemented.
-  `media_ids`, `poll`, or `scheduled_at` with a value gets a 422 rather than being ignored.
+- Media, polls, and scheduled posts aren't implemented. `media_ids`, `poll`, or `scheduled_at` with a value gets a 422
+  rather than being ignored, and so do `media_ids`, `media_attributes[]`, or `poll` with a value in an edit.
+- `PUT /api/v1/statuses/:id` keeps the status's `language` when it's missing or empty, as Mastodon does, so a language
+  can't be removed. A missing `sensitive` keeps what the status has. `visibility` and `in_reply_to_id` are ignored. An
+  account that an edit no longer mentions can still see the status, as on Mastodon. An edit that changes nothing doesn't
+  set `edited_at`. Each `edited_at` is at least a second after the version before it, even if that's slightly in the
+  future, because other servers are sent whole seconds.
+- `GET /api/v1/statuses/:id/history` only has the versions of a status from another server that were sent here, so it
+  can lack some that its server shows, and it has no versions from before the upgrade that added it. Its entries have
+  empty `media_attachments` and `emojis`, and a null `poll`.
 - URLs and mentions in a status are linked, but hashtags aren't yet. A mention of an account on another server is looked
   up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
   mention that can't be found, or one past that limit of an account that isn't already known here, stays as text rather

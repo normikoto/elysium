@@ -5,9 +5,11 @@ import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.activitypub.vocab.Create;
 import dev.biribiri.elysium.activitypub.vocab.Delete;
+import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.StatusDeleted;
+import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusPublished;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -23,8 +25,9 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Sends new and deleted statuses to the author's followers and the accounts they mention on other servers. This can run again for the same status, which
- * only sends it again if its jobs have finished, and other servers ignore an {@code id} they've already seen.
+ * Sends new, edited, and deleted statuses to the author's followers and the accounts they mention on other servers. This can
+ * run again for the same status, which only sends it again if its jobs have finished, and other servers ignore an
+ * {@code id} they've already seen.
  */
 @Service
 public class StatusDeliveries {
@@ -96,12 +99,13 @@ public class StatusDeliveries {
         if (author.isEmpty()) {
             return;
         }
+        // An Update still queued would only tell servers about what they're about to remove. One that's being sent can
+        // still arrive after this, but a server that's processed the Delete has nothing left to apply it to.
+        deliveries.cancelStartingWith(Update.idPrefixFor(event.statusUri()));
         var mentioned = actors.findByIds(event.mentioned());
-        var inboxes = new LinkedHashSet<>(inboxes(
-                author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned));
-        // Their followers can have it from their boosts, and the boosts go with it.
-        event.boosters().forEach(booster ->
-                recipients.addFollowers(booster, event.visibility(), event.publishedAt(), inboxes));
+        var inboxes = everyoneSent(
+                author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned,
+                event.boosters());
         if (inboxes.isEmpty()) {
             return;
         }
@@ -109,8 +113,58 @@ public class StatusDeliveries {
                 event.statusUri(), author.get(), event.visibility(), mentioned.stream().map(Actor::uri).toList());
         deliveries.enqueueAfter(
                 new OutboundActivity(delete.id().toString(), author.get().id(), json.writeValueAsString(delete)),
-                List.copyOf(inboxes),
+                inboxes,
                 create);
+    }
+
+    /**
+     * Sends the status as it is now to everyone its {@code Delete} would go to, which includes the accounts an edit has
+     * stopped mentioning, since they still have it, and those it's started to. The ID comes from the edit, and the body from
+     * what's true when this runs, so a repeat, or a run after a later edit, sends what's current under this edit's ID.
+     * Servers that get two keep the one whose {@code updated} is later.
+     *
+     * <p>A {@code Create} that's still queued is changed to carry the edit too, and this doesn't overtake one being sent,
+     * since a server that doesn't have the status yet can ignore this, as Mastodon does.
+     */
+    @ApplicationModuleListener
+    public void on(StatusEdited event) {
+        var status = statuses.findAndHold(event.statusId(), event.authorId());
+        var author = actors.findLocalById(event.authorId());
+        if (status.isEmpty() || author.isEmpty()) {
+            return;
+        }
+        var note = notes.of(status.get(), author.get());
+        var create = Create.of(note);
+        deliveries.replaceBody(create.id().toString(), json.writeValueAsString(create));
+        var inboxes = everyoneSent(
+                author.get().id(),
+                status.get().visibility(),
+                status.get().publishedAt(),
+                note.inReplyTo() == null ? null : status.get().inReplyToAccountId(),
+                actors.findByIds(statuses.findAllMentioned(status.get().id())),
+                statuses.findLocalBoosters(status.get().id()));
+        if (inboxes.isEmpty()) {
+            return;
+        }
+        var update = Update.of(note, event.editedAt());
+        deliveries.enqueueAfter(
+                new OutboundActivity(update.id().toString(), author.get().id(), json.writeValueAsString(update)),
+                inboxes,
+                create.id().toString());
+    }
+
+    /**
+     * Who can have a status: who it was sent to, as {@link #inboxes} decides, and the followers of local accounts that
+     * boosted it, who can have it from their boosts. Its {@code Update}s and {@code Delete} have to use the same rule.
+     *
+     * @param mentioned every account it mentions, silently or not
+     */
+    private List<URI> everyoneSent(
+            UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId, Collection<Actor> mentioned,
+            List<UUID> boosters) {
+        var inboxes = new LinkedHashSet<>(inboxes(authorId, visibility, publishedAt, parentAuthorId, mentioned));
+        boosters.forEach(booster -> recipients.addFollowers(booster, visibility, publishedAt, inboxes));
+        return List.copyOf(inboxes);
     }
 
     /**
@@ -123,8 +177,9 @@ public class StatusDeliveries {
      * its parent could be seen by everyone, which can't be known once it's deleted, and its {@code Delete} has to reach
      * whoever got it.
      *
-     * <p>The accounts a status mentions get them whatever its visibility, and they're all a direct status goes to. Mentions
-     * are kept, and can't change, so its {@code Delete} reaches the same accounts as its {@code Create}.
+     * <p>The accounts a status mentions get them whatever its visibility, and they're all a direct status goes to. An edit
+     * can add mentions, but those it removes are kept as silent ones, so its {@code Delete} reaches every account that was
+     * sent its {@code Create} or an {@code Update}.
      *
      * @param parentAuthorId the parent's author, or null if the status doesn't address them
      * @param mentioned      the accounts the status mentions

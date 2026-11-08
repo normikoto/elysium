@@ -2,8 +2,8 @@
 
 Elysium is an early work in progress, and this file only describes what's implemented today. Other servers can find and
 follow its users, and fetch their actors, statuses, and collections. Its users can follow accounts on other servers, and like
-and boost their posts. Their statuses, edits to their profiles, and suspensions and deletions of their accounts are sent to
-their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
+and boost their posts. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
+are sent to their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
 reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
 statuses are counted. Attachments, polls, and other activities aren't supported yet.
 
@@ -90,8 +90,8 @@ A fetch of a `Note` doesn't need a signature, but one is checked if it's sent, a
 that owns the signing key:
 
 - A followers-only status is served to an actor that was already following its author when it was posted, which is who
-  its `Create` went to, and to the actors in its `Mention` tags.
-- A direct status is served to the actors in its `Mention` tags.
+  its `Create` went to, and to the actors in its `Mention` tags, or in them before an edit.
+- A direct status is served to the actors in its `Mention` tags, or in them before an edit.
 - Only the signer counts. An instance actor, or any other actor, isn't served a status because other actors on its
   server can see it. This matches Mastodon. Misskey's lookups, and Mastodon's searches, are signed as their instance
   actor, so they can't find a followers-only or direct status that wasn't delivered to them.
@@ -122,6 +122,7 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 
 - `likes`: the post's likes collection, at `{note-uri}/likes`.
 - `shares`: the post's [boosts](#boosts) collection, at `{note-uri}/shares`.
+- `updated`: when it was last edited, if it has been.
 - `summary`: the content warning, as plain text rather than HTML, which matches Mastodon.
 - `inReplyTo`: the parent status.
 - `contentMap`: the `content` under its language, if one is set.
@@ -393,7 +394,42 @@ The `object` is the same `Note` that's described in [Objects](#objects). The `id
 the `Note` instead, if the `Note` can be fetched. In rare cases, such as after a failure, a `Create` can be sent again with the
 same `id`.
 
-When a local user deletes a status, any delivery of its `Create` that hasn't started is cancelled, and a `Delete` is sent to
+When a local user edits a status, an `Update` of it is sent, signed as the user, to everyone its `Delete` would be sent
+to, as described below. That includes the actors it mentioned before the edit, who can still fetch it, and those it now
+mentions, who haven't been sent its `Create`. Its `id` is `{note-uri}#updates/{milliseconds}`, it's addressed like the
+`Note`, and its `object` is the `Note` as it is when the `Update` is sent, with `updated` set. Each edit's `updated` is at
+least a second later than the version before, and an edit that changes nothing sends nothing. A user can change the
+text, content warning, sensitivity, and language, but not the visibility or `inReplyTo`, as on Mastodon.
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive"}],
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000#updates/1767229260000",
+  "type": "Update",
+  "actor": "https://elysium.example/users/alice",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://elysium.example/users/alice/followers"],
+  "object": {
+    "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000",
+    "type": "Note",
+    "attributedTo": "https://elysium.example/users/alice",
+    "url": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000",
+    "published": "2026-01-01T00:00:00Z",
+    "updated": "2026-01-01T01:01:00Z",
+    "to": ["https://www.w3.org/ns/activitystreams#Public"],
+    "cc": ["https://elysium.example/users/alice/followers"],
+    "content": "<p>Hello again</p>",
+    "sensitive": false
+  }
+}
+```
+
+`Update`s aren't ordered among themselves, so a server can get an older one last, and the `Note`'s `updated` says which
+is newer. A repeat, or an `Update` sent after a later edit, can carry a newer `Note` than its `id` suggests. A `Create`
+that hasn't been sent to a server yet carries the latest edit, and an `Update` doesn't overtake a `Create` that's being
+sent to the same server.
+
+When a local user deletes a status, any delivery of its `Create` or `Update`s that hasn't started is cancelled, and a `Delete` is sent to
 their followers on other servers and the actors it mentioned, the same way as a `Create`. It's addressed like the `Create`,
 except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. The `Delete` of
 a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
@@ -598,8 +634,8 @@ ends.
 - Only `Note`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
   are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
-- An edited status's earlier versions aren't kept, and an `Update` doesn't change who it mentions, so an edit can't show a
-  followers-only or direct status to more local users.
+- An `Update` from another server doesn't change who its status mentions, so an edit can't show a followers-only or
+  direct status to more local users.
 - A reply's `inReplyTo` is left out if its parent can't be shown, so it doesn't look like a reply.
 - A followers-only status can't be fetched by an actor that started following after it was posted, though Mastodon would
   serve it to any current follower.

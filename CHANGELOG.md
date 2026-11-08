@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on an account's statuses now leaves boosts out.
 - Direct-message conversations with per-user read and hide controls. Existing direct messages appear as read
   conversations after upgrading.
+- Editing posts, through `PUT /api/v1/statuses/:id`. Edits are sent to the servers that were sent the post, and accounts
+  an edit mentions for the first time get a `mention` notification. Every version of a post is kept, from this server's
+  posts and the edits that other servers send, and `GET /api/v1/statuses/:id/history` lists them.
+  `GET /api/v1/statuses/:id/source` gives a post's text for editing it. Versions from before upgrading aren't there. See
+  `docs/api.md` and `FEDERATION.md`.
 - Other servers can fetch a followers-only or direct post again when they sign the request as an account that was sent
   it, such as a follower or a mentioned account. Before, they got a 404, so they couldn't refresh it or fill in a thread.
 
@@ -90,8 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GET /api/v1/statuses/:id/context` shows a post's thread, from what's stored here. See `FEDERATION.md` and `docs/api.md`.
 - Fetches that other servers can point this server at, such as of forwarded activities, are now limited for each target
   server, and fetches of any kind run at most 4 at once for one server. See `FEDERATION.md`.
-- Posts edited on other servers are now updated here too, with `edited_at` set in the API, though earlier versions aren't
-  kept. Changes to accounts on other servers, such as a new key or inbox, are picked up as soon as the account's server
+- Posts edited on other servers are now updated here too, with `edited_at` set in the API. Changes to accounts on other servers, such as a new key or inbox, are picked up as soon as the account's server
   announces them. See `FEDERATION.md`.
 - Actor documents link to `followers` and `following` collections, at `/users/:username/followers` and
   `/users/:username/following`, which list accounts in pages.

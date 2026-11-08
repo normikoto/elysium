@@ -131,6 +131,28 @@ public class ActivityDeliveries {
     }
 
     /**
+     * Stops any further sending of every activity whose ID starts with this, such as each edit's {@code Update} of a status
+     * that's been deleted.
+     */
+    public void cancelStartingWith(String activityIdPrefix) {
+        jdbc.sql("DELETE FROM outbound_activity WHERE starts_with(activity_id, :prefix)")
+                .param("prefix", activityIdPrefix)
+                .update();
+    }
+
+    /**
+     * Changes what an activity says, for the deliveries that haven't been sent yet, which read it when they send. A
+     * status's {@code Create} then carries its latest edit, since a server that doesn't have the status yet can ignore the
+     * {@code Update}, as Mastodon does. Does nothing if the activity isn't queued any more.
+     */
+    public void replaceBody(String activityId, String body) {
+        jdbc.sql("UPDATE outbound_activity SET body = :body WHERE activity_id = :id")
+                .param("id", activityId)
+                .param("body", body)
+                .update();
+    }
+
+    /**
      * Stops any further sending of an actor's activities, and removes what they said, for when the actor has been deleted.
      *
      * @param keptId the activity that says so, because a listener that runs again mustn't cancel its own
