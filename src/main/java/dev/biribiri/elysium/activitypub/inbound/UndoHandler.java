@@ -17,7 +17,8 @@ import java.net.URISyntaxException;
 import java.util.Optional;
 
 /**
- * Handles Undo of Follow and Like activities, dispatching by embedded type or stored activity identity.
+ * Handles every {@code Undo}, because only one handler can have a type, and tells what's undone from the {@code object}'s
+ * type, or the stored activity's when it's sent as just an ID. Undoing a {@code Follow} or {@code Like} does something.
  */
 @Component
 class UndoHandler implements InboundActivityHandler {

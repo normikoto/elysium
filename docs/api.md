@@ -61,15 +61,16 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
 - V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Only `mention` and `follow` notifications are generated. Follow requests await support for approving followers;
-  favourites, boosts, subscribed-account posts, edits, and admin notifications await their respective features.
+- Only `mention`, `follow`, and `favourite` notifications are generated. Follow requests await support for approving
+  followers; boosts, subscribed-account posts, edits, and admin notifications await their respective features.
 - Notifications start with new activity after upgrading; historical mentions and follows do not generate notifications.
   Inbox updates may appear shortly after their source activity is stored. Silent mentions and self-mentions do not notify.
 - Notification policies and notification requests are not implemented. `include_filtered` has no effect, and
   `supported_types[]` has no effect because generated types have no fallback representations. Notifications are not
   suppressed by a per-domain quota. Clients poll; streaming and push subscriptions are not implemented.
 - Notification pages default to 40 results, with a maximum of 80; unread counts default to a cap of 100, with a maximum
-  of 1000. V2 groups follow events within a span of up to twelve hours, while mentions remain individual groups.
+  of 1000. V2 groups follow events within a span of up to twelve hours and favourites by status, while mentions remain individual
+  groups.
   `types[]`, `exclude_types[]`, and `account_id` filter both lists and counts; exclusions win over inclusions.
 - Suspended, deleted, or domain-blocked senders are omitted, as are notifications about deleted statuses.
   Reads do not mark notifications as read, and dismissing a conversation does not dismiss its notifications.

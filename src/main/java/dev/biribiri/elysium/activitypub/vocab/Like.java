@@ -14,7 +14,7 @@ public record Like(@JsonProperty("@context") String context, String id, String t
         return new Like(ActivityStreams.CONTEXT, id, "Like", actor, status, List.of(author));
     }
 
-    Like withoutContext() {
+    public Like withoutContext() {
         return new Like(null, id, type, actor, object, to);
     }
 }

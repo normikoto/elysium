@@ -5,7 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.net.URI;
 
 /**
- * Withdraws a Follow or Like sent from here, embedding it so that its recipient doesn't have to fetch it.
+ * Withdraws a {@code Follow} or {@code Like} sent from here, which includes it so that the other server doesn't have to look
+ * it up. Some servers don't keep the ID of a {@code Follow}, and match on its actors instead.
  */
 public record Undo<T>(
         @JsonProperty("@context") String context,
@@ -26,7 +27,7 @@ public record Undo<T>(
     /**
      * Each activity is only undone once; following or liking again sends a new one.
      */
-    public static String idFor(String followId) {
-        return followId + "/undo";
+    public static String idFor(String activityId) {
+        return activityId + "/undo";
     }
 }

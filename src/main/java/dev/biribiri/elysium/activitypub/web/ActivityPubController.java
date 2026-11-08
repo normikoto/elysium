@@ -270,7 +270,7 @@ public class ActivityPubController {
                 .filter(Actor::isActive)
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
         var items = entries.stream().filter(entry -> people.containsKey(entry.actorId()))
-                .map(entry -> Like.of(entry.activityUri(), people.get(entry.actorId()).uri(), found.get().uri(), author.get().uri()))
+                .map(entry -> Like.of(entry.activityUri(), people.get(entry.actorId()).uri(), found.get().uri(), author.get().uri()).withoutContext())
                 .toList();
         return ResponseEntity.ok(OrderedCollectionPage.of(pageUri(uri, cursor.orElse(null)), total, uri, next, items));
     }

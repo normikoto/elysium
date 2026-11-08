@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Mention and follow notifications, including grouped notifications for newer Mastodon clients, unread counts, and
   saved read positions. Notifications start with new activity after upgrading.
+- Favourites of local and remote posts, through `POST /api/v1/statuses/:id/favourite` and `/unfavourite`, which are
+  federated as `Like` and `Undo`. Likes from other servers count toward `favourites_count` and notify the post's author
+  with a `favourite` notification.
 - Direct-message conversations with per-user read and hide controls. Existing direct messages appear as read
   conversations after upgrading.
 

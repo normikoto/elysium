@@ -141,13 +141,12 @@ public class LikeService {
         var preview = likes.find(likeId);
         if (preview.isEmpty()) return Optional.empty();
         var like = preview.get();
+        // A suspended local sender keeps the like; delivery waits for unsuspension, as it does for follows.
         var actor = actors.findAnyLocalById(like.actorId()).filter(found -> !found.isDeleted());
         var status = repository.findById(like.statusId());
         if (actor.isEmpty() || status.isEmpty()) return Optional.empty();
         likes.holdActors(List.of(like.actorId(), status.get().actorId()));
         if (!likes.eligibleActor(status.get().actorId()) || !likes.holdStatus(like.statusId())) return Optional.empty();
-        // A suspended local sender keeps the like; delivery waits for unsuspension, as it does for follows.
-        if (actors.findAnyLocalById(like.actorId()).filter(found -> !found.isDeleted()).isEmpty()) return Optional.empty();
         likes.lockPair(actor.get().uri().toString(), like.statusId());
         return likes.find(likeId);
     }
@@ -173,8 +172,10 @@ public class LikeService {
         List<UUID> batch;
         do {
             batch = likes.actorsOn(domain, after, 1000);
-            batch.forEach(likes::removeForActor);
-            if (!batch.isEmpty()) after = batch.getLast();
+            if (!batch.isEmpty()) {
+                likes.removeForActors(batch);
+                after = batch.getLast();
+            }
         } while (batch.size() == 1000);
     }
 

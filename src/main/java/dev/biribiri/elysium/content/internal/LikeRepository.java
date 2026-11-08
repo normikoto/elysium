@@ -168,6 +168,10 @@ public class LikeRepository {
         jdbc.sql("DELETE FROM status_like WHERE actor_id = :actor").param("actor", actor).update();
     }
 
+    public void removeForActors(Collection<UUID> actors) {
+        jdbc.sql("DELETE FROM status_like WHERE actor_id IN (:actors)").param("actors", actors).update();
+    }
+
     public List<UUID> actorsOn(String domain, UUID after, int limit) {
         return jdbc.sql("SELECT id FROM actor WHERE NOT is_local AND domain = :domain AND id > :after ORDER BY id LIMIT :limit")
                 .param("domain", domain).param("after", after).param("limit", limit).query(UUID.class).list();
