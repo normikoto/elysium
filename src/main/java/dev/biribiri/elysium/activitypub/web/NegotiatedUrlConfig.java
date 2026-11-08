@@ -17,18 +17,26 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * <li>A cache must not mix up the two responses.
  * <li>A preflight request doesn't say which of the two it's for, so {@code @CrossOrigin} on a handler isn't enough:
  * Spring picks one of the handlers arbitrarily, and might pick one without it.
+ * <li>A status's answer can depend on who signed the request. A browser has to ask before sending a {@code Signature} header
+ * from another origin, and is refused, so that another site can only read what an unsigned request gets.
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
 class NegotiatedUrlConfig implements WebMvcConfigurer {
 
-    private static final String[] NEGOTIATED_URLS = {"/users/*", "/users/*/statuses/*", "/users/*/statuses/*/likes",
+    private static final String STATUS_URL = "/users/*/statuses/*";
+    private static final String[] NEGOTIATED_URLS = {"/users/*", STATUS_URL, "/users/*/statuses/*/likes",
             "/users/*/statuses/*/shares"};
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         for (var url : NEGOTIATED_URLS) {
-            registry.addMapping(url).allowedMethods("GET", "HEAD");
+            var mapping = registry.addMapping(url).allowedMethods("GET", "HEAD");
+            if (url.equals(STATUS_URL)) {
+                // Not a signature. Accept has to be allowed, because a browser asks first for one with quotes or colons,
+                // such as the ld+json profile that ActivityPub recommends.
+                mapping.allowedHeaders(HttpHeaders.ACCEPT);
+            }
         }
     }
 
