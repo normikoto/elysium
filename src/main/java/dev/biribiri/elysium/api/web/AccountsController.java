@@ -430,8 +430,8 @@ public class AccountsController {
             summary = "List an account's statuses",
             description = """
                     Differences from Mastodon: for an account on another server, only the statuses it has sent here \
-                    are listed, and older ones aren't fetched. Only boosts of local statuses are stored from other \
-                    servers, so its boosts of other servers' statuses aren't listed. Statuses can't be pinned, tagged, \
+                    are listed, and older ones aren't fetched. Its boosts of other servers' statuses are only stored \
+                    while someone here follows it, so others aren't listed. Statuses can't be pinned, tagged, \
                     or have media, so `pinned`, `tagged`, and `only_media` return an empty list.
 
                     Only statuses the viewer can see are listed. A suspended account gets a 404.""",
