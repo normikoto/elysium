@@ -4,8 +4,10 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.Visibility;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -16,6 +18,7 @@ import java.util.Map;
  *                   sends and reads this as plain text, so escaping it would show the escapes in its content warnings.
  * @param inReplyTo  the parent status, or null if this isn't a reply or the parent can't be shown
  * @param contentMap the content under its language, or null if no language is set
+ * @param tag        the accounts it mentions, or null if it mentions none
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record Note(
@@ -31,7 +34,8 @@ public record Note(
         boolean sensitive,
         String summary,
         URI inReplyTo,
-        Map<String, String> contentMap
+        Map<String, String> contentMap,
+        List<Mention> tag
 ) {
 
     static final List<Object> CONTEXT = List.of(
@@ -39,15 +43,20 @@ public record Note(
             Map.of("sensitive", "as:sensitive"));
 
     /**
+     * A direct status is only addressed to the accounts it mentions, so its parent's author has to be mentioned to get it,
+     * as on Mastodon.
+     *
      * @param inReplyTo    the parent status, or null if there's none to show
      * @param parentAuthor who wrote the parent status, or null if there's none to show
-     * @throws IllegalArgumentException if this status is direct, because there's no way yet to address it to anyone
+     * @param mentions     the accounts the status mentions
      */
-    public static Note from(Status status, Actor author, URI inReplyTo, URI parentAuthor) {
-        var parent = parentAuthor == null || parentAuthor.equals(author.uri())
-                ? List.<String>of()
-                : List.of(parentAuthor.toString());
-        var audience = Audience.of(status.visibility(), author, parent);
+    public static Note from(Status status, Actor author, URI inReplyTo, URI parentAuthor, List<Mention> mentions) {
+        var others = new ArrayList<String>();
+        mentions.forEach(mention -> others.add(mention.href().toString()));
+        if (parentAuthor != null && !parentAuthor.equals(author.uri()) && status.visibility() != Visibility.DIRECT) {
+            others.add(parentAuthor.toString());
+        }
+        var audience = Audience.of(status.visibility(), author, others);
 
         return new Note(
                 CONTEXT,
@@ -63,13 +72,15 @@ public record Note(
                 status.sensitive(),
                 status.spoilerText().isEmpty() ? null : status.spoilerText(),
                 inReplyTo,
-                status.language() == null ? null : Map.of(status.language(), status.content()));
+                status.language() == null ? null : Map.of(status.language(), status.content()),
+                mentions.isEmpty() ? null : List.copyOf(mentions));
     }
 
     /**
      * @return this object as part of an activity, which has the {@code @context} for both
      */
     public Note withoutContext() {
-        return new Note(null, id, type, attributedTo, url, published, to, cc, content, sensitive, summary, inReplyTo, contentMap);
+        return new Note(
+                null, id, type, attributedTo, url, published, to, cc, content, sensitive, summary, inReplyTo, contentMap, tag);
     }
 }

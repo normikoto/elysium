@@ -30,6 +30,15 @@ public interface RemoteActorResolver {
     Optional<Actor> resolveAcct(UUID requester, String username, String domain);
 
     /**
+     * Finds an actor that's already stored, without asking its server, so this never makes a request and doesn't count
+     * toward any limit. A stored actor can be on a domain that's been blocked since, until its removal has run, so this
+     * leaves those out, as {@link #resolveAcct} does.
+     *
+     * @return the stored actor, or empty if there's none, it's suspended or deleted, or its server is blocked
+     */
+    Optional<Actor> findStored(String username, String domain);
+
+    /**
      * Finds the actor at a URL, which can be its ID or a page whose server serves the actor at the same URL, such as a
      * profile page.
      *

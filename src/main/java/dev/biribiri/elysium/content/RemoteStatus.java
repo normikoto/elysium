@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -13,6 +14,9 @@ import java.util.UUID;
  * @param language     a language code, or null if not given or not valid
  * @param inReplyToUri the parent's URI, or null if it isn't a reply
  * @param editedAt     when its server says it was last edited, or null if it hasn't been
+ * @param mentions     the stored accounts it mentions, each with whether that's silent, as for a local account it was sent
+ *                     to without being tagged. These can see it even when it's followers-only or direct, so they have to
+ *                     have been checked against who it was addressed to
  */
 public record RemoteStatus(
         URI uri,
@@ -25,15 +29,21 @@ public record RemoteStatus(
         boolean sensitive,
         URI inReplyToUri,
         Instant publishedAt,
-        Instant editedAt
+        Instant editedAt,
+        Map<UUID, Boolean> mentions
 ) {
 
+    public RemoteStatus {
+        mentions = Map.copyOf(mentions);
+    }
+
     /**
-     * A status that hasn't been edited.
+     * A status that hasn't been edited, and mentions nobody.
      */
     public RemoteStatus(
             URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
             boolean sensitive, URI inReplyToUri, Instant publishedAt) {
-        this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, null);
+        this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, null,
+                Map.of());
     }
 }

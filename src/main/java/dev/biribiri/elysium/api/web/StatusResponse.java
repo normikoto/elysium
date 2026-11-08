@@ -10,15 +10,16 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Mastodon's Status entity. Likes, boosts, media, polls, mentions, and hashtags don't exist yet, so those fields hold the
- * values a status without any of them would have.
+ * Mastodon's Status entity. Likes, boosts, media, polls, and hashtags don't exist yet, so those fields hold the values a
+ * status without any of them would have.
  *
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Favourites, boosts, media, polls, cards, mentions, and hashtags don't exist yet, so \
-        those fields are always empty, null, zero, or false. Only statuses from other servers can have been edited, \
-        so `edited_at` is always null for a local one.""")
+        Mastodon's Status entity. Favourites, boosts, media, polls, cards, and hashtags don't exist yet, so those fields \
+        are always empty, null, zero, or false. `mentions` leaves out accounts that are suspended or deleted, and those \
+        a status from another server was sent to without mentioning them. Only statuses from other servers can have \
+        been edited, so `edited_at` is always null for a local one.""")
 record StatusResponse(
         String id,
         @JsonProperty("created_at") String createdAt,
@@ -41,7 +42,7 @@ record StatusResponse(
         Object application,
         AccountResponse account,
         @JsonProperty("media_attachments") List<Object> mediaAttachments,
-        List<Object> mentions,
+        List<MentionResponse> mentions,
         List<Object> tags,
         List<Object> emojis,
         Object card,
@@ -53,7 +54,8 @@ record StatusResponse(
         boolean pinned
 ) {
 
-    static StatusResponse from(Status status, AccountResponse account, boolean includeText) {
+    static StatusResponse from(
+            Status status, AccountResponse account, List<MentionResponse> mentions, boolean includeText) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -75,7 +77,7 @@ record StatusResponse(
                 null,
                 account,
                 List.of(),
-                List.of(),
+                mentions,
                 List.of(),
                 List.of(),
                 null,

@@ -7,6 +7,7 @@ import dev.biribiri.elysium.activitypub.http.LoopbackClients;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
@@ -23,6 +24,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
@@ -57,6 +59,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 
 /**
  * Runs the real listener and scheduler against a real server on the loopback address. Any hostname reaches that server, so
@@ -84,6 +87,8 @@ class StatusDeliveryIntegrationTests {
     private JsonMapper json;
     @Autowired
     private EventRetries retries;
+    @MockitoBean
+    private RemoteActorResolver resolver;
 
     private final Queue<Received> received = new ConcurrentLinkedQueue<>();
     private final Map<String, CountDownLatch> holdCreates = new ConcurrentHashMap<>();
@@ -227,15 +232,58 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void sendsNothingForADirectStatus() {
+    void sendsADirectStatusOnlyToTheAccountsItMentions() {
+        var followerHost = newHost();
+        follow(followerHost, "bob", false);
         var host = newHost();
-        follow(host, "bob", false);
+        var carol = mentionable(host, "carol");
 
-        var status = post(Visibility.DIRECT, null);
+        var status = mention(Visibility.DIRECT, host, "carol");
 
+        var create = awaitCreate(host, status);
+        assertThat(create.request().path()).isEqualTo("/users/carol/inbox");
+        var note = create.body().path("object");
+        assertThat(strings(create.body().path("to"))).containsExactly(carol.uri().toString());
+        assertThat(strings(create.body().path("cc"))).isEmpty();
+        assertThat(strings(note.path("to"))).containsExactly(carol.uri().toString());
+        assertThat(strings(note.path("cc"))).isEmpty();
+        assertThat(note.path("tag").path(0).path("type").stringValue()).isEqualTo("Mention");
+        assertThat(note.path("tag").path(0).path("href").stringValue()).isEqualTo(carol.uri().toString());
+        assertThat(note.path("tag").path(0).path("name").stringValue()).isEqualTo("@carol@" + carol.domain());
         awaitNothingLeftFor(status);
-        assertThat(receivedBy(host)).isEmpty();
-        assertThat(stored(status)).isZero();
+        assertThat(receivedBy(followerHost)).isEmpty();
+    }
+
+    @Test
+    void sendsAPublicStatusToTheAccountsItMentionsAsWellAsFollowers() {
+        var followerHost = newHost();
+        follow(followerHost, "bob", false);
+        var host = newHost();
+        var carol = mentionable(host, "carol");
+
+        var status = mention(Visibility.PUBLIC, host, "carol");
+
+        awaitCreate(followerHost, status);
+        var body = awaitCreate(host, status).body();
+        assertThat(strings(body.path("to"))).containsExactly(PUBLIC);
+        assertThat(strings(body.path("cc"))).containsExactly(followers(), carol.uri().toString());
+    }
+
+    @Test
+    void sendsADirectReplyToItsParentsAuthorOnlyIfItMentionsThem() {
+        var host = newHost();
+        var carol = mentionable(host, "carol");
+        var parent = statuses.findVisible(remoteStatus(carol, Visibility.PUBLIC), Optional.empty()).orElseThrow();
+
+        var unmentioned = post(Visibility.DIRECT, parent.id());
+        var mentioned = statuses.create(author.id(), new NewStatus(
+                "@carol@" + host + " hi", null, null, Visibility.DIRECT, false, parent.id()));
+
+        var body = awaitCreate(host, mentioned).body();
+        assertThat(strings(body.path("to"))).containsExactly(carol.uri().toString());
+        awaitNothingLeftFor(unmentioned);
+        assertThat(receivedBy(host).stream().filter(request -> request.body().contains(unmentioned.uri().toString())))
+                .isEmpty();
     }
 
     @Test
@@ -490,7 +538,41 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void sendsNothingForADeletedDirectStatus() {
+    void aDirectReplyLinksToADirectParentWhoseAuthorItMentions() {
+        var host = newHost();
+        var carol = mentionable(host, "carol");
+        var parentId = statuses.storeRemote(new RemoteStatus(
+                URI.create(carol.uri() + "/notes/" + UUID.randomUUID()), null, carol.id(), "<p>Psst</p>", null, null,
+                Visibility.DIRECT, false, null, Instant.now(), null, Map.of(author.id(), false))).orElseThrow();
+        var parent = statuses.findVisible(parentId, Optional.of(author.id())).orElseThrow();
+
+        var reply = statuses.create(author.id(), new NewStatus(
+                "@carol@" + host + " hi", null, null, Visibility.DIRECT, false, parent.id()));
+
+        var note = awaitCreate(host, reply).body().path("object");
+        assertThat(note.path("inReplyTo").stringValue()).isEqualTo(parent.uri().toString());
+        assertThat(strings(note.path("to"))).containsExactly(carol.uri().toString());
+    }
+
+    @Test
+    void aDirectReplyDoesNotLinkToADirectParentWhoseAuthorItDoesNotMention() {
+        var host = newHost();
+        var carol = mentionable(host, "carol");
+        var dave = mentionable(host, "dave");
+        var parentId = statuses.storeRemote(new RemoteStatus(
+                URI.create(carol.uri() + "/notes/" + UUID.randomUUID()), null, carol.id(), "<p>Psst</p>", null, null,
+                Visibility.DIRECT, false, null, Instant.now(), null, Map.of(author.id(), false))).orElseThrow();
+
+        var reply = statuses.create(author.id(), new NewStatus(
+                "@dave@" + host + " look", null, null, Visibility.DIRECT, false, parentId));
+
+        var note = awaitCreate(host, reply).body().path("object");
+        assertThat(note.has("inReplyTo")).isFalse();
+        assertThat(strings(note.path("to"))).containsExactly(dave.uri().toString());
+    }
+
+    @Test
+    void sendsNothingForADeletedDirectStatusThatMentionedNobody() {
         var host = newHost();
         follow(host, "bob", false);
         var status = post(Visibility.DIRECT, null);
@@ -500,6 +582,24 @@ class StatusDeliveryIntegrationTests {
         awaitNothingLeftFor(status);
         assertThat(receivedBy(host)).isEmpty();
         assertThat(storedDelete(status)).isZero();
+    }
+
+    @Test
+    void sendsTheDeleteOfADirectStatusToTheAccountsItMentioned() {
+        var followerHost = newHost();
+        follow(followerHost, "bob", false);
+        var host = newHost();
+        var carol = mentionable(host, "carol");
+        var status = mention(Visibility.DIRECT, host, "carol");
+        awaitCreate(host, status);
+
+        statuses.delete(status.id(), author.id());
+
+        var body = awaitDelete(host, status).body();
+        assertThat(strings(body.path("to"))).containsExactly(carol.uri().toString());
+        assertThat(strings(body.path("cc"))).isEmpty();
+        awaitNothingLeftFor(status);
+        assertThat(receivedBy(followerHost)).isEmpty();
     }
 
     @Test
@@ -691,6 +791,20 @@ class StatusDeliveryIntegrationTests {
         transactions.executeWithoutResult(transaction -> follows.accept(
                 follower.id(), uri, author.id(), uri + "#follow", new FollowService.Arrival(now, now)));
         return uri;
+    }
+
+    /**
+     * An account on another server that a status can mention as {@code @username@host}, which WebFinger would find.
+     */
+    private Actor mentionable(String host, String username) {
+        var actor = remoteAuthor(host, username);
+        when(resolver.resolveAcct(any(), eq(username), eq(host))).thenReturn(Optional.of(actor));
+        return actor;
+    }
+
+    private Status mention(Visibility visibility, String host, String username) {
+        return statuses.create(author.id(), new NewStatus(
+                "Hello @" + username + "@" + host, null, null, visibility, false, null));
     }
 
     private Status post(Visibility visibility, UUID inReplyTo) {

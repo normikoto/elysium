@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
@@ -22,9 +23,12 @@ class StatusResponses {
     private final ActorService actors;
     private final AccountResponses accounts;
     private final InstanceProperties instance;
+    private final StatusService statuses;
 
-    StatusResponses(ActorService actors, AccountResponses accounts, InstanceProperties instance) {
+    StatusResponses(
+            ActorService actors, AccountResponses accounts, InstanceProperties instance, StatusService statuses) {
         this.actors = actors;
+        this.statuses = statuses;
         this.accounts = accounts;
         this.instance = instance;
     }
@@ -77,9 +81,16 @@ class StatusResponses {
                 .filter(Actor::isActive)
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
         var accountResponses = accounts.byId(authors.values());
+        var mentions = statuses.findMentions(found.stream().map(Status::id).toList());
         return found.stream()
                 .filter(status -> authors.containsKey(status.actorId()))
-                .map(status -> StatusResponse.from(status, accountResponses.get(status.actorId()), includeText))
+                .map(status -> StatusResponse.from(
+                        status,
+                        accountResponses.get(status.actorId()),
+                        mentions.getOrDefault(status.id(), List.of()).stream()
+                                .map(actor -> MentionResponse.from(actor, actors.isLocal(actor)))
+                                .toList(),
+                        includeText))
                 .toList();
     }
 }

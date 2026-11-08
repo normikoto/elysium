@@ -24,6 +24,7 @@ import java.util.Optional;
  * @param inReplyTo    the ID of its {@code inReplyTo}, or null if it isn't a reply
  * @param published    its {@code published}, or null if that's missing or isn't a date
  * @param updated      its {@code updated}, when it was last edited, or null if that's missing or isn't a date
+ * @param mentions     the {@code href} of each {@code Mention} in its {@code tag}, up to {@value #MAX_MENTIONS}
  */
 record RemoteNote(
         URI id,
@@ -36,7 +37,14 @@ record RemoteNote(
         URI inReplyTo,
         Instant published,
         Instant updated,
-        Addressing addressing) {
+        Addressing addressing,
+        List<URI> mentions) {
+
+    /**
+     * Each mention is looked up, so a note can't make this server look up any number of them. Mastodon has no limit, but
+     * a note mentioning more accounts than this would be spam.
+     */
+    static final int MAX_MENTIONS = 100;
 
     /**
      * How far ahead of this server's clock an {@code updated} can be, which is what signatures allow.
@@ -45,6 +53,7 @@ record RemoteNote(
 
     RemoteNote {
         attributedTo = List.copyOf(attributedTo);
+        mentions = List.copyOf(mentions);
     }
 
     /**
@@ -86,7 +95,17 @@ record RemoteNote(
                         .orElse(null),
                 timestamp(node.path("published")),
                 timestamp(node.path("updated")),
-                Addressing.of(node)));
+                Addressing.of(node),
+                mentions(node.path("tag"))));
+    }
+
+    private static List<URI> mentions(JsonNode tag) {
+        return ActivityJson.tags(tag).stream()
+                .filter(candidate -> "Mention".equals(candidate.type()) && candidate.href() != null)
+                .flatMap(candidate -> ActivityObject.parseUri(candidate.href()).stream())
+                .distinct()
+                .limit(MAX_MENTIONS)
+                .toList();
     }
 
     /**

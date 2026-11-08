@@ -83,6 +83,18 @@ class LocalRecipients {
     }
 
     /**
+     * @return the IDs of the local actors named one by one in an object's addressing, leaving out those addressed only as
+     * followers
+     */
+    Set<UUID> named(Addressing object) {
+        var local = new ArrayList<URI>();
+        object.all().forEach(address -> onThisServer(address).ifPresent(local::add));
+        var named = new HashSet<UUID>();
+        actors.findLocalByUris(local).stream().map(Actor::id).forEach(named::add);
+        return named;
+    }
+
+    /**
      * Whether a reply concerns someone here, whether or not it addresses them: the status it replies to is stored, and its
      * author is local or followed by a local account. This is Mastodon's rule for replies, and it's what lets a reply
      * forwarded by the parent's server be kept, since the reply only addresses its own author's followers.

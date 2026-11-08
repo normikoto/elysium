@@ -264,6 +264,19 @@ public class ActorRepository {
     }
 
     /**
+     * Finds local and remote actors in any state. Takes the URIs as one array, as {@link #findLocalByUris} does.
+     */
+    public List<Actor> findByUris(Collection<String> uris) {
+        if (uris.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE uri = ANY(:uris)")
+                .param("uris", uris.toArray(String[]::new))
+                .query(ACTOR_MAPPER)
+                .list();
+    }
+
+    /**
      * Inserts an actor from another server, or replaces what's stored about it. Only the URI identifies it, so another actor
      * on that server can have the same username. A suspended or deleted actor is left as it is, so that a fetch that was
      * running when it was suspended or deleted can't put back the key and inboxes that were removed with it.

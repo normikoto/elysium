@@ -123,6 +123,13 @@ public class ActorService {
     }
 
     /**
+     * Like {@link #findByUri}, for several actors at once, in no particular order. Ones that don't exist are left out.
+     */
+    public List<Actor> findByUris(Collection<URI> uris) {
+        return actors.findByUris(uris.stream().map(URI::toString).distinct().toList());
+    }
+
+    /**
      * Finds a local or remote actor. This can return one that's suspended or deleted, so check its state.
      */
     public Optional<Actor> findById(UUID id) {

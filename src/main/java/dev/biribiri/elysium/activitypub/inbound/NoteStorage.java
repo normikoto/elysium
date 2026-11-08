@@ -14,13 +14,22 @@ import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Stores a {@code Note} from another server as a status, when it's for a local account, through a follow or by addressing
  * it, or when it's a public or unlisted reply to a status of a local account or of one that's followed here, as Mastodon
  * keeps them. That last case is what a reply forwarded by the parent's server looks like. Notes that nobody here would see
- * aren't kept, which also stops any server from filling the database by delivering to the shared inbox. Direct notes are
- * left out until mentions exist, since nobody but their author could see them here.
+ * aren't kept, which also stops any server from filling the database by delivering to the shared inbox.
+ *
+ * <p>Who a followers-only or direct note is shown to here comes from its mentions, so a local account only counts as
+ * mentioned by one of those if the note or its activity is addressed to it. Otherwise a {@code Mention} tag alone would show
+ * it to anyone here. A local account that's addressed without a tag is mentioned silently, which shows it the note without
+ * listing it as mentioned, as Mastodon does. Accounts on other servers are only looked up among those stored, so that a
+ * note can't make this server fetch them.
  *
  * <p>This is for a {@code Create}, and for an {@code Update} of a note that isn't stored yet. Both have to pass the same
  * checks, so that an {@code Update} can't store anything a {@code Create} couldn't.
@@ -73,10 +82,6 @@ class NoteStorage {
         // can make a request to another server.
         var author = remoteActors.fetchOrRefresh(actorUri);
         var visibility = visibility(note.addressing(), author);
-        if (visibility == Visibility.DIRECT) {
-            log.debug("Ignoring {} {}, whose Note is direct", activity.type(), activity.id());
-            return Result.IGNORED;
-        }
         var forWhom = recipients.of(activity, document, read.fetched() ? note.addressing() : Addressing.NONE);
         // Followers-only replies stay out, since only the replier's followers could see them.
         if (forWhom.isEmpty() && !(note.inReplyTo() != null
@@ -102,8 +107,35 @@ class NoteStorage {
                 note.inReplyTo(),
                 published,
                 // So that an Update older than this version can't replace it.
-                note.editedAt(published, Instant.now())));
+                note.editedAt(published, Instant.now()),
+                mentions(note, Addressing.ofActivity(document).with(note.addressing()), visibility)));
         return stored.isPresent() ? Result.STORED : Result.TAKEN;
+    }
+
+    /**
+     * The local accounts named in the {@code Create} count as well as those named in its note, since the note's author
+     * addressed both, and the {@code Create} is what decides that a note is for someone here. Otherwise a direct note sent
+     * to a local account that only its {@code Create} names would be stored and shown to nobody.
+     *
+     * @param addressed the addressing of the activity and its note
+     * @return each mentioned account, and whether it's mentioned silently
+     */
+    private Map<UUID, Boolean> mentions(RemoteNote note, Addressing addressed, Visibility visibility) {
+        var mentions = new HashMap<UUID, Boolean>();
+        var tagged = new HashSet<UUID>();
+        var remote = new HashSet<UUID>();
+        for (var actor : actors.findByUris(note.mentions())) {
+            if (actor.isActive()) {
+                (actors.isLocal(actor) ? tagged : remote).add(actor.id());
+            }
+        }
+        var named = recipients.named(addressed);
+        named.forEach(local -> mentions.put(local, !tagged.contains(local)));
+        if (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED) {
+            tagged.forEach(local -> mentions.put(local, false));
+        }
+        remote.forEach(actor -> mentions.put(actor, false));
+        return mentions;
     }
 
     /**

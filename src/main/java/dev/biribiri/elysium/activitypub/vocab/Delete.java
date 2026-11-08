@@ -24,10 +24,10 @@ public record Delete(
 
     /**
      * @param visibility the status's visibility, so that this is addressed in the same way as its {@code Create}
-     * @throws IllegalArgumentException if the status was direct
+     * @param mentioned  the accounts the status mentioned, which its {@code Create} was addressed to
      */
-    public static Delete of(URI statusUri, Actor author, Visibility visibility) {
-        var audience = Audience.of(visibility, author, List.of());
+    public static Delete of(URI statusUri, Actor author, Visibility visibility, List<URI> mentioned) {
+        var audience = Audience.of(visibility, author, mentioned.stream().map(URI::toString).toList());
         return new Delete(
                 ActivityStreams.CONTEXT,
                 URI.create(statusUri + "#delete"),

@@ -15,12 +15,14 @@ import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -45,6 +47,9 @@ public class StatusRepository {
             + "JOIN actor author ON author.id = s.actor_id AND author.suspended_at IS NULL AND author.deleted_at IS NULL ";
 
     private static final int REMOVAL_BATCH_SIZE = 1000;
+
+    private static final String MENTIONS_VIEWER =
+            " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = :viewer)";
 
     /**
      * Excludes replies to other accounts, but keeps an account's replies to itself.
@@ -348,6 +353,7 @@ public class StatusRepository {
                     .update();
         } while (removed == REMOVAL_BATCH_SIZE);
         jdbc.sql("DELETE FROM status_tombstone WHERE actor_id = :actorId").param("actorId", actorId).update();
+        jdbc.sql("DELETE FROM status_mention WHERE actor_id = :actorId").param("actorId", actorId).update();
         jdbc.sql("""
                         DELETE FROM deleted_remote_status d USING actor a
                         WHERE a.id = :actorId AND NOT a.is_local AND d.actor_uri = a.uri
@@ -378,6 +384,13 @@ public class StatusRepository {
                     .param("limit", REMOVAL_BATCH_SIZE)
                     .update();
         } while (removed == REMOVAL_BATCH_SIZE);
+        // Mentions of the domain's actors in statuses from elsewhere.
+        jdbc.sql("""
+                        DELETE FROM status_mention m USING actor a
+                        WHERE a.id = m.actor_id AND a.domain = :domain AND NOT a.is_local
+                        """)
+                .param("domain", domain)
+                .update();
         jdbc.sql("""
                         DELETE FROM deleted_remote_status d USING actor a
                         WHERE a.domain = :domain AND NOT a.is_local AND d.actor_uri = a.uri
@@ -421,13 +434,15 @@ public class StatusRepository {
      * @param followedIds the accounts the viewer follows, which can be empty
      */
     public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
-        // The viewer's own statuses are all listed, and the reply rule only applies to those of accounts they follow.
+        // The viewer's own statuses are all listed, and the reply rule only applies to those of accounts they follow. Clients
+        // have nowhere else to show direct statuses to the viewer, without notifications or conversations.
         var filter = """
                 (s.actor_id = :viewer
                  OR (s.actor_id = ANY (CAST(:followed AS uuid[]))
                      AND s.visibility IN ('public', 'unlisted', 'private')
                      AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = :viewer
-                          OR s.in_reply_to_account_id = ANY (CAST(:followed AS uuid[])))))""";
+                          OR s.in_reply_to_account_id = ANY (CAST(:followed AS uuid[]))))
+                 OR (s.visibility IN ('private', 'direct') AND""" + MENTIONS_VIEWER + "))";
         // One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
         var followed = followedIds.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
         return findPage(filter, Map.of("viewer", viewerId, "followed", followed), page);
@@ -435,15 +450,97 @@ public class StatusRepository {
 
     /**
      * @param visibilities which statuses the viewer can see
+     * @param viewer       who's looking, who can also see the followers-only and direct statuses that mention them, or null
      */
     public List<Status> findByAccount(
-            UUID actorId, Collection<Visibility> visibilities, boolean excludeReplies, StatusPage page) {
-        var filter = new StringBuilder("s.actor_id = :actorId AND s.visibility IN (:visibilities)");
+            UUID actorId, Collection<Visibility> visibilities, UUID viewer, boolean excludeReplies, StatusPage page) {
+        var parameters = new HashMap<String, Object>();
+        parameters.put("actorId", actorId);
+        parameters.put("visibilities", visibilities.stream().map(Visibility::value).toList());
+        var filter = new StringBuilder("s.actor_id = :actorId AND (s.visibility IN (:visibilities)");
+        if (viewer != null) {
+            filter.append(" OR (s.visibility IN ('private', 'direct') AND").append(MENTIONS_VIEWER).append(")");
+            parameters.put("viewer", viewer);
+        }
+        filter.append(")");
         if (excludeReplies) {
             filter.append(" AND ").append(NOT_A_REPLY_TO_OTHERS);
         }
-        var names = visibilities.stream().map(Visibility::value).toList();
-        return findPage(filter.toString(), Map.of("actorId", actorId, "visibilities", names), page);
+        return findPage(filter.toString(), parameters, page);
+    }
+
+    /**
+     * @param mentions each account mentioned, and whether that's silently
+     */
+    public void insertMentions(UUID statusId, Map<UUID, Boolean> mentions) {
+        if (mentions.isEmpty()) {
+            return;
+        }
+        var entries = List.copyOf(mentions.entrySet());
+        // One statement, rather than one for each of up to a hundred mentions a note from another server can have.
+        jdbc.sql("""
+                        INSERT INTO status_mention (status_id, actor_id, silent)
+                        SELECT :statusId, m.actor_id, m.silent
+                        FROM unnest(CAST(:actorIds AS uuid[]), CAST(:silent AS boolean[])) AS m (actor_id, silent)
+                        ON CONFLICT DO NOTHING
+                        """)
+                .param("statusId", statusId)
+                .param("actorIds", entries.stream()
+                        .map(entry -> entry.getKey().toString())
+                        .collect(Collectors.joining(",", "{", "}")))
+                .param("silent", entries.stream()
+                        .map(entry -> entry.getValue().toString())
+                        .collect(Collectors.joining(",", "{", "}")))
+                .update();
+    }
+
+    /**
+     * @return the accounts each status shows as mentioned, leaving out silent mentions, and the accounts that are suspended
+     * or deleted
+     */
+    public Map<UUID, List<UUID>> findMentions(Collection<UUID> statusIds) {
+        if (statusIds.isEmpty()) {
+            return Map.of();
+        }
+        var mentions = new HashMap<UUID, List<UUID>>();
+        jdbc.sql("""
+                        SELECT m.status_id, m.actor_id FROM status_mention m
+                        JOIN actor a ON a.id = m.actor_id AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        WHERE m.status_id IN (:statusIds) AND NOT m.silent
+                        ORDER BY m.status_id, a.username, a.domain
+                        """)
+                .param("statusIds", statusIds)
+                .query(rs -> {
+                    mentions.computeIfAbsent(rs.getObject("status_id", UUID.class), id -> new ArrayList<>())
+                            .add(rs.getObject("actor_id", UUID.class));
+                });
+        return mentions;
+    }
+
+    /**
+     * Every account a status mentions, silently or not, including those that are suspended, for what has to reach whoever
+     * was sent it.
+     */
+    public List<UUID> findAllMentioned(UUID statusId) {
+        return jdbc.sql("SELECT actor_id FROM status_mention WHERE status_id = :statusId")
+                .param("statusId", statusId)
+                .query(UUID.class)
+                .list();
+    }
+
+    /**
+     * @return which of these statuses mention the viewer, silently or not
+     */
+    public Set<UUID> mentioning(Collection<UUID> statusIds, UUID viewer) {
+        if (statusIds.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(jdbc.sql(
+                        "SELECT status_id FROM status_mention WHERE status_id IN (:statusIds) AND actor_id = :viewer")
+                .param("statusIds", statusIds)
+                .param("viewer", viewer)
+                .query(UUID.class)
+                .list());
     }
 
     /**

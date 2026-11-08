@@ -66,10 +66,10 @@ public final class Urls {
 
     /**
      * Counts code points, with each URL counted as {@value CHARACTERS_RESERVED_PER_URL} characters, until the URLs have
-     * saved {@value MAX_URL_SAVINGS} characters.
+     * saved {@value MAX_URL_SAVINGS} characters. The domain in a mention isn't counted.
      */
     public static int countCharacters(String text) {
-        var count = text.codePointCount(0, text.length());
+        var count = text.codePointCount(0, text.length()) - Mentions.domainCharacters(text);
         var savings = 0;
         for (var match : find(text)) {
             var length = text.codePointCount(match.start(), match.end());
