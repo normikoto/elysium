@@ -25,7 +25,8 @@ public class LikeRepository {
             rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class), rs.getObject("status_id", UUID.class),
             rs.getString("activity_uri"), rs.getObject("activity_at", OffsetDateTime.class).toInstant());
 
-    private static String eligible(String actor) {
+    /** Hides suspended and deleted actors, and those on blocked domains, so that they come back if that ends. */
+    static String eligible(String actor) {
         var host = "regexp_replace(" + actor + ".domain, ':[0-9]+$', '')";
         return actor + ".suspended_at IS NULL AND " + actor + ".deleted_at IS NULL AND (" + actor
                 + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE " + host + " = b.domain OR right("
@@ -63,7 +64,8 @@ public class LikeRepository {
     }
 
     public Optional<UUID> localStatusId(URI uri) {
-        return jdbc.sql("SELECT s.id FROM status s JOIN actor a ON a.id = s.actor_id WHERE s.uri = :uri AND a.is_local")
+        return jdbc.sql("SELECT s.id FROM status s JOIN actor a ON a.id = s.actor_id WHERE s.uri = :uri AND a.is_local "
+                        + "AND s.reblog_of_id IS NULL")
                 .param("uri", uri.toString()).query(UUID.class).optional();
     }
 

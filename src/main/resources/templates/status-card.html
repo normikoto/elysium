@@ -1,9 +1,12 @@
 <!doctype html>
 <html xmlns:th="http://www.thymeleaf.org">
 <article class="status" th:fragment="card(view)" th:lang="${view.status.language} ?: 'und'">
+    <p class="status-boost" th:if="${view.boostedBy}">
+        <a th:href="@{/users/{username}(username=${view.boostedBy})}" th:text="|@${view.boostedBy}|"></a> boosted
+    </p>
     <p class="status-meta">
-        <a th:href="@{/users/{username}(username=${view.username})}" th:text="|@${view.username}|"></a>
-        <a th:href="@{${view.path}}"><time th:datetime="${view.status.publishedAt}" th:text="${view.publishedAt}"></time></a>
+        <a th:href="@{${view.authorUrl}}" th:text="${view.authorName}"></a>
+        <a th:href="@{${view.url}}"><time th:datetime="${view.status.publishedAt}" th:text="${view.publishedAt}"></time></a>
     </p>
     <details th:if="${view.status.sensitive}">
         <summary th:text="${#strings.isEmpty(view.status.spoilerText)} ? 'Sensitive content' : ${view.status.spoilerText}"></summary>

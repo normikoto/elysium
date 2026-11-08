@@ -1,17 +1,17 @@
 # Federation
 
 Elysium is an early work in progress, and this file only describes what's implemented today. Other servers can find and
-follow its users, and fetch their actors, statuses, and collections. Its users can follow accounts on other servers and like
-their posts. Their statuses, edits to their profiles, and suspensions and deletions of their accounts are sent to their
-followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user or
-reply to a status that's stored here. Likes of local statuses are counted. Boosts, attachments, polls, and other activities
-aren't supported yet.
+follow its users, and fetch their actors, statuses, and collections. Its users can follow accounts on other servers, and like
+and boost their posts. Their statuses, edits to their profiles, and suspensions and deletions of their accounts are sent to
+their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
+reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
+statuses are counted. Attachments, polls, and other activities aren't supported yet.
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow` and `Like` and their `Undo`,
-  `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete`, and sending
-  `Follow` and `Like` and their `Undo`, `Accept`, `Create`, `Update`, and `Delete`
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, and `Announce` and their
+  `Undo`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete`, and
+  sending `Follow`, `Like`, and `Announce` and their `Undo`, `Accept`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -121,6 +121,7 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 `@context` as `as:sensitive`. It can also have:
 
 - `likes`: the post's likes collection, at `{note-uri}/likes`.
+- `shares`: the post's [boosts](#boosts) collection, at `{note-uri}/shares`.
 - `summary`: the content warning, as plain text rather than HTML, which matches Mastodon.
 - `inReplyTo`: the parent status.
 - `contentMap`: the `content` under its language, if one is set.
@@ -185,8 +186,9 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 ### Activities
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
-one worked. Activities are processed in no particular order. `Follow`, `Like`, their `Undo`s, `Accept` and `Reject` of a
-`Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are ignored.
+one worked. Activities are processed in no particular order. `Follow`, `Like`, `Announce`, their `Undo`s, `Accept` and
+`Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are
+ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -211,9 +213,9 @@ doesn't serve is lost when it's forwarded, except for a `Delete`, such as Mastod
 is [checked with its own server](#receiving-deletes) instead, if it's on the same host and port as the `actor`.
 
 The sender chooses where these fetches go, so each host gets at most 60 of them a minute, with bursts of up to 60, counting
-the fetches of forwarded activities and of objects [checked for a `Delete`](#receiving-deletes) together. A fetch over that
-waits for its turn, and is dropped if that's more than an hour away. This is counted by each of this server's nodes
-separately. No more than 4 requests to one host are made at once for fetches of any kind, and a fetch that would be over
+the fetches of forwarded activities, of objects [checked for a `Delete`](#receiving-deletes), and of
+[boosted statuses](#boosts) together. A fetch over that waits for its turn, and is dropped if that's more than an hour away.
+This is counted by each of this server's nodes separately. No more than 4 requests to one host are made at once for fetches of any kind, and a fetch that would be over
 that is tried again later.
 
 #### Reading activities
@@ -428,7 +430,7 @@ with the author's `followers` collection addressed, or one it addresses. A publi
 `inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does. That covers a
 reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
 followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
-that isn't for anyone here is ignored, even if it's public. Other object types, such as `Article`, `Page`, and `Question`, are ignored.
+that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts). Other object types, such as `Article`, `Page`, and `Question`, are ignored.
 
 - **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
   same host and port. Anything else is dropped.
@@ -544,18 +546,65 @@ with. It's served with the same media types as the `Note`, and any origin can re
 accepts HTML is redirected to the status's page, and any signature is ignored. Only public and unlisted statuses have one, and others get a 404, or a
 403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if the suspension ends.
 
+### Boosts
+
+When a local user boosts a public or unlisted status they can see, or one of their own followers-only statuses, an `Announce`
+signed as the user goes to their followers and to the status's author. Its `object` is only the status's ID:
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000001/activity",
+  "type": "Announce",
+  "actor": "https://elysium.example/users/alice",
+  "published": "2026-01-02T00:00:00Z",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://elysium.example/users/alice/followers", "https://example.com/users/bob"],
+  "object": "https://example.com/users/bob/statuses/1"
+}
+```
+
+It's addressed like a status of the same visibility, with the author in `cc`. A boost can be public, unlisted, or
+followers-only, and a boost of a followers-only status is always followers-only. Its `id` can't be fetched. Unboosting
+cancels the `Announce` if it hasn't been sent, and sends an `Undo` that embeds it, after any request with the `Announce` to
+the same server has ended. So does deleting the boosted status, here or on its server. The `Undo` goes to the status's author
+and to whoever follows the booster at the time, or for a followers-only boost, only to those who were already following when
+it was made. A local status's `Delete` also
+goes to the followers of local users who boosted it.
+
+An `Announce` is only read for its `object`'s ID, and an embedded copy is never used. A boost of a local public or unlisted
+status is always kept. A boost of another server's status is only kept if it's addressed to the booster's `followers`
+collection and a local user follows the booster. Naming a local user isn't enough, as on Mastodon. If that status isn't stored here, it's fetched from its `id`, signed as the
+[instance actor](#instance-actor), once its host has a [turn](#forwarded-activities). It has to come back as a `Note` with
+exactly that `id`, attributed to one actor on the same host and port, and addressed to the public in `to` or `cc`. Anything
+else drops the boost, and a server error or timeout is tried again later. The `Note` is then stored as that actor's status.
+A followers-only or direct status can only be boosted by its author.
+
+The `Announce`'s visibility comes from its own `to` and `cc`, read as for a `Note`, and a direct one is ignored. A boost keeps
+the `Announce`'s `id`, and a later `Announce` of the same status from the same actor takes it over, so an `Undo` of the older
+one leaves the boost in place. An `Undo` or a `Delete` of a boost has to name the `Announce`'s `id`, embedded or alone, and
+only the actor that sent it can withdraw it. One that arrives before its `Announce` stops it from being stored, or what it
+boosts from being fetched, for about 34 days.
+
+A `Note`'s `shares` collection is served like its `likes`, and counts and lists only public and unlisted boosts, as embedded
+`Announce`s whose only addressing is the public collection, in `to` for a public boost and in `cc` for an unlisted one.
+Boosts from suspended actors, and of a suspended author's statuses, aren't counted or listed, and come back if the suspension
+ends.
+
 ### Differences from Mastodon
 
 - Local users can't approve followers by hand, and actor documents don't include `manuallyApprovesFollowers`. `Reject` is
   never sent.
-- Only `Note`s are stored. `Announce` is ignored, and so is a `Like` of a status from another server. A reply's parent isn't
-  fetched, and neither are the replies to a status.
+- Only `Note`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
+  are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
 - An edited status's earlier versions aren't kept, and an `Update` doesn't change who it mentions, so an edit can't show a
   followers-only or direct status to more local users.
 - A reply's `inReplyTo` is left out if its parent can't be shown, so it doesn't look like a reply.
 - A followers-only status can't be fetched by an actor that started following after it was posted, though Mastodon would
   serve it to any current follower.
+- A local user's boost of a status that's removed with its author's account, or with a blocked domain's statuses, goes
+  without an `Undo`.
 - Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.
 - Actor documents, including the instance actor's, advertise an `outbox`, but it isn't implemented yet.
 
@@ -609,10 +658,12 @@ compared in lowercase ASCII, without a trailing dot. A block is only ever a full
   any limits. This also applies to keys this server has already cached. A signature that's malformed or out of date still
   gets its usual `400` or `401`, because those are checked first. Activities that were already queued are dropped without
   being processed.
-- **Fetching:** Keys and actors are never fetched from a blocked domain.
+- **Fetching:** Keys, actors, and boosted statuses are never fetched from a blocked domain, and a boost by one of its
+  actors isn't stored.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
-- **Existing data:** Follows to and from its actors are removed, and so are their likes and statuses. Its actors are kept.
+- **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, and boosts of
+  their statuses. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
   status posted before then, and it keeps any copy it has.
@@ -629,8 +680,8 @@ GoToSocial answer the same way.
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Inboxes require signatures, and fetches of `Note`s
-check one if it's sent. The only requests this server makes are fetches of keys and actor documents, unsigned WebFinger
-lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, and `Like`.
+check one if it's sent. The only requests this server makes are fetches of keys, actors, and other servers' activities and
+`Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`, and `Announce`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

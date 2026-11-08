@@ -51,7 +51,17 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   to a status that isn't stored here is left out. Direct messages addressed to the user are included only when they
   follow the author. The user's own statuses and replies are always listed. `local` has no effect. List and hashtag timelines aren't implemented.
 - `GET /api/v1/timelines/public` lists public statuses from other servers too, as on Mastodon. With both `local` and
-  `remote`, `local` wins.
+  `remote`, `local` wins. Boosts aren't listed there, as on Mastodon.
+- `POST /api/v1/statuses/:id/reblog` boosts a public or unlisted status, or one of the user's own followers-only statuses,
+  whose boost is always followers-only. Any other status gets a 404. `visibility` can be `public`, the default, `unlisted`,
+  or `private`, sent as a form, a query parameter, or JSON, and `direct` gets a 422. Boosting a status again returns the
+  boost that's there. A boost's ID stands for the status it boosts when it's boosted, favourited, replied to, or asked for
+  its context, and `DELETE /api/v1/statuses/:id` with a boost's ID unboosts it. `GET /api/v1/statuses/:id/reblogged_by`
+  isn't implemented.
+- A boost from another server is only stored when it's of a local status, or when a local account follows the booster, so
+  a remote account's other boosts aren't listed with its statuses. A boosted status that isn't stored yet is fetched first,
+  so the boost can show up a little later than on Mastodon. `reblogs_count` only counts the boosts this server knows of.
+  The home timeline lists every boost from the accounts the user follows, even of a status that's already there.
 
 Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/notifications/) and
 [grouped notifications API](https://docs.joinmastodon.org/methods/grouped_notifications/):
@@ -61,16 +71,16 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
 - V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Only `mention`, `follow`, and `favourite` notifications are generated. Follow requests await support for approving
-  followers; boosts, subscribed-account posts, edits, and admin notifications await their respective features.
+- Only `mention`, `follow`, `favourite`, and `reblog` notifications are generated. Follow requests await support for
+  approving followers; subscribed-account posts, edits, and admin notifications await their respective features.
 - Notifications start with new activity after upgrading; historical mentions and follows do not generate notifications.
   Inbox updates may appear shortly after their source activity is stored. Silent mentions and self-mentions do not notify.
 - Notification policies and notification requests are not implemented. `include_filtered` has no effect, and
   `supported_types[]` has no effect because generated types have no fallback representations. Notifications are not
   suppressed by a per-domain quota. Clients poll; streaming and push subscriptions are not implemented.
 - Notification pages default to 40 results, with a maximum of 80; unread counts default to a cap of 100, with a maximum
-  of 1000. V2 groups follow events within a span of up to twelve hours and favourites by status, while mentions remain individual
-  groups.
+  of 1000. V2 groups follow events within a span of up to twelve hours, and favourites and reblogs by status, while mentions
+  remain individual groups.
   `types[]`, `exclude_types[]`, and `account_id` filter both lists and counts; exclusions win over inclusions.
 - Suspended, deleted, or domain-blocked senders are omitted, as are notifications about deleted statuses.
   Reads do not mark notifications as read, and dismissing a conversation does not dismiss its notifications.

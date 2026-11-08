@@ -25,7 +25,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 class NegotiatedUrlConfig implements WebMvcConfigurer {
 
     private static final String STATUS_URL = "/users/*/statuses/*";
-    private static final String[] NEGOTIATED_URLS = {"/users/*", STATUS_URL, "/users/*/statuses/*/likes"};
+    private static final String[] NEGOTIATED_URLS = {"/users/*", STATUS_URL, "/users/*/statuses/*/likes",
+            "/users/*/statuses/*/shares"};
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {

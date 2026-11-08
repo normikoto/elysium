@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
+import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
 import dev.biribiri.elysium.graph.FollowService;
@@ -55,7 +56,8 @@ class StatusServiceTests {
                 mock(PlatformTransactionManager.class),
                 mock(ApplicationEventPublisher.class),
                 mock(FollowService.class),
-                resolver);
+                resolver,
+                mock(BoostRepository.class));
     }
 
     private static Actor actor(String username, String domain) {

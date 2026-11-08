@@ -5,6 +5,7 @@ import dev.biribiri.elysium.activitypub.vocab.Accept;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +19,8 @@ import java.util.Optional;
 
 /**
  * Handles every {@code Undo}, because only one handler can have a type, and tells what's undone from the {@code object}'s
- * type, or the stored activity's when it's sent as just an ID. Undoing a {@code Follow} or {@code Like} does something.
+ * type, or the stored activity's when it's sent as just an ID. Undoing a {@code Follow}, {@code Like} or {@code Announce}
+ * does something.
  */
 @Component
 class UndoHandler implements InboundActivityHandler {
@@ -28,6 +30,7 @@ class UndoHandler implements InboundActivityHandler {
     private final ActorService actors;
     private final FollowService follows;
     private final LikeService likes;
+    private final BoostService boosts;
     private final StoredActivities stored;
     private final ActivityDeliveries deliveries;
     private final TransactionTemplate transaction;
@@ -37,6 +40,7 @@ class UndoHandler implements InboundActivityHandler {
             ActorService actors,
             FollowService follows,
             LikeService likes,
+            BoostService boosts,
             StoredActivities stored,
             ActivityDeliveries deliveries,
             TransactionTemplate transaction,
@@ -44,6 +48,7 @@ class UndoHandler implements InboundActivityHandler {
         this.actors = actors;
         this.follows = follows;
         this.likes = likes;
+        this.boosts = boosts;
         this.stored = stored;
         this.deliveries = deliveries;
         this.transaction = transaction;
@@ -63,7 +68,8 @@ class UndoHandler implements InboundActivityHandler {
             return;
         }
         var object = parsed.get();
-        if (object.type() != null && !object.type().equals("Follow") && !object.type().equals("Like")) return;
+        if (object.type() != null && !object.type().equals("Follow") && !object.type().equals("Like")
+                && !object.type().equals("Announce")) return;
         var original = Optional.ofNullable(object.id()).flatMap(stored::find);
         if (original.isPresent() && (!original.get().actorUri().equals(activity.actorUri())
                 || (object.type() != null && !object.type().equals(original.get().type())))) return;
@@ -71,6 +77,10 @@ class UndoHandler implements InboundActivityHandler {
         if ("Like".equals(type) || type == null) {
             undoLike(activity, object, original);
             if ("Like".equals(type)) return;
+        }
+        if ("Announce".equals(type) || type == null) {
+            undoAnnounce(activity, object);
+            if ("Announce".equals(type)) return;
         }
         if (type != null && !type.equals("Follow")) return;
         if (object.id() != null) {
@@ -91,6 +101,17 @@ class UndoHandler implements InboundActivityHandler {
         likes.undo(activity.actorUri(), object.id(), target,
                 original.filter(found -> found.type().equals("Like")).map(InboundActivity::firstReceivedAt),
                 activity.receivedAt());
+    }
+
+    /**
+     * A boost is stored under its {@code Announce}'s ID, so that's all an {@code Undo} needs, and one without an ID can't
+     * name a boost. The {@code Undo} is remembered even if nothing was boosted, since its {@code Announce} can arrive later.
+     */
+    private void undoAnnounce(InboundActivity activity, ActivityObject object) {
+        if (object.id() == null || !InboundActivity.isStorableId(object.id())
+                || !canSpeakFor(activity.actorUri(), object.id())) return;
+        ActivityObject.parseUri(object.id()).ifPresent(announce ->
+                boosts.undo(URI.create(activity.actorUri()), announce));
     }
 
     /**

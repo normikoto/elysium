@@ -13,6 +13,10 @@ import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.activitypub.vocab.Announce;
+import dev.biribiri.elysium.content.BoostService;
+import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.StatusLike;
@@ -42,8 +46,11 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -67,6 +74,7 @@ public class ActivityPubController {
     private final ActorService actors;
     private final StatusService statuses;
     private final LikeService likes;
+    private final BoostService boosts;
     private final FollowService follows;
     private final Notes notes;
     private final InstanceProperties instance;
@@ -77,6 +85,7 @@ public class ActivityPubController {
             ActorService actors,
             StatusService statuses,
             LikeService likes,
+            BoostService boosts,
             FollowService follows,
             Notes notes,
             InstanceProperties instance,
@@ -88,6 +97,7 @@ public class ActivityPubController {
         this.actors = actors;
         this.statuses = statuses;
         this.likes = likes;
+        this.boosts = boosts;
         this.follows = follows;
         this.notes = notes;
     }
@@ -257,29 +267,80 @@ public class ActivityPubController {
     ResponseEntity<?> likes(@PathVariable String username, @PathVariable String id,
                             @RequestParam(required = false) String page,
                             @RequestParam(name = "max_id", required = false) String maxId) {
+        return collectionOf(username, id, (status, author) -> {
+            var uri = URI.create(status.uri() + "/likes");
+            var total = likes.count(status.id());
+            if (page == null) return ResponseEntity.ok(OrderedCollection.paged(uri, total, pageUri(uri, null)));
+            var cursor = maxId == null ? Optional.<UUID>empty() : Ids.parse(maxId);
+            if (maxId != null && cursor.isEmpty()) return ResponseEntity.badRequest().build();
+            // One extra item makes next accurate for a full final page.
+            var selection = likes.page(status.id(), cursor.orElse(null), COLLECTION_PAGE_SIZE + 1);
+            var entries = selection.stream().limit(COLLECTION_PAGE_SIZE).toList();
+            var next = selection.size() > COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().id()) : null;
+            var people = activeActors(entries.stream().map(StatusLike::actorId).toList());
+            var items = entries.stream().filter(entry -> people.containsKey(entry.actorId()))
+                    .map(entry -> Like.of(entry.activityUri(), people.get(entry.actorId()).uri(), status.uri(), author.uri()).withoutContext())
+                    .toList();
+            return ResponseEntity.ok(OrderedCollectionPage.of(pageUri(uri, cursor.orElse(null)), total, uri, next, items));
+        });
+    }
+
+    @GetMapping(path = "/users/{username}/statuses/{id}/shares", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(operationId = "getStatusShares", summary = "Fetch a status's boosts",
+            description = """
+                    An OrderedCollection with totalItems and a first page at ?page=true. Pages contain up to 40
+                    Announce activities, newest first, with max_id cursors. Only existing public and unlisted posts
+                    are available; private, direct, and deleted posts get a 404. Only public and unlisted boosts are
+                    listed or counted, each addressed only to the public. Suspended and deleted boosters and actors on
+                    blocked domains are excluded. HTML requests redirect to the post's page.
+                    """ + FederationDocs.NEGOTIATED,
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The collection or its page."),
+                    @ApiResponse(responseCode = "400", description = "The cursor is invalid."),
+                    @ApiResponse(responseCode = "403", description = "The author is suspended."),
+                    @ApiResponse(responseCode = "404", description = "No publicly fetchable post by this author."),
+                    @ApiResponse(responseCode = "406", description = "The Accept header allows neither type.")
+            })
+    ResponseEntity<?> shares(@PathVariable String username, @PathVariable String id,
+                             @RequestParam(required = false) String page,
+                             @RequestParam(name = "max_id", required = false) String maxId) {
+        return collectionOf(username, id, (status, author) -> {
+            var uri = URI.create(status.uri() + "/shares");
+            var total = boosts.countPublic(status.id());
+            if (page == null) return ResponseEntity.ok(OrderedCollection.paged(uri, total, pageUri(uri, null)));
+            var cursor = maxId == null ? Optional.<UUID>empty() : Ids.parse(maxId);
+            if (maxId != null && cursor.isEmpty()) return ResponseEntity.badRequest().build();
+            var selection = boosts.pagePublic(status.id(), cursor.orElse(null), COLLECTION_PAGE_SIZE + 1);
+            var entries = selection.stream().limit(COLLECTION_PAGE_SIZE).toList();
+            var next = selection.size() > COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().id()) : null;
+            var people = activeActors(entries.stream().map(StatusBoost::actorId).toList());
+            var items = entries.stream().filter(entry -> people.containsKey(entry.actorId()))
+                    .map(entry -> Announce.inCollection(entry.uri().toString(), people.get(entry.actorId()).uri(),
+                            status.uri(), entry.visibility(), entry.publishedAt()))
+                    .toList();
+            return ResponseEntity.ok(OrderedCollectionPage.of(pageUri(uri, cursor.orElse(null)), total, uri, next, items));
+        });
+    }
+
+    /**
+     * Answers for a collection of a local status that anyone can see. Others get a 404, like the status itself.
+     */
+    private ResponseEntity<?> collectionOf(
+            String username, String id, BiFunction<Status, Actor, ResponseEntity<?>> collection) {
         var author = actors.findAnyLocalByUsername(username);
         var statusId = Ids.parse(id);
         if (author.isEmpty() || statusId.isEmpty() || author.get().isDeleted()) return ResponseEntity.notFound().build();
         if (author.get().isSuspended()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        var found = statuses.findVisible(statusId.get(), ANONYMOUS)
-                .filter(status -> status.actorId().equals(author.get().id()));
-        if (found.isEmpty()) return ResponseEntity.notFound().build();
-        var uri = URI.create(found.get().uri() + "/likes");
-        var total = likes.count(statusId.get());
-        if (page == null) return ResponseEntity.ok(OrderedCollection.paged(uri, total, pageUri(uri, null)));
-        var cursor = maxId == null ? Optional.<UUID>empty() : Ids.parse(maxId);
-        if (maxId != null && cursor.isEmpty()) return ResponseEntity.badRequest().build();
-        // One extra item makes next accurate for a full final page.
-        var selection = likes.page(statusId.get(), cursor.orElse(null), COLLECTION_PAGE_SIZE + 1);
-        var entries = selection.stream().limit(COLLECTION_PAGE_SIZE).toList();
-        var next = selection.size() > COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().id()) : null;
-        var people = actors.findByIds(entries.stream().map(StatusLike::actorId).toList()).stream()
+        return statuses.findVisible(statusId.get(), ANONYMOUS)
+                .filter(status -> !status.isReblog() && status.actorId().equals(author.get().id()))
+                .map(status -> collection.apply(status, author.get()))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    private Map<UUID, Actor> activeActors(List<UUID> ids) {
+        return actors.findByIds(ids).stream()
                 .filter(Actor::isActive)
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
-        var items = entries.stream().filter(entry -> people.containsKey(entry.actorId()))
-                .map(entry -> Like.of(entry.activityUri(), people.get(entry.actorId()).uri(), found.get().uri(), author.get().uri()).withoutContext())
-                .toList();
-        return ResponseEntity.ok(OrderedCollectionPage.of(pageUri(uri, cursor.orElse(null)), total, uri, next, items));
     }
 
     /**
@@ -357,8 +418,8 @@ public class ActivityPubController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         var status = statuses.findFetchable(statusId.get(), signer)
-                // Otherwise any account's URL could serve this status.
-                .filter(found -> found.actorId().equals(author.get().id()));
+                // Otherwise any account's URL could serve this status. A boost has no object of its own to serve.
+                .filter(found -> !found.isReblog() && found.actorId().equals(author.get().id()));
         if (status.isPresent()) {
             var ok = ResponseEntity.ok();
             if (!status.get().isVisibleTo(ANONYMOUS)) {

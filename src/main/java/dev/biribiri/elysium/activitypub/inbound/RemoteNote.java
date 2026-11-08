@@ -157,7 +157,7 @@ record RemoteNote(
                 .orElse(null);
     }
 
-    private static Instant timestamp(JsonNode node) {
+    static Instant timestamp(JsonNode node) {
         var text = ActivityJson.text(node);
         if (text == null) {
             return null;
