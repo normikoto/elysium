@@ -3,7 +3,6 @@ package dev.biribiri.elysium.actor.internal;
 import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,7 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URI;
 import java.sql.Types;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.HashMap;
@@ -46,28 +44,6 @@ public class ActorRepository {
      */
     private static final String SELECT_ANY_LOCAL = "SELECT " + COLUMNS + "FROM actor WHERE is_local AND ";
 
-    private static final RowMapper<Actor> ACTOR_MAPPER = (rs, rowNum) -> {
-        var outbox = rs.getString("outbox_uri");
-        var sharedInbox = rs.getString("shared_inbox_uri");
-        return new Actor(
-                rs.getObject("id", UUID.class),
-                URI.create(rs.getString("uri")),
-                rs.getString("username"),
-                rs.getString("domain"),
-                URI.create(rs.getString("inbox_uri")),
-                outbox == null ? null : URI.create(outbox),
-                sharedInbox == null ? null : URI.create(sharedInbox),
-                rs.getString("public_key_pem"),
-                rs.getObject("created_at", OffsetDateTime.class).toInstant(),
-                rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
-                instant(rs.getObject("suspended_at", OffsetDateTime.class)),
-                instant(rs.getObject("deleted_at", OffsetDateTime.class)));
-    };
-
-    private static Instant instant(OffsetDateTime time) {
-        return time == null ? null : time.toInstant();
-    }
-
     private final JdbcClient jdbc;
 
     ActorRepository(JdbcClient jdbc) {
@@ -78,14 +54,14 @@ public class ActorRepository {
         return jdbc.sql(SELECT_ACTIVE_LOCAL + "lower(username) = lower(:username) AND domain = :domain AND is_local")
                 .param("username", username)
                 .param("domain", domain)
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .optional();
     }
 
     public Optional<Actor> findLocalByUri(URI uri) {
         return jdbc.sql(SELECT_ACTIVE_LOCAL + "uri = :uri")
                 .param("uri", uri.toString())
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .optional();
     }
 
@@ -93,23 +69,23 @@ public class ActorRepository {
         return jdbc.sql(SELECT_ANY_LOCAL + "lower(username) = lower(:username) AND domain = :domain")
                 .param("username", username)
                 .param("domain", domain)
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .optional();
     }
 
     public Optional<Actor> findAnyLocalByUri(URI uri) {
-        return jdbc.sql(SELECT_ANY_LOCAL + "uri = :uri").param("uri", uri.toString()).query(ACTOR_MAPPER).optional();
+        return jdbc.sql(SELECT_ANY_LOCAL + "uri = :uri").param("uri", uri.toString()).query(Actor.class).optional();
     }
 
     public Optional<Actor> findAnyLocalById(UUID id) {
-        return jdbc.sql(SELECT_ANY_LOCAL + "id = :id").param("id", id).query(ACTOR_MAPPER).optional();
+        return jdbc.sql(SELECT_ANY_LOCAL + "id = :id").param("id", id).query(Actor.class).optional();
     }
 
     /**
      * Finds a local or remote actor in any state.
      */
     public Optional<Actor> findById(UUID id) {
-        return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE id = :id").param("id", id).query(ACTOR_MAPPER).optional();
+        return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE id = :id").param("id", id).query(Actor.class).optional();
     }
 
     public boolean isInactive(URI uri) {
@@ -157,7 +133,7 @@ public class ActorRepository {
                         RETURNING suspended_at
                         """)
                 .param("id", id)
-                .query((rs, rowNum) -> rs.getObject("suspended_at", OffsetDateTime.class).toInstant())
+                .query(Instant.class)
                 .optional();
     }
 
@@ -171,7 +147,7 @@ public class ActorRepository {
                         RETURNING now() AS at
                         """)
                 .param("id", id)
-                .query((rs, rowNum) -> rs.getObject("at", OffsetDateTime.class).toInstant())
+                .query(Instant.class)
                 .optional();
     }
 
@@ -248,7 +224,7 @@ public class ActorRepository {
         }
         sql.append(ascending ? " ORDER BY id ASC" : " ORDER BY id DESC").append(" LIMIT :limit");
         parameters.put("limit", filter.limit());
-        var found = jdbc.sql(sql.toString()).params(parameters).query(ACTOR_MAPPER).list();
+        var found = jdbc.sql(sql.toString()).params(parameters).query(Actor.class).list();
         return ascending ? found.reversed() : found;
     }
 
@@ -259,7 +235,7 @@ public class ActorRepository {
     public Optional<Actor> findByUri(URI uri) {
         return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE uri = :uri")
                 .param("uri", uri.toString())
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .optional();
     }
 
@@ -272,7 +248,7 @@ public class ActorRepository {
         }
         return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE uri = ANY(:uris)")
                 .param("uris", uris.toArray(String[]::new))
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .list();
     }
 
@@ -308,7 +284,7 @@ public class ActorRepository {
                 .param("sharedInboxUri", text(profile.sharedInboxUri()), Types.VARCHAR)
                 .param("publicKeyPem", profile.publicKeyPem(), Types.VARCHAR)
                 .param("followersUri", text(profile.followersUri()), Types.VARCHAR)
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .optional()
                 .or(() -> findByUri(profile.uri()))
                 .orElseThrow();
@@ -320,7 +296,7 @@ public class ActorRepository {
     public Optional<URI> findFollowersUri(URI actor) {
         return jdbc.sql("SELECT followers_uri FROM actor WHERE uri = :uri AND NOT is_local AND followers_uri IS NOT NULL")
                 .param("uri", actor.toString())
-                .query((rs, row) -> URI.create(rs.getString(1)))
+                .query(URI.class)
                 .optional();
     }
 
@@ -331,7 +307,7 @@ public class ActorRepository {
     public Optional<Actor> findLocalById(UUID id) {
         return jdbc.sql(SELECT_ACTIVE_LOCAL + "id = :id")
                 .param("id", id)
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .optional();
     }
 
@@ -339,7 +315,7 @@ public class ActorRepository {
         if (ids.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql(SELECT_ACTIVE_LOCAL + "id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
+        return jdbc.sql(SELECT_ACTIVE_LOCAL + "id IN (:ids)").param("ids", ids).query(Actor.class).list();
     }
 
     /**
@@ -352,7 +328,7 @@ public class ActorRepository {
         }
         return jdbc.sql(SELECT_ACTIVE_LOCAL + "uri = ANY(:uris)")
                 .param("uris", uris.toArray(String[]::new))
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .list();
     }
 
@@ -371,7 +347,7 @@ public class ActorRepository {
                         """)
                 .param("username", username)
                 .param("domain", domain)
-                .query(ACTOR_MAPPER)
+                .query(Actor.class)
                 .optional();
     }
 
@@ -382,7 +358,7 @@ public class ActorRepository {
         if (ids.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql("SELECT " + COLUMNS + " FROM actor WHERE id IN (:ids)").param("ids", ids).query(ACTOR_MAPPER).list();
+        return jdbc.sql("SELECT " + COLUMNS + " FROM actor WHERE id IN (:ids)").param("ids", ids).query(Actor.class).list();
     }
 
     /**

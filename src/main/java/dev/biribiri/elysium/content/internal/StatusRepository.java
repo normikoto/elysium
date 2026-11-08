@@ -7,6 +7,7 @@ import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.Visibility;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.SimplePropertyRowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -64,25 +65,7 @@ public class StatusRepository {
      */
     private static final long ID_ASSIGNMENT_LOCK = 0x656C79_7374617475L;
 
-    private static final RowMapper<Status> STATUS_MAPPER = (rs, rowNum) -> new Status(
-            rs.getObject("id", UUID.class),
-            URI.create(rs.getString("uri")),
-            rs.getObject("actor_id", UUID.class),
-            rs.getString("text"),
-            rs.getString("content"),
-            rs.getString("spoiler_text"),
-            rs.getString("language"),
-            Visibility.fromValue(rs.getString("visibility")),
-            rs.getBoolean("sensitive"),
-            rs.getBoolean("reply"),
-            rs.getObject("in_reply_to_id", UUID.class),
-            rs.getObject("in_reply_to_account_id", UUID.class),
-            uriOrNull(rs.getString("in_reply_to_uri")),
-            uriOrNull(rs.getString("url")),
-            rs.getObject("published_at", OffsetDateTime.class).toInstant(),
-            Optional.ofNullable(rs.getObject("edited_at", OffsetDateTime.class)).map(OffsetDateTime::toInstant).orElse(null),
-            rs.getObject("reblog_of_id", UUID.class),
-            rs.getLong("replies_count"));
+    private static final RowMapper<Status> STATUS_MAPPER = new SimplePropertyRowMapper<>(Status.class, ContentRows.CONVERSIONS);
 
     private final JdbcClient jdbc;
 
@@ -254,7 +237,7 @@ public class StatusRepository {
                         WHERE s.uri = :uri AND s.reblog_of_id IS NULL AND a.suspended_at IS NULL AND a.deleted_at IS NULL
                         """)
                 .param("uri", uri.toString())
-                .query((rs, rowNum) -> URI.create(rs.getString("uri")))
+                .query(URI.class)
                 .optional();
     }
 
@@ -265,7 +248,7 @@ public class StatusRepository {
     public Optional<Parent> findParentByUriAndLock(URI uri) {
         return jdbc.sql("SELECT id, actor_id FROM status WHERE uri = :uri AND reblog_of_id IS NULL FOR KEY SHARE")
                 .param("uri", uri.toString())
-                .query((rs, rowNum) -> new Parent(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class)))
+                .query(Parent.class)
                 .optional();
     }
 
@@ -276,7 +259,7 @@ public class StatusRepository {
     public Optional<Parent> findForDelete(UUID id) {
         return jdbc.sql("SELECT id, actor_id FROM status WHERE id = :id AND reblog_of_id IS NULL FOR UPDATE")
                 .param("id", id)
-                .query((rs, rowNum) -> new Parent(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class)))
+                .query(Parent.class)
                 .optional();
     }
 
@@ -286,7 +269,7 @@ public class StatusRepository {
     public Optional<Parent> findForDeleteByUri(URI uri) {
         return jdbc.sql("SELECT id, actor_id FROM status WHERE uri = :uri AND reblog_of_id IS NULL FOR UPDATE")
                 .param("uri", uri.toString())
-                .query((rs, rowNum) -> new Parent(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class)))
+                .query(Parent.class)
                 .optional();
     }
 
@@ -460,9 +443,7 @@ public class StatusRepository {
         return jdbc.sql("SELECT uri, deleted_at FROM status_tombstone WHERE status_id = :id AND actor_id = :actorId")
                 .param("id", id)
                 .param("actorId", actorId)
-                .query((rs, rowNum) -> new DeletedStatus(
-                        URI.create(rs.getString("uri")),
-                        rs.getObject("deleted_at", OffsetDateTime.class).toInstant()))
+                .query(DeletedStatus.class)
                 .optional();
     }
 
@@ -624,10 +605,6 @@ public class StatusRepository {
                         """)
                 .query(Long.class)
                 .single();
-    }
-
-    private static URI uriOrNull(String value) {
-        return value == null ? null : URI.create(value);
     }
 
     private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page) {

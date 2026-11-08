@@ -3,7 +3,6 @@ package dev.biribiri.elysium.content.internal;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.LikeStats;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -21,10 +20,6 @@ import java.util.stream.Collectors;
 
 @Repository
 public class LikeRepository {
-    private static final RowMapper<StatusLike> MAPPER = (rs, row) -> new StatusLike(
-            rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class), rs.getObject("status_id", UUID.class),
-            rs.getString("activity_uri"), rs.getObject("activity_at", OffsetDateTime.class).toInstant());
-
     /** Hides suspended and deleted actors, and those on blocked domains, so that they come back if that ends. */
     static String eligible(String actor) {
         var host = "regexp_replace(" + actor + ".domain, ':[0-9]+$', '')";
@@ -75,19 +70,19 @@ public class LikeRepository {
     }
 
     public Optional<StatusLike> find(UUID id) {
-        return jdbc.sql("SELECT * FROM status_like WHERE id = :id").param("id", id).query(MAPPER).optional();
+        return jdbc.sql("SELECT * FROM status_like WHERE id = :id").param("id", id).query(StatusLike.class).optional();
     }
 
     public Optional<StatusLike> findPair(UUID actorId, UUID statusId) {
         return jdbc.sql("SELECT * FROM status_like WHERE actor_id = :actor AND status_id = :status")
-                .param("actor", actorId).param("status", statusId).query(MAPPER).optional();
+                .param("actor", actorId).param("status", statusId).query(StatusLike.class).optional();
     }
 
     public Optional<StatusLike> findActivity(String actorUri, String activityUri) {
         return jdbc.sql("""
                         SELECT l.* FROM status_like l JOIN actor a ON a.id = l.actor_id
                         WHERE a.uri = :actor AND md5(l.activity_uri) = md5(:activity) AND l.activity_uri = :activity
-                        """).param("actor", actorUri).param("activity", activityUri).query(MAPPER).optional();
+                        """).param("actor", actorUri).param("activity", activityUri).query(StatusLike.class).optional();
     }
 
     public StatusLike insert(UUID actorId, UUID statusId, String activityUri, Instant activityAt) {
@@ -163,7 +158,7 @@ public class LikeRepository {
     public List<StatusLike> page(UUID statusId, UUID maxId, int limit) {
         return jdbc.sql("SELECT l.* FROM status_like l JOIN actor a ON a.id = l.actor_id WHERE l.status_id = :status AND "
                         + eligible("a") + (maxId == null ? "" : " AND l.id < :max") + " ORDER BY l.id DESC LIMIT :limit")
-                .param("status", statusId).param("max", maxId, Types.OTHER).param("limit", limit).query(MAPPER).list();
+                .param("status", statusId).param("max", maxId, Types.OTHER).param("limit", limit).query(StatusLike.class).list();
     }
 
     public void removeForActor(UUID actor) {

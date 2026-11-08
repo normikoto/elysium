@@ -61,12 +61,7 @@ public class ProfileRepository {
                         WHERE actor_id IN (:ids) ORDER BY actor_id, position
                         """)
                 .param("ids", actorIds)
-                .query((rs, rowNum) -> new FieldRow(
-                        rs.getObject("actor_id", UUID.class),
-                        rs.getInt("position"),
-                        rs.getString("name"),
-                        rs.getString("value"),
-                        instant(rs.getObject("verified_at", OffsetDateTime.class))))
+                .query(FieldRow.class)
                 .list();
     }
 
