@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -89,9 +90,25 @@ class BoostedNotesIntegrationTests {
         handler.handle(announce);
         assertThat(jobs()).isOne();
 
+        // Naming someone here doesn't make it for them, since only the booster's followers would see it.
         var named = remote();
         handler.handle(accepted(announce(named, noteUri(author), "named", alice.uri().toString())));
-        assertThat(jobs()).isEqualTo(2);
+        assertThat(jobs()).isOne();
+    }
+
+    @Test
+    void neverFetchesForABoosterSuspendedWhileItWaited() throws Exception {
+        follow(alice, booster);
+        var note = noteUri(author);
+        serve(note, note(note, author.uri(), List.of(PUBLIC)));
+        var announce = accepted(announce(booster, note, "suspended"));
+        handler.handle(announce);
+        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", booster.id()).update();
+
+        boosts.run(job(announce));
+
+        verify(documents, never()).fetch(any());
+        assertThat(statusId(note)).isEmpty();
     }
 
     @Test
@@ -112,6 +129,20 @@ class BoostedNotesIntegrationTests {
         var home = statuses.findHome(alice.id(), follows.followedIds(alice.id()), new StatusPage(20, null, null, null));
         assertThat(home).anyMatch(status -> statusId.equals(status.reblogOfId()));
         verify(documents).fetch(note);
+    }
+
+    @Test
+    void storesTheBoostWhenTheStatusSpellsItsHostDifferently() throws Exception {
+        follow(alice, booster);
+        var note = noteUri(author);
+        var shouted = URI.create(note.toString().replace(author.domain(), author.domain().toUpperCase(Locale.ROOT)));
+        serve(shouted, note(note, author.uri(), List.of(PUBLIC)));
+        var announce = accepted(announce(booster, shouted, "shouted"));
+        handler.handle(announce);
+
+        boosts.run(job(announce));
+
+        assertThat(boostOf(statusId(note).orElseThrow())).isOne();
     }
 
     @Test

@@ -126,6 +126,8 @@ class Boosts {
             return Jobs.done();
         }
         try {
+            // Throws if the booster has been suspended or deleted while this waited, before the fetch it isn't worth.
+            actors.fetchOrRefresh(actorUri);
             // It can have arrived another way while this waited.
             var target = boosts.storedTarget(noteUri.get());
             if (target.isPresent()) {
@@ -154,7 +156,8 @@ class Boosts {
                 return Jobs.done();
             }
             storage.storeBoosted(note.get(), author.get());
-            boosts.storedTarget(noteUri.get()).ifPresent(status -> store(activity.get(), document, status.id()));
+            // The note's own ID, which is stored, can be spelled differently from the Announce's, in case or in its host.
+            boosts.storedTarget(note.get().id()).ifPresent(status -> store(activity.get(), document, status.id()));
         } catch (PermanentJobFailure e) {
             // Such as an author or booster that's been suspended here, which isn't worth parking the job for.
             log.debug("Ignoring a boost of {}: {}", noteUri.get(), e.getMessage());

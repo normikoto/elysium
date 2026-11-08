@@ -430,7 +430,7 @@ with the author's `followers` collection addressed, or one it addresses. A publi
 `inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does. That covers a
 reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
 followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
-that isn't for anyone here is ignored, even if it's public. Other object types, such as `Article`, `Page`, and `Question`, are ignored.
+that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts). Other object types, such as `Article`, `Page`, and `Question`, are ignored.
 
 - **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
   same host and port. Anything else is dropped.
@@ -571,8 +571,8 @@ the `Announce` to them has ended. So does deleting the boosted status, here or o
 goes to the followers of local users who boosted it.
 
 An `Announce` is only read for its `object`'s ID, and an embedded copy is never used. A boost of a local public or unlisted
-status is always kept. A boost of another server's status is only kept if a local user follows the booster, or the
-`Announce` addresses a local user. If that status isn't stored here, it's fetched from its `id`, signed as the
+status is always kept. A boost of another server's status is only kept if it's addressed to the booster's `followers`
+collection and a local user follows the booster. Naming a local user isn't enough, as on Mastodon. If that status isn't stored here, it's fetched from its `id`, signed as the
 [instance actor](#instance-actor), once its host has a [turn](#forwarded-activities). It has to come back as a `Note` with
 exactly that `id`, attributed to one actor on the same host and port, and addressed to the public in `to` or `cc`. Anything
 else drops the boost, and a server error or timeout is tried again later. The `Note` is then stored as that actor's status.
@@ -678,8 +678,8 @@ GoToSocial answer the same way.
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Inboxes require signatures, and fetches of `Note`s
-check one if it's sent. The only requests this server makes are fetches of keys and actor documents, unsigned WebFinger
-lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`, and `Announce`.
+check one if it's sent. The only requests this server makes are fetches of keys, actors, and other servers' activities and
+`Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`, and `Announce`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

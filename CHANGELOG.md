@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Boosts, through `POST /api/v1/statuses/:id/reblog` and `/unreblog`, which are federated as `Announce` and `Undo`. Boosts
   show in the home timeline, on account pages, and on profile pages. Boosts of local posts from other servers count toward
   `reblogs_count` and notify the post's author with a `reblog` notification. Boosts by accounts that local users follow
-  show in their home timeline, and the boosted post is fetched from its server if it isn't stored yet. `exclude_reblogs` on an account's statuses now leaves boosts out.
+  show in their home timeline, and the boosted post is fetched from its server if it isn't stored yet. `exclude_reblogs`
+  on an account's statuses now leaves boosts out.
 - Direct-message conversations with per-user read and hide controls. Existing direct messages appear as read
   conversations after upgrading.
 - Other servers can fetch a followers-only or direct post again when they sign the request as an account that was sent

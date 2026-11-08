@@ -9,8 +9,10 @@ import java.net.URI;
 
 /**
  * Stores boosts, through {@link Boosts}. A boost of a local status is always for someone here, its author. One of another
- * server's status is only for someone here if they follow the booster or are named in the {@code Announce}, so that no
- * server can fill the database, or make this server fetch statuses, by delivering to the shared inbox.
+ * server's status is only for someone here if they follow the booster and it went to the booster's followers, so that no
+ * server can fill the database, or make this server fetch statuses, by delivering to the shared inbox. Being named in it
+ * doesn't count, as on Mastodon: a boost only shows in the home timelines of the booster's followers, so naming someone
+ * would let any server make this one fetch from any other, and store what it fetched, for no one to see.
  */
 @Component
 class AnnounceHandler implements InboundActivityHandler {
@@ -47,7 +49,7 @@ class AnnounceHandler implements InboundActivityHandler {
         }
         // Anything of this server's that's worth boosting is stored, so there's nothing to fetch from here.
         if (boosted.get().getHost().equalsIgnoreCase(instance.baseUrl().getHost())) return;
-        if (recipients.of(activity, document, Addressing.NONE).isEmpty()) return;
+        if (recipients.followersOf(activity, document).isEmpty()) return;
         var stored = boostService.storedTarget(boosted.get());
         if (stored.isPresent()) {
             boosts.store(activity, document, stored.get().id());

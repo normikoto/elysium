@@ -75,11 +75,24 @@ class LocalRecipients {
 
         var recipients = new HashSet<UUID>();
         actors.findLocalByUris(local).stream().map(Actor::id).forEach(recipients::add);
+        recipients.addAll(followersOf(activity, addressed));
+        return recipients;
+    }
+
+    /**
+     * @return the IDs of the local actors that follow the activity's actor, if it's addressed to that actor's followers,
+     * leaving out those it only names
+     */
+    Set<UUID> followersOf(InboundActivity activity, JsonNode document) {
+        return followersOf(activity, Addressing.ofActivity(document).all());
+    }
+
+    private Set<UUID> followersOf(InboundActivity activity, Set<String> addressed) {
         var sender = URI.create(activity.actorUri());
         if (actors.findFollowersUri(sender).filter(followers -> addressed.contains(followers.toString())).isPresent()) {
-            recipients.addAll(follows.localFollowerIds(sender));
+            return Set.copyOf(follows.localFollowerIds(sender));
         }
-        return recipients;
+        return Set.of();
     }
 
     /**
