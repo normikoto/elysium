@@ -540,9 +540,9 @@ stops a `Like` it names from counting if that's processed later, for about 34 da
 
 A `Note`'s `likes` collection is an `OrderedCollection` with a `totalItems` and a `first` page, paged like
 [followers and following](#actors), with up to 40 `Like` activities a page, newest first. Each has the `id` it was received
-with. It's served the same way as the `Note`, except that a request that accepts HTML is redirected to the status's page.
-Only public and unlisted statuses have one, and others get a 404, or a 403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if
-the suspension ends.
+with. It's served with the same media types as the `Note`, and any origin can read it through CORS, but a request that
+accepts HTML is redirected to the status's page, and any signature is ignored. Only public and unlisted statuses have one, and others get a 404, or a
+403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if the suspension ends.
 
 ### Differences from Mastodon
 

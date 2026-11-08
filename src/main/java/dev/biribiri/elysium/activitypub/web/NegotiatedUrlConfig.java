@@ -32,8 +32,9 @@ class NegotiatedUrlConfig implements WebMvcConfigurer {
         for (var url : NEGOTIATED_URLS) {
             var mapping = registry.addMapping(url).allowedMethods("GET", "HEAD");
             if (url.equals(STATUS_URL)) {
-                // None beyond those a browser sends without asking, which never include a signature.
-                mapping.allowedHeaders();
+                // Not a signature. Accept has to be allowed, because a browser asks first for one with quotes or colons,
+                // such as the ld+json profile that ActivityPub recommends.
+                mapping.allowedHeaders(HttpHeaders.ACCEPT);
             }
         }
     }

@@ -557,6 +557,13 @@ class WebPagesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "*"))
                 .andExpect(header().doesNotExist("Access-Control-Allow-Credentials"));
+        // A browser asks before sending this Accept header, because of its quotes and colons.
+        mockMvc.perform(options(path(wanda, status))
+                        .header("Origin", "https://client.example")
+                        .header("Access-Control-Request-Method", "GET")
+                        .header("Access-Control-Request-Headers", "accept"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
         for (var accept : new String[]{"application/activity+json", "*/*"}) {
             mockMvc.perform(get(path(wanda, status)).header("Accept", accept).header("Origin", "https://client.example"))
                     .andExpect(status().isOk())
