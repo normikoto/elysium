@@ -113,6 +113,8 @@ tasks.test {
     useJUnitPlatform {
         excludeTags("load")
     }
+    // Gradle's 512 MB default runs out with many cached contexts and concurrent Argon2 hashing in FirstAccountIntegrationTests.
+    maxHeapSize = "2g"
 }
 
 tasks.register<Test>("loadTest") {
