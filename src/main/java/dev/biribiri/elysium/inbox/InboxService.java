@@ -4,8 +4,11 @@ import dev.biribiri.elysium.inbox.internal.ConversationRepository;
 import dev.biribiri.elysium.inbox.internal.MarkerRepository;
 import dev.biribiri.elysium.inbox.internal.NotificationRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Map;
@@ -15,14 +18,18 @@ import java.util.UUID;
 @Service
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class InboxService {
+    private static final int REMOVAL_BATCH_SIZE = 100;
     private final NotificationRepository notifications;
     private final ConversationRepository conversations;
     private final MarkerRepository markers;
+    private final TransactionTemplate transaction;
 
-    InboxService(NotificationRepository notifications, ConversationRepository conversations, MarkerRepository markers) {
+    InboxService(NotificationRepository notifications, ConversationRepository conversations, MarkerRepository markers,
+                 PlatformTransactionManager transactionManager) {
         this.notifications = notifications;
         this.conversations = conversations;
         this.markers = markers;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
     public List<Notification> notifications(UUID viewer, NotificationFilter filter, InboxPage page) {
@@ -96,18 +103,27 @@ public class InboxService {
         return markers.save(viewer, positions);
     }
 
-    public List<String> remoteDomains() {
-        return conversations.remoteDomains();
-    }
-
     @Transactional
     public void removeForActor(UUID id) {
         notifications.lock();
-        conversations.removeForActor(id);
+        conversations.removeForActors(List.of(id));
     }
 
-    @Transactional
+    /** Each batch commits by itself, so that a large server doesn't hold the inbox lock for its whole cleanup. */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void removeForDomain(String domain) {
-        for (var id : conversations.actorsOn(domain)) removeForActor(id);
+        var after = new UUID(0, 0);
+        List<UUID> ids;
+        do {
+            ids = conversations.actorsOn(domain, after, REMOVAL_BATCH_SIZE);
+            if (!ids.isEmpty()) {
+                var batch = ids;
+                transaction.executeWithoutResult(tx -> {
+                    notifications.lock();
+                    conversations.removeForActors(batch);
+                });
+                after = ids.getLast();
+            }
+        } while (ids.size() == REMOVAL_BATCH_SIZE);
     }
 }

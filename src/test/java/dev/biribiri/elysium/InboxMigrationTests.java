@@ -76,6 +76,28 @@ class InboxMigrationTests {
                 .param("id", bob).query(Long.class).single()).isEqualTo(2);
     }
 
+    @Test
+    void leavesDeletedAndBlockedMentionsOutOfParticipantsAsRepliesDo() {
+        flyway("21").migrate();
+        var bob = actor("bob", true);
+        var gone = actor("gone", false);
+        var blocked = actor("blocked", false);
+        var remote = actor("remote", false);
+        jdbc.sql("UPDATE " + SCHEMA + ".actor SET deleted_at = now() WHERE id = :id").param("id", gone).update();
+        jdbc.sql("INSERT INTO " + SCHEMA + ".domain_block (id, domain, created_at) VALUES (:id, 'blocked.example', now())")
+                .param("id", UUID.randomUUID()).update();
+        var message = status(remote, null, null);
+        mention(message, bob, false);
+        mention(message, gone, false);
+        mention(message, blocked, false);
+
+        flyway("22").migrate();
+
+        var participants = jdbc.sql("SELECT participant_ids FROM " + SCHEMA + ".inbox_conversation WHERE owner_id = :id")
+                .param("id", bob).query((rs, n) -> List.of((UUID[]) rs.getArray(1).getArray())).single();
+        assertThat(participants).containsExactly(remote);
+    }
+
     private UUID actor(String name, boolean local) {
         var id = UUID.randomUUID();
         jdbc.sql("INSERT INTO " + SCHEMA + ".actor (id, uri, username, domain, inbox_uri, is_local) "

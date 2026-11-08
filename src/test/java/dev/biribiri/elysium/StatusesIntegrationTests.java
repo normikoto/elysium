@@ -10,6 +10,7 @@ import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.StatusDeleted;
+import dev.biribiri.elysium.content.StatusThreadsMerged;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -535,6 +536,16 @@ class StatusesIntegrationTests {
 
         create(bob(), "Hidden reply", "private", parent);
         mockMvc.perform(get("/api/v1/statuses/" + parent)).andExpect(jsonPath("$.replies_count").value(1));
+    }
+
+    @Test
+    void aReplyToAStoredStatusJoinsItsThreadWithoutMerging() throws Exception {
+        var parent = create(alice(), "Parent");
+        var reply = create(bob(), "Reply", "public", parent);
+
+        assertThat(jdbc.sql("SELECT count(DISTINCT thread_id) FROM status WHERE id IN (:ids)")
+                .param("ids", List.of(UUID.fromString(parent), UUID.fromString(reply))).query(Long.class).single()).isEqualTo(1);
+        assertThat(events.stream(StatusThreadsMerged.class)).isEmpty();
     }
 
     @Test

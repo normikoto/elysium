@@ -55,7 +55,7 @@ public class TimelinesController {
 
                     Lists all of the user's own statuses, visible statuses of accounts they follow, and direct \
                     statuses from followed accounts that address the user. A followed account's reply is only listed \
-                    when it's to its author, to the user,
+                    when it's to its author, to the user, \
                     or to an account they follow.
 
                     """ + ApiDocs.NEEDS_USER,

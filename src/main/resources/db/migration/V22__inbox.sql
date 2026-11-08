@@ -15,21 +15,21 @@ INSERT INTO status_thread_alias (uri, thread_id)
 SELECT in_reply_to_uri, (array_agg(id ORDER BY id))[1] FROM status
 WHERE in_reply_to_uri IS NOT NULL GROUP BY in_reply_to_uri ON CONFLICT DO NOTHING;
 
+-- One pass over the replies, each looked up by index, since a scan per merge would be quadratic in the number of replies.
+-- The loop's query only reads URIs: it runs on a snapshot from before the merges, so thread IDs are read inside it.
 DO $$
-DECLARE left_id UUID; right_id UUID; keep_id UUID; remove_id UUID;
+DECLARE edge RECORD; left_id UUID; right_id UUID;
 BEGIN
-    LOOP
-        SELECT a.thread_id, b.thread_id INTO left_id, right_id
-        FROM status s
+    FOR edge IN
+        SELECT s.uri, coalesce(s.in_reply_to_uri, p.uri) AS parent_uri FROM status s
         LEFT JOIN status p ON p.id = s.in_reply_to_id
-        JOIN status_thread_alias a ON a.uri = s.uri
-        JOIN status_thread_alias b ON b.uri = coalesce(s.in_reply_to_uri, p.uri)
-        WHERE a.thread_id <> b.thread_id LIMIT 1;
-        EXIT WHEN NOT FOUND;
-        keep_id := least(left_id, right_id);
-        remove_id := greatest(left_id, right_id);
-        UPDATE status_thread_alias SET thread_id = keep_id WHERE thread_id = remove_id;
-        UPDATE status SET thread_id = keep_id WHERE thread_id = remove_id;
+        WHERE coalesce(s.in_reply_to_uri, p.uri) IS NOT NULL ORDER BY s.id
+    LOOP
+        SELECT thread_id INTO left_id FROM status_thread_alias WHERE uri = edge.uri;
+        SELECT thread_id INTO right_id FROM status_thread_alias WHERE uri = edge.parent_uri;
+        CONTINUE WHEN left_id IS NULL OR right_id IS NULL OR left_id = right_id;
+        UPDATE status_thread_alias SET thread_id = least(left_id, right_id) WHERE thread_id = greatest(left_id, right_id);
+        UPDATE status SET thread_id = least(left_id, right_id) WHERE thread_id = greatest(left_id, right_id);
     END LOOP;
 END $$;
 
@@ -100,7 +100,11 @@ CREATE TEMP TABLE inbox_backfill ON COMMIT DROP AS
 SELECT s.id AS status_id, s.thread_id, recipient.id AS owner_id,
        ARRAY(SELECT DISTINCT participant FROM (
            SELECT s.actor_id AS participant
-           UNION ALL SELECT actor_id FROM status_mention WHERE status_id = s.id AND NOT silent
+           -- The same mentions as ConversationRepository.mentions, so that later replies find these conversations.
+           UNION ALL SELECT m.actor_id FROM status_mention m JOIN actor a ON a.id = m.actor_id
+           WHERE m.status_id = s.id AND NOT m.silent AND a.deleted_at IS NULL AND (a.is_local OR NOT EXISTS (
+               SELECT 1 FROM domain_block b WHERE regexp_replace(a.domain, ':[0-9]+$', '') = b.domain
+               OR right(regexp_replace(a.domain, ':[0-9]+$', ''), length(b.domain) + 1) = '.' || b.domain))
        ) people WHERE participant <> recipient.id ORDER BY participant) AS participant_ids
 FROM status s
 JOIN actor author ON author.id = s.actor_id AND author.deleted_at IS NULL

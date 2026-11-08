@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class InboxProjection {
@@ -23,12 +24,14 @@ public class InboxProjection {
 
     @ApplicationModuleListener
     public void on(StatusStored event) {
+        // Most stored statuses involve nobody here, so they're turned away before the lock every inbox write queues on.
+        if (!concernsAnyoneHere(event.statusId())) return;
         notifications.lock();
+        // Read again under the lock, since a domain block's cleanup can have finished since.
         var preview = conversations.source(event.statusId());
         if (preview.isEmpty()) return;
         var mentioned = conversations.mentions(event.statusId());
-        var people = new ArrayList<>(mentioned);
-        people.add(preview.get().authorId());
+        var people = people(mentioned, preview.get().authorId());
         conversations.holdActors(people);
         conversations.holdSource(event.statusId()).ifPresent(source -> {
             for (var recipient : conversations.localRecipients(mentioned)) {
@@ -42,6 +45,21 @@ public class InboxProjection {
                 }
             }
         });
+    }
+
+    private boolean concernsAnyoneHere(UUID statusId) {
+        var source = conversations.source(statusId);
+        if (source.isEmpty()) return false;
+        var mentioned = conversations.mentions(statusId);
+        var here = conversations.localRecipients(people(mentioned, source.get().authorId()));
+        return source.get().direct() ? !here.isEmpty()
+                : here.stream().anyMatch(id -> mentioned.contains(id) && !id.equals(source.get().authorId()));
+    }
+
+    private static List<UUID> people(List<UUID> mentioned, UUID author) {
+        var people = new ArrayList<>(mentioned);
+        people.add(author);
+        return people;
     }
 
     @ApplicationModuleListener

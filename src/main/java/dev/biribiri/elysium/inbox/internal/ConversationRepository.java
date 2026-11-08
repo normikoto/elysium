@@ -8,8 +8,10 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -62,10 +64,7 @@ public class ConversationRepository {
 
     public List<UUID> mentions(UUID statusId) {
         return jdbc.sql("SELECT m.actor_id FROM status_mention m JOIN actor a ON a.id = m.actor_id "
-                + "WHERE m.status_id = :id AND NOT m.silent AND a.deleted_at IS NULL "
-                + "AND (a.is_local OR NOT EXISTS (SELECT 1 FROM domain_block b "
-                + "WHERE regexp_replace(a.domain, ':[0-9]+$', '') = b.domain OR "
-                + "right(regexp_replace(a.domain, ':[0-9]+$', ''), length(b.domain) + 1) = '.' || b.domain)) ORDER BY m.actor_id")
+                + "WHERE m.status_id = :id AND NOT m.silent AND " + InboxSql.notGone("a") + " ORDER BY m.actor_id")
                 .param("id", statusId).query(UUID.class).list();
     }
 
@@ -150,17 +149,18 @@ public class ConversationRepository {
                             SELECT s.thread_id FROM inbox_conversation_status cs JOIN status s ON s.id = cs.status_id
                             WHERE cs.conversation_id = :id LIMIT 1
                             """).param("id", id).query(UUID.class).optional();
-            thread.ifPresent(value -> rekey(id, value, null));
+            thread.ifPresent(value -> rekey(id, value, Set.of()));
         }
     }
 
-    private void rekey(UUID id, UUID thread, UUID removedParticipant) {
+    /** @return the conversation that's left, which is another one when this one turned out to duplicate it */
+    private UUID rekey(UUID id, UUID thread, Set<UUID> removed) {
         var rows = jdbc.sql("SELECT owner_id, participant_ids FROM inbox_conversation WHERE id = :id")
                 .param("id", id).query((rs, n) -> new Key(rs.getObject("owner_id", UUID.class),
                         Arrays.asList((UUID[]) rs.getArray("participant_ids").getArray()))).list();
-        if (rows.isEmpty()) return;
+        if (rows.isEmpty()) return id;
         var key = rows.getFirst();
-        var participants = key.people().stream().filter(p -> !p.equals(removedParticipant)).map(UUID::toString).toArray(String[]::new);
+        var participants = key.people().stream().filter(p -> !removed.contains(p)).map(UUID::toString).toArray(String[]::new);
         var duplicate = jdbc.sql("""
                         SELECT id FROM inbox_conversation WHERE owner_id = :owner AND thread_id = :thread
                         AND participant_ids = CAST(:people AS uuid[]) AND id <> :id
@@ -183,36 +183,45 @@ public class ConversationRepository {
         }
         jdbc.sql("UPDATE inbox_conversation SET thread_id = :thread, participant_ids = CAST(:people AS uuid[]) WHERE id = :id")
                 .param("thread", thread).param("people", participants).param("id", id).update();
+        return id;
     }
 
-    public void removeForActor(UUID actorId) {
+    /** Every conversation an actor could have touched names them as its owner or a participant, so nothing else is scanned. */
+    public void removeForActors(List<UUID> actorIds) {
+        var ids = actorIds.stream().map(UUID::toString).toArray(String[]::new);
         holdActors(jdbc.sql("""
                         SELECT DISTINCT person FROM inbox_conversation c
                         CROSS JOIN LATERAL unnest(c.participant_ids || ARRAY[c.owner_id]) person
-                        WHERE c.owner_id = :id OR c.participant_ids @> ARRAY[CAST(:id AS uuid)]
-                        """).param("id", actorId).query(UUID.class).list());
-        jdbc.sql("DELETE FROM inbox_notification WHERE recipient_id = :id OR sender_id = :id").param("id", actorId).update();
-        jdbc.sql("DELETE FROM inbox_marker WHERE owner_id = :id").param("id", actorId).update();
-        jdbc.sql("DELETE FROM inbox_follow_group WHERE recipient_id = :id").param("id", actorId).update();
-        jdbc.sql("DELETE FROM inbox_conversation WHERE owner_id = :id").param("id", actorId).update();
+                        WHERE c.owner_id = ANY(CAST(:ids AS uuid[])) OR c.participant_ids && CAST(:ids AS uuid[])
+                        """).param("ids", ids).query(UUID.class).list());
+        jdbc.sql("""
+                        DELETE FROM inbox_notification
+                        WHERE recipient_id = ANY(CAST(:ids AS uuid[])) OR sender_id = ANY(CAST(:ids AS uuid[]))
+                        """).param("ids", ids).update();
+        jdbc.sql("DELETE FROM inbox_marker WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
+        jdbc.sql("DELETE FROM inbox_follow_group WHERE recipient_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
+        jdbc.sql("DELETE FROM inbox_conversation WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
         jdbc.sql("""
                         DELETE FROM inbox_conversation_status cs USING status s
-                        WHERE cs.status_id = s.id AND s.actor_id = :id
-                        """).param("id", actorId).update();
-        var affected = jdbc.sql("SELECT id, thread_id FROM inbox_conversation WHERE participant_ids @> ARRAY[CAST(:id AS uuid)]")
-                .param("id", actorId).query((rs, n) -> new UUID[]{rs.getObject("id", UUID.class), rs.getObject("thread_id", UUID.class)})
+                        WHERE cs.status_id = s.id AND s.actor_id = ANY(CAST(:ids AS uuid[]))
+                        """).param("ids", ids).update();
+        var affected = jdbc.sql("SELECT id, thread_id FROM inbox_conversation WHERE participant_ids && CAST(:ids AS uuid[])")
+                .param("ids", ids).query((rs, n) -> new UUID[]{rs.getObject("id", UUID.class), rs.getObject("thread_id", UUID.class)})
                 .list();
-        for (var pair : affected) rekey(pair[0], pair[1], actorId);
-        jdbc.sql("DELETE FROM inbox_conversation c WHERE NOT EXISTS (SELECT 1 FROM inbox_conversation_status cs WHERE cs.conversation_id = c.id)")
-                .update();
+        var removed = Set.copyOf(actorIds);
+        var left = new HashSet<UUID>();
+        for (var pair : affected) left.add(rekey(pair[0], pair[1], removed));
+        if (left.isEmpty()) return;
+        jdbc.sql("""
+                        DELETE FROM inbox_conversation c WHERE c.id = ANY(CAST(:left AS uuid[]))
+                        AND NOT EXISTS (SELECT 1 FROM inbox_conversation_status cs WHERE cs.conversation_id = c.id)
+                        """).param("left", left.stream().map(UUID::toString).toArray(String[]::new)).update();
     }
 
-    public List<String> remoteDomains() {
-        return jdbc.sql("SELECT DISTINCT domain FROM actor WHERE NOT is_local").query(String.class).list();
-    }
-
-    public List<UUID> actorsOn(String domain) {
-        return jdbc.sql("SELECT id FROM actor WHERE NOT is_local AND domain = :domain").param("domain", domain).query(UUID.class).list();
+    /** @return the IDs of remote actors on a domain that sort after {@code after}, in order */
+    public List<UUID> actorsOn(String domain, UUID after, int limit) {
+        return jdbc.sql("SELECT id FROM actor WHERE NOT is_local AND domain = :domain AND id > :after ORDER BY id LIMIT :limit")
+                .param("domain", domain).param("after", after).param("limit", limit).query(UUID.class).list();
     }
 
     public record Source(UUID id, UUID authorId, UUID threadId, boolean direct) {

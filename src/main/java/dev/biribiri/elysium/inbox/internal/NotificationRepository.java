@@ -198,7 +198,7 @@ public class NotificationRepository {
     }
 
     public List<UUID> groupAccounts(UUID viewer, String key) {
-        return jdbc.sql("SELECT DISTINCT n.sender_id" + FROM + groupCondition(key) + " ORDER BY n.sender_id")
+        return jdbc.sql("SELECT n.sender_id" + FROM + groupCondition(key) + " GROUP BY n.sender_id ORDER BY max(n.id::text) DESC")
                 .param("viewer", viewer).params(groupParameters(key)).query(UUID.class).list();
     }
 

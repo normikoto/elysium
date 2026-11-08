@@ -42,9 +42,7 @@ class DomainBlockCleanupTask {
         if (blocks.find(job.blockId()).isEmpty()) {
             return Jobs.done();
         }
-        var domains = new java.util.HashSet<>(follows.remoteDomains());
-        domains.addAll(inbox.remoteDomains());
-        blocks.blockedHosts(domains).forEach(domain -> {
+        blocks.blockedHosts(follows.remoteDomains()).forEach(domain -> {
             follows.removeForDomain(domain);
             statuses.removeForDomain(domain);
             inbox.removeForDomain(domain);

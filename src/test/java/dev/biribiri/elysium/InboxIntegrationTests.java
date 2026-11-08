@@ -184,7 +184,8 @@ class InboxIntegrationTests {
         mvc.perform(get(GROUPS + "/" + key).with(user(bob)))
                 .andExpect(jsonPath("$.notification_groups[0].notifications_count").value(2))
                 .andExpect(jsonPath("$.notification_groups[0].page_min_id").doesNotExist());
-        mvc.perform(get(GROUPS + "/" + key + "/accounts").with(user(bob))).andExpect(jsonPath("$", hasSize(2)));
+        mvc.perform(get(GROUPS + "/" + key + "/accounts").with(user(bob)))
+                .andExpect(jsonPath("$[*].id").value(contains(carol.id().toString(), alice.id().toString())));
         mvc.perform(get(GROUPS + "/" + key).with(user(alice))).andExpect(status().isNotFound());
         mvc.perform(post(GROUPS + "/" + key + "/dismiss").with(user(bob))).andExpect(content().json("{}"));
         mvc.perform(get(NOTIFICATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
