@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.LikeStats;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
@@ -10,13 +11,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Mastodon's Status entity. Likes, boosts, media, polls, and hashtags don't exist yet, so those fields hold the values a
+ * Mastodon's Status entity. Boosts, media, polls, and hashtags don't exist yet, so those fields hold the values a
  * status without any of them would have.
  *
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Favourites, boosts, media, polls, cards, and hashtags don't exist yet, so those fields \
+        Mastodon's Status entity. Boosts, media, polls, cards, and hashtags don't exist yet, so those fields \
         are always empty, null, zero, or false. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. Only statuses from other servers can have \
         been edited, so `edited_at` is always null for a local one.""")
@@ -34,7 +35,7 @@ record StatusResponse(
         String url,
         @JsonProperty("replies_count") long repliesCount,
         @JsonProperty("reblogs_count") int reblogsCount,
-        @JsonProperty("favourites_count") int favouritesCount,
+        @JsonProperty("favourites_count") long favouritesCount,
         String content,
         @Schema(description = "The source text, only when the status has just been deleted.")
         @JsonInclude(JsonInclude.Include.NON_NULL) String text,
@@ -55,7 +56,7 @@ record StatusResponse(
 ) {
 
     static StatusResponse from(
-            Status status, AccountResponse account, List<MentionResponse> mentions, boolean includeText) {
+            Status status, AccountResponse account, List<MentionResponse> mentions, boolean includeText, LikeStats likes) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -70,7 +71,7 @@ record StatusResponse(
                 pageUrl(status),
                 status.repliesCount(),
                 0,
-                0,
+                likes.count(),
                 status.content(),
                 includeText ? status.text() : null,
                 null,
@@ -82,7 +83,7 @@ record StatusResponse(
                 List.of(),
                 null,
                 null,
-                false,
+                likes.favourited(),
                 false,
                 false,
                 false,

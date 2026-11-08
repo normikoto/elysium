@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -49,11 +50,13 @@ public class StatusesController {
     private static final long OTHER_FIELDS_BYTES = 64 * 1024;
 
     private final StatusService statuses;
+    private final LikeService likes;
     private final StatusResponses responses;
     private final JsonBodies json;
 
-    StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json) {
+    StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes) {
         this.statuses = statuses;
+        this.likes = likes;
         this.responses = responses;
         this.json = json;
     }
@@ -127,7 +130,7 @@ public class StatusesController {
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         return RequestParameters.uuid(id)
                 .flatMap(statusId -> statuses.findVisible(statusId, RequestParameters.viewer(token)))
-                .map(responses::one)
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
                 .orElseThrow(RecordNotFoundException::new);
     }
 
@@ -152,7 +155,8 @@ public class StatusesController {
         return RequestParameters.uuid(id)
                 .flatMap(statusId -> statuses.findContext(statusId, RequestParameters.viewer(token)))
                 .map(context -> new ContextResponse(
-                        responses.list(context.ancestors()), responses.list(context.descendants())))
+                        responses.list(context.ancestors(), RequestParameters.viewer(token)),
+                        responses.list(context.descendants(), RequestParameters.viewer(token))))
                 .orElseThrow(RecordNotFoundException::new);
     }
 
@@ -176,7 +180,43 @@ public class StatusesController {
         var author = requireUser(token);
         return RequestParameters.uuid(id)
                 .flatMap(statusId -> statuses.delete(statusId, author))
-                .map(responses::oneWithText)
+                .map(found -> responses.oneWithText(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/favourite")
+    @PreAuthorize("hasAuthority('SCOPE_write:favourites')")
+    @Operation(operationId = "favouriteStatus", summary = "Favourite a status",
+            description = "Favourites a visible local or stored remote status. Repeats have no additional effect. "
+                    + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#favourite"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status with updated favourite state."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse favourite(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
+        var viewer = requireUser(token);
+        return RequestParameters.uuid(id).flatMap(statusId -> likes.favourite(statusId, viewer))
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/unfavourite")
+    @PreAuthorize("hasAuthority('SCOPE_write:favourites')")
+    @Operation(operationId = "unfavouriteStatus", summary = "Undo a favourite",
+            description = "Removes a favourite of a visible status. Repeats have no additional effect. "
+                    + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unfavourite"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status with updated favourite state."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse unfavourite(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
+        var viewer = requireUser(token);
+        return RequestParameters.uuid(id).flatMap(statusId -> likes.unfavourite(statusId, viewer))
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
                 .orElseThrow(RecordNotFoundException::new);
     }
 
@@ -189,7 +229,7 @@ public class StatusesController {
                 visibility(parameters),
                 RequestParameters.flag(parameters, "sensitive"),
                 replyParent(RequestParameters.string(parameters, "in_reply_to_id")));
-        return responses.one(statuses.create(author, draft));
+        return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
     }
 
     private static UUID requireUser(TokenPrincipal token) {

@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -43,6 +44,8 @@ class AccountCleanupIntegrationTests {
     @Autowired
     private StatusService statuses;
     @Autowired
+    private LikeService likes;
+    @Autowired
     private JdbcClient jdbc;
     @Autowired
     private JsonMapper json;
@@ -56,6 +59,18 @@ class AccountCleanupIntegrationTests {
     @BeforeEach
     void setUp() {
         local = newLocal();
+    }
+
+    @Test
+    void deletingALikerRemovesItsLikesAndFavouriteNotifications() {
+        var author = newLocal();
+        var status = statuses.create(author.id(), draft());
+        likes.favourite(status.id(), local.id());
+        assertThat(likes.count(status.id())).isOne();
+        actors.markDeleted(local.id());
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM status_like WHERE actor_id = :id", local.id()) == 0);
+        assertThat(likes.count(status.id())).isZero();
+        assertThat(count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id AND type = 'favourite'", local.id())).isZero();
     }
 
     @Test

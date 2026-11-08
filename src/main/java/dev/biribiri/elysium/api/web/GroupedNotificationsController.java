@@ -44,7 +44,7 @@ public class GroupedNotificationsController {
     @GetMapping
     @PreAuthorize("hasAuthority('SCOPE_read:notifications')")
     @Operation(operationId = "getGroupedNotifications", summary = "List notification groups",
-            description = "Only follows are grouped; mentions are individual groups. Notification policies and requests are not implemented.\n\n" + ApiDocs.NEEDS_USER,
+            description = "Follows and favourites are grouped; mentions are individual groups. Notification policies and requests are not implemented.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "grouped_notifications/#get-all"),
             parameters = {
                     @Parameter(in = ParameterIn.QUERY, name = "limit", description = "Page size, clamped to 1–80.", schema = @Schema(type = "integer", defaultValue = "40")),
@@ -56,7 +56,7 @@ public class GroupedNotificationsController {
                     @Parameter(in = ParameterIn.QUERY, name = "account_id", description = "Only notifications from this account UUID.", schema = @Schema(type = "string")),
                     @Parameter(in = ParameterIn.QUERY, name = "include_filtered", description = "Accepted without effect; notification policies are not implemented.", schema = @Schema(type = "boolean", defaultValue = "false")),
                     @Parameter(in = ParameterIn.QUERY, name = "supported_types[]", description = "Accepted; generated notification types have no fallback representation.", array = @ArraySchema(schema = @Schema(type = "string"))),
-                    @Parameter(in = ParameterIn.QUERY, name = "grouped_types[]", description = "Types the client supports grouping. Defaults to follow.", array = @ArraySchema(schema = @Schema(type = "string"))),
+                    @Parameter(in = ParameterIn.QUERY, name = "grouped_types[]", description = "Types the client supports grouping. Defaults to follow and favourite.", array = @ArraySchema(schema = @Schema(type = "string"))),
                     @Parameter(in = ParameterIn.QUERY, name = "expand_accounts", description = "full or partial_avatars.", schema = @Schema(type = "string", defaultValue = "full"))
             },
             responses = {@ApiResponse(responseCode = "200", description = "Successful response.")})
@@ -82,7 +82,7 @@ public class GroupedNotificationsController {
                     @Parameter(in = ParameterIn.QUERY, name = "types[]", description = "Notification types to include.", array = @ArraySchema(schema = @Schema(type = "string"))),
                     @Parameter(in = ParameterIn.QUERY, name = "exclude_types[]", description = "Notification types to exclude; exclusions win.", array = @ArraySchema(schema = @Schema(type = "string"))),
                     @Parameter(in = ParameterIn.QUERY, name = "account_id", description = "Only notifications from this account UUID.", schema = @Schema(type = "string")),
-                    @Parameter(in = ParameterIn.QUERY, name = "grouped_types[]", description = "Types the client supports grouping. Defaults to follow.", array = @ArraySchema(schema = @Schema(type = "string")))
+                    @Parameter(in = ParameterIn.QUERY, name = "grouped_types[]", description = "Types the client supports grouping. Defaults to follow and favourite.", array = @ArraySchema(schema = @Schema(type = "string")))
             },
             responses = {@ApiResponse(responseCode = "200", description = "Successful response.")})
     public UnreadCountResponse unread(@AuthenticationPrincipal TokenPrincipal token,

@@ -84,6 +84,15 @@ public class ConversationRepository {
                 .param("id", id).param("sender", sender).param("recipient", recipient).query(UUID.class).list().isEmpty();
     }
 
+    public boolean currentLike(UUID id, UUID sender, UUID statusId) {
+        return jdbc.sql("""
+                        SELECT l.id FROM status_like l JOIN actor a ON a.id = l.actor_id
+                        WHERE l.id = :id AND l.actor_id = :sender AND l.status_id = :status AND
+                        """ + InboxSql.active("a") + " FOR KEY SHARE OF l")
+                .param("id", id).param("sender", sender).param("status", statusId)
+                .query(UUID.class).optional().isPresent();
+    }
+
     public void add(Source source, UUID viewer, List<UUID> people) {
         var participants = people.stream().filter(id -> !id.equals(viewer)).distinct().map(UUID::toString).sorted().toArray(String[]::new);
         var id = jdbc.sql("""

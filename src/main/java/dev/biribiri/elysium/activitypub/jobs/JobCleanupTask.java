@@ -62,6 +62,10 @@ class JobCleanupTask {
         jdbc.sql("DELETE FROM undone_follow_pair WHERE undone_at < :before")
                 .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();
+        jdbc.sql("DELETE FROM undone_like WHERE undone_at < :before")
+                .param("before", before(now, Jobs.ACTIVITIES_KEPT)).update();
+        jdbc.sql("DELETE FROM undone_like_pair WHERE undone_at < :before")
+                .param("before", before(now, Jobs.ACTIVITIES_KEPT)).update();
         jdbc.sql("DELETE FROM deleted_remote_status WHERE deleted_at < :before")
                 .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();

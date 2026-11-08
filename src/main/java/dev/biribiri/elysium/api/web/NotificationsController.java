@@ -44,7 +44,7 @@ public class NotificationsController {
     @GetMapping
     @PreAuthorize("hasAuthority('SCOPE_read:notifications')")
     @Operation(operationId = "getNotifications", summary = "List notifications",
-            description = "Only mention and follow events are currently generated. Notification policies and requests are not implemented. Pages default to 40 and allow up to 80 results.\n\n" + ApiDocs.NEEDS_USER,
+            description = "Mention, follow, and favourite events are generated. Notification policies and requests are not implemented. Pages default to 40 and allow up to 80 results.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "notifications/#get-all"),
             parameters = {
                     @Parameter(in = ParameterIn.QUERY, name = "limit", description = "Page size, clamped to 1–80.", schema = @Schema(type = "integer", defaultValue = "40")),

@@ -103,6 +103,7 @@ page gets a 404. A deleted private or direct status still gets a 404, the same a
 A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, and `sensitive`, which is defined in its
 `@context` as `as:sensitive`. It can also have:
 
+- `likes`: the post's likes collection, at `{note-uri}/likes`.
 - `summary`: the content warning, as plain text rather than HTML, which matches Mastodon.
 - `inReplyTo`: the parent status.
 - `contentMap`: the `content` under its language, if one is set.
@@ -167,7 +168,7 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 ### Activities
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
-one worked. Activities are processed in no particular order. Only `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a
+one worked. Activities are processed in no particular order. `Follow`, `Like`, their `Undo`s, `Accept` and `Reject` of a
 `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
@@ -490,11 +491,42 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
   here. Such a `Delete` is answered with a `202`, but only if the actor is stored here and not already deleted. Otherwise it
   gets the `401` or `403` it would have.
 
+### Likes
+
+Local users favourite and unfavourite local and stored remote posts through
+`POST /api/v1/statuses/{id}/favourite` and `/unfavourite`, with a user token granting `write:favourites`.
+Both return the updated Status and are idempotent. The user must be able to see the post; inaccessible, missing,
+and malformed IDs get a 404. Status responses include locally known `favourites_count` and the viewer's `favourited`
+state, including in timelines, threads, notifications, and conversations. Anonymous viewers get `favourited: false`.
+
+For a remote post, a signed `Like` is delivered to its author's personal inbox, addressed only to that author.
+Unfavouriting cancels any pending Like and sends an `Undo` embedding its original identity, waiting behind an in-flight
+Like to the same server. Refavouriting uses a new identity. Local-post likes aren't delivered anywhere.
+
+A received `Like` is stored only if its target is an existing local post its actor can see. Followers-only posts allow
+followers and mentioned actors; direct posts allow their author and addressed actors. Remote targets aren't fetched.
+An `Undo` may embed the Like, name its ID, or embed its actor and target without an ID. Only the verified liker can
+withdraw it. Actor-scoped Undo receipts and first-arrival cutoffs handle jobs running in either order, as for follows:
+older Undos don't remove newer likes, and a retry doesn't resurrect an undone Like. Receipts last for the same period
+as other activities, about 34 days. Current likes retain their activity IDs after inbound history expires.
+
+A local Note links to `/users/{username}/statuses/{id}/likes`, an `OrderedCollection` with `totalItems` and `first`.
+Its `?page=true` pages contain up to 40 embedded Like activities, newest first, with `max_id` cursors and `next` links.
+Entries are constructed from stored identities, without copying arbitrary inbound fields. The collection is only served
+for existing public and unlisted posts; private, direct, and deleted posts get a 404. A suspended author gets a 403.
+It uses the Note's ActivityPub media types, CORS, and `Vary: Accept`; HTML requests, including wildcard or missing
+Accept headers, redirect to the post's page. Other media types get a 406.
+
+A like notifies a local post's author with a `favourite` notification, except for self-likes. Favourites group by post.
+Unliking removes the notification, listener retries preserve dismissal, and refavouriting creates a new notification.
+Suspended likers are hidden from counts, collections, and notifications, and return after unsuspension. Deleted actors'
+likes and likes from blocked domains are removed. Counts for remote posts reflect only likes known to this server.
+
 ### Notable differences
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
 - Only `Note`s are stored, and only ones that are for a local user or reply to a status of someone followed here.
-  `Announce` and `Like` are ignored. A reply's parent isn't fetched, and neither are the replies to a status.
+  `Announce` is ignored; `Like` is accepted only for local posts. A reply's parent isn't fetched, and neither are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
 - An edited status's earlier versions aren't kept.
 - `Reject` is never sent.
@@ -564,7 +596,7 @@ compared in lowercase ASCII, without a trailing dot. A block is only ever a full
 - **Fetching:** Keys and actors are never fetched from a blocked domain.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
-- **Existing data:** Follows to and from its actors are removed, and so are their statuses. Its actors are kept.
+- **Existing data:** Follows to and from its actors are removed, and so are their likes and statuses. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
   status posted before then, and it keeps any copy it has.
@@ -582,7 +614,7 @@ GoToSocial answer the same way.
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures. The only requests this
 server makes are fetches of keys and actor documents, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`,
-`Accept`, `Create`, `Update`, and `Delete`.
+`Accept`, `Create`, `Update`, `Delete`, and `Like`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

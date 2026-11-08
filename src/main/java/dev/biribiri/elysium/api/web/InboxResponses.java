@@ -15,6 +15,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -92,6 +93,6 @@ class InboxResponses {
 
     private Map<UUID, StatusResponse> statuses(UUID viewer, Collection<UUID> ids) {
         var found = statuses.findVisible(ids, viewer);
-        return statusResponses.list(found).stream().collect(Collectors.toMap(s -> UUID.fromString(s.id()), Function.identity()));
+        return statusResponses.list(found, Optional.of(viewer)).stream().collect(Collectors.toMap(s -> UUID.fromString(s.id()), Function.identity()));
     }
 }
