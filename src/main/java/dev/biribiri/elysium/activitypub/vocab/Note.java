@@ -35,7 +35,8 @@ public record Note(
         String summary,
         URI inReplyTo,
         Map<String, String> contentMap,
-        List<Mention> tag
+        List<Mention> tag,
+        URI likes
 ) {
 
     static final List<Object> CONTEXT = List.of(
@@ -73,7 +74,8 @@ public record Note(
                 status.spoilerText().isEmpty() ? null : status.spoilerText(),
                 inReplyTo,
                 status.language() == null ? null : Map.of(status.language(), status.content()),
-                mentions.isEmpty() ? null : List.copyOf(mentions));
+                mentions.isEmpty() ? null : List.copyOf(mentions),
+                URI.create(status.uri() + "/likes"));
     }
 
     /**
@@ -81,6 +83,6 @@ public record Note(
      */
     public Note withoutContext() {
         return new Note(
-                null, id, type, attributedTo, url, published, to, cc, content, sensitive, summary, inReplyTo, contentMap, tag);
+                null, id, type, attributedTo, url, published, to, cc, content, sensitive, summary, inReplyTo, contentMap, tag, likes);
     }
 }

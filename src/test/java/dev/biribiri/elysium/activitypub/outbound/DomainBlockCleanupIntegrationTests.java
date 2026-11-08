@@ -5,6 +5,8 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -41,6 +43,8 @@ class DomainBlockCleanupIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private LikeService likes;
 
     private Actor local;
     private String domain;
@@ -52,6 +56,18 @@ class DomainBlockCleanupIntegrationTests {
         });
         local = actors.findLocalByUsername(name).orElseThrow();
         domain = "h" + UUID.randomUUID() + ".test";
+    }
+
+    @Test
+    void removesLikesOfActorsWhoHaveNoFollowsOrRemotePosts() {
+        var liker = remote(domain);
+        var status = statuses.create(local.id(), new NewStatus("post", null, null, Visibility.PUBLIC, false, null));
+        likes.receive(liker.id(), status.id(), liker.uri() + "/like", Instant.now());
+        assertThat(likes.count(status.id())).isOne();
+        blocks.create(domain, null);
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM status_like WHERE actor_id = :id")
+                .param("id", liker.id()).query(Long.class).single() == 0);
+        assertThat(likes.count(status.id())).isZero();
     }
 
     @Test

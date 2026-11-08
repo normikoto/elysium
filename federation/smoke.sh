@@ -2,7 +2,7 @@
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
 # and unfollow it, be followed and unfollowed by it, and receive its statuses, their deletion, and profile changes, and that
 # Elysium takes the other server's profile changes and status edits, apart from on Misskey, which can't edit, and removes a
-# status and an account that the other server deletes.
+# status and an account that the other server deletes. Both servers also like and unlike each other's posts.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -924,6 +924,130 @@ delete_from_misskey() {
     expect_status_removed misskey.test "$uri"
 }
 
+# Likes use the same local API for all peers. The peer-specific helpers exercise their real federation implementation.
+expect_elysium_likes() {
+    local uri=$1 expected=$2 read_token=$3 body
+    for _ in $(seq 1 60); do
+        body=$(driver curl -fsS "https://elysium.test/api/v1/statuses/${uri##*/}" -H "Authorization: Bearer $read_token")
+        [[ $(jq -r .favourites_count <<<"$body") == "$expected" ]] && return
+        sleep 2
+    done
+    fail "Elysium didn't show $expected likes of $uri: $body"
+}
+
+like_from_peer() {
+    local uri=$1 action=$2 id output
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T -e STATUS_URI="$uri" -e LIKE_ACTION="$action" mastodon-web bin/rails runner '
+                lab = Account.find_local("lab")
+                status = Status.find_by!(uri: ENV["STATUS_URI"])
+                if ENV["LIKE_ACTION"] == "favourite"
+                    FavouriteService.new.call(lab, status)
+                else
+                    UnfavouriteService.new.call(lab, status)
+                end
+                puts "DONE"')
+            echo "$output"
+            grep -qxF DONE <<<"$output" || fail "Mastodon couldn't $action $uri"
+            ;;
+        gotosocial)
+            id=$(driver curl -fsS "https://gts.test/api/v1/accounts/$alice_id/statuses" \
+                -H "Authorization: Bearer $token" | jq -r --arg uri "$uri" '.[] | select(.uri == $uri) | .id')
+            [[ -n $id ]] || fail "GoToSocial has no stored status at $uri"
+            driver curl -fsS -o /dev/null -X POST "https://gts.test/api/v1/statuses/$id/$action" \
+                -H "Authorization: Bearer $token"
+            ;;
+        misskey)
+            id=$(misskey_api users/notes "$(misskey_user_body)" | jq -r --arg uri "$uri" '.[] | select(.uri == $uri) | .id')
+            [[ -n $id ]] || fail "Misskey has no stored note at $uri"
+            if [[ $action == favourite ]]; then
+                misskey_api notes/reactions/create "$(jq -cn --arg id "$id" '{noteId: $id, reaction: "👍"}')" >/dev/null
+            else
+                misskey_api notes/reactions/delete "$(jq -cn --arg id "$id" '{noteId: $id}')" >/dev/null
+            fi
+            ;;
+    esac
+}
+
+expect_peer_likes() {
+    local uri=$1 expected=$2 id body count output
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T -e STATUS_URI="$uri" -e EXPECTED="$expected" mastodon-web bin/rails runner '
+                matched = false
+                60.times do
+                    status = Status.uncached { Status.find_by(id: ENV["STATUS_URI"].split("/").last) }
+                    matched = status && Favourite.uncached { Favourite.where(status: status).count } == ENV["EXPECTED"].to_i
+                    break if matched
+                    sleep 2
+                end
+                puts "LIKES #{matched}"')
+            echo "$output"
+            grep -qxF 'LIKES true' <<<"$output" || fail "Mastodon didn't show $expected likes of $uri"
+            ;;
+        gotosocial)
+            id=$(gotosocial_status_id "$uri")
+            [[ -n $id ]] || fail "GoToSocial has no lab status at $uri"
+            for _ in $(seq 1 60); do
+                body=$(driver curl -fsS "https://gts.test/api/v1/statuses/$id" -H "Authorization: Bearer $token")
+                [[ $(jq -r .favourites_count <<<"$body") == "$expected" ]] && return
+                sleep 2
+            done
+            fail "GoToSocial didn't show $expected likes of $uri: $body"
+            ;;
+        misskey)
+            id=${uri##*/notes/}
+            for _ in $(seq 1 60); do
+                body=$(misskey_api notes/show "$(jq -cn --arg id "$id" '{noteId: $id}')")
+                count=$(jq '[.reactions[]] | add // 0' <<<"$body")
+                [[ $count == "$expected" ]] && return
+                sleep 2
+            done
+            fail "Misskey didn't show $expected reactions to $uri: $body"
+            ;;
+    esac
+}
+
+# Run while both the mentioned remote post and alice's public and private posts still exist.
+check_likes() {
+    local server=$1 remote_uri remote_id read_token write_token body collection uri
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write:favourites)
+    remote_uri=$(mentioned_status_uri "$server")
+    [[ -n $remote_uri ]] || fail "No remote lab post to favourite"
+    remote_id=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT id FROM status WHERE uri = '$remote_uri'")
+    body=$(driver curl -fsS -X POST "https://elysium.test/api/v1/statuses/$remote_id/favourite" \
+        -H "Authorization: Bearer $write_token")
+    jq -e '.favourited and .favourites_count == 1' <<<"$body" >/dev/null || fail "Favourite failed: $body"
+    expect_peer_likes "$remote_uri" 1
+    body=$(driver curl -fsS -X POST "https://elysium.test/api/v1/statuses/$remote_id/unfavourite" \
+        -H "Authorization: Bearer $write_token")
+    jq -e '(.favourited | not) and .favourites_count == 0' <<<"$body" >/dev/null || fail "Unfavourite failed: $body"
+    expect_peer_likes "$remote_uri" 0
+
+    for uri in "$public_uri" "$private_uri"; do
+        like_from_peer "$uri" favourite
+        expect_elysium_likes "$uri" 1 "$read_token"
+        for _ in $(seq 1 30); do
+            body=$(driver curl -fsS "https://elysium.test/api/v1/notifications?types%5B%5D=favourite" \
+                -H "Authorization: Bearer $read_token")
+            jq -e --arg uri "$uri" 'any(.[]; .status.uri == $uri)' <<<"$body" >/dev/null && break
+            sleep 2
+        done
+        jq -e --arg uri "$uri" 'any(.[]; .status.uri == $uri)' <<<"$body" >/dev/null || fail "No favourite notification for $uri"
+        if [[ $uri == "$public_uri" ]]; then
+            collection=$(driver curl -fsS -H 'Accept: application/activity+json' "$uri/likes?page=true")
+            jq -e --arg uri "$uri" '.totalItems == 1 and .orderedItems[0].type == "Like" and .orderedItems[0].object == $uri' \
+                <<<"$collection" >/dev/null || fail "Unexpected likes collection: $collection"
+        fi
+        like_from_peer "$uri" unfavourite
+        expect_elysium_likes "$uri" 0 "$read_token"
+    done
+    echo "$target and Elysium exchanged signed Likes and Undos, with counts, notifications, and a public likes collection"
+}
+
 # These delete a second account, which follows alice, or which she follows, so that its server tells Elysium, rather than the
 # lab user, which later steps need, and which Misskey can't delete because it's the admin.
 delete_account_from_mastodon() {
@@ -996,10 +1120,11 @@ case "$target" in
         follow_from_gotosocial
         follow_from_elysium gts.test post_from_gotosocial gotosocial_approve
         edit_from_gotosocial
-        delete_from_gotosocial
         delete_account_from_gotosocial
         post_from_elysium
         gotosocial_expect_statuses
+        check_likes gts.test
+        delete_from_gotosocial
         delete_from_elysium
         gotosocial_expect_deleted
         update_profile_from_elysium
@@ -1011,10 +1136,11 @@ case "$target" in
         follow_from_mastodon
         follow_from_elysium mastodon.test post_from_mastodon
         edit_from_mastodon
-        delete_from_mastodon
         delete_account_from_mastodon
         post_from_elysium
         mastodon_expect_statuses
+        check_likes mastodon.test
+        delete_from_mastodon
         delete_from_elysium
         mastodon_expect_deleted
         update_profile_from_elysium
@@ -1025,10 +1151,11 @@ case "$target" in
         deliver_from_misskey
         follow_from_misskey
         follow_from_elysium misskey.test post_from_misskey
-        delete_from_misskey
         delete_account_from_misskey
         post_from_elysium
         misskey_expect_statuses
+        check_likes misskey.test
+        delete_from_misskey
         delete_from_elysium
         misskey_expect_deleted
         update_profile_from_elysium
@@ -1036,4 +1163,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, exchange likes and unlikes, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

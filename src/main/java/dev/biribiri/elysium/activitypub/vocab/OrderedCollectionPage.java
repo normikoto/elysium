@@ -12,18 +12,18 @@ import java.util.List;
  * @param next the page after this one, or null if this is the last
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record OrderedCollectionPage(
+public record OrderedCollectionPage<T>(
         @JsonProperty("@context") String context,
         URI id,
         String type,
         long totalItems,
         URI partOf,
         URI next,
-        List<URI> orderedItems
+        List<T> orderedItems
 ) {
 
-    public static OrderedCollectionPage of(URI id, long totalItems, URI partOf, URI next, List<URI> items) {
-        return new OrderedCollectionPage(
+    public static <T> OrderedCollectionPage<T> of(URI id, long totalItems, URI partOf, URI next, List<T> items) {
+        return new OrderedCollectionPage<>(
                 ActivityStreams.CONTEXT, id, "OrderedCollectionPage", totalItems, partOf, next, items);
     }
 }

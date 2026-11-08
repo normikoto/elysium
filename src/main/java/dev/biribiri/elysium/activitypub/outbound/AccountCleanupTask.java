@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.inbox.InboxService;
 import org.springframework.context.annotation.Bean;
@@ -21,13 +22,15 @@ import org.springframework.context.annotation.Configuration;
 class AccountCleanupTask {
 
     private final InboxService inbox;
+    private final LikeService likes;
     private final ActorService actors;
     private final StatusService statuses;
     private final FollowService follows;
     private final ProfileService profiles;
 
-    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, ProfileService profiles, InboxService inbox) {
+    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, ProfileService profiles, InboxService inbox, LikeService likes) {
         this.inbox = inbox;
+        this.likes = likes;
         this.actors = actors;
         this.profiles = profiles;
         this.statuses = statuses;
@@ -42,6 +45,7 @@ class AccountCleanupTask {
     private CompletionHandler<AccountCleanupJob> run(AccountCleanupJob job) {
         actors.findById(job.actorId()).ifPresent(actor -> {
             if (actor.isDeleted()) {
+                likes.removeForActor(actor.id());
                 statuses.removeAllBy(actor.id());
                 follows.removeForActor(actor.id());
                 profiles.removeAll(actor.id());

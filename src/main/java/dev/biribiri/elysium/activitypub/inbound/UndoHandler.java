@@ -5,6 +5,7 @@ import dev.biribiri.elysium.activitypub.vocab.Accept;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.content.LikeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -16,8 +17,8 @@ import java.net.URISyntaxException;
 import java.util.Optional;
 
 /**
- * Handles every {@code Undo}, because only one handler can have a type. Only undoing a {@code Follow} does anything so far.
- * Other types can be added here by looking at what the {@code object} is.
+ * Handles every {@code Undo}, because only one handler can have a type, and tells what's undone from the {@code object}'s
+ * type, or the stored activity's when it's sent as just an ID. Undoing a {@code Follow} or {@code Like} does something.
  */
 @Component
 class UndoHandler implements InboundActivityHandler {
@@ -26,6 +27,7 @@ class UndoHandler implements InboundActivityHandler {
 
     private final ActorService actors;
     private final FollowService follows;
+    private final LikeService likes;
     private final StoredActivities stored;
     private final ActivityDeliveries deliveries;
     private final TransactionTemplate transaction;
@@ -34,12 +36,14 @@ class UndoHandler implements InboundActivityHandler {
     UndoHandler(
             ActorService actors,
             FollowService follows,
+            LikeService likes,
             StoredActivities stored,
             ActivityDeliveries deliveries,
             TransactionTemplate transaction,
             JsonMapper json) {
         this.actors = actors;
         this.follows = follows;
+        this.likes = likes;
         this.stored = stored;
         this.deliveries = deliveries;
         this.transaction = transaction;
@@ -59,14 +63,34 @@ class UndoHandler implements InboundActivityHandler {
             return;
         }
         var object = parsed.get();
-        if (object.type() != null && !object.type().equals("Follow")) {
-            return;
+        if (object.type() != null && !object.type().equals("Follow") && !object.type().equals("Like")) return;
+        var original = Optional.ofNullable(object.id()).flatMap(stored::find);
+        if (original.isPresent() && (!original.get().actorUri().equals(activity.actorUri())
+                || (object.type() != null && !object.type().equals(original.get().type())))) return;
+        var type = object.type() != null ? object.type() : original.map(InboundActivity::type).orElse(null);
+        if ("Like".equals(type) || type == null) {
+            undoLike(activity, object, original);
+            if ("Like".equals(type)) return;
         }
+        if (type != null && !type.equals("Follow")) return;
         if (object.id() != null) {
             undoById(activity, object);
         } else if (object.object() != null && "Follow".equals(object.type())) {
             undoByPair(activity, object.object());
         }
+    }
+
+    private void undoLike(InboundActivity activity, ActivityObject object, Optional<InboundActivity> original) {
+        if (object.id() != null && (!InboundActivity.isStorableId(object.id())
+                || !canSpeakFor(activity.actorUri(), object.id()))) return;
+        var target = original.filter(found -> found.type().equals("Like"))
+                .flatMap(found -> ActivityObject.of(found.body(), json)).map(ActivityObject::id)
+                .or(() -> Optional.ofNullable(object.object()))
+                .flatMap(ActivityObject::parseUri).flatMap(likes::localStatusId);
+        if (object.id() == null && (!"Like".equals(object.type()) || target.isEmpty())) return;
+        likes.undo(activity.actorUri(), object.id(), target,
+                original.filter(found -> found.type().equals("Like")).map(InboundActivity::firstReceivedAt),
+                activity.receivedAt());
     }
 
     /**

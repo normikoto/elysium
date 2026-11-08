@@ -126,6 +126,18 @@ class PagesController {
         return "status";
     }
 
+    @GetMapping("/users/{username}/statuses/{id}/likes")
+    String likes(@PathVariable String username, @PathVariable String id, HttpServletRequest request)
+            throws HttpMediaTypeNotAcceptableException {
+        requireHtmlAccepted(request);
+        var author = actors.findAnyLocalByUsername(username).filter(actor -> !actor.isDeleted())
+                .orElseThrow(PagesController::notFound);
+        if (author.isSuspended()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        var found = Ids.parse(id).flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
+                .filter(status -> status.actorId().equals(author.id())).orElseThrow(PagesController::notFound);
+        return "redirect:" + found.uri();
+    }
+
     /**
      * A client that can't read HTML, such as one that only asks for {@code application/json}, should get an error it can
      * understand rather than a page it fails to parse.

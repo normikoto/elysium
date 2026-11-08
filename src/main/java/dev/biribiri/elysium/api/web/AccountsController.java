@@ -478,7 +478,7 @@ public class AccountsController {
         if (RequestParameters.flag(excludeReblogs)) {
             filters.put("exclude_reblogs", "true");
         }
-        return responses.page("/api/v1/accounts/" + actorId + "/statuses", filters, page, found);
+        return responses.page("/api/v1/accounts/" + actorId + "/statuses", filters, page, found, RequestParameters.viewer(token));
     }
 
     /**

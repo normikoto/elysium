@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -76,6 +77,8 @@ class StatusDeliveryIntegrationTests {
     @Autowired
     private StatusService statuses;
     @Autowired
+    private LikeService likes;
+    @Autowired
     private ActorService actors;
     @MockitoSpyBean
     private FollowService follows;
@@ -91,6 +94,8 @@ class StatusDeliveryIntegrationTests {
     private RemoteActorResolver resolver;
 
     private final Queue<Received> received = new ConcurrentLinkedQueue<>();
+    private final Map<String, CountDownLatch> holdLikes = new ConcurrentHashMap<>();
+    private final Set<String> refuseLikes = ConcurrentHashMap.newKeySet();
     private final Map<String, CountDownLatch> holdCreates = new ConcurrentHashMap<>();
     private final Set<String> refuseCreates = ConcurrentHashMap.newKeySet();
     private HttpServer server;
@@ -116,7 +121,16 @@ class StatusDeliveryIntegrationTests {
                     Thread.currentThread().interrupt();
                 }
             }
-            exchange.sendResponseHeaders(refuseCreates.contains(host) && body.contains("#create") ? 410 : 202, -1);
+            if (json.readTree(body).path("type").asString().equals("Like") && holdLikes.containsKey(host)) {
+                try {
+                    holdLikes.get(host).await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            var refused = refuseCreates.contains(host) && body.contains("#create");
+            var retryLike = refuseLikes.contains(host) && json.readTree(body).path("type").asString().equals("Like");
+            exchange.sendResponseHeaders(refused ? 410 : retryLike ? 503 : 202, -1);
             exchange.close();
         });
         server.start();
@@ -771,6 +785,65 @@ class StatusDeliveryIntegrationTests {
     }
 
     // Helpers
+
+    @Test
+    void sendsSignedLikesAndUndosToTheRemoteAuthorsPersonalInbox() {
+        var host = newHost();
+        var remote = remoteAuthor(host, "bob");
+        var status = remoteStatus(remote, Visibility.PUBLIC);
+        likes.favourite(status, author.id());
+        var saved = likes.page(status, null, 10).getFirst();
+        var sent = awaitActivity(host, saved.activityUri());
+        assertThat(sent.request().path()).isEqualTo("/users/bob/inbox");
+        assertThat(sent.request().signature()).contains("keyId=", "rsa-sha256");
+        assertThat(sent.body().path("type").asString()).isEqualTo("Like");
+        assertThat(sent.body().path("actor").asString()).isEqualTo(author.uri().toString());
+        likes.unfavourite(status, author.id());
+        var undo = awaitActivity(host, saved.activityUri() + "/undo");
+        assertThat(undo.request().signature()).isNotBlank();
+        assertThat(undo.body().path("type").asString()).isEqualTo("Undo");
+        assertThat(undo.body().path("object").path("id").asString()).isEqualTo(saved.activityUri());
+    }
+
+    @Test
+    void anUnlikeWaitsForAnInFlightLike() {
+        var host = newHost();
+        var hold = new CountDownLatch(1);
+        holdLikes.put(host, hold);
+        var remote = remoteAuthor(host, "bob");
+        var status = remoteStatus(remote, Visibility.PUBLIC);
+        likes.favourite(status, author.id());
+        var saved = likes.page(status, null, 10).getFirst();
+        awaitActivity(host, saved.activityUri());
+        try {
+            likes.unfavourite(status, author.id());
+            await().atMost(WAIT).until(() -> jobsFor(saved.activityUri() + "/undo") == 1);
+            await().during(Duration.ofSeconds(2)).atMost(WAIT).until(() -> receivedBy(host).stream()
+                    .noneMatch(request -> json.readTree(request.body()).path("type").asString().equals("Undo")));
+        } finally {
+            hold.countDown();
+        }
+        awaitActivity(host, saved.activityUri() + "/undo");
+    }
+
+    @Test
+    void retriesLikeDeliveryAfterAServerFailure() {
+        var host = newHost();
+        refuseLikes.add(host);
+        var remote = remoteAuthor(host, "bob");
+        var status = remoteStatus(remote, Visibility.PUBLIC);
+        likes.favourite(status, author.id());
+        var saved = likes.page(status, null, 10).getFirst();
+        awaitActivity(host, saved.activityUri());
+        await().atMost(WAIT).until(() -> parkedJobsFor(saved.activityUri()) == 1);
+        refuseLikes.remove(host);
+        jdbc.sql("UPDATE scheduled_tasks SET execution_time = now() WHERE task_name = 'activity-delivery' "
+                        + "AND convert_from(task_data, 'UTF8') LIKE :id")
+                .param("id", "%" + saved.activityUri() + "%").update();
+        await().atMost(WAIT).until(() -> receivedBy(host).size() >= 2);
+        await().atMost(WAIT).until(() -> jobsFor(saved.activityUri()) == 0);
+        assertThat(receivedBy(host).stream().map(Received::body).distinct()).hasSize(1);
+    }
 
     private String newHost() {
         return "statuses" + next.incrementAndGet() + ".test";

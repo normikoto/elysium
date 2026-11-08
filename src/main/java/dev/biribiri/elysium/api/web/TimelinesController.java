@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/v1/timelines")
@@ -79,7 +80,7 @@ public class TimelinesController {
             @RequestParam(required = false) String local) {
         var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
-        return responses.page(HOME_PATH, Map.of(), page, timelines.homeTimeline(viewer, page));
+        return responses.page(HOME_PATH, Map.of(), page, timelines.homeTimeline(viewer, page), Optional.of(viewer));
     }
 
     /**
@@ -111,6 +112,7 @@ public class TimelinesController {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first.")
             })
     public ResponseEntity<List<StatusResponse>> publicTimeline(
+            @AuthenticationPrincipal TokenPrincipal token,
             @RequestParam(required = false) String limit,
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
@@ -131,6 +133,6 @@ public class TimelinesController {
             case ANY -> {
             }
         }
-        return responses.page(PUBLIC_PATH, filters, page, found);
+        return responses.page(PUBLIC_PATH, filters, page, found, RequestParameters.viewer(token));
     }
 }

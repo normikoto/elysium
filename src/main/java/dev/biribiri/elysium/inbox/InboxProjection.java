@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.inbox;
 
 import dev.biribiri.elysium.content.StatusStored;
+import dev.biribiri.elysium.content.StatusLiked;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
 import dev.biribiri.elysium.graph.FollowEstablished;
 import dev.biribiri.elysium.inbox.internal.ConversationRepository;
@@ -69,6 +70,18 @@ public class InboxProjection {
         if (conversations.currentFollow(event.followId(), event.followerId(), event.followedId())) {
             notifications.insert(event.followedId(), event.followerId(), "follow", event.followId(), null, event.followId());
         }
+    }
+
+    @ApplicationModuleListener
+    public void on(StatusLiked event) {
+        if (event.actorId().equals(event.authorId())
+                || conversations.localRecipients(List.of(event.authorId())).isEmpty()) return;
+        notifications.lock();
+        conversations.holdActors(List.of(event.actorId(), event.authorId()));
+        conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
+                .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
+                .filter(source -> conversations.currentLike(event.likeId(), event.actorId(), event.statusId()))
+                .ifPresent(source -> notifications.insertFavourite(event.authorId(), event.actorId(), event.likeId(), source.id()));
     }
 
     @ApplicationModuleListener
