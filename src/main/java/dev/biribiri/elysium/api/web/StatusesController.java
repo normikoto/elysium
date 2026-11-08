@@ -81,7 +81,11 @@ public class StatusesController {
                      characters rather than 500, and `GET /api/v1/instance` gives it. As in Mastodon, each URL \
                     counts as 23 characters, unless it's longer than 2048 characters, when it \
                     counts at its full length. URLs can save at most 4096 characters per status, and any after that \
-                    also count at their full length.
+                    also count at their full length. As in Mastodon, a mention counts without its domain, though the \
+                    domains can save at most 4096 characters per status.
+                    - A mention of an account on another server is looked up first, and counts toward the user's limit \
+                    of 30 lookups a minute. A mention that can't be found, or one past that limit that isn't stored \
+                    here, stays as text rather than failing the request.
                     - `visibility` defaults to `public` only when it's missing. An empty value gets a 422, as do a \
                     repeated value and `visibility[]`.
                     - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a \
@@ -245,14 +249,18 @@ public class StatusesController {
     @Schema(name = "NewStatus")
     private record NewStatusBody(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = """
-                    The text, as plain text. URLs are linked, but mentions and hashtags aren't yet.""")
+                    The text, as plain text. URLs and mentions are linked, but hashtags aren't yet. A mention of an \
+                    account that can't be found, or one past the limit on lookups of accounts on other servers, stays \
+                    as text.""")
             String status,
             @Schema(description = "A content warning, shown in place of the text until it's opened.")
             String spoiler_text,
             @Schema(description = "An ISO 639 language code.")
             String language,
             @Schema(allowableValues = {"public", "unlisted", "private", "direct"}, defaultValue = "public",
-                    description = "Who can see the status. An empty value gets a 422.")
+                    description = """
+                            Who can see the status. A direct status is only sent to the accounts it mentions. An \
+                            empty value gets a 422.""")
             String visibility,
             @Schema(description = "Whether the content is sensitive.", defaultValue = "false")
             Boolean sensitive,

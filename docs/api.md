@@ -16,10 +16,19 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   Statuses from other servers can have been edited there, and then have an `edited_at`, but
   `GET /api/v1/statuses/:id/history` and `GET /api/v1/statuses/:id/source` aren't implemented.
   `media_ids`, `poll`, or `scheduled_at` with a value gets a 422 rather than being ignored.
-- URLs in a status are linked, but mentions and hashtags aren't yet.
+- URLs and mentions in a status are linked, but hashtags aren't yet. A mention of an account on another server is looked
+  up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
+  mention that can't be found, or one past that limit of an account that isn't already known here, stays as text rather
+  than failing the request.
 - The length limit defaults to 5000 characters rather than 500. As in Mastodon, each URL counts as 23 characters, unless
   it's longer than 2048 characters, in which case it counts at its full length. URLs can save at most 4096 characters
-  per status, and any URLs after that also count at their full length.
+  per status, and any URLs after that also count at their full length. A mention counts without its domain, as in
+  Mastodon, and the domains can save at most 4096 characters per status.
+- A followers-only or direct status can be seen by the accounts it mentions, as on Mastodon. Notifications and
+  conversations aren't implemented, so a direct status, and a followers-only one that mentions the user, shows in the
+  home timeline of the user it mentions, whoever posted it.
+- `mentions` leaves out accounts that have been suspended or deleted since. For a status from another server, it also
+  leaves out local accounts that the status was sent to without mentioning them, which can still see it.
 - `visibility` defaults to `public` only when it's missing. An empty value is rejected, as are a repeated value and
   `visibility[]`.
 - `GET /api/v1/instance` reports the limit in `max_toot_chars` and `configuration.statuses.max_characters`, but
@@ -29,9 +38,10 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
 - Statuses from other servers are only stored when they're sent here, which is when a local account follows their author or
   is addressed by them, or when they're a public or unlisted reply to a stored status of a local account or one that's
-  followed here. Older ones, and replies that arrive before their parent, aren't there. Direct ones aren't stored. Their HTML is sanitized, so it can differ from what the other server shows,
-  and they never have `media_attachments`, `mentions`, `tags`, `emojis`, or a `poll`. A reply whose parent isn't stored has a
-  null `in_reply_to_id` and `in_reply_to_account_id`.
+  followed here. Older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
+  can differ from what the other server shows, and they never have `media_attachments`, `tags`, `emojis`, or a `poll`.
+  Their `mentions` only list local accounts, and accounts on other servers that are already known here. A reply whose
+  parent isn't stored has a null `in_reply_to_id` and `in_reply_to_account_id`.
 - `GET /api/v1/statuses/:id/context` only lists statuses stored here, and never fetches missing parents or replies from other
   servers. It lists up to 40 ancestors, and up to 60 descendants at most 20 replies deep, the limits Mastodon uses without a
   token, whoever asks. Statuses the user can't see are left out after those limits apply, so fewer can be listed.

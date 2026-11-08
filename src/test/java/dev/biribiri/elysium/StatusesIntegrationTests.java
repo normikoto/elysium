@@ -347,6 +347,84 @@ class StatusesIntegrationTests {
         }
     }
 
+    // Mentions
+
+    @Test
+    void linksMentionsAndListsThem() throws Exception {
+        var remote = actors.findById(remoteAuthor()).orElseThrow();
+        var id = create(alice(), "hi @bob and @s@" + remote.domain());
+        mockMvc.perform(get("/api/v1/statuses/" + id))
+                .andExpect(jsonPath("$.content").value(containsString(
+                        "<a href=\"https://elysium.example/users/bob\" class=\"u-url mention\" title=\"@bob@elysium.example\">")))
+                .andExpect(jsonPath("$.content").value(containsString(
+                        "<a href=\"" + remote.uri() + "\" class=\"u-url mention\" title=\"@s@" + remote.domain() + "\">")))
+                .andExpect(jsonPath("$.mentions", hasSize(2)))
+                .andExpect(jsonPath("$.mentions[?(@.acct == 'bob')].id").value(bobId()))
+                .andExpect(jsonPath("$.mentions[?(@.acct == 'bob')].url").value("https://elysium.example/users/bob"))
+                .andExpect(jsonPath("$.mentions[?(@.acct == 's@" + remote.domain() + "')].username").value("s"));
+    }
+
+    @Test
+    void showsADirectStatusOnlyToItsAuthorAndTheAccountsItMentions() throws Exception {
+        var id = create(alice(), "@bob psst", "direct");
+        var path = "/api/v1/statuses/" + id;
+        mockMvc.perform(withToken(get(path), bob())).andExpect(status().isOk());
+        mockMvc.perform(withToken(get(path), carol())).andExpect(status().isNotFound());
+        mockMvc.perform(get(path)).andExpect(status().isNotFound());
+        expectIds(withToken(get(HOME), bob()), id);
+        expectIds(withToken(get(HOME), carol()));
+        expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), bob()), id);
+        expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), carol()));
+    }
+
+    @Test
+    void showsAFollowersOnlyStatusToTheAccountsItMentions() throws Exception {
+        var id = create(alice(), "@bob only followers and you", "private");
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob())).andExpect(status().isOk());
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), carol())).andExpect(status().isNotFound());
+        expectIds(withToken(get(HOME), bob()), id);
+    }
+
+    @Test
+    void leavesPublicMentionsFromUnfollowedAccountsOutOfTheHomeTimeline() throws Exception {
+        create(alice(), "@bob in public");
+        expectIds(withToken(get(HOME), bob()));
+    }
+
+    @Test
+    void showsDirectRepliesInAThreadOnlyToThoseTheyMention() throws Exception {
+        var parent = create(alice(), "Start");
+        var reply = create(bob(), "@alice just us", "direct", parent);
+        expectContext(withToken(get(context(parent)), alice()), List.of(), List.of(reply));
+        expectContext(withToken(get(context(parent)), carol()), List.of(), List.of());
+        expectContext(get(context(parent)), List.of(), List.of());
+    }
+
+    @Test
+    void showsARemoteStatusToAnAccountItWasSentToWithoutListingItAsMentioned() throws Exception {
+        var authorId = remoteAuthor();
+        var author = actors.findById(authorId).orElseThrow();
+        var id = statuses.storeRemote(new RemoteStatus(
+                URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, authorId, "<p>Hi</p>", null, null,
+                Visibility.DIRECT, false, null, Instant.now(), null,
+                Map.of(UUID.fromString(bobId()), true))).orElseThrow();
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mentions", empty()));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), carol())).andExpect(status().isNotFound());
+        expectIds(withToken(get(HOME), bob()), id.toString());
+    }
+
+    @Test
+    void deletesAStatusWithMentions() throws Exception {
+        var id = create(alice(), "@bob hi", "direct");
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice())).andExpect(status().isOk());
+        var bob = UUID.fromString(bobId());
+        var deleted = events.stream(StatusDeleted.class).filter(event -> event.statusId().toString().equals(id)).findFirst();
+        assertThat(deleted).hasValueSatisfying(event -> assertThat(event.mentioned()).containsExactly(bob));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob())).andExpect(status().isNotFound());
+    }
+
     // Deleting
 
     @Test
@@ -912,6 +990,10 @@ class StatusesIntegrationTests {
 
     private String bob() throws Exception {
         return token("bob", "read write");
+    }
+
+    private String carol() throws Exception {
+        return token("carol", "read write");
     }
 
     private String aliceId() throws Exception {

@@ -42,19 +42,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `username@domain` or by URL. Following another server's user waits until that server accepts. Followers can see a local user's followers-only posts. This adds `GET /api/v1/accounts/:id`,
   `GET /api/v1/accounts/lookup`, `GET /api/v1/accounts/relationships`, `POST /api/v1/accounts/:id/follow` and `/unfollow`,
   `GET /api/v1/accounts/:id/followers` and `/following`, and `GET /api/v2/search`. See `docs/api.md` and `FEDERATION.md`.
-- New public, unlisted, and followers-only statuses are sent to followers on other servers, as a `Create`. Direct statuses
-  aren't sent, and statuses from before this aren't sent. Followers-only statuses only go to those already following when
-  they're posted. See `FEDERATION.md`.
-- Deleting a public, unlisted, or followers-only status stops any `Create` that hasn't started sending, and sends a `Delete` to
-  followers on other servers. For a followers-only status, this only goes to those already following when it was posted. A
-  `Delete` waits for a `Create` that's being sent to the same server. See `FEDERATION.md`.
+- New statuses are sent to followers on other servers, as a `Create`, and statuses from before this aren't sent.
+  Followers-only statuses only go to those already following when they're posted. See `FEDERATION.md`.
+- Mentions, written as `@user` for someone on this server or `@user@domain` for someone on another, are linked to the
+  account, which is looked up on its server when the status is posted. A mentioned account can see a followers-only status,
+  and direct statuses go only to the accounts they mention. Without notifications or conversations, a direct status, or a
+  followers-only one that mentions a user, shows in that user's home timeline. Posts from other servers that mention a
+  local user, and direct ones addressed to them, are stored and shown to them. See `docs/api.md` and `FEDERATION.md`.
+- Deleting a status stops any `Create` that hasn't started sending, and sends a `Delete` to followers on other servers and
+  the accounts it mentioned. For a followers-only status, this only goes to followers who were already following when it was
+  posted. A `Delete` waits for a `Create` that's being sent to the same server. See `FEDERATION.md`.
 - A deleted public or unlisted status now tells other servers it's gone, with a `410`, rather than a 404.
 - `GET /api/v1/timelines/home`, with the user's own posts and those of the accounts they follow, on this server and
   others. See `docs/api.md`.
 - Posts from other servers are stored when they're sent here, which is when a local user follows their author or is
   addressed by them. They're shown through the API, in `GET /api/v1/statuses/:id`, `GET /api/v1/accounts/:id/statuses`,
   and `GET /api/v1/timelines/public`, which now takes `local` and `remote`, but not on the public web pages. Older posts
-  aren't fetched, and direct posts and attachments aren't read. Their HTML is
+  aren't fetched, and attachments aren't read. Their HTML is
   sanitized. A public or unlisted reply to one is also sent to its author. A domain block removes its server's posts, and
   a suspended account's posts are hidden until the suspension ends. The server's post count only counts local posts. See
   `FEDERATION.md` and `docs/api.md`.

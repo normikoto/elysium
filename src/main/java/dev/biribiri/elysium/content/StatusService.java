@@ -1,13 +1,16 @@
 package dev.biribiri.elysium.content;
 
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.StatusIds;
+import dev.biribiri.elysium.content.internal.StatusRepository;
+import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.text.Mentions;
 import dev.biribiri.elysium.text.PlainText;
 import dev.biribiri.elysium.text.RemoteHtml;
-import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.text.Urls;
-import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -20,13 +23,18 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
@@ -50,6 +58,7 @@ public class StatusService {
     private final TransactionTemplate transaction;
     private final ApplicationEventPublisher events;
     private final FollowService follows;
+    private final RemoteActorResolver resolver;
 
     StatusService(
             StatusRepository statuses,
@@ -58,7 +67,9 @@ public class StatusService {
             StatusProperties properties,
             PlatformTransactionManager transactionManager,
             ApplicationEventPublisher events,
-            FollowService follows) {
+            FollowService follows,
+            RemoteActorResolver resolver) {
+        this.resolver = resolver;
         this.statuses = statuses;
         this.actors = actors;
         this.follows = follows;
@@ -69,7 +80,9 @@ public class StatusService {
     }
 
     /**
-     * Publishes a status.
+     * Publishes a status. Mentions of accounts on other servers are looked up through WebFinger first, which counts toward
+     * the author's {@link RemoteActorResolver#LOOKUPS_PER_MINUTE}. A mention that can't be found, including once the author
+     * has used up their lookups, stays as text, as it does on Mastodon, rather than refusing the status.
      *
      * @throws InvalidStatusException       if the status breaks a validation rule
      * @throws ReplyParentNotFoundException if the status being replied to doesn't exist or the author can't see it
@@ -83,7 +96,10 @@ public class StatusService {
 
         var author = actors.findLocalById(authorId)
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
-        var content = PlainText.render(text);
+        var mentioned = resolveMentions(author, text);
+        var content = PlainText.render(text, match -> Optional.ofNullable(mentioned.get(acct(match)))
+                .map(actor -> new PlainText.MentionLink(actor.uri(), actor.username() + "@" + domainOf(actor)))
+                .orElse(null));
 
         return transaction.execute(tx -> {
             var parent = draft.inReplyToId() == null
@@ -115,9 +131,68 @@ public class StatusService {
                     null,
                     0);
             statuses.insert(status);
+            statuses.insertMentions(id, mentioned.values().stream()
+                    .map(Actor::id)
+                    .filter(mentionedId -> !mentionedId.equals(authorId))
+                    .distinct()
+                    .collect(Collectors.toMap(Function.identity(), mentionedId -> false)));
             events.publishEvent(new StatusPublished(id, authorId));
             return status;
         });
+    }
+
+    /**
+     * Finds the account each mention in a status names. Each address is looked up once, however often it's mentioned.
+     *
+     * @return the accounts found, under {@link #acct}
+     */
+    private Map<String, Actor> resolveMentions(Actor author, String text) {
+        var found = new LinkedHashMap<String, Optional<Actor>>();
+        for (var match : Mentions.find(text)) {
+            found.computeIfAbsent(acct(match), key -> resolveMention(author, match));
+        }
+        var resolved = new LinkedHashMap<String, Actor>();
+        found.forEach((key, actor) -> actor.ifPresent(value -> resolved.put(key, value)));
+        return resolved;
+    }
+
+    private Optional<Actor> resolveMention(Actor author, Mentions.Match match) {
+        var domain = match.domain() == null ? null : match.domain().toLowerCase(Locale.ROOT);
+        if (domain == null || domain.equals(instance.domain())) {
+            return actors.findLocalByUsername(match.username());
+        }
+        try {
+            return resolver.resolveAcct(author.id(), match.username(), domain);
+        } catch (RemoteActorResolver.ResolveLimitException e) {
+            return actors.findRemoteByAcct(match.username(), domain).filter(Actor::isActive);
+        }
+    }
+
+    /**
+     * Usernames and domains are both matched without regard to case.
+     */
+    private String acct(Mentions.Match match) {
+        var domain = match.domain() == null ? instance.domain() : match.domain();
+        return (match.username() + "@" + domain).toLowerCase(Locale.ROOT);
+    }
+
+    private String domainOf(Actor actor) {
+        return actors.isLocal(actor) ? instance.domain() : actor.domain();
+    }
+
+    /**
+     * The accounts each status shows as mentioned, leaving out silent mentions and accounts that are suspended or deleted.
+     *
+     * @return an entry for each status that mentions anyone
+     */
+    public Map<UUID, List<Actor>> findMentions(Collection<UUID> statusIds) {
+        var mentions = statuses.findMentions(statusIds);
+        var actorsById = actors.findByIds(mentions.values().stream().flatMap(List::stream).distinct().toList()).stream()
+                .collect(Collectors.toMap(Actor::id, Function.identity()));
+        var result = new HashMap<UUID, List<Actor>>();
+        mentions.forEach((statusId, actorIds) -> result.put(
+                statusId, actorIds.stream().map(actorsById::get).filter(Objects::nonNull).toList()));
+        return result;
     }
 
     /**
@@ -170,6 +245,9 @@ public class StatusService {
             if (!statuses.insert(status)) {
                 return Optional.<UUID>empty();
             }
+            var mentions = new HashMap<>(remote.mentions());
+            mentions.remove(author.id());
+            statuses.insertMentions(id, mentions);
             // Jobs have no order, so replies can be stored before their parent.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
             return Optional.of(id);
@@ -178,7 +256,9 @@ public class StatusService {
 
     /**
      * Replaces a remote status with a version its author's server edited. Only what an author can change in an edit on
-     * Mastodon is replaced, so its visibility, its parent and when it was published stay as they were. Nothing is
+     * Mastodon is replaced, so its visibility, its parent and when it was published stay as they were. So do its mentions,
+     * which decide who can see a followers-only or direct status, so that an edit can't show it to anyone it wasn't sent
+     * to. Nothing is
      * published for it, since it isn't this server's to send.
      *
      * @return what happened to the edit
@@ -245,19 +325,31 @@ public class StatusService {
 
     /**
      * Whether this viewer is allowed to see a status. Besides what {@link Status#isVisibleTo} allows, a followers-only status
-     * can be seen by an account that follows its author. Mentions don't exist yet, so a direct status can still only be seen
-     * by its author.
+     * can be seen by an account that follows its author, and a followers-only or direct status by the accounts it mentions,
+     * as on Mastodon.
      */
     public boolean isVisible(Status status, Optional<UUID> viewer) {
-        return isVisible(status, viewer, author -> viewer.filter(id -> follows.isFollowing(id, author)).isPresent());
+        return isVisible(
+                status,
+                viewer,
+                author -> viewer.filter(id -> follows.isFollowing(id, author)).isPresent(),
+                statusId -> viewer.filter(id -> !statuses.mentioning(List.of(statusId), id).isEmpty()).isPresent());
     }
 
     /**
-     * @param followsAuthor whether the viewer follows an author, for a caller that has looked that up already
+     * @param followsAuthor  whether the viewer follows an author, for a caller that has looked that up already
+     * @param mentionsViewer whether a status mentions the viewer, for a caller that has looked that up already
      */
-    private static boolean isVisible(Status status, Optional<UUID> viewer, Predicate<UUID> followsAuthor) {
-        return status.isVisibleTo(viewer)
-                || (status.visibility() == Visibility.PRIVATE && followsAuthor.test(status.actorId()));
+    private static boolean isVisible(
+            Status status, Optional<UUID> viewer, Predicate<UUID> followsAuthor, Predicate<UUID> mentionsViewer) {
+        if (status.isVisibleTo(viewer)) {
+            return true;
+        }
+        if (viewer.isEmpty()) {
+            return false;
+        }
+        return (status.visibility() == Visibility.PRIVATE && followsAuthor.test(status.actorId()))
+                || mentionsViewer.test(status.id());
     }
 
     /**
@@ -270,11 +362,16 @@ public class StatusService {
         return findVisible(id, viewer).map(status -> {
             var ancestors = statuses.findAncestors(id, MAX_ANCESTORS);
             var descendants = statuses.findDescendants(id, MAX_DESCENDANT_DEPTH, MAX_DESCENDANTS);
-            // One lookup for the whole thread, rather than one for each followers-only status in it.
-            var needsFollows = viewer.isPresent() && Stream.concat(ancestors.stream(), descendants.stream())
-                    .anyMatch(found -> found.visibility() == Visibility.PRIVATE && !found.isVisibleTo(viewer));
+            // One lookup of each kind for the whole thread, rather than one for each followers-only or direct status in it.
+            var hidden = viewer.isEmpty() ? List.<Status>of() : Stream.concat(ancestors.stream(), descendants.stream())
+                    .filter(found -> !found.isVisibleTo(viewer))
+                    .toList();
+            var needsFollows = hidden.stream().anyMatch(found -> found.visibility() == Visibility.PRIVATE);
             Set<UUID> followed = needsFollows ? Set.copyOf(follows.followedIds(viewer.get())) : Set.of();
-            Predicate<Status> visible = found -> isVisible(found, viewer, followed::contains);
+            Set<UUID> mentioning = hidden.isEmpty()
+                    ? Set.of()
+                    : statuses.mentioning(hidden.stream().map(Status::id).toList(), viewer.get());
+            Predicate<Status> visible = found -> isVisible(found, viewer, followed::contains, mentioning::contains);
             return new StatusContext(
                     ancestors.stream().filter(visible).toList(), descendants.stream().filter(visible).toList());
         });
@@ -300,6 +397,8 @@ public class StatusService {
      */
     public Optional<Status> delete(UUID id, UUID authorId) {
         return transaction.execute(tx -> {
+            // Before the status goes, and its mentions with it.
+            var mentioned = statuses.findAllMentioned(id);
             var deleted = statuses.delete(id, authorId);
             deleted.ifPresent(status -> {
                 if (status.isVisibleTo(Optional.empty())) {
@@ -307,7 +406,7 @@ public class StatusService {
                 }
                 events.publishEvent(new StatusDeleted(
                         status.id(), status.uri(), authorId, status.visibility(), status.publishedAt(),
-                        shownParentAuthor(status)));
+                        shownParentAuthor(status), mentioned));
             });
             return deleted;
         });
@@ -389,8 +488,9 @@ public class StatusService {
     }
 
     /**
-     * Lists all of a viewer's own statuses, and those of the accounts they follow that they can see. Direct statuses from
-     * others aren't stored yet, so they're left out. As on Mastodon, a followed account's reply is only listed when it's to
+     * Lists all of a viewer's own statuses, those of the accounts they follow that they can see, and the followers-only and
+     * direct statuses that mention them, from anyone. Public and unlisted ones that mention them are only listed if they
+     * follow the author, as on Mastodon. As on Mastodon, a followed account's reply is only listed when it's to
      * its author, to the viewer, or to someone they follow, so that following one person doesn't show their side of every
      * conversation. A reply to a status that isn't stored here has no known parent author, so it's left out too.
      *
@@ -401,7 +501,7 @@ public class StatusService {
     }
 
     /**
-     * Lists the statuses of one account that this viewer is allowed to see.
+     * Lists the statuses of one account that this viewer is allowed to see, which includes those that mention them.
      */
     public List<Status> findByAccount(UUID actorId, Optional<UUID> viewer, boolean excludeReplies, StatusPage page) {
         var visibilities = viewer.filter(actorId::equals).isPresent()
@@ -409,7 +509,7 @@ public class StatusService {
                 : viewer.filter(id -> follows.isFollowing(id, actorId)).isPresent()
                 ? Set.of(Visibility.PUBLIC, Visibility.UNLISTED, Visibility.PRIVATE)
                 : Set.of(Visibility.PUBLIC, Visibility.UNLISTED);
-        return statuses.findByAccount(actorId, visibilities, excludeReplies, page);
+        return statuses.findByAccount(actorId, visibilities, viewer.orElse(null), excludeReplies, page);
     }
 
     /**
@@ -429,11 +529,11 @@ public class StatusService {
     }
 
     /**
-     * The most characters a new status can have stored, which is more than the length limit because URLs count as fewer
-     * characters than they have.
+     * The most characters a new status can have stored, which is more than the length limit because URLs and the domains in
+     * mentions count as fewer characters than they have.
      */
     public long maxStoredCharacters() {
-        return (long) properties.maxCharacters() + Urls.MAX_URL_SAVINGS;
+        return (long) properties.maxCharacters() + Urls.MAX_URL_SAVINGS + Mentions.MAX_DOMAIN_SAVINGS;
     }
 
     /**

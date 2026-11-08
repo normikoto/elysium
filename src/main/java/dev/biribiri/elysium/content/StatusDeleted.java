@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -12,7 +13,17 @@ import java.util.UUID;
  * @param inReplyToAccountId the parent's author, if the parent was still there when this was deleted and anyone could see
  *                           it, which is when its author was sent the reply. Otherwise null, as it is for an event stored
  *                           before this was added
+ * @param mentionedIds       every account it mentioned, who were sent it. Null for an event stored before this was added,
+ *                           when statuses didn't mention anyone
  */
 public record StatusDeleted(
-        UUID statusId, URI statusUri, UUID authorId, Visibility visibility, Instant publishedAt, UUID inReplyToAccountId) {
+        UUID statusId, URI statusUri, UUID authorId, Visibility visibility, Instant publishedAt, UUID inReplyToAccountId,
+        List<UUID> mentionedIds) {
+
+    /**
+     * @return who it mentioned, which is nobody for an event stored before mentions existed
+     */
+    public List<UUID> mentioned() {
+        return mentionedIds == null ? List.of() : mentionedIds;
+    }
 }

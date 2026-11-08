@@ -2,6 +2,8 @@ package dev.biribiri.elysium.text;
 
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PlainTextTests {
@@ -12,6 +14,17 @@ class PlainTextTests {
 
     private static String link(String url) {
         return link(url, url);
+    }
+
+    @Test
+    void linksMentionsThatHaveATarget() {
+        var html = PlainText.render("hi @bob@Example.com, @nobody & https://a.example/@bob", mention ->
+                mention.username().equals("bob")
+                        ? new PlainText.MentionLink(URI.create("https://example.com/users/bob?a=1&b=2"), "bob@example.com")
+                        : null);
+        assertThat(html).isEqualTo("<p>hi <span class=\"h-card\" translate=\"no\"><a href=\"https://example.com/users/bob?a=1&amp;b=2\" "
+                + "class=\"u-url mention\" title=\"@bob@example.com\">@<span>bob</span></a></span>, @nobody &amp; "
+                + link("https://a.example/@bob") + "</p>");
     }
 
     @Test

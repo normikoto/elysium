@@ -106,16 +106,25 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 - `summary`: the content warning, as plain text rather than HTML, which matches Mastodon.
 - `inReplyTo`: the parent status.
 - `contentMap`: the `content` under its language, if one is set.
+- `tag`: a `Mention` for each account the status mentions, with the actor's ID as `href` and its full address, such as
+  `@bob@example.com`, as `name`. Mentioned accounts that have since been suspended or deleted are left out.
 
-Statuses are addressed like this, where `followers` is the author's followers collection:
+Statuses are addressed like this, where `followers` is the author's followers collection and `mentioned` the actors in its
+`Mention` tags:
 
-| Visibility     | `to`      | `cc`      |
-|----------------|-----------|-----------|
-| Public         | public    | followers |
-| Unlisted       | followers | public    |
-| Followers-only | followers |           |
+| Visibility     | `to`      | `cc`                 |
+|----------------|-----------|----------------------|
+| Public         | public    | followers, mentioned |
+| Unlisted       | followers | public, mentioned    |
+| Followers-only | followers | mentioned            |
+| Direct         | mentioned |                      |
 
-A reply also has the parent's author in `cc`, if its `inReplyTo` is shown and that's someone else. There's no `Mention` tag.
+A reply that isn't direct also has the parent's author in `cc`, if its `inReplyTo` is shown and that's someone else. A
+direct reply only addresses its parent's author if it mentions them, as on Mastodon.
+
+In the `content`, a mention is a link to the actor's ID, in Mastodon's markup:
+`<span class="h-card" translate="no"><a href="…" class="u-url mention" title="@bob@example.com">@<span>bob</span></a></span>`.
+Only the username is shown, also for an actor on another server.
 
 A reply's `inReplyTo` is shown if the parent is public or unlisted, or if a followers-only status replies to its author's own
 followers-only status.
@@ -328,9 +337,11 @@ describes. Older posts aren't fetched. Following an actor on a [blocked domain](
 ### Statuses
 
 When a local user posts a public, unlisted, or followers-only status, it's sent to their followers on other servers, signed as
-the user. Each server's shared inbox is used for its followers that have one, so that they share one delivery, and other
-followers' `inbox` is used otherwise. A public or unlisted reply to a status from another server is also sent to that
-status's author. Direct statuses aren't sent, since they have no audience without mentions. Followers are
+the user, and to the actors on other servers that it mentions. A direct status is only sent to the actors it mentions. Each
+server's shared inbox is used for the recipients that have one, so that they share one delivery, and other recipients'
+`inbox` is used otherwise. A public or unlisted reply to a status from another server is also sent to that
+status's author. A mention of `@user@domain` is looked up through WebFinger when the status is posted, as
+[Following other actors](#following-other-actors) describes, and one that can't be found stays as text, and isn't sent anything. Followers are
 worked out shortly after posting, and statuses from before someone followed aren't sent. A
 followers-only status only goes to those who were already following when it was posted.
 
@@ -361,9 +372,9 @@ The `object` is the same `Note` that's described in [Objects](#objects). The `id
 the `Note` instead, if the `Note` can be fetched. In rare cases, such as after a failure, a `Create` can be sent again with the
 same `id`.
 
-When a local user deletes a public, unlisted, or followers-only status, any delivery of its `Create` that hasn't started is
-cancelled, and a `Delete` is sent to their followers on other servers, the same way as a `Create`. It's addressed like the
-`Create`, except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. Deleting a direct status sends nothing. The `Delete` of
+When a local user deletes a status, any delivery of its `Create` that hasn't started is cancelled, and a `Delete` is sent to
+their followers on other servers and the actors it mentioned, the same way as a `Create`. It's addressed like the `Create`,
+except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. The `Delete` of
 a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
 that the status existed.
 
@@ -405,7 +416,12 @@ that isn't for anyone here is ignored, even if it's public. Other object types, 
   and has to come back with the same `id`. A server error or timeout is tried again later, and other failures drop it.
 - **Visibility:** read from the `Note`'s own `to` and `cc`, not the `Create`'s. The public collection in `to` makes it public,
   and in `cc` unlisted. Otherwise, the author's `followers` collection in either makes it followers-only. Anything else is
-  direct, and is ignored until mentions are supported.
+  direct.
+- **Mentions:** `Mention` tags are read, up to 100 of them. A followers-only or direct `Note` is only shown to the local
+  users it addresses one by one in its own `to`, `cc`, `bto`, `bcc`, or `audience`, besides followers for a followers-only
+  one. A `Mention` tag alone doesn't show it to anyone. A local user it addresses without a `Mention` tag can see it, but
+  isn't listed as mentioned, as on Mastodon. A public or unlisted `Note` lists every local user it tags. Actors on other
+  servers are only listed as mentioned if they're already known here, and they're never fetched for this.
 - **Content:** `content` is sanitized. `p`, `br`, `span`, `a`, `del`, `s`, `pre`, `code`, `em`, `strong`, `b`, `i`, `u`,
   `ul`, `ol`, `li`, and `blockquote` are kept, headings become bold paragraphs, and other elements are replaced by their
   text. Links keep only HTTP and HTTPS `href`s, and get `rel="nofollow noopener noreferrer"`. Only Mastodon's `h-card`,
@@ -413,8 +429,8 @@ that isn't for anyone here is ignored, even if it's public. Other object types, 
   reduced to plain text and shown as a content warning, which also marks the status as sensitive.
 - **Other properties:** `url` is kept if it's an HTTP or HTTPS URL, or a `Link` to one that's `text/html` or has no
   `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
-  other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the parent arrives later. Attachments,
-  tags, emoji, and polls aren't read yet.
+  other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the
+  parent arrives later. Attachments, tags other than `Mention`, emoji, and polls aren't read yet.
 - **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again. An
   [`Update`](#receiving-updates) is how it's changed.
 - **Edits:** a `Note` that has an `updated` later than its `published`, and no more than an hour ahead of this server's
@@ -476,16 +492,18 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
 ### Notable differences
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
-- Only `Note`s are stored, and only ones that are for a local user or reply to a status of someone followed here. Direct
-  `Note`s, `Announce`, and `Like` are ignored. A reply's parent isn't fetched, and neither are the replies to a status.
+- Only `Note`s are stored, and only ones that are for a local user or reply to a status of someone followed here.
+  `Announce` and `Like` are ignored. A reply's parent isn't fetched, and neither are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
 - An edited status's earlier versions aren't kept.
 - `Reject` is never sent.
 - A deleted actor's URI can't be used again by a new actor on its server.
 - Actor documents advertise an `outbox`, but it isn't implemented yet.
-- `Note` objects for replies don't include a `Mention` tag.
+- A reply only has a `Mention` tag for its parent's author if its text mentions them, as clients usually add.
+- An `Update` doesn't change who a stored status mentions, so an edit can't show a followers-only or direct status to more
+  local users.
 - A reply's `inReplyTo` is left out if its parent is deleted or can't be shown, so it looks like it isn't a reply.
-- Followers-only statuses are only sent, and can't be fetched, even by a follower.
+- Followers-only and direct statuses are only sent, and can't be fetched, even by a follower or a mentioned actor.
 - A `Delete` goes to whoever follows the author when it's deleted, so a server whose only follower has since unfollowed keeps
   its copy. For a followers-only status, that includes a follower who unfollowed and then followed again after it was posted.
 - Inboxes can't be read, so a `GET` gets a 403.

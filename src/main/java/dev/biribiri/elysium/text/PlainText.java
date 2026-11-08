@@ -2,6 +2,10 @@ package dev.biribiri.elysium.text;
 
 import org.springframework.web.util.HtmlUtils;
 
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -18,9 +22,25 @@ public final class PlainText {
     private PlainText() {
     }
 
+    /**
+     * Where a mention links to.
+     *
+     * @param href the account's profile
+     * @param acct the account's full address, without the leading {@code @}, shown when hovering over the mention
+     */
+    public record MentionLink(URI href, String acct) {
+    }
+
     public static String render(String text) {
+        return render(text, mention -> null);
+    }
+
+    /**
+     * @param mentions where each mention links to, or null to leave it as text, as for an account that doesn't exist
+     */
+    public static String render(String text, Function<Mentions.Match, MentionLink> mentions) {
         return PARAGRAPH_BREAK.splitAsStream(text)
-                .map(paragraph -> "<p>" + renderLines(paragraph) + "</p>")
+                .map(paragraph -> "<p>" + renderLines(paragraph, mentions) + "</p>")
                 .collect(Collectors.joining());
     }
 
@@ -29,22 +49,46 @@ public final class PlainText {
      * own with {@code rel="me"}, which is what lets the linked site and other servers check that they link back.
      */
     public static String renderFieldValue(String text) {
-        return text.lines().map(line -> renderLine(line, ME_LINK)).collect(Collectors.joining(" "));
+        return text.lines().map(line -> renderLine(line, ME_LINK, mention -> null)).collect(Collectors.joining(" "));
     }
 
-    private static String renderLines(String paragraph) {
-        return paragraph.lines().map(line -> renderLine(line, LINK)).collect(Collectors.joining("<br>"));
+    private static String renderLines(String paragraph, Function<Mentions.Match, MentionLink> mentions) {
+        return paragraph.lines().map(line -> renderLine(line, LINK, mentions)).collect(Collectors.joining("<br>"));
     }
 
-    private static String renderLine(String line, String rel) {
+    private record Span(int start, int end, String html) {
+    }
+
+    private static String renderLine(String line, String rel, Function<Mentions.Match, MentionLink> mentions) {
+        var spans = new ArrayList<Span>();
+        for (var url : Urls.find(line)) {
+            spans.add(new Span(url.start(), url.end(), link(line.substring(url.start(), url.end()), rel)));
+        }
+        // Mentions never overlap a URL, since Mentions leaves out those inside one.
+        for (var mention : Mentions.find(line)) {
+            var target = mentions.apply(mention);
+            if (target != null) {
+                spans.add(new Span(mention.start(), mention.end(), mention(mention.username(), target)));
+            }
+        }
+        spans.sort(Comparator.comparingInt(Span::start));
         var html = new StringBuilder();
         var position = 0;
-        for (var url : Urls.find(line)) {
-            html.append(escape(line.substring(position, url.start())))
-                    .append(link(line.substring(url.start(), url.end()), rel));
-            position = url.end();
+        for (var span : spans) {
+            html.append(escape(line.substring(position, span.start()))).append(span.html());
+            position = span.end();
         }
         return html.append(escape(line.substring(position))).toString();
+    }
+
+    /**
+     * Mastodon's markup, which clients look for to open the account rather than the link. Only the username is shown, as
+     * Mastodon shows it, so that a status full of mentions stays readable.
+     */
+    private static String mention(String username, MentionLink target) {
+        return "<span class=\"h-card\" translate=\"no\"><a href=\"" + escape(target.href().toString())
+                + "\" class=\"u-url mention\" title=\"@" + escape(target.acct()) + "\">@<span>" + escape(username)
+                + "</span></a></span>";
     }
 
     private static String link(String url, String rel) {

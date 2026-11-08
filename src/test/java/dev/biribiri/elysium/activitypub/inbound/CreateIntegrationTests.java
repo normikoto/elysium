@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -122,7 +124,67 @@ class CreateIntegrationTests {
 
         assertThat(status(unlisted).orElseThrow().get("visibility")).isEqualTo("unlisted");
         assertThat(status(followersOnly).orElseThrow().get("visibility")).isEqualTo("private");
-        assertThat(status(direct)).isEmpty();
+        assertThat(status(direct).orElseThrow().get("visibility")).isEqualTo("direct");
+    }
+
+    @Test
+    void showsADirectNoteOnlyToTheAccountsItsAddressedTo() {
+        var noteId = noteId();
+
+        handler.handle(create(tagged(note(noteId, List.of(follower.uri().toString()), List.of()), follower.uri())));
+
+        var id = statusId(noteId);
+        assertThat(mentions(id)).containsExactlyEntriesOf(Map.of(follower.id(), false));
+        assertThat(statuses.findVisible(id, Optional.of(follower.id()))).isPresent();
+        assertThat(statuses.findVisible(id, Optional.of(bystander.id()))).isEmpty();
+        assertThat(statuses.findVisible(id, Optional.empty())).isEmpty();
+    }
+
+    @Test
+    void mentionsAnAccountSilentlyWhenItsAddressedWithoutATag() {
+        var noteId = noteId();
+
+        handler.handle(create(note(noteId, List.of(follower.uri().toString()), List.of())));
+
+        var id = statusId(noteId);
+        assertThat(mentions(id)).containsExactlyEntriesOf(Map.of(follower.id(), true));
+        assertThat(statuses.findMentions(List.of(id))).isEmpty();
+        assertThat(statuses.findVisible(id, Optional.of(follower.id()))).isPresent();
+    }
+
+    @Test
+    void aTagAloneDoesNotShowAFollowersOnlyOrDirectNoteToAnAccount() {
+        for (var to : List.of(List.of(followers), List.of(follower.uri().toString()))) {
+            var noteId = noteId();
+
+            handler.handle(create(tagged(note(noteId, to, List.of()), bystander.uri())));
+
+            var id = statusId(noteId);
+            assertThat(mentions(id)).doesNotContainKey(bystander.id());
+            assertThat(statuses.findVisible(id, Optional.of(bystander.id()))).isEmpty();
+        }
+    }
+
+    @Test
+    void mentionsATaggedAccountInAPublicNoteWithoutItBeingAddressed() {
+        var noteId = noteId();
+
+        handler.handle(create(tagged(note(noteId, List.of(PUBLIC), List.of(followers)), bystander.uri())));
+
+        assertThat(mentions(statusId(noteId))).containsExactlyEntriesOf(Map.of(bystander.id(), false));
+    }
+
+    @Test
+    void onlyMentionsStoredAccountsOnOtherServersWithoutFetchingAny() {
+        var known = stranger();
+        var unknown = URI.create("https://h" + UUID.randomUUID() + ".test/users/x");
+        var noteId = noteId();
+
+        handler.handle(create(tagged(note(noteId, List.of(PUBLIC), List.of(followers)), known, unknown)));
+
+        var knownId = actors.findByUri(known).orElseThrow().id();
+        assertThat(mentions(statusId(noteId))).containsExactlyEntriesOf(Map.of(knownId, false));
+        verifyNoInteractions(documents);
     }
 
     @Test
@@ -375,6 +437,28 @@ class CreateIntegrationTests {
                 "to", to,
                 "cc", cc,
                 "content", "<p>Hi</p>");
+    }
+
+    private static Map<String, Object> tagged(Map<String, Object> note, URI... mentioned) {
+        var tagged = new HashMap<>(note);
+        tagged.put("tag", Stream.of(mentioned)
+                .map(uri -> Map.of("type", "Mention", "href", uri.toString(), "name", "@x@" + uri.getHost()))
+                .toList());
+        return tagged;
+    }
+
+    private UUID statusId(String uri) {
+        return (UUID) status(uri).orElseThrow().get("id");
+    }
+
+    private Map<UUID, Boolean> mentions(UUID statusId) {
+        var mentions = new HashMap<UUID, Boolean>();
+        jdbc.sql("SELECT actor_id, silent FROM status_mention WHERE status_id = :id")
+                .param("id", statusId)
+                .query(rs -> {
+                    mentions.put(rs.getObject("actor_id", UUID.class), rs.getBoolean("silent"));
+                });
+        return mentions;
     }
 
     private InboundActivity create(Map<String, Object> note) {
