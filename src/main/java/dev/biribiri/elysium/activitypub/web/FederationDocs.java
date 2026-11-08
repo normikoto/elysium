@@ -46,7 +46,7 @@ final class FederationDocs {
             the same way. The request has to be signed with draft-cavage HTTP Signatures, covering `(request-target)`, \
             `host`, either `date` or `(created)`, and `digest`, with `rsa-sha256` or `hs2019`. Activities are read as \
             plain JSON, without a JSON-LD processor, and are processed later, so the answer doesn't say whether one \
-            worked. `Follow`, `Like`, their `Undo`s, `Accept` and `Reject` of a `Follow`, and status and actor `Create`, `Update`, and `Delete` activities are acted on.
+            worked. `Follow`, `Like`, `Announce`, their `Undo`s, `Accept` and `Reject` of a `Follow`, and status and actor `Create`, `Update`, and `Delete` activities are acted on.
 
             An activity signed by someone other than its `actor` is answered with a 202 and fetched from its `id` \
             later. Each address can start\s""" + AddressFetchBudgets.MAX_STARTED_PER_MINUTE

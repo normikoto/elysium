@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.StatusService;
@@ -45,6 +46,8 @@ class DomainBlockCleanupIntegrationTests {
     private StatusService statuses;
     @Autowired
     private LikeService likes;
+    @Autowired
+    private BoostService boosts;
 
     private Actor local;
     private String domain;
@@ -68,6 +71,24 @@ class DomainBlockCleanupIntegrationTests {
         await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM status_like WHERE actor_id = :id")
                 .param("id", liker.id()).query(Long.class).single() == 0);
         assertThat(likes.count(status.id())).isZero();
+    }
+
+    @Test
+    void removesBoostsByItsActorsAndLocalBoostsOfTheirStatuses() {
+        var booster = remote(domain);
+        var status = statuses.create(local.id(), new NewStatus("post", null, null, Visibility.PUBLIC, false, null));
+        boosts.receive(booster.id(), status.id(), URI.create(booster.uri() + "/announce"), Visibility.PUBLIC, Instant.now(),
+                Instant.now());
+        var remoteStatus = statuses.storeRemote(new RemoteStatus(URI.create(booster.uri() + "/posts/1"), null,
+                booster.id(), "<p>remote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
+        boosts.reblog(remoteStatus, local.id(), Visibility.PUBLIC).orElseThrow();
+        assertThat(jdbc.sql("SELECT count(*) FROM status WHERE reblog_of_id IS NOT NULL AND (reblog_of_id = :status "
+                + "OR reblog_of_id = :remote)").param("status", status.id()).param("remote", remoteStatus)
+                .query(Long.class).single()).isEqualTo(2);
+        blocks.create(domain, null);
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM status WHERE reblog_of_id IS NOT NULL "
+                        + "AND (reblog_of_id = :status OR reblog_of_id = :remote)")
+                .param("status", status.id()).param("remote", remoteStatus).query(Long.class).single() == 0);
     }
 
     @Test

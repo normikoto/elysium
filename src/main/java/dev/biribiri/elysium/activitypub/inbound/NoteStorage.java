@@ -140,9 +140,10 @@ class NoteStorage {
 
     /**
      * Read from the note, as Mastodon reads it, rather than from its activity, since the note is what's stored. A note to
-     * its author's followers is followers-only even if it also names other actors.
+     * its author's followers is followers-only even if it also names other actors. An {@code Announce} is read the same
+     * way, since it's what a boost stores.
      */
-    private Visibility visibility(Addressing addressing, Actor author) {
+    Visibility visibility(Addressing addressing, Actor author) {
         if (addressing.to().contains(ActivityStreams.PUBLIC)) {
             return Visibility.PUBLIC;
         }

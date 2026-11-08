@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Favourites of local and remote posts, through `POST /api/v1/statuses/:id/favourite` and `/unfavourite`, which are
   federated as `Like` and `Undo`. Likes from other servers count toward `favourites_count` and notify the post's author
   with a `favourite` notification.
+- Boosts, through `POST /api/v1/statuses/:id/reblog` and `/unreblog`, which are federated as `Announce` and `Undo`. Boosts
+  show in the home timeline, on account pages, and on profile pages. Boosts of local posts from other servers count toward
+  `reblogs_count` and notify the post's author with a `reblog` notification. Boosts of other servers' posts from other
+  servers are ignored for now. `exclude_reblogs` on an account's statuses now leaves boosts out.
 - Direct-message conversations with per-user read and hide controls. Existing direct messages appear as read
   conversations after upgrading.
 

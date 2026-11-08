@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.StatusProperties;
@@ -31,6 +32,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -49,14 +51,22 @@ public class StatusesController {
      */
     private static final long OTHER_FIELDS_BYTES = 64 * 1024;
 
+    /**
+     * Room for a reblog's one parameter, and anything else a client sends along with it.
+     */
+    private static final long REBLOG_BODY_BYTES = 4 * 1024;
+
     private final StatusService statuses;
     private final LikeService likes;
+    private final BoostService boosts;
     private final StatusResponses responses;
     private final JsonBodies json;
 
-    StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes) {
+    StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes,
+                       BoostService boosts) {
         this.statuses = statuses;
         this.likes = likes;
+        this.boosts = boosts;
         this.responses = responses;
         this.json = json;
     }
@@ -140,7 +150,8 @@ public class StatusesController {
             operationId = "getStatusContext",
             summary = "View a status's thread",
             description = """
-                    Works without a token for public and unlisted statuses. Lists up to 40 ancestors, and up to 60 \
+                    Works without a token for public and unlisted statuses. A boost's ID gives the thread of the \
+                    status it boosts. Lists up to 40 ancestors, and up to 60 \
                     descendants at most 20 replies deep, as Mastodon does for a request without a token, whatever the \
                     token. Statuses the user can't see are left out after those limits apply, so fewer can be listed. \
                     Only statuses stored here are listed: missing parents and replies aren't fetched from other \
@@ -153,6 +164,7 @@ public class StatusesController {
     public ContextResponse context(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         return RequestParameters.uuid(id)
+                .flatMap(boosts::original)
                 .flatMap(statusId -> statuses.findContext(statusId, RequestParameters.viewer(token)))
                 .map(context -> new ContextResponse(
                         responses.list(context.ancestors(), RequestParameters.viewer(token)),
@@ -167,6 +179,7 @@ public class StatusesController {
             summary = "Delete a status",
             description = """
                     Only the author can delete a status. Other servers that were sent it are sent a `Delete`. \
+                    Deleting one of the user's boosts unboosts it, as `POST /api/v1/statuses/:id/unreblog` does. \
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#delete"),
             responses = {
@@ -178,16 +191,100 @@ public class StatusesController {
     public StatusResponse delete(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         var author = requireUser(token);
-        return RequestParameters.uuid(id)
-                .flatMap(statusId -> statuses.delete(statusId, author))
+        var statusId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
+        if (boosts.isOwnBoost(statusId, author)) {
+            // Built first, since the boost is gone afterward.
+            var response = statuses.findVisible(statusId, Optional.of(author))
+                    .map(found -> responses.oneWithText(found, Optional.of(author)))
+                    .orElseThrow(RecordNotFoundException::new);
+            boosts.unreblog(statusId, author);
+            return response;
+        }
+        return statuses.delete(statusId, author)
                 .map(found -> responses.oneWithText(found, RequestParameters.viewer(token)))
                 .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/reblog")
+    @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
+    @Operation(operationId = "reblogStatus", summary = "Boost a status",
+            description = """
+                    Boosts a public or unlisted status the user can see, or one of their own followers-only statuses, \
+                    whose boost is followers-only too. A boost's ID boosts the status it boosts. Boosting a status \
+                    again returns the boost that's there, whatever `visibility` says. `visibility` can be sent as a \
+                    form, a query parameter, or JSON. \
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#boost"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The boost, with the boosted status in `reblog`."),
+                    @ApiResponse(responseCode = "404", description = """
+                            Not found, or the status is direct or someone else's followers-only status."""),
+                    @ApiResponse(responseCode = "422", description = """
+                            `visibility` isn't one of `public`, `unlisted`, or `private`, or the token has no user.""")
+            })
+    @RequestBody(content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ReblogBody.class)))
+    public StatusResponse reblog(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            HttpServletRequest request) throws IOException {
+        var viewer = requireUser(token);
+        var visibility = reblogVisibility(request);
+        return RequestParameters.uuid(id).flatMap(statusId -> boosts.reblog(statusId, viewer, visibility))
+                .map(found -> responses.one(found, Optional.of(viewer)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/unreblog")
+    @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
+    @Operation(operationId = "unreblogStatus", summary = "Undo a boost",
+            description = """
+                    Removes the user's boost of a status they can see. A boost's ID stands for the status it boosts. \
+                    Repeats have no additional effect. \
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unreblog"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status that was boosted."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse unreblog(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = requireUser(token);
+        return RequestParameters.uuid(id).flatMap(statusId -> boosts.unreblog(statusId, viewer))
+                .map(found -> responses.one(found, Optional.of(viewer)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    /**
+     * Read from a form, the query, or a JSON body, since clients send each, and most send no body at all. A visibility that
+     * can't be read as one value is rejected, as it is for a new status, rather than boosting publicly.
+     */
+    private Visibility reblogVisibility(HttpServletRequest request) throws IOException {
+        Object value;
+        var contentType = request.getContentType();
+        if (contentType != null && MediaType.APPLICATION_JSON.isCompatibleWith(MediaType.parseMediaType(contentType))
+                && request.getContentLengthLong() != 0) {
+            value = json.read(request, REBLOG_BODY_BYTES).get("visibility");
+        } else {
+            var values = request.getParameterValues("visibility");
+            value = values == null ? null : values.length == 1 ? values[0] : List.of(values);
+        }
+        var visibility = switch (value) {
+            case null -> Visibility.PUBLIC;
+            case String text -> Visibility.fromValue(text);
+            default -> throw new InvalidRequestException("Validation failed: visibility must be a single value");
+        };
+        if (visibility == Visibility.DIRECT) {
+            throw new InvalidRequestException("Validation failed: a boost can't be direct");
+        }
+        return visibility;
     }
 
     @PostMapping("/{id}/favourite")
     @PreAuthorize("hasAuthority('SCOPE_write:favourites')")
     @Operation(operationId = "favouriteStatus", summary = "Favourite a status",
-            description = "Favourites a visible local or stored remote status. Repeats have no additional effect. "
+            description = "Favourites a visible local or stored remote status. A boost's ID favourites the status it "
+                    + "boosts. Repeats have no additional effect. "
                     + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#favourite"),
             responses = {
@@ -197,7 +294,7 @@ public class StatusesController {
             })
     public StatusResponse favourite(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var viewer = requireUser(token);
-        return RequestParameters.uuid(id).flatMap(statusId -> likes.favourite(statusId, viewer))
+        return RequestParameters.uuid(id).flatMap(boosts::original).flatMap(statusId -> likes.favourite(statusId, viewer))
                 .map(found -> responses.one(found, RequestParameters.viewer(token)))
                 .orElseThrow(RecordNotFoundException::new);
     }
@@ -205,7 +302,8 @@ public class StatusesController {
     @PostMapping("/{id}/unfavourite")
     @PreAuthorize("hasAuthority('SCOPE_write:favourites')")
     @Operation(operationId = "unfavouriteStatus", summary = "Undo a favourite",
-            description = "Removes a favourite of a visible status. Repeats have no additional effect. "
+            description = "Removes a favourite of a visible status, which a boost's ID stands for. Repeats have no "
+                    + "additional effect. "
                     + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unfavourite"),
             responses = {
@@ -215,7 +313,7 @@ public class StatusesController {
             })
     public StatusResponse unfavourite(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var viewer = requireUser(token);
-        return RequestParameters.uuid(id).flatMap(statusId -> likes.unfavourite(statusId, viewer))
+        return RequestParameters.uuid(id).flatMap(boosts::original).flatMap(statusId -> likes.unfavourite(statusId, viewer))
                 .map(found -> responses.one(found, RequestParameters.viewer(token)))
                 .orElseThrow(RecordNotFoundException::new);
     }
@@ -236,8 +334,12 @@ public class StatusesController {
         return token.actorId().orElseThrow(InvalidRequestException::requiresUser);
     }
 
-    private static UUID replyParent(String id) {
-        return id == null ? null : RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
+    /**
+     * A reply to a boost is a reply to the status it boosts, as on Mastodon.
+     */
+    private UUID replyParent(String id) {
+        return id == null ? null : RequestParameters.uuid(id).flatMap(boosts::original)
+                .orElseThrow(RecordNotFoundException::new);
     }
 
     /**
@@ -281,6 +383,16 @@ public class StatusesController {
             case String value -> Visibility.fromValue(value);
             default -> throw new InvalidRequestException("Validation failed: visibility must be a string");
         };
+    }
+
+    /**
+     * Only documents the body, which is read by hand.
+     */
+    @Schema(name = "Reblog")
+    private record ReblogBody(
+            @Schema(allowableValues = {"public", "unlisted", "private"}, defaultValue = "public",
+                    description = "Who can see the boost. A boost of a followers-only status is always followers-only.")
+            String visibility) {
     }
 
     /**

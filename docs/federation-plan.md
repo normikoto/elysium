@@ -8,14 +8,14 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 | --- | --- | --- |
 | WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon, GoToSocial and Misskey resolve users in the federation lab |
 | HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
-| Inboxes | Live, partly | `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are stored and ignored. Forwarded activities are fetched from their origin, `sharedInbox` is advertised, and local recipients are worked out, which finishes #39 |
-| Delivery and signed `POST` | Live, partly | `Follow`, `Undo`, `Accept`, `Create`, `Update` of an actor, and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
+| Inboxes | Live, partly | `Follow`, `Like`, `Announce` of a local post, their `Undo`s, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are stored and ignored. Forwarded activities are fetched from their origin, `sharedInbox` is advertised, and local recipients are worked out, which finishes #39 |
+| Delivery and signed `POST` | Live, partly | `Follow`, `Like`, `Announce`, `Undo`, `Accept`, `Create`, `Update` of an actor, and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
 | Job queue and backoff | Live | Load tested on one node with `./gradlew loadTest`, and not with several nodes or a real server |
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
 | Sending follows | Live | Local users can follow local and remote users, found through WebFinger or a URL, with `Accept`, `Reject` and `Undo` handled. Checked on all three lab servers. Merged in PR #89, #44 |
 | Followers and following collections | Live | Both are paged, and users can hide what's in them. Merged in PR #89, #43 |
 | Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Received `Note`s for local users are stored and shown in the API, including a home timeline (#41), received `Update`s edit them and refresh actors (#60), and received `Delete`s remove them and deleted actors (#59). Replies to a followed account's posts are stored even when forwarded, and `/statuses/:id/context` shows threads. The outbox is in #40 |
-| Likes, boosts, edits, polls | Missing, apart from receiving edits | #61, #62, the sending half of #60, with polls only listed on #1 |
+| Likes, boosts, edits, polls | Live, partly | Likes in both directions (#61, PR #118). Boosts are sent, and boosts of local posts are received, with a `shares` collection; receiving boosts of other servers' posts is the rest of #62. Sending edits is the rest of #60, and polls are only listed on #1 |
 | Moderation and server policy | Live, partly | Domain blocks (#64, PR #82), suspending and deleting accounts (#65, PR #83), and limits on what each server can have stored (#66, PR #88). Reports and the rest are under #37 |
 
 ## Roadmap
@@ -140,7 +140,7 @@ This was the largest step, and the first where other servers' content is stored 
 
 ### 6. Completeness
 
-- **Issues:** #40, #5, #9, #63, and the `Question`, likes and shares items on #1.
+- **Issues:** #40, #5, #9, #63, and the `Question` item on #1.
 - **Delivers:** outbox backfill, RFC 9421, polls, pinned posts, quote posts and #58. None of these block ordinary federation, so they can be picked up in any order.
 
 ## Work across milestones

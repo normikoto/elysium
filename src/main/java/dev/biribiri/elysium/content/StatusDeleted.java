@@ -15,15 +15,24 @@ import java.util.UUID;
  *                           before this was added
  * @param mentionedIds       every account it mentioned, who were sent it. Null for an event stored before this was added,
  *                           when statuses didn't mention anyone
+ * @param boosterIds         the local accounts that had boosted it, whose followers were sent it too. Null for an event
+ *                           stored before boosts existed
  */
 public record StatusDeleted(
         UUID statusId, URI statusUri, UUID authorId, Visibility visibility, Instant publishedAt, UUID inReplyToAccountId,
-        List<UUID> mentionedIds) {
+        List<UUID> mentionedIds, List<UUID> boosterIds) {
 
     /**
      * @return who it mentioned, which is nobody for an event stored before mentions existed
      */
     public List<UUID> mentioned() {
         return mentionedIds == null ? List.of() : mentionedIds;
+    }
+
+    /**
+     * @return the local accounts that had boosted it, which is nobody for an event stored before boosts existed
+     */
+    public List<UUID> boosters() {
+        return boosterIds == null ? List.of() : boosterIds;
     }
 }

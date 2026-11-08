@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.BoostStats;
 import dev.biribiri.elysium.content.LikeStats;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -11,14 +12,15 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Mastodon's Status entity. Boosts, media, polls, and hashtags don't exist yet, so those fields hold the values a
- * status without any of them would have.
+ * Mastodon's Status entity. Media, polls, and hashtags don't exist yet, so those fields hold the values a status without
+ * any of them would have.
  *
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Boosts, media, polls, cards, and hashtags don't exist yet, so those fields \
-        are always empty, null, zero, or false. `mentions` leaves out accounts that are suspended or deleted, and those \
+        Mastodon's Status entity. Media, polls, cards, and hashtags don't exist yet, so those fields \
+        are always empty, null, zero, or false. A boost has the boosted status in `reblog`, and no content of its own. \
+        `reblogs_count` and `favourites_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. Only statuses from other servers can have \
         been edited, so `edited_at` is always null for a local one.""")
 record StatusResponse(
@@ -34,12 +36,13 @@ record StatusResponse(
         String uri,
         String url,
         @JsonProperty("replies_count") long repliesCount,
-        @JsonProperty("reblogs_count") int reblogsCount,
+        @JsonProperty("reblogs_count") long reblogsCount,
         @JsonProperty("favourites_count") long favouritesCount,
         String content,
         @Schema(description = "The source text, only when the status has just been deleted.")
         @JsonInclude(JsonInclude.Include.NON_NULL) String text,
-        Object reblog,
+        @Schema(implementation = Object.class, nullable = true, description = "The boosted status, for a boost.")
+        StatusResponse reblog,
         Object application,
         AccountResponse account,
         @JsonProperty("media_attachments") List<Object> mediaAttachments,
@@ -55,8 +58,12 @@ record StatusResponse(
         boolean pinned
 ) {
 
+    /**
+     * @param reblog the boosted status, for a boost, or null
+     */
     static StatusResponse from(
-            Status status, AccountResponse account, List<MentionResponse> mentions, boolean includeText, LikeStats likes) {
+            Status status, AccountResponse account, List<MentionResponse> mentions, boolean includeText, LikeStats likes,
+            BoostStats boosts, StatusResponse reblog) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -70,11 +77,11 @@ record StatusResponse(
                 status.uri().toString(),
                 pageUrl(status),
                 status.repliesCount(),
-                0,
+                boosts.count(),
                 likes.count(),
                 status.content(),
                 includeText ? status.text() : null,
-                null,
+                reblog,
                 null,
                 account,
                 List.of(),
@@ -84,7 +91,7 @@ record StatusResponse(
                 null,
                 null,
                 likes.favourited(),
-                false,
+                boosts.reblogged(),
                 false,
                 false,
                 false);
@@ -95,6 +102,9 @@ record StatusResponse(
      * status that anyone can't see has no page to link to.
      */
     private static String pageUrl(Status status) {
+        if (status.isReblog()) {
+            return null;
+        }
         if (status.url() != null) {
             return status.url().toString();
         }

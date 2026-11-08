@@ -11,7 +11,6 @@ import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusPublished;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
-import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
@@ -32,7 +31,7 @@ public class StatusDeliveries {
 
     private final StatusService statuses;
     private final ActorService actors;
-    private final FollowService follows;
+    private final Recipients recipients;
     private final Notes notes;
     private final ActivityDeliveries deliveries;
     private final JsonMapper json;
@@ -40,13 +39,13 @@ public class StatusDeliveries {
     StatusDeliveries(
             StatusService statuses,
             ActorService actors,
-            FollowService follows,
+            Recipients recipients,
             Notes notes,
             ActivityDeliveries deliveries,
             JsonMapper json) {
         this.statuses = statuses;
         this.actors = actors;
-        this.follows = follows;
+        this.recipients = recipients;
         this.notes = notes;
         this.deliveries = deliveries;
         this.json = json;
@@ -84,8 +83,8 @@ public class StatusDeliveries {
     }
 
     /**
-     * Stops any further sending of the status, and tells followers and the accounts it mentioned to remove it, after any
-     * {@code Create} still being sent. Which followers were sent the status isn't kept, so this goes to current followers, as
+     * Stops any further sending of the status, and tells followers, the accounts it mentioned, and the followers of local
+     * accounts that boosted it to remove it, after any {@code Create} still being sent. Which followers were sent the status isn't kept, so this goes to current followers, as
      * {@link #inboxes} decides. An author who's been
      * suspended since can come back, and this waits for that, so that followers don't keep what was deleted.
      */
@@ -98,8 +97,11 @@ public class StatusDeliveries {
             return;
         }
         var mentioned = actors.findByIds(event.mentioned());
-        var inboxes = inboxes(
-                author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned);
+        var inboxes = new LinkedHashSet<>(inboxes(
+                author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned));
+        // Their followers can have it from their boosts, and the boosts go with it.
+        event.boosters().forEach(booster ->
+                recipients.addFollowers(booster, event.visibility(), event.publishedAt(), inboxes));
         if (inboxes.isEmpty()) {
             return;
         }
@@ -107,15 +109,14 @@ public class StatusDeliveries {
                 event.statusUri(), author.get(), event.visibility(), mentioned.stream().map(Actor::uri).toList());
         deliveries.enqueueAfter(
                 new OutboundActivity(delete.id().toString(), author.get().id(), json.writeValueAsString(delete)),
-                inboxes,
+                List.copyOf(inboxes),
                 create);
     }
 
     /**
-     * Where to send a status's activities. Someone who follows after a followers-only status was posted gets neither its
-     * {@code Create} nor its {@code Delete}, so that its {@code Delete} can't tell them it existed. Both have to use the same
-     * rule, or a follower could be sent a status and not its deletion. Other statuses can be fetched, so a later follower may
-     * have a copy to remove.
+     * Where to send a status's activities. Its {@code Create} and {@code Delete} have to use the same rule, or a follower
+     * could be sent a status and not its deletion. Statuses that anyone can see can be fetched, so a later follower may have
+     * a copy to remove.
      *
      * <p>The author of a public or unlisted status's parent on another server gets them as well, since otherwise their server
      * wouldn't know about the reply. A followers-only reply isn't sent to them: whether it addressed them depends on whether
@@ -131,22 +132,11 @@ public class StatusDeliveries {
     private List<URI> inboxes(
             UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId, Collection<Actor> mentioned) {
         var inboxes = new LinkedHashSet<URI>();
-        switch (visibility) {
-            case PUBLIC, UNLISTED -> inboxes.addAll(follows.followerInboxes(authorId));
-            case PRIVATE -> inboxes.addAll(follows.followerInboxesAsOf(authorId, publishedAt));
-            case DIRECT -> {
-            }
-        }
+        recipients.addFollowers(authorId, visibility, publishedAt, inboxes);
         if (parentAuthorId != null && (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED)) {
-            actors.findById(parentAuthorId).ifPresent(parent -> addInbox(parent, inboxes));
+            actors.findById(parentAuthorId).ifPresent(parent -> recipients.add(parent, inboxes));
         }
-        mentioned.forEach(actor -> addInbox(actor, inboxes));
+        mentioned.forEach(actor -> recipients.add(actor, inboxes));
         return List.copyOf(inboxes);
-    }
-
-    private void addInbox(Actor actor, Collection<URI> inboxes) {
-        if (actor.isActive() && !actors.isLocal(actor)) {
-            inboxes.add(actor.sharedInboxUri() == null ? actor.inboxUri() : actor.sharedInboxUri());
-        }
     }
 }

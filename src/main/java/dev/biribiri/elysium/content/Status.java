@@ -22,6 +22,8 @@ import java.util.UUID;
  *                           local status, whose page is its URI
  * @param editedAt           when a status from another server was last edited, as its server gave it, or null if it
  *                           never was
+ * @param reblogOfId         the status this boosts, or null if it isn't a boost. A boost has no text of its own, and its
+ *                           URI is its {@code Announce}'s ID
  * @param repliesCount       the number of public and unlisted replies
  */
 public record Status(
@@ -41,8 +43,13 @@ public record Status(
         URI url,
         Instant publishedAt,
         Instant editedAt,
+        UUID reblogOfId,
         long repliesCount
 ) {
+
+    public boolean isReblog() {
+        return reblogOfId != null;
+    }
 
     /**
      * Whether a viewer can see this status without knowing who follows whom. Use {@link StatusService#isVisible}, which also

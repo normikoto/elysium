@@ -49,14 +49,23 @@ public class NotificationRepository {
     }
 
     public void insert(UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow) {
-        insert(recipient, sender, type, source, status, follow, null);
+        insert(recipient, sender, type, source, status, follow, null, null);
     }
 
     public void insertFavourite(UUID recipient, UUID sender, UUID like, UUID status) {
-        insert(recipient, sender, "favourite", like, status, null, like);
+        insert(recipient, sender, "favourite", like, status, null, like, null);
     }
 
-    private void insert(UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like) {
+    /**
+     * @param reblog the boost, which takes its notification with it when it's removed
+     * @param status the status it boosts
+     */
+    public void insertReblog(UUID recipient, UUID sender, UUID reblog, UUID status) {
+        insert(recipient, sender, "reblog", reblog, status, null, null, reblog);
+    }
+
+    private void insert(
+            UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog) {
         if (jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM inbox_notification
                         WHERE recipient_id = :recipient AND type = :type AND source_id = :source)
@@ -68,7 +77,7 @@ public class NotificationRepository {
         var now = Instant.now();
         var millis = Math.max(now.toEpochMilli(), (previous.getMostSignificantBits() >>> 16) + 1);
         var id = Ids.timeOrdered(Instant.ofEpochMilli(millis));
-        String group = type.equals("favourite") ? "favourite-" + status : null;
+        String group = type.equals("favourite") || type.equals("reblog") ? type + "-" + status : null;
         if (type.equals("follow")) {
             var hour = now.getEpochSecond() / 3600;
             var start = jdbc.sql("""
@@ -81,12 +90,14 @@ public class NotificationRepository {
         }
         jdbc.sql("""
                         INSERT INTO inbox_notification
-                        (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, created_at, group_key)
-                        VALUES (:id, :recipient, :sender, :type, :source, :status, :follow, :like, :created, :group)
+                        (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, reblog_id,
+                         created_at, group_key)
+                        VALUES (:id, :recipient, :sender, :type, :source, :status, :follow, :like, :reblog, :created,
+                                :group)
                         ON CONFLICT (recipient_id, type, source_id) DO NOTHING
                         """).param("id", id).param("recipient", recipient).param("sender", sender).param("type", type)
                 .param("source", source).param("status", status, Types.OTHER).param("follow", follow, Types.OTHER)
-                .param("like", like, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
+                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
         jdbc.sql("UPDATE inbox_sequence SET last_id = :id WHERE singleton").param("id", id).update();
     }
 
@@ -245,7 +256,7 @@ public class NotificationRepository {
     }
 
     private static String[] groupedTypes(List<String> types) {
-        return types == null || types.isEmpty() ? new String[]{"follow", "favourite"} : types.toArray(String[]::new);
+        return types == null || types.isEmpty() ? new String[]{"follow", "favourite", "reblog"} : types.toArray(String[]::new);
     }
 
     private record Details(long count, UUID latest, Instant at, UUID min, List<UUID> sample) {

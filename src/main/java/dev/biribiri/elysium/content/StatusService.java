@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
+import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
@@ -61,6 +62,7 @@ public class StatusService {
     private final ApplicationEventPublisher events;
     private final FollowService follows;
     private final RemoteActorResolver resolver;
+    private final BoostRepository boosts;
 
     StatusService(
             StatusRepository statuses,
@@ -71,8 +73,10 @@ public class StatusService {
             PlatformTransactionManager transactionManager,
             ApplicationEventPublisher events,
             FollowService follows,
-            RemoteActorResolver resolver) {
+            RemoteActorResolver resolver,
+            BoostRepository boosts) {
         this.resolver = resolver;
+        this.boosts = boosts;
         this.statuses = statuses;
         this.threads = threads;
         this.actors = actors;
@@ -137,6 +141,7 @@ public class StatusService {
                     null,
                     null,
                     publishedAt,
+                    null,
                     null,
                     0);
             statuses.insert(status);
@@ -248,6 +253,7 @@ public class StatusService {
                     remote.url(),
                     remote.publishedAt().truncatedTo(ChronoUnit.MICROS),
                     remote.editedAt() == null ? null : remote.editedAt().truncatedTo(ChronoUnit.MICROS),
+                    null,
                     0);
             if (!statuses.insert(status)) {
                 return Optional.<UUID>empty();
@@ -317,7 +323,7 @@ public class StatusService {
      * later ID, or they would miss it. The lock this takes is held until commit, which makes IDs and commits happen in the
      * same order.
      */
-    private UUID nextId(Instant now) {
+    UUID nextId(Instant now) {
         statuses.lockIdAssignment();
         return statuses.findNewestId()
                 .map(newest -> StatusIds.after(newest, now))
@@ -331,6 +337,13 @@ public class StatusService {
         var followed = Set.copyOf(follows.followedIds(viewer));
         var mentioned = statuses.mentioning(ids, viewer);
         return found.stream().filter(status -> isVisible(status, Optional.of(viewer), followed::contains, mentioned::contains)).toList();
+    }
+
+    /**
+     * The statuses that anyone can see, for a viewer who isn't signed in, such as on web pages.
+     */
+    public List<Status> findVisibleToAnyone(Collection<UUID> ids) {
+        return statuses.findByIds(ids).stream().filter(status -> status.isVisibleTo(Optional.empty())).toList();
     }
 
     /** Finds a status if this viewer is allowed to see it. */
@@ -412,16 +425,21 @@ public class StatusService {
      */
     public Optional<Status> delete(UUID id, UUID authorId) {
         return transaction.execute(tx -> {
-            // Before the status goes, and its mentions with it.
+            // Before the status goes, and its mentions and boosts with it.
             var mentioned = statuses.findAllMentioned(id);
+            var localBoosts = boosts.findLocal(id);
             var deleted = statuses.delete(id, authorId);
             deleted.ifPresent(status -> {
                 if (status.isVisibleTo(Optional.empty())) {
                     statuses.insertTombstone(status, Instant.now().truncatedTo(ChronoUnit.MICROS));
                 }
+                var boosters = localBoosts.stream().map(boost -> {
+                    events.publishEvent(StatusUnreblogged.of(boost, status.uri(), authorId));
+                    return boost.actorId();
+                }).toList();
                 events.publishEvent(new StatusDeleted(
                         status.id(), status.uri(), authorId, status.visibility(), status.publishedAt(),
-                        shownParentAuthor(status), mentioned));
+                        shownParentAuthor(status), mentioned, boosters));
             });
             return deleted;
         });
@@ -452,7 +470,15 @@ public class StatusService {
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             statuses.lockUri(uri);
             statuses.markRemoteDeleted(uri, authorUri);
-            return statuses.deleteRemote(uri, authorUri);
+            var boosted = statuses.findParentByUriAndLock(uri);
+            var localBoosts = boosted.map(status -> boosts.findLocal(status.id())).orElse(List.of());
+            var deleted = statuses.deleteRemote(uri, authorUri);
+            if (deleted) {
+                // Only once it's known to be the author's, since anyone can name any status.
+                boosted.ifPresent(status -> localBoosts.forEach(boost ->
+                        events.publishEvent(StatusUnreblogged.of(boost, uri, status.actorId()))));
+            }
+            return deleted;
         }));
     }
 
@@ -517,15 +543,17 @@ public class StatusService {
     }
 
     /**
-     * Lists the statuses of one account that this viewer is allowed to see, which includes those that mention them.
+     * Lists the statuses of one account that this viewer is allowed to see, which includes those that mention them, and
+     * its boosts unless they're excluded.
      */
-    public List<Status> findByAccount(UUID actorId, Optional<UUID> viewer, boolean excludeReplies, StatusPage page) {
+    public List<Status> findByAccount(
+            UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, StatusPage page) {
         var visibilities = viewer.filter(actorId::equals).isPresent()
                 ? Set.of(Visibility.values())
                 : viewer.filter(id -> follows.isFollowing(id, actorId)).isPresent()
                 ? Set.of(Visibility.PUBLIC, Visibility.UNLISTED, Visibility.PRIVATE)
                 : Set.of(Visibility.PUBLIC, Visibility.UNLISTED);
-        return statuses.findByAccount(actorId, visibilities, viewer.orElse(null), excludeReplies, page);
+        return statuses.findByAccount(actorId, visibilities, viewer.orElse(null), excludeReplies, excludeReblogs, page);
     }
 
     /**

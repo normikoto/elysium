@@ -420,8 +420,7 @@ public class AccountsController {
     }
 
     /**
-     * Statuses can't be pinned, tagged, or have media yet, so those filters have nothing to return. There are no boosts
-     * either, so {@code exclude_reblogs} has no effect.
+     * Statuses can't be pinned, tagged, or have media yet, so those filters have nothing to return.
      */
     @GetMapping("/{id}/statuses")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
@@ -431,8 +430,7 @@ public class AccountsController {
             description = """
                     Differences from Mastodon: for an account on another server, only the statuses it has sent here \
                     are listed, and older ones aren't fetched. Statuses can't be pinned, tagged, or have media, so \
-                    `pinned`, `tagged`, and `only_media` return an empty list, and there are no boosts for \
-                    `exclude_reblogs` to leave out.
+                    `pinned`, `tagged`, and `only_media` return an empty list.
 
                     Only statuses the viewer can see are listed. A suspended account gets a 404.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
@@ -441,7 +439,7 @@ public class AccountsController {
                             + StatusPage.MAX_LIMIT + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
                     @Parameter(name = "exclude_replies", description = "Leave out replies. " + ApiDocs.FLAG),
-                    @Parameter(name = "exclude_reblogs", description = "Has no effect. " + ApiDocs.FLAG),
+                    @Parameter(name = "exclude_reblogs", description = "Leave out boosts. " + ApiDocs.FLAG),
                     @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG),
                     @Parameter(name = "pinned", description = "Returns an empty list if true. " + ApiDocs.FLAG),
                     @Parameter(name = "tagged", description = "Returns an empty list if not empty.")
@@ -469,7 +467,8 @@ public class AccountsController {
                 || (tagged != null && !tagged.isEmpty());
         List<Status> found = nothingToReturn
                 ? List.of()
-                : statuses.findByAccount(actorId, RequestParameters.viewer(token), withoutReplies, page);
+                : statuses.findByAccount(actorId, RequestParameters.viewer(token), withoutReplies,
+                RequestParameters.flag(excludeReblogs), page);
 
         var filters = new LinkedHashMap<String, String>();
         if (withoutReplies) {

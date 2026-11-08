@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusService;
@@ -46,6 +47,8 @@ class AccountCleanupIntegrationTests {
     @Autowired
     private LikeService likes;
     @Autowired
+    private BoostService boosts;
+    @Autowired
     private JdbcClient jdbc;
     @Autowired
     private JsonMapper json;
@@ -71,6 +74,20 @@ class AccountCleanupIntegrationTests {
         await().atMost(WAIT).until(() -> count("SELECT count(*) FROM status_like WHERE actor_id = :id", local.id()) == 0);
         assertThat(likes.count(status.id())).isZero();
         assertThat(count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id AND type = 'favourite'", local.id())).isZero();
+    }
+
+    @Test
+    void deletingABoosterRemovesItsBoostsAndReblogNotifications() {
+        var author = newLocal();
+        var status = statuses.create(author.id(), draft());
+        boosts.reblog(status.id(), local.id(), Visibility.PUBLIC).orElseThrow();
+        await().atMost(WAIT).until(() ->
+                count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id AND type = 'reblog'", local.id()) == 1);
+        actors.markDeleted(local.id());
+        await().atMost(WAIT).until(() ->
+                count("SELECT count(*) FROM status WHERE actor_id = :id AND reblog_of_id IS NOT NULL", local.id()) == 0);
+        assertThat(count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id AND type = 'reblog'", local.id()))
+                .isZero();
     }
 
     @Test
@@ -244,7 +261,7 @@ class AccountCleanupIntegrationTests {
         actors.suspend(local.id());
 
         transactions.executeWithoutResult(tx -> events.publishEvent(new StatusDeleted(
-                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt(), null, List.of())));
+                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt(), null, List.of(), List.of())));
 
         await().atMost(WAIT).until(() -> !activities(local, status.uri() + "#delete").isEmpty());
     }
@@ -256,7 +273,7 @@ class AccountCleanupIntegrationTests {
         actors.markDeleted(local.id());
 
         transactions.executeWithoutResult(tx -> events.publishEvent(new StatusDeleted(
-                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt(), null, List.of())));
+                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt(), null, List.of(), List.of())));
 
         await().atMost(WAIT).until(() -> publications() == 0);
         assertThat(activities(local, status.uri() + "#delete")).isEmpty();

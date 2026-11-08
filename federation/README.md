@@ -49,6 +49,9 @@ The script checks:
 - **Likes:** alice favourites and unfavourites the remote lab post; the peer must receive both activities. The peer then
   likes and unlikes alice's public and followers-only posts. Elysium must update counts, emit favourite notifications, and
   list Like activities in the public post's collection.
+- **Boosts:** alice boosts and unboosts the remote lab post, and the peer's count has to follow. The peer then boosts and
+  unboosts alice's public post. Elysium must update `reblogs_count`, emit a reblog notification, and list the `Announce` in
+  the post's shares collection.
 - **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
   for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
   a `404`.

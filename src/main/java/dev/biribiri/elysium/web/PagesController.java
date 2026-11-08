@@ -26,11 +26,13 @@ import org.springframework.web.server.ResponseStatusException;
 import java.security.Principal;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Pages always read as an anonymous viewer, even with a login session, because that session only exists for approving
@@ -88,7 +90,7 @@ class PagesController {
         requireHtmlAccepted(request);
         var actor = actors.findLocalByUsername(username).orElseThrow(PagesController::notFound);
         var page = firstPage(maxId == null ? null : Ids.parse(maxId).orElseThrow(PagesController::notFound));
-        var found = statuses.findByAccount(actor.id(), ANONYMOUS, true, page);
+        var found = statuses.findByAccount(actor.id(), ANONYMOUS, true, false, page);
 
         var profile = profiles.find(actor.id());
         model.addAttribute("actor", actor);
@@ -97,7 +99,7 @@ class PagesController {
         model.addAttribute("avatar", profile.avatar() == null ? null : instance.resolve(profile.avatar().path()));
         model.addAttribute("header", profile.header() == null ? null : instance.resolve(profile.header().path()));
         model.addAttribute("joined", LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC));
-        model.addAttribute("statuses", found.stream().map(status -> StatusView.from(status, actor)).toList());
+        model.addAttribute("statuses", profileViews(found, actor));
         // Only a full page can have older statuses after it.
         model.addAttribute("olderThan", found.size() == page.limit() ? found.getLast().id() : null);
         return "profile";
@@ -111,11 +113,20 @@ class PagesController {
     String status(@PathVariable String username, @PathVariable String id, Model model, HttpServletRequest request)
             throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
-        var view = Ids.parse(id)
-                .flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
+        var found = Ids.parse(id).flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS));
+        var boost = found.filter(Status::isReblog);
+        if (boost.isPresent()) {
+            // A boost has no page of its own, so its link leads to what it boosts, as on Mastodon.
+            return boost.filter(status -> actors.findLocalById(status.actorId())
+                            .filter(booster -> booster.username().equalsIgnoreCase(username)).isPresent())
+                    .flatMap(status -> profileViews(List.of(status), null).stream().findFirst())
+                    .map(view -> "redirect:" + view.url())
+                    .orElseThrow(PagesController::notFound);
+        }
+        var view = found
                 .flatMap(this::view)
                 // Otherwise any account's URL could show this status.
-                .filter(found -> found.username().equalsIgnoreCase(username))
+                .filter(shown -> shown.authorName().equalsIgnoreCase("@" + username))
                 .orElseThrow(PagesController::notFound);
 
         model.addAttribute("view", view);
@@ -126,15 +137,16 @@ class PagesController {
         return "status";
     }
 
-    @GetMapping("/users/{username}/statuses/{id}/likes")
-    String likes(@PathVariable String username, @PathVariable String id, HttpServletRequest request)
+    @GetMapping({"/users/{username}/statuses/{id}/likes", "/users/{username}/statuses/{id}/shares"})
+    String collection(@PathVariable String username, @PathVariable String id, HttpServletRequest request)
             throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
         var author = actors.findAnyLocalByUsername(username).filter(actor -> !actor.isDeleted())
                 .orElseThrow(PagesController::notFound);
         if (author.isSuspended()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         var found = Ids.parse(id).flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
-                .filter(status -> status.actorId().equals(author.id())).orElseThrow(PagesController::notFound);
+                .filter(status -> !status.isReblog() && status.actorId().equals(author.id()))
+                .orElseThrow(PagesController::notFound);
         return "redirect:" + found.uri();
     }
 
@@ -151,6 +163,36 @@ class PagesController {
 
     private Optional<StatusView> view(Status status) {
         return actors.findLocalById(status.actorId()).map(author -> StatusView.from(status, author));
+    }
+
+    /**
+     * Shows each boost as the status it boosts, which can be from another server. A boost whose status can't be shown is
+     * left out.
+     *
+     * @param owner the local account whose statuses these are, or null to look up each booster
+     */
+    private List<StatusView> profileViews(List<Status> found, Actor owner) {
+        var originals = statuses.findVisibleToAnyone(found.stream()
+                        .filter(Status::isReblog).map(Status::reblogOfId).toList()).stream()
+                .collect(Collectors.toMap(Status::id, Function.identity()));
+        var actorIds = found.stream().map(Status::actorId).collect(Collectors.toCollection(HashSet::new));
+        originals.values().forEach(original -> actorIds.add(original.actorId()));
+        var authors = actors.findByIds(actorIds).stream()
+                .filter(Actor::isActive)
+                .collect(Collectors.toMap(Actor::id, Function.identity()));
+        return found.stream()
+                .flatMap(status -> {
+                    var shown = status.isReblog() ? originals.get(status.reblogOfId()) : status;
+                    var author = shown == null ? null : authors.get(shown.actorId());
+                    var booster = owner != null ? owner : authors.get(status.actorId());
+                    if (author == null || booster == null) {
+                        return Stream.empty();
+                    }
+                    return Stream.of(status.isReblog()
+                            ? StatusView.boosted(shown, author, actors.isLocal(author), booster)
+                            : StatusView.from(status, author));
+                })
+                .toList();
     }
 
     /**

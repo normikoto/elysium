@@ -93,6 +93,15 @@ public class ConversationRepository {
                 .query(UUID.class).optional().isPresent();
     }
 
+    public boolean currentReblog(UUID id, UUID sender, UUID statusId) {
+        return jdbc.sql("""
+                        SELECT b.id FROM status b JOIN actor a ON a.id = b.actor_id
+                        WHERE b.id = :id AND b.actor_id = :sender AND b.reblog_of_id = :status AND
+                        """ + InboxSql.active("a") + " FOR KEY SHARE OF b")
+                .param("id", id).param("sender", sender).param("status", statusId)
+                .query(UUID.class).optional().isPresent();
+    }
+
     public void add(Source source, UUID viewer, List<UUID> people) {
         var participants = people.stream().filter(id -> !id.equals(viewer)).distinct().map(UUID::toString).sorted().toArray(String[]::new);
         var id = jdbc.sql("""

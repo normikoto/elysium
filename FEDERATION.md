@@ -5,14 +5,15 @@ statuses, and followers and following collections, deliver activities to them, a
 on other servers by `username@domain` or URL, and follow and unfollow them. Other servers are sent its users' new and deleted
 statuses, and are told when an account is suspended or deleted. Other servers' statuses are stored when they're for a local
 user or reply to one they follow, including replies forwarded by the parent's server, updated when they're edited, and removed when they're deleted, as are deleted actors. Other activities are ignored, apart
-from follows and the answers to them, and updates of actors. This file only describes what's implemented today.
+from follows and the answers to them, updates of actors, likes, and boosts of local statuses. This file only describes what's
+implemented today.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): fetching actors and `Note` objects, accepting
-  activities at an inbox, receiving `Follow`, `Undo` of a `Follow`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`,
-  `Update` of an actor or a `Note`, and `Delete`, and sending
-  `Follow`, `Undo` of a `Follow`, `Accept`, `Create`, `Update`, and `Delete`
+  activities at an inbox, receiving `Follow`, `Like`, `Announce` of a local status, `Undo` of any of those, `Accept` and
+  `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete`, and sending `Follow`, `Like`,
+  `Announce`, `Undo` of any of those, `Accept`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -104,6 +105,7 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 `@context` as `as:sensitive`. It can also have:
 
 - `likes`: the post's likes collection, at `{note-uri}/likes`.
+- `shares`: the post's [boosts](#boosts) collection, at `{note-uri}/shares`.
 - `summary`: the content warning, as plain text rather than HTML, which matches Mastodon.
 - `inReplyTo`: the parent status.
 - `contentMap`: the `content` under its language, if one is set.
@@ -168,8 +170,9 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 ### Activities
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
-one worked. Activities are processed in no particular order. `Follow`, `Like`, their `Undo`s, `Accept` and `Reject` of a
-`Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are ignored.
+one worked. Activities are processed in no particular order. `Follow`, `Like`, `Announce`, their `Undo`s, `Accept` and
+`Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are
+ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -522,11 +525,51 @@ Unliking removes the notification, listener retries preserve dismissal, and refa
 Suspended likers are hidden from counts, collections, and notifications, and return after unsuspension. Deleted actors'
 likes and likes from blocked domains are removed. Counts for remote posts reflect only likes known to this server.
 
+### Boosts
+
+Local users boost a public or unlisted status they can see, or one of their own followers-only statuses, and the boost goes
+to their followers and to the status's author. It's an `Announce` whose `object` is only the status's ID:
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000001/activity",
+  "type": "Announce",
+  "actor": "https://elysium.example/users/alice",
+  "published": "2026-01-02T00:00:00Z",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://elysium.example/users/alice/followers", "https://example.com/users/bob"],
+  "object": "https://example.com/users/bob/statuses/1"
+}
+```
+
+It's addressed like a status of the same visibility, with the author in `cc`. A boost can be public, unlisted, or
+followers-only, and a boost of a followers-only status is always followers-only. Its ID can't be fetched. Unboosting cancels
+the `Announce` if it's still waiting to be sent, and sends an `Undo` that embeds it to the same servers, after any `Announce`
+still being sent to them. So does deleting the boosted status, here or on its server. A local status's `Delete` also goes to
+the followers of local users who boosted it.
+
+A received `Announce` is stored only if its `object` is the ID of a local public or unlisted status, which isn't fetched, and
+an embedded copy is never read. Its visibility comes from its own `to` and `cc`, read as for a `Note`, and one that's
+direct is ignored. A boost is stored under the `Announce`'s `id`. A second `Announce` of the same status from the same actor
+takes over that boost if it arrived later, so an `Undo` of the older one leaves it in place. An `Undo` needs the
+`Announce`'s `id`, embedded or alone, and so does a `Delete` of a boost. Only the actor that sent the `Announce` can withdraw
+it, and one that arrives before its `Announce` stops it from being stored, for about 34 days. `Announce`s of statuses from
+other servers are ignored.
+
+A local `Note` links to `{note-uri}/shares`, an `OrderedCollection` like [its likes](#likes), served under the same rules.
+It counts and lists only public and unlisted boosts, newest first, as embedded `Announce`s whose only addressing is the
+public collection, in `to` for a public boost and in `cc` for an unlisted one.
+
+A boost of a local status notifies its author with a `reblog` notification, except for their own boosts, grouped by status.
+Unboosting removes it. Boosts from suspended actors are hidden from counts and collections and come back after
+unsuspension, and boosts of a suspended author's statuses are hidden the same way.
+
 ### Notable differences
 
 - Local users can't approve followers by hand. Actor documents don't include `manuallyApprovesFollowers`.
 - Only `Note`s are stored, and only ones that are for a local user or reply to a status of someone followed here.
-  `Announce` is ignored; `Like` is accepted only for local posts. A reply's parent isn't fetched, and neither are the replies to a status.
+  `Like` and `Announce` are accepted only for local posts. A reply's parent isn't fetched, and neither are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
 - An edited status's earlier versions aren't kept.
 - `Reject` is never sent.
@@ -536,6 +579,8 @@ likes and likes from blocked domains are removed. Counts for remote posts reflec
 - An `Update` doesn't change who a stored status mentions, so an edit can't show a followers-only or direct status to more
   local users.
 - A reply's `inReplyTo` is left out if its parent is deleted or can't be shown, so it looks like it isn't a reply.
+- A local user's boost of a status that's removed with its author's account, or with a blocked domain's statuses, goes
+  without an `Undo`.
 - Followers-only and direct statuses are only sent, and can't be fetched, even by a follower or a mentioned actor.
 - A `Delete` goes to whoever follows the author when it's deleted, so a server whose only follower has since unfollowed keeps
   its copy. For a followers-only status, that includes a follower who unfollowed and then followed again after it was posted.
@@ -596,7 +641,8 @@ compared in lowercase ASCII, without a trailing dot. A block is only ever a full
 - **Fetching:** Keys and actors are never fetched from a blocked domain.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
-- **Existing data:** Follows to and from its actors are removed, and so are their likes and statuses. Its actors are kept.
+- **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, and boosts of
+  their statuses. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
   status posted before then, and it keeps any copy it has.
@@ -614,7 +660,7 @@ GoToSocial answer the same way.
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures. The only requests this
 server makes are fetches of keys and actor documents, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`,
-`Accept`, `Create`, `Update`, `Delete`, and `Like`.
+`Accept`, `Create`, `Update`, `Delete`, `Like`, and `Announce`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.

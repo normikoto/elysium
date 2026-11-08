@@ -31,7 +31,7 @@ public class StatusRepository {
 
     private static final String COLUMNS = """
             s.id, s.uri, s.actor_id, s.text, s.content, s.spoiler_text, s.language, s.visibility, s.sensitive, s.reply,
-            s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at, s.edited_at""";
+            s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at, s.edited_at, s.reblog_of_id""";
 
     private static final String COUNT_REPLIES = """
             SELECT count(*) FROM status r
@@ -40,11 +40,14 @@ public class StatusRepository {
 
     /**
      * Only finds statuses of accounts that are neither suspended nor deleted, so that those of a suspended account aren't
-     * served by anything, and aren't left to be filtered out after a page of them has been chosen.
+     * served by anything, and aren't left to be filtered out after a page of them has been chosen. The same goes for boosts
+     * of their statuses.
      */
     private static final String SELECT = "SELECT " + COLUMNS + ", (" + COUNT_REPLIES.formatted("s.id")
             + ") AS replies_count FROM status s "
-            + "JOIN actor author ON author.id = s.actor_id AND author.suspended_at IS NULL AND author.deleted_at IS NULL ";
+            + "JOIN actor author ON author.id = s.actor_id AND author.suspended_at IS NULL AND author.deleted_at IS NULL "
+            + "AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status o JOIN actor oa ON oa.id = o.actor_id "
+            + "WHERE o.id = s.reblog_of_id AND oa.suspended_at IS NULL AND oa.deleted_at IS NULL)) ";
 
     private static final int REMOVAL_BATCH_SIZE = 1000;
 
@@ -78,6 +81,7 @@ public class StatusRepository {
             uriOrNull(rs.getString("url")),
             rs.getObject("published_at", OffsetDateTime.class).toInstant(),
             Optional.ofNullable(rs.getObject("edited_at", OffsetDateTime.class)).map(OffsetDateTime::toInstant).orElse(null),
+            rs.getObject("reblog_of_id", UUID.class),
             rs.getLong("replies_count"));
 
     private final JdbcClient jdbc;
@@ -105,14 +109,27 @@ public class StatusRepository {
      * @return whether it was inserted, which it isn't if a status with its URI is already stored
      */
     public boolean insert(Status status) {
+        return insert(status, null);
+    }
+
+    /**
+     * @param activityAt when a remote boost's {@code Announce} first arrived, or null for anything else
+     * @return whether it was inserted, which it isn't if a status with its URI is already stored, or if it's a boost and
+     * its actor has already boosted the same status
+     */
+    public boolean insert(Status status, Instant activityAt) {
         return jdbc.sql("""
                         INSERT INTO status (id, uri, actor_id, text, content, spoiler_text, language, visibility, sensitive,
                                             reply, in_reply_to_id, in_reply_to_account_id, in_reply_to_uri, url,
-                                            published_at, edited_at)
+                                            published_at, edited_at, reblog_of_id, activity_at)
                         VALUES (:id, :uri, :actorId, :text, :content, :spoilerText, :language, :visibility, :sensitive,
-                                :reply, :inReplyToId, :inReplyToAccountId, :inReplyToUri, :url, :publishedAt, :editedAt)
-                        ON CONFLICT (uri) DO NOTHING
+                                :reply, :inReplyToId, :inReplyToAccountId, :inReplyToUri, :url, :publishedAt, :editedAt,
+                                :reblogOfId, :activityAt)
+                        ON CONFLICT DO NOTHING
                         """)
+                .param("reblogOfId", status.reblogOfId(), Types.OTHER)
+                .param("activityAt", activityAt == null ? null : activityAt.atOffset(ZoneOffset.UTC),
+                        Types.TIMESTAMP_WITH_TIMEZONE)
                 .param("id", status.id())
                 .param("uri", status.uri().toString())
                 .param("actorId", status.actorId())
@@ -191,7 +208,8 @@ public class StatusRepository {
         return jdbc.sql("""
                         UPDATE status SET text = :text, content = :content, spoiler_text = :spoilerText,
                                           language = :language, sensitive = :sensitive, edited_at = :editedAt
-                        WHERE uri = :uri AND actor_id = :actorId AND (edited_at IS NULL OR edited_at < :editedAt)
+                        WHERE uri = :uri AND actor_id = :actorId AND reblog_of_id IS NULL
+                          AND (edited_at IS NULL OR edited_at < :editedAt)
                           AND published_at < :editedAt
                           AND NOT EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)
                         """)
@@ -233,7 +251,7 @@ public class StatusRepository {
     public Optional<URI> findAuthorUriByUri(URI uri) {
         return jdbc.sql("""
                         SELECT a.uri FROM status s JOIN actor a ON a.id = s.actor_id
-                        WHERE s.uri = :uri AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        WHERE s.uri = :uri AND s.reblog_of_id IS NULL AND a.suspended_at IS NULL AND a.deleted_at IS NULL
                         """)
                 .param("uri", uri.toString())
                 .query((rs, rowNum) -> URI.create(rs.getString("uri")))
@@ -245,7 +263,7 @@ public class StatusRepository {
      * this finds the statuses of suspended authors too, because a link made now still holds if the suspension ends.
      */
     public Optional<Parent> findParentByUriAndLock(URI uri) {
-        return jdbc.sql("SELECT id, actor_id FROM status WHERE uri = :uri FOR KEY SHARE")
+        return jdbc.sql("SELECT id, actor_id FROM status WHERE uri = :uri AND reblog_of_id IS NULL FOR KEY SHARE")
                 .param("uri", uri.toString())
                 .query((rs, rowNum) -> new Parent(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class)))
                 .optional();
@@ -335,6 +353,7 @@ public class StatusRepository {
     public Optional<Status> delete(UUID id, UUID actorId) {
         return jdbc.sql("WITH replies AS (SELECT (" + COUNT_REPLIES.formatted(":id") + ") AS replies_count) "
                         + "DELETE FROM status s USING replies WHERE s.id = :id AND s.actor_id = :actorId "
+                        + "AND s.reblog_of_id IS NULL "
                         + "RETURNING " + COLUMNS + ", replies.replies_count")
                 .param("id", id)
                 .param("actorId", actorId)
@@ -427,7 +446,7 @@ public class StatusRepository {
     }
 
     public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
-        var filter = "s.visibility = 'public' AND " + NOT_A_REPLY_TO_OTHERS + switch (origin) {
+        var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + switch (origin) {
             case ANY -> "";
             case LOCAL -> " AND author.is_local";
             case REMOTE -> " AND NOT author.is_local";
@@ -456,7 +475,8 @@ public class StatusRepository {
      * @param viewer       who's looking, who can also see the followers-only and direct statuses that mention them, or null
      */
     public List<Status> findByAccount(
-            UUID actorId, Collection<Visibility> visibilities, UUID viewer, boolean excludeReplies, StatusPage page) {
+            UUID actorId, Collection<Visibility> visibilities, UUID viewer, boolean excludeReplies,
+            boolean excludeReblogs, StatusPage page) {
         var parameters = new HashMap<String, Object>();
         parameters.put("actorId", actorId);
         parameters.put("visibilities", visibilities.stream().map(Visibility::value).toList());
@@ -468,6 +488,9 @@ public class StatusRepository {
         filter.append(")");
         if (excludeReplies) {
             filter.append(" AND ").append(NOT_A_REPLY_TO_OTHERS);
+        }
+        if (excludeReblogs) {
+            filter.append(" AND s.reblog_of_id IS NULL");
         }
         return findPage(filter.toString(), parameters, page);
     }
