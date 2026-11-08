@@ -180,6 +180,14 @@ public class FollowService {
     }
 
     /**
+     * Whether one account follows another, and did already at this time. These are the followers that a followers-only
+     * status posted then was sent to, through {@link #followerInboxesAsOf}.
+     */
+    public boolean wasFollowingAsOf(UUID followerId, UUID followedId, Instant time) {
+        return follows.wasFollowingAsOf(followerId, followedId, time);
+    }
+
+    /**
      * @return how the viewer is related to each of these accounts, in the same order
      */
     public List<Relationship> relationships(UUID viewerId, List<UUID> otherIds) {

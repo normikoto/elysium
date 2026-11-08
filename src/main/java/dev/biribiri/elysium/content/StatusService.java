@@ -352,6 +352,28 @@ public class StatusService {
     }
 
     /**
+     * Finds a status if this actor, fetching it from another server, is allowed to see it. Unlike {@link #isVisible}, a
+     * followers-only status is only shown to followers who were already following when it was posted, and to the accounts it
+     * shows as mentioned. Those are who its {@code Create} and {@code Delete} are sent to, so a fetch tells nobody else that
+     * it exists, and nobody can have it without being sent its deletion.
+     *
+     * @param fetcher an active actor, or empty for a fetch that nobody is known to be behind
+     */
+    public Optional<Status> findFetchable(UUID id, Optional<UUID> fetcher) {
+        return statuses.findById(id).filter(status -> {
+            if (status.isVisibleTo(fetcher)) {
+                return true;
+            }
+            if (fetcher.isEmpty()) {
+                return false;
+            }
+            var mentioned = statuses.findMentions(List.of(id)).getOrDefault(id, List.of()).contains(fetcher.get());
+            return mentioned || (status.visibility() == Visibility.PRIVATE
+                    && follows.wasFollowingAsOf(fetcher.get(), status.actorId(), status.publishedAt()));
+        });
+    }
+
+    /**
      * @param followsAuthor  whether the viewer follows an author, for a caller that has looked that up already
      * @param mentionsViewer whether a status mentions the viewer, for a caller that has looked that up already
      */

@@ -82,12 +82,30 @@ requires a signature. There's no web page at this URL, so its `url` links to the
 
 ### Objects
 
-Public and unlisted statuses are `Note` objects at `/users/{username}/statuses/{id}`, which is also the URL of their web
-page. These are served the same way as actor documents: the same `Accept` types get the object, requests that accept HTML
-get the page, and any origin can read both through CORS. Private and direct statuses get a 404.
+Statuses are `Note` objects at `/users/{username}/statuses/{id}`, which is also the URL of their web page. These are
+served the same way as actor documents: the same `Accept` types get the object, requests that accept HTML get the page,
+and any origin can read both through CORS. Public and unlisted statuses are served to anyone.
+
+A fetch of a `Note` doesn't need a signature, but one is checked if it's sent, and the request is answered as the actor
+that owns the signing key:
+
+- A followers-only status is served to an actor that was already following its author when it was posted, which is who
+  its `Create` went to, and to the actors in its `Mention` tags.
+- A direct status is served to the actors in its `Mention` tags.
+- Only the signer counts. An instance actor, or any other actor, isn't served a status because other actors on its
+  server can see it. This matches Mastodon. Misskey's lookups, and Mastodon's searches, are signed as their instance
+  actor, so they can't find a followers-only or direct status that wasn't delivered to them.
+- Everyone else gets a 404, the same as for a status that never existed. A signature that can't be accepted, for any
+  reason, including a key on a [blocked domain](#domain-blocks), a suspended signer, or a key that can't be fetched right
+  now, gets the answer an unsigned request would. Key fetches count toward the same [limits](#inboxes) as for inboxes.
+
+Answers vary by `Signature`, and a followers-only or direct `Note` has `Cache-Control: no-store, private`. Browsers can't
+send a `Signature` header to these URLs from another origin, so what other sites can read through CORS is always the
+unsigned answer.
 
 Once a public or unlisted status is deleted, a request for the object gets a `410` with a `Tombstone`, and a request for the
-page gets a 404. A deleted private or direct status still gets a 404, the same as one that never existed.
+page gets a 404. A deleted followers-only or direct status gets a 404 from then on, even with a signature, the same as one
+that never existed.
 
 ```json
 {
@@ -522,9 +540,9 @@ stops a `Like` it names from counting if that's processed later, for about 34 da
 
 A `Note`'s `likes` collection is an `OrderedCollection` with a `totalItems` and a `first` page, paged like
 [followers and following](#actors), with up to 40 `Like` activities a page, newest first. Each has the `id` it was received
-with. It's served the same way as the `Note`, except that a request that accepts HTML is redirected to the status's page.
-Only public and unlisted statuses have one, and others get a 404, or a 403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if
-the suspension ends.
+with. It's served with the same media types as the `Note`, and any origin can read it through CORS, but a request that
+accepts HTML is redirected to the status's page, and any signature is ignored. Only public and unlisted statuses have one, and others get a 404, or a
+403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if the suspension ends.
 
 ### Differences from Mastodon
 
@@ -536,8 +554,9 @@ the suspension ends.
 - An edited status's earlier versions aren't kept, and an `Update` doesn't change who it mentions, so an edit can't show a
   followers-only or direct status to more local users.
 - A reply's `inReplyTo` is left out if its parent can't be shown, so it doesn't look like a reply.
-- Followers-only and direct statuses can't be fetched, even by a follower or a mentioned actor. Fetches don't need a
-  signature, and any signature on them is ignored.
+- A followers-only status can't be fetched by an actor that started following after it was posted, though Mastodon would
+  serve it to any current follower.
+- Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.
 - Actor documents, including the instance actor's, advertise an `outbox`, but it isn't implemented yet.
 
 ### Suspended and deleted accounts
@@ -609,9 +628,9 @@ GoToSocial answer the same way.
 ### HTTP Signatures
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
-[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Only inboxes check signatures. The only requests this
-server makes are fetches of keys and actor documents, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`,
-`Accept`, `Create`, `Update`, `Delete`, and `Like`.
+[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Inboxes require signatures, and fetches of `Note`s
+check one if it's sent. The only requests this server makes are fetches of keys and actor documents, unsigned WebFinger
+lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, and `Like`.
 
 - **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
   method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.
