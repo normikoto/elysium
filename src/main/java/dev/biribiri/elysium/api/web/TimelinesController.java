@@ -53,8 +53,9 @@ public class TimelinesController {
                     account's reply to a status that isn't stored here is left out, since who it's replying to isn't known. `local` has no \
                     effect.
 
-                    Lists all of the user's own statuses, and the public, unlisted, and followers-only statuses of \
-                    accounts they follow. A followed account's reply is only listed when it's to its author, to the user, \
+                    Lists all of the user's own statuses, visible statuses of accounts they follow, and direct \
+                    statuses from followed accounts that address the user. A followed account's reply is only listed \
+                    when it's to its author, to the user,
                     or to an account they follow.
 
                     """ + ApiDocs.NEEDS_USER,

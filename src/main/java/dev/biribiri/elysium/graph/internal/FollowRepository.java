@@ -27,7 +27,8 @@ public class FollowRepository {
             rs.getObject("followed_id", UUID.class),
             rs.getString("activity_uri"),
             rs.getObject("activity_at", OffsetDateTime.class).toInstant(),
-            "accepted".equals(rs.getString("state")));
+            "accepted".equals(rs.getString("state")),
+            rs.getObject("id", UUID.class));
 
     /**
      * Leaves out follows whose other actor, joined as {@code a}, is suspended or deleted.
@@ -52,7 +53,7 @@ public class FollowRepository {
 
     public Optional<Row> findByPair(UUID followerId, UUID followedId) {
         return jdbc.sql("""
-                        SELECT followed_id, activity_uri, activity_at, state FROM follow
+                        SELECT id, followed_id, activity_uri, activity_at, state FROM follow
                         WHERE follower_id = :followerId AND followed_id = :followedId
                         """)
                 .param("followerId", followerId)
@@ -63,7 +64,7 @@ public class FollowRepository {
 
     public Optional<Row> findByActivity(UUID followerId, String activityUri) {
         return jdbc.sql("""
-                        SELECT followed_id, activity_uri, activity_at, state FROM follow
+                        SELECT id, followed_id, activity_uri, activity_at, state FROM follow
                         WHERE follower_id = :followerId AND activity_uri = :activityUri
                         ORDER BY activity_at DESC, id
                         LIMIT 1
@@ -116,7 +117,7 @@ public class FollowRepository {
     public Optional<Row> deletePair(UUID followerId, UUID followedId) {
         return jdbc.sql("""
                         DELETE FROM follow WHERE follower_id = :followerId AND followed_id = :followedId
-                        RETURNING followed_id, activity_uri, activity_at, state
+                        RETURNING id, followed_id, activity_uri, activity_at, state
                         """)
                 .param("followerId", followerId)
                 .param("followedId", followedId)
@@ -502,7 +503,7 @@ public class FollowRepository {
     /**
      * @param accepted whether the follow is accepted, rather than waiting for an answer
      */
-    public record Row(UUID followedId, String activityUri, Instant activityAt, boolean accepted) {
+    public record Row(UUID followedId, String activityUri, Instant activityAt, boolean accepted, UUID id) {
     }
 
     /**

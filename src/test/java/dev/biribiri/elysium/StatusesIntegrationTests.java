@@ -370,7 +370,7 @@ class StatusesIntegrationTests {
         mockMvc.perform(withToken(get(path), bob())).andExpect(status().isOk());
         mockMvc.perform(withToken(get(path), carol())).andExpect(status().isNotFound());
         mockMvc.perform(get(path)).andExpect(status().isNotFound());
-        expectIds(withToken(get(HOME), bob()), id);
+        expectIds(withToken(get(HOME), bob()));
         expectIds(withToken(get(HOME), carol()));
         expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), bob()), id);
         expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), carol()));
@@ -381,7 +381,7 @@ class StatusesIntegrationTests {
         var id = create(alice(), "@bob only followers and you", "private");
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob())).andExpect(status().isOk());
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), carol())).andExpect(status().isNotFound());
-        expectIds(withToken(get(HOME), bob()), id);
+        expectIds(withToken(get(HOME), bob()));
     }
 
     @Test
@@ -411,7 +411,7 @@ class StatusesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mentions", empty()));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), carol())).andExpect(status().isNotFound());
-        expectIds(withToken(get(HOME), bob()), id.toString());
+        expectIds(withToken(get(HOME), bob()));
     }
 
     @Test

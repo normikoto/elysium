@@ -277,6 +277,22 @@ class AccountCleanupIntegrationTests {
         assertThat(actors.findAnyLocalById(recent.id()).orElseThrow().publicKeyPem()).isNotNull();
     }
 
+    @Test
+    void deletingAnAccountRemovesItsInboxAndReferencesFromOtherParticipants() {
+        var other = newLocal();
+        var status = statuses.create(local.id(), new NewStatus("@" + other.username() + " direct", "", null,
+                Visibility.DIRECT, false, null));
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM inbox_conversation WHERE owner_id = :id", local.id()) == 1
+                && count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id", local.id()) == 1);
+        jdbc.sql("INSERT INTO inbox_marker (owner_id, timeline, last_read_id) VALUES (:id, 'home', :status)")
+                .param("id", local.id()).param("status", status.id()).update();
+        actors.markDeleted(local.id());
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM inbox_marker WHERE owner_id = :id", local.id()) == 0
+                && count("SELECT count(*) FROM inbox_conversation WHERE owner_id = :id OR participant_ids @> ARRAY[CAST(:id AS uuid)]", local.id()) == 0);
+        assertThat(count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id OR recipient_id = :id", local.id())).isZero();
+        assertThat(count("SELECT count(*) FROM status_thread_alias WHERE actor_id = :id", local.id())).isZero();
+    }
+
     private static NewStatus draft() {
         return new NewStatus("Hello", "", null, Visibility.PUBLIC, false, null);
     }

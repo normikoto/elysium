@@ -24,9 +24,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   it's longer than 2048 characters, in which case it counts at its full length. URLs can save at most 4096 characters
   per status, and any URLs after that also count at their full length. A mention counts without its domain, as in
   Mastodon, and the domains can save at most 4096 characters per status.
-- A followers-only or direct status can be seen by the accounts it mentions, as on Mastodon. Notifications and
-  conversations aren't implemented, so a direct status, and a followers-only one that mentions the user, shows in the
-  home timeline of the user it mentions, whoever posted it.
+- A followers-only or direct status can be seen by the accounts it mentions, as on Mastodon. Mentions from accounts
+  the user does not follow appear in notifications, and direct messages in conversations, rather than in the home timeline.
 - `mentions` leaves out accounts that have been suspended or deleted since. For a status from another server, it also
   leaves out local accounts that the status was sent to without mentioning them, which can still see it.
 - `visibility` defaults to `public` only when it's missing. An empty value is rejected, as are a repeated value and
@@ -49,9 +48,54 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
 - `GET /api/v1/timelines/home` is worked out from the statuses stored here each time, rather than kept as a feed, so it
   never answers `206`, and an account's stored statuses show as soon as it's followed, older ones too. A followed
   account's reply is only listed when it's to its author, to the user, or to someone they follow, as on Mastodon, and one
-  to a status that isn't stored here is left out. The user's own replies are always listed. `local` has no effect. List and hashtag timelines aren't implemented.
+  to a status that isn't stored here is left out. Direct messages addressed to the user are included only when they
+  follow the author. The user's own statuses and replies are always listed. `local` has no effect. List and hashtag timelines aren't implemented.
 - `GET /api/v1/timelines/public` lists public statuses from other servers too, as on Mastodon. With both `local` and
   `remote`, `local` wins.
+
+Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/notifications/) and
+[grouped notifications API](https://docs.joinmastodon.org/methods/grouped_notifications/):
+
+- `GET /api/v1/notifications`, `GET /api/v1/notifications/:id`, `POST /api/v1/notifications/clear`,
+  `POST /api/v1/notifications/:id/dismiss`, and `GET /api/v1/notifications/unread_count` are implemented.
+- V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
+  `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
+  `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
+- Only `mention` and `follow` notifications are generated. Follow requests await support for approving followers;
+  favourites, boosts, subscribed-account posts, edits, and admin notifications await their respective features.
+- Notifications start with new activity after upgrading; historical mentions and follows do not generate notifications.
+  Inbox updates may appear shortly after their source activity is stored. Silent mentions and self-mentions do not notify.
+- Notification policies and notification requests are not implemented. `include_filtered` has no effect, and
+  `supported_types[]` has no effect because generated types have no fallback representations. Notifications are not
+  suppressed by a per-domain quota. Clients poll; streaming and push subscriptions are not implemented.
+- Notification pages default to 40 results, with a maximum of 80; unread counts default to a cap of 100, with a maximum
+  of 1000. V2 groups follow events within a span of up to twelve hours, while mentions remain individual groups.
+  `types[]`, `exclude_types[]`, and `account_id` filter both lists and counts; exclusions win over inclusions.
+- Suspended, deleted, or domain-blocked senders are omitted, as are notifications about deleted statuses.
+  Reads do not mark notifications as read, and dismissing a conversation does not dismiss its notifications.
+
+Conversations follow [Mastodon's conversations API](https://docs.joinmastodon.org/methods/conversations/):
+
+- `GET /api/v1/conversations`, `DELETE /api/v1/conversations/:id`, and `POST /api/v1/conversations/:id/read`
+  are implemented. Pages default to 20 conversations, with a maximum of 40. Follow the `Link` header: cursors are
+  latest-status IDs, distinct from conversation IDs.
+- A conversation is a thread of direct statuses for one participant set. A new top-level message starts a separate
+  conversation even with the same participants. Only stored statuses are included; missing remote parents are never
+  fetched. Thread parts join when a missing parent arrives, which can merge provisional conversation entries.
+- Existing direct messages appear as read conversations after upgrading. New incoming messages make a conversation
+  unread; sending a message or marking it read clears that flag. Deletion hides the conversation only for the user,
+  until a newer message arrives, and does not delete statuses. Notification read markers are independent.
+- As in Mastodon, silent mentions do not create recipient conversations. Suspended, deleted, and domain-blocked
+  accounts are omitted from conversation accounts and message summaries.
+
+Timeline positions follow [Mastodon's markers API](https://docs.joinmastodon.org/methods/markers/):
+
+- `GET /api/v1/markers` and `POST /api/v1/markers` support `home` and `notifications` with Mastodon's scopes.
+  Reads without `timeline[]` return `{}`. Writes accept JSON, form, or multipart bodies and return marker versions and
+  timestamps. Saving a notifications marker controls both notification unread counts without dismissing notifications.
+- Positions and paging cursors must be UUIDs. Invalid values receive 422; concurrent marker updates can receive 409.
+  Missing or other users' notification and conversation IDs receive 404. These endpoints require user tokens; an app
+  token receives 422.
 
 Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.org/methods/accounts/) and
 [search API](https://docs.joinmastodon.org/methods/search/), with these differences:

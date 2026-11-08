@@ -7,6 +7,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.inbox.InboxService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -19,12 +20,14 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 class AccountCleanupTask {
 
+    private final InboxService inbox;
     private final ActorService actors;
     private final StatusService statuses;
     private final FollowService follows;
     private final ProfileService profiles;
 
-    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, ProfileService profiles) {
+    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, ProfileService profiles, InboxService inbox) {
+        this.inbox = inbox;
         this.actors = actors;
         this.profiles = profiles;
         this.statuses = statuses;
@@ -42,6 +45,7 @@ class AccountCleanupTask {
                 statuses.removeAllBy(actor.id());
                 follows.removeForActor(actor.id());
                 profiles.removeAll(actor.id());
+                inbox.removeForActor(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {
                 follows.removeForActor(actor.id());
             }

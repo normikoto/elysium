@@ -76,7 +76,7 @@ class ApiDocs {
      * after these. This runs after the customizer that adds the OAuth tag, which is ordered first.
      */
     private static final List<String> TAG_ORDER = List.of(
-            "Apps", "OAuth", "Accounts", "Statuses", "Timelines", "Search", "Instance", "Admin: accounts",
+            "Apps", "OAuth", "Accounts", "Statuses", "Timelines", "Notifications", "Grouped notifications", "Conversations", "Markers", "Search", "Instance", "Admin: accounts",
             "Admin: domain blocks", "ActivityPub", "WebFinger", "NodeInfo");
 
     @Bean
@@ -155,6 +155,11 @@ class ApiDocs {
                     .filter(parameter -> parameter.getDescription() == null && CURSORS.containsKey(parameter.getName()))
                     .forEach(parameter -> parameter.setDescription(CURSORS.get(parameter.getName())));
             responses.putIfAbsent("422", new ApiResponse().description("A cursor or `limit` is invalid."));
+            var success = responses.get("200");
+            if (success != null) {
+                success.addHeaderObject("Link", new io.swagger.v3.oas.models.headers.Header()
+                        .description("Links to the next and previous pages.").schema(new StringSchema()));
+            }
             append(operation, PAGE);
         }
 

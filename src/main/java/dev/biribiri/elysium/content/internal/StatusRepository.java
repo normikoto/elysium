@@ -268,6 +268,11 @@ public class StatusRepository {
     public record Parent(UUID id, UUID actorId) {
     }
 
+    public List<Status> findByIds(Collection<UUID> ids) {
+        return ids.isEmpty() ? List.of() : jdbc.sql(SELECT + "WHERE s.id IN (:ids)")
+                .param("ids", ids).query(STATUS_MAPPER).list();
+    }
+
     public Optional<Status> findById(UUID id) {
         return jdbc.sql(SELECT + "WHERE s.id = :id").param("id", id).query(STATUS_MAPPER).optional();
     }
@@ -434,15 +439,13 @@ public class StatusRepository {
      * @param followedIds the accounts the viewer follows, which can be empty
      */
     public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
-        // The viewer's own statuses are all listed, and the reply rule only applies to those of accounts they follow. Clients
-        // have nowhere else to show direct statuses to the viewer, without notifications or conversations.
         var filter = """
                 (s.actor_id = :viewer
                  OR (s.actor_id = ANY (CAST(:followed AS uuid[]))
-                     AND s.visibility IN ('public', 'unlisted', 'private')
-                     AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = :viewer
-                          OR s.in_reply_to_account_id = ANY (CAST(:followed AS uuid[]))))
-                 OR (s.visibility IN ('private', 'direct') AND""" + MENTIONS_VIEWER + "))";
+                     AND ((s.visibility IN ('public', 'unlisted', 'private')
+                           AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = :viewer
+                                OR s.in_reply_to_account_id = ANY (CAST(:followed AS uuid[]))))
+                          OR (s.visibility = 'direct' AND""" + MENTIONS_VIEWER + "))))";
         // One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
         var followed = followedIds.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
         return findPage(filter, Map.of("viewer", viewerId, "followed", followed), page);

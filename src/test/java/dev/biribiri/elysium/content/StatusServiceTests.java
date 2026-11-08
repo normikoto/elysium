@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.StatusRepository;
+import dev.biribiri.elysium.content.internal.StatusThreads;
 import dev.biribiri.elysium.graph.FollowService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,7 @@ class StatusServiceTests {
                 BASE_URL.resolve("/users/alice/outbox"), null, "key", Instant.now(), Instant.now())));
         service = new StatusService(
                 repository,
+                mock(StatusThreads.class),
                 actors,
                 new InstanceProperties(BASE_URL),
                 new StatusProperties(10),

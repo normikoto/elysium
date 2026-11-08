@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
+import dev.biribiri.elysium.content.internal.StatusThreads;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.text.Mentions;
 import dev.biribiri.elysium.text.PlainText;
@@ -52,6 +53,7 @@ public class StatusService {
     private static final Set<Integer> BLANK_CHARACTERS = Set.of(0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0);
 
     private final StatusRepository statuses;
+    private final StatusThreads threads;
     private final ActorService actors;
     private final InstanceProperties instance;
     private final StatusProperties properties;
@@ -62,6 +64,7 @@ public class StatusService {
 
     StatusService(
             StatusRepository statuses,
+            StatusThreads threads,
             ActorService actors,
             InstanceProperties instance,
             StatusProperties properties,
@@ -71,6 +74,7 @@ public class StatusService {
             RemoteActorResolver resolver) {
         this.resolver = resolver;
         this.statuses = statuses;
+        this.threads = threads;
         this.actors = actors;
         this.follows = follows;
         this.instance = instance;
@@ -141,6 +145,8 @@ public class StatusService {
                     .filter(mentionedId -> !mentionedId.equals(authorId))
                     .distinct()
                     .collect(Collectors.toMap(Function.identity(), mentionedId -> false)));
+            threads.assign(status, parent.map(Status::uri).orElse(null));
+            events.publishEvent(new StatusStored(id));
             events.publishEvent(new StatusPublished(id, authorId));
             return status;
         });
@@ -198,7 +204,7 @@ public class StatusService {
 
     /**
      * Stores a status from another server. Its HTML is sanitized here, so that nothing unsanitized can be stored. Nothing is
-     * published for it, since it isn't this server's to send.
+     * published for outbound delivery, since it isn't this server's to send; StatusStored updates local inboxes.
      *
      * <p>Its ID comes from when it arrived, not from its {@code published} date, which the other server chose. Clients ask
      * for statuses newer than the last ID they saw, so one with an older ID would never reach them.
@@ -251,6 +257,8 @@ public class StatusService {
             statuses.insertMentions(id, mentions);
             // Jobs have no order, so replies can be stored before their parent.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
+            threads.assign(status, remote.inReplyToUri());
+            events.publishEvent(new StatusStored(id));
             return Optional.of(id);
         });
     }
@@ -259,8 +267,7 @@ public class StatusService {
      * Replaces a remote status with a version its author's server edited. Only what an author can change in an edit on
      * Mastodon is replaced, so its visibility, its parent and when it was published stay as they were. So do its mentions,
      * which decide who can see a followers-only or direct status, so that an edit can't show it to anyone it wasn't sent
-     * to. Nothing is
-     * published for it, since it isn't this server's to send.
+     * to. Nothing is published for this edit, since it isn't this server's to send.
      *
      * @return what happened to the edit
      */
@@ -317,9 +324,16 @@ public class StatusService {
                 .orElseGet(() -> StatusIds.fromTimestamp(now));
     }
 
-    /**
-     * Finds a status, if this viewer is allowed to see it.
-     */
+    /** Batch visibility lookup for notifications and conversation summaries. */
+    public List<Status> findVisible(Collection<UUID> ids, UUID viewer) {
+        if (ids.isEmpty()) return List.of();
+        var found = statuses.findByIds(ids);
+        var followed = Set.copyOf(follows.followedIds(viewer));
+        var mentioned = statuses.mentioning(ids, viewer);
+        return found.stream().filter(status -> isVisible(status, Optional.of(viewer), followed::contains, mentioned::contains)).toList();
+    }
+
+    /** Finds a status if this viewer is allowed to see it. */
     public Optional<Status> findVisible(UUID id, Optional<UUID> viewer) {
         return statuses.findById(id).filter(status -> isVisible(status, viewer));
     }
@@ -463,6 +477,7 @@ public class StatusService {
      */
     public void removeAllBy(UUID authorId) {
         statuses.removeAllBy(authorId);
+        threads.removeForActor(authorId);
     }
 
     /**
@@ -472,6 +487,7 @@ public class StatusService {
      */
     public void removeForDomain(String domain) {
         statuses.removeForDomain(domain);
+        threads.removeForDomain(domain);
     }
 
     /**
@@ -489,9 +505,8 @@ public class StatusService {
     }
 
     /**
-     * Lists all of a viewer's own statuses, those of the accounts they follow that they can see, and the followers-only and
-     * direct statuses that mention them, from anyone. Public and unlisted ones that mention them are only listed if they
-     * follow the author, as on Mastodon. As on Mastodon, a followed account's reply is only listed when it's to
+     * Lists the viewer's own statuses and visible statuses from followed accounts, including direct mentions.
+     * As on Mastodon, a followed account's reply is only listed when it's to
      * its author, to the viewer, or to someone they follow, so that following one person doesn't show their side of every
      * conversation. A reply to a status that isn't stored here has no known parent author, so it's left out too.
      *
