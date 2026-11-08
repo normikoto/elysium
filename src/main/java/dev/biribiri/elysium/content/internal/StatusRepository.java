@@ -52,6 +52,11 @@ public class StatusRepository {
 
     private static final int REMOVAL_BATCH_SIZE = 1000;
 
+    /**
+     * How many versions of a status are kept, counting the current one.
+     */
+    public static final int MAX_VERSIONS = 50;
+
     private static final String MENTIONS_VIEWER =
             " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = :viewer)";
 
@@ -233,13 +238,14 @@ public class StatusRepository {
     /**
      * Replaces a status's text, and keeps the version it replaces as an edit, in one statement. The row is locked before
      * it's read, so two edits at once can't both keep the same earlier version: the second waits, then reads the first's.
+     * Only the {@link #MAX_VERSIONS} latest versions are kept, since another server can send any number of edits.
      *
      * @param condition which status, from columns of {@code status}
      */
     private boolean edit(
             String condition, Map<String, Object> parameters, String text, String content, String spoilerText,
             String language, boolean sensitive, Instant editedAt) {
-        return jdbc.sql("""
+        var edited = jdbc.sql("""
                         WITH old AS (
                             SELECT id, text, content, spoiler_text, language, sensitive,
                                    coalesce(edited_at, published_at) AS since
@@ -253,6 +259,7 @@ public class StatusRepository {
                         )
                         INSERT INTO status_edit (status_id, text, content, spoiler_text, language, sensitive, created_at)
                         SELECT id, text, content, spoiler_text, language, sensitive, since FROM replaced
+                        RETURNING status_id
                         """.formatted(condition))
                 .params(parameters)
                 .param("text", text)
@@ -261,7 +268,25 @@ public class StatusRepository {
                 .param("language", language, Types.VARCHAR)
                 .param("sensitive", sensitive)
                 .param("editedAt", editedAt.atOffset(ZoneOffset.UTC))
-                .update() == 1;
+                .query(UUID.class)
+                .optional();
+        edited.ifPresent(this::removeOldestEdits);
+        return edited.isPresent();
+    }
+
+    /**
+     * The status itself holds the current version, so this keeps one fewer edit than that.
+     */
+    private void removeOldestEdits(UUID statusId) {
+        jdbc.sql("""
+                        DELETE FROM status_edit WHERE id IN (
+                            SELECT id FROM status_edit WHERE status_id = :statusId
+                            ORDER BY created_at DESC, id DESC OFFSET :kept
+                        )
+                        """)
+                .param("statusId", statusId)
+                .param("kept", MAX_VERSIONS - 1)
+                .update();
     }
 
     /**

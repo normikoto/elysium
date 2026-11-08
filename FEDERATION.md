@@ -429,15 +429,15 @@ is newer. A repeat, or an `Update` sent after a later edit, can carry a newer `N
 that hasn't been sent to a server yet carries the latest edit, and an `Update` doesn't overtake a `Create` that's being
 sent to the same server.
 
-When a local user deletes a status, any delivery of its `Create` or `Update`s that hasn't started is cancelled, and a `Delete` is sent to
-their followers on other servers and the actors it mentioned, the same way as a `Create`. It's addressed like the `Create`,
+When a local user deletes a status, any delivery of its `Create` or `Update`s that hasn't started is cancelled, and a
+`Delete` is sent to their followers on other servers and the actors it mentioned, the same way as a `Create`. It's addressed like the `Create`,
 except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. The `Delete` of
 a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
 that the status existed. Since it goes to who follows the author when it's deleted, a server whose followers have all left
 since keeps its copy.
 
-A `Delete` doesn't overtake a `Create` that's already being sent: it waits until that request to the same server has ended,
-which takes at most 30 seconds. This server can only control when each is sent, so a server that handles activities out of order
+A `Delete` doesn't overtake a `Create` or `Update` that's already being sent: it waits until that request to the same
+server has ended, which takes at most 30 seconds. This server can only control when each is sent, so a server that handles activities out of order
 could still process them the other way around.
 
 ```json
@@ -667,7 +667,7 @@ A suspended account's actor document has no profile: no `name`, `summary`, `icon
 - **Suspending a local account:** Its followers' servers get an `Update` of the actor with `suspended: true`, and an `Update`
   without it if the suspension ends, each signed by the actor, with its own ID. They aren't ordered, so if a server is down
   through a quick suspension and its end, the older `Update` can arrive last, and that server has it wrong until it next
-  refreshes the actor. Followers are kept. A `Create` still queued is dropped, and isn't sent if the suspension ends. Other
+  refreshes the actor. Followers are kept. A status's `Create` or `Update` still queued is dropped, and isn't sent if the suspension ends. Other
   activities still queued, such as a status's `Delete` or a follow's `Accept`, wait and are sent within 10 minutes of the
   suspension ending, unless that takes more than 33 days. A `Follow` of a suspended account gets no answer, and an `Undo`
   of one works as usual.

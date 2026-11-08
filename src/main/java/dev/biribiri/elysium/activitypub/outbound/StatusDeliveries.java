@@ -87,21 +87,22 @@ public class StatusDeliveries {
 
     /**
      * Stops any further sending of the status, and tells followers, the accounts it mentioned, and the followers of local
-     * accounts that boosted it to remove it, after any {@code Create} still being sent. Which followers were sent the status isn't kept, so this goes to current followers, as
-     * {@link #inboxes} decides. An author who's been
-     * suspended since can come back, and this waits for that, so that followers don't keep what was deleted.
+     * accounts that boosted it to remove it, after any {@code Create} or {@code Update} still being sent. A server that gets
+     * an {@code Update} of a status it doesn't have can store it, as Mastodon does, so one that arrived after this would
+     * bring the status back. Which followers were sent the status isn't kept, so this goes to current followers, as
+     * {@link #inboxes} decides. An author who's been suspended since can come back, and this waits for that, so that
+     * followers don't keep what was deleted.
      */
     @ApplicationModuleListener
     public void on(StatusDeleted event) {
         var create = Create.idFor(event.statusUri());
+        var updates = Update.idPrefixFor(event.statusUri());
         deliveries.cancel(create);
+        deliveries.cancelStartingWith(updates);
         var author = actors.findAnyLocalById(event.authorId()).filter(found -> !found.isDeleted());
         if (author.isEmpty()) {
             return;
         }
-        // An Update still queued would only tell servers about what they're about to remove. One that's being sent can
-        // still arrive after this, but a server that's processed the Delete has nothing left to apply it to.
-        deliveries.cancelStartingWith(Update.idPrefixFor(event.statusUri()));
         var mentioned = actors.findByIds(event.mentioned());
         var inboxes = everyoneSent(
                 author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned,
@@ -114,7 +115,8 @@ public class StatusDeliveries {
         deliveries.enqueueAfter(
                 new OutboundActivity(delete.id().toString(), author.get().id(), json.writeValueAsString(delete)),
                 inboxes,
-                create);
+                create,
+                updates);
     }
 
     /**
@@ -124,11 +126,15 @@ public class StatusDeliveries {
      * Servers that get two keep the one whose {@code updated} is later.
      *
      * <p>A {@code Create} that's still queued is changed to carry the edit too, and this doesn't overtake one being sent,
-     * since a server that doesn't have the status yet can ignore this, as Mastodon does.
+     * since a server that doesn't have the status yet can ignore this, as Mastodon does. The status can't be edited while
+     * this runs, so that this can't write an older version over the one a later edit's listener wrote.
+     *
+     * <p>Like the {@code Create}, this is dropped if the author is suspended before it's sent, so that it doesn't tell
+     * servers that never got the {@code Create} about the status once the suspension ends.
      */
     @ApplicationModuleListener
     public void on(StatusEdited event) {
-        var status = statuses.findAndHold(event.statusId(), event.authorId());
+        var status = statuses.findAndHoldAgainstEdits(event.statusId(), event.authorId());
         var author = actors.findLocalById(event.authorId());
         if (status.isEmpty() || author.isEmpty()) {
             return;
@@ -148,7 +154,8 @@ public class StatusDeliveries {
         }
         var update = Update.of(note, event.editedAt());
         deliveries.enqueueAfter(
-                new OutboundActivity(update.id().toString(), author.get().id(), json.writeValueAsString(update)),
+                new OutboundActivity(
+                        update.id().toString(), author.get().id(), json.writeValueAsString(update), WhileSuspended.DROP),
                 inboxes,
                 create.id().toString());
     }

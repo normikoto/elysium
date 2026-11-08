@@ -53,7 +53,7 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(OutboundActivity activity, Collection<URI> inboxes) {
-        queue(activity, inboxes, null);
+        queue(activity, inboxes, null, null);
     }
 
     /**
@@ -66,7 +66,7 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(OutboundActivity activity, Collection<URI> inboxes, String attempt) {
-        queue(activity, inboxes, null, attempt);
+        queue(activity, inboxes, null, null, attempt);
     }
 
     /**
@@ -80,10 +80,25 @@ public class ActivityDeliveries {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueueAfter(OutboundActivity activity, Collection<URI> inboxes, String cancelledActivityId) {
-        queue(activity, inboxes, cancelledActivityId);
+        queue(activity, inboxes, cancelledActivityId, null);
     }
 
-    private void queue(OutboundActivity activity, Collection<URI> inboxes, String staysBehind, String... extraIdParts) {
+    /**
+     * Like {@link #enqueueAfter(OutboundActivity, Collection, String)}, but also stays behind each activity whose ID starts
+     * with this, as a status's {@code Delete} shouldn't overtake its {@code Update}s, which
+     * {@link #cancelStartingWith} cancels.
+     *
+     * @param cancelledActivityIdPrefix what the IDs of the other activities to stay behind start with
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueueAfter(
+            OutboundActivity activity, Collection<URI> inboxes, String cancelledActivityId, String cancelledActivityIdPrefix) {
+        queue(activity, inboxes, cancelledActivityId, cancelledActivityIdPrefix);
+    }
+
+    private void queue(
+            OutboundActivity activity, Collection<URI> inboxes, String staysBehind, String staysBehindPrefix,
+            String... extraIdParts) {
         var allowed = allowed(inboxes);
         if (allowed.isEmpty()) {
             return;
@@ -91,7 +106,7 @@ public class ActivityDeliveries {
         store(activity);
         var now = Instant.now();
         for (var inbox : allowed) {
-            var job = new DeliveryJob(activity.id(), inbox.toString(), now, staysBehind);
+            var job = new DeliveryJob(activity.id(), inbox.toString(), now, staysBehind, staysBehindPrefix);
             var idParts = Stream.concat(Stream.of(job.activityId(), job.inbox()), Stream.of(extraIdParts))
                     .toArray(String[]::new);
             Jobs.schedule(scheduler, TASK, job, idParts);
@@ -135,8 +150,19 @@ public class ActivityDeliveries {
      * that's been deleted.
      */
     public void cancelStartingWith(String activityIdPrefix) {
-        jdbc.sql("DELETE FROM outbound_activity WHERE starts_with(activity_id, :prefix)")
+        if (activityIdPrefix.isEmpty()) {
+            throw new IllegalArgumentException("The prefix can't be empty");
+        }
+        // A range, rather than starts_with or LIKE, so that it can use the index in a prepared statement's generic plan. Every
+        // ID that starts with the prefix sorts before the prefix with its last character increased, when comparing bytes.
+        var last = activityIdPrefix.length() - 1;
+        var after = activityIdPrefix.substring(0, last) + (char) (activityIdPrefix.charAt(last) + 1);
+        jdbc.sql("""
+                        DELETE FROM outbound_activity
+                        WHERE activity_id COLLATE "C" >= :prefix AND activity_id COLLATE "C" < :after
+                        """)
                 .param("prefix", activityIdPrefix)
+                .param("after", after)
                 .update();
     }
 

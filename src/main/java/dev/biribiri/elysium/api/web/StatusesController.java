@@ -226,7 +226,7 @@ public class StatusesController {
                     Works without a token for public and unlisted statuses, and others are only found for a user who \
                     can see them. Lists each version oldest first, ending with the current one, so a status that was \
                     never edited has one. A status from another server only has the versions that this server was \
-                    sent, so it can lack some that its own server shows.""",
+                    sent, so it can lack some that its own server shows. Only the latest 50 versions are kept.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#history"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "Each version of the status."),
@@ -465,11 +465,7 @@ public class StatusesController {
             if (repeated || name.startsWith("visibility[")) {
                 throw new InvalidRequestException("Validation failed: visibility must be a single value");
             }
-            var unsupported = name.equals("media_ids") || name.equals("media_ids[]") || name.equals("scheduled_at")
-                    || name.equals("poll") || name.startsWith("poll[");
-            if (unsupported && isPresent(value)) {
-                throw new InvalidRequestException("Validation failed: " + name + " is not supported");
-            }
+            rejectIfPresent(name, value, isMediaOrPoll(name) || name.equals("scheduled_at"));
         });
     }
 
@@ -477,13 +473,18 @@ public class StatusesController {
      * As for a new status, ignoring these would leave out what the user meant to change without telling them.
      */
     private static void rejectUnsupportedInEdit(Map<String, ?> parameters) {
-        parameters.forEach((name, value) -> {
-            var unsupported = name.equals("media_ids") || name.equals("media_ids[]")
-                    || name.startsWith("media_attributes") || name.equals("poll") || name.startsWith("poll[");
-            if (unsupported && isPresent(value)) {
-                throw new InvalidRequestException("Validation failed: " + name + " is not supported");
-            }
-        });
+        parameters.forEach((name, value) ->
+                rejectIfPresent(name, value, isMediaOrPoll(name) || name.startsWith("media_attributes")));
+    }
+
+    private static boolean isMediaOrPoll(String name) {
+        return name.equals("media_ids") || name.equals("media_ids[]") || name.equals("poll") || name.startsWith("poll[");
+    }
+
+    private static void rejectIfPresent(String name, Object value, boolean unsupported) {
+        if (unsupported && isPresent(value)) {
+            throw new InvalidRequestException("Validation failed: " + name + " is not supported");
+        }
     }
 
     private static boolean isPresent(Object value) {

@@ -20,8 +20,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   set `edited_at`. Each `edited_at` is at least a second after the version before it, even if that's slightly in the
   future, because other servers are sent whole seconds.
 - `GET /api/v1/statuses/:id/history` only has the versions of a status from another server that were sent here, so it
-  can lack some that its server shows, and it has no versions from before the upgrade that added it. Its entries have
-  empty `media_attachments` and `emojis`, and a null `poll`.
+  can lack some that its server shows, and it has no versions from before the upgrade that added it. Only the latest 50
+  versions of a status are kept. Its entries have empty `media_attachments` and `emojis`, and a null `poll`.
 - URLs and mentions in a status are linked, but hashtags aren't yet. A mention of an account on another server is looked
   up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
   mention that can't be found, or one past that limit of an account that isn't already known here, stays as text rather

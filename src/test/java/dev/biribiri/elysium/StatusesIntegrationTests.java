@@ -589,6 +589,22 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$[1].content").value("<p>Edited</p>"));
     }
 
+    @Test
+    void keepsOnlyTheLatestVersions() throws Exception {
+        var authorId = remoteAuthor();
+        var id = remoteStatus(authorId, Visibility.PUBLIC, null);
+        var uri = statuses.findVisible(id, Optional.empty()).orElseThrow().uri();
+        var start = Instant.now();
+        for (var edit = 1; edit <= 55; edit++) {
+            statuses.updateRemote(new RemoteEdit(
+                    uri, authorId, "<p>Edit " + edit + "</p>", null, null, false, start.plusSeconds(edit)));
+        }
+        mockMvc.perform(get("/api/v1/statuses/" + id + "/history"))
+                .andExpect(jsonPath("$", hasSize(50)))
+                .andExpect(jsonPath("$[0].content").value("<p>Edit 6</p>"))
+                .andExpect(jsonPath("$[49].content").value("<p>Edit 55</p>"));
+    }
+
     private void edit(String token, String id, String text) throws Exception {
         mockMvc.perform(withToken(put("/api/v1/statuses/" + id), token)
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)

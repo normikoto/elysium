@@ -101,6 +101,7 @@ class StatusDeliveryIntegrationTests {
     private final Map<String, CountDownLatch> holdLikes = new ConcurrentHashMap<>();
     private final Set<String> refuseLikes = ConcurrentHashMap.newKeySet();
     private final Map<String, CountDownLatch> holdCreates = new ConcurrentHashMap<>();
+    private final Map<String, CountDownLatch> holdUpdates = new ConcurrentHashMap<>();
     private final Set<String> refuseCreates = ConcurrentHashMap.newKeySet();
     private HttpServer server;
     private Actor author;
@@ -117,8 +118,8 @@ class StatusDeliveryIntegrationTests {
                     exchange.getRequestURI().getPath(),
                     exchange.getRequestHeaders().getFirst("Signature"),
                     body));
-            var hold = holdCreates.get(host);
-            if (hold != null && body.contains("#create")) {
+            var hold = body.contains("#updates/") ? holdUpdates.get(host) : holdCreates.get(host);
+            if (hold != null && (body.contains("#create") || body.contains("#updates/"))) {
                 try {
                     hold.await(60, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
@@ -882,6 +883,43 @@ class StatusDeliveryIntegrationTests {
         var create = json.readTree(createBody(status));
         assertThat(create.path("type").stringValue()).isEqualTo("Create");
         assertThat(create.path("object").path("updated").isString()).isTrue();
+    }
+
+    @Test
+    void aDeleteStaysBehindAnUpdateBeingSent() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+        var hold = new CountDownLatch(1);
+        holdUpdates.put(host, hold);
+        edit(status, "Hello again");
+        awaitUpdate(host, status);
+
+        try {
+            statuses.delete(status.id(), author.id());
+
+            await().atMost(WAIT).until(() -> jobsFor(status.uri() + "#delete") == 1);
+            await().during(Duration.ofSeconds(2)).atMost(WAIT).until(() -> deletesFor(host, status).isEmpty());
+        } finally {
+            hold.countDown();
+        }
+        awaitDelete(host, status);
+    }
+
+    @Test
+    void anEditIsDroppedIfItsAuthorIsSuspendedBeforeItsSent() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+
+        var edited = edit(status, "Hello again");
+
+        var update = status.uri() + "#updates/" + edited.editedAt().toEpochMilli();
+        await().atMost(WAIT).until(() -> jdbc.sql(
+                        "SELECT count(*) FROM outbound_activity WHERE activity_id = :id AND while_suspended = 'DROP'")
+                .param("id", update).query(Long.class).single() == 1);
     }
 
     @Test

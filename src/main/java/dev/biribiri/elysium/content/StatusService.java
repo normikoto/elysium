@@ -536,6 +536,17 @@ public class StatusService {
     }
 
     /**
+     * Like {@link #findAndHold}, but also stops the status from being edited until the transaction ends, for a listener that
+     * has to see its latest version before a later edit's listener does.
+     *
+     * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<Status> findAndHoldAgainstEdits(UUID id, UUID authorId) {
+        return statuses.findByIdForEdit(id).filter(status -> status.actorId().equals(authorId));
+    }
+
+    /**
      * Deletes one of the author's own statuses. A tombstone is only kept for a status that anyone could see, because
      * others get the same answer for a followers-only or direct status as for one that never existed, and a tombstone would
      * reveal that it had.
