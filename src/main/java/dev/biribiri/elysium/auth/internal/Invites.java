@@ -131,6 +131,10 @@ class Invites {
 
     record Invite(UUID id, Integer maxUses, int uses, Instant expiresAt, Instant revokedAt, Instant createdAt) {
 
+        String usesText() {
+            return maxUses == null ? uses + (uses == 1 ? " use" : " uses") : uses + " of " + maxUses + " uses";
+        }
+
         Optional<String> unusableBecause(Instant now) {
             if (revokedAt != null) {
                 return Optional.of("revoked");

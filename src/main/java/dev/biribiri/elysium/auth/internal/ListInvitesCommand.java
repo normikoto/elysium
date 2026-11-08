@@ -34,10 +34,9 @@ class ListInvitesCommand implements Callable<Integer> {
         }
         var now = Instant.now();
         for (var invite : found) {
-            var uses = invite.uses() + (invite.maxUses() == null ? " uses" : " of " + invite.maxUses() + " uses");
             var state = invite.unusableBecause(now)
                     .orElse(invite.expiresAt() == null ? "never expires" : "expires " + invite.expiresAt());
-            out.println(invite.id() + "  created " + invite.createdAt() + "  " + uses + "  " + state);
+            out.println(invite.id() + "  created " + invite.createdAt() + "  " + invite.usesText() + "  " + state);
         }
         return 0;
     }

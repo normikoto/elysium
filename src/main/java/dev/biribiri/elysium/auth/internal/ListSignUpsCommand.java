@@ -35,7 +35,8 @@ class ListSignUpsCommand implements Callable<Integer> {
         for (var pending : waiting) {
             out.println(pending.username() + "  " + pending.email() + "  confirmed " + pending.confirmedAt());
             if (pending.reason() != null) {
-                pending.reason().lines().forEach(line -> out.println("    " + line));
+                // Anyone can write a reason, and escape sequences in it would be run by the admin's terminal.
+                pending.reason().lines().forEach(line -> out.println("    " + line.replaceAll("\\p{Cntrl}", "?")));
             }
         }
         return 0;

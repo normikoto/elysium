@@ -41,9 +41,13 @@ class SignUps {
     static final Duration CONFIRMATION_EXPIRY = Duration.ofDays(1);
 
     /**
-     * Only catches typing mistakes. Whether an address works is decided by confirming it.
+     * Only catches typing mistakes. Whether an address works is decided by confirming it. It refuses the characters of
+     * display names, groups, and lists, which JavaMail would otherwise read as a different mailbox, such as
+     * {@code x<alice@example.com>}, letting one mailbox hold any number of sign-ups. Control characters would reach the
+     * terminal through {@code list-sign-ups}.
      */
-    private static final Pattern EMAIL = Pattern.compile("[^\\s@]+@[^\\s@]+\\.[^\\s@]+");
+    private static final Pattern EMAIL = Pattern.compile("%1$s+@%1$s+\\.%1$s+"
+            .formatted("[^\\s\\p{Cntrl}@<>()\\[\\],;:\\\\\"]"));
 
     private static final Logger log = LoggerFactory.getLogger(SignUps.class);
 
@@ -105,9 +109,7 @@ class SignUps {
         var id = UUID.randomUUID();
         var result = transaction.execute(status -> {
             accounts.lockAccountCreation();
-            jdbc.sql("DELETE FROM pending_sign_up WHERE verified_at IS NULL AND created_at <= :cutoff")
-                    .param("cutoff", cutoff())
-                    .update();
+            accounts.removeExpiredSignUps();
             // Suspended and deleted accounts keep their usernames.
             if (actors.findAnyLocalByUsername(username).isPresent() || accounts.isUsernamePending(username)) {
                 return Requested.USERNAME_TAKEN;

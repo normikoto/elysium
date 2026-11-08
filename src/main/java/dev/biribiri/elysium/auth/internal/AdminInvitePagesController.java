@@ -107,13 +107,10 @@ class AdminInvitePagesController {
     record Row(UUID id, String uses, String state, boolean usable, String createdAt) {
 
         static Row from(Invites.Invite invite, Instant now) {
-            var uses = invite.maxUses() == null
-                    ? invite.uses() + (invite.uses() == 1 ? " use" : " uses")
-                    : invite.uses() + " of " + invite.maxUses() + " uses";
             var unusable = invite.unusableBecause(now);
             var state = unusable.map(reason -> reason.substring(0, 1).toUpperCase() + reason.substring(1))
                     .orElse(invite.expiresAt() == null ? "Never expires" : "Expires " + seconds(invite.expiresAt()));
-            return new Row(invite.id(), uses, state, unusable.isEmpty(), seconds(invite.createdAt()));
+            return new Row(invite.id(), invite.usesText(), state, unusable.isEmpty(), seconds(invite.createdAt()));
         }
 
         private static String seconds(Instant instant) {

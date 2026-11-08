@@ -10,6 +10,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -201,6 +203,7 @@ class LocalAccounts implements UserDetailsService {
                 // It's not a table lock because this transaction has already written to the actor table, so two of them
                 // upgrading their locks could deadlock.
                 lockAccountCreation();
+                removeExpiredSignUps();
                 inTransaction.run();
                 if (isUsernamePending(username) || (email != null && isEmailTaken(email))) {
                     throw new TakenException();
@@ -229,6 +232,17 @@ class LocalAccounts implements UserDetailsService {
     void lockAccountCreation() {
         jdbc.sql("SELECT pg_advisory_xact_lock(:key)").param("key", ACCOUNT_CREATION_LOCK).query(rs -> {
         });
+    }
+
+    /**
+     * Frees the usernames and addresses of sign-ups whose links have expired, under {@link #lockAccountCreation}. This has to
+     * happen wherever those are checked, not only when someone signs up without an invite, or a mode without those sign-ups
+     * would keep them forever.
+     */
+    void removeExpiredSignUps() {
+        jdbc.sql("DELETE FROM pending_sign_up WHERE verified_at IS NULL AND created_at <= :cutoff")
+                .param("cutoff", Instant.now().minus(SignUps.CONFIRMATION_EXPIRY).atOffset(ZoneOffset.UTC))
+                .update();
     }
 
     /**
