@@ -44,6 +44,13 @@ final class FederationDocs {
             who's in their collections, the collection and every page only have `totalItems`.\s"""
             + DOCUMENT + " " + UNSIGNED;
 
+    static final String OUTBOX = """
+            An `OrderedCollection` of the user's public and unlisted posts, with `totalItems` and a `first` page, at \
+            `?page=true`. A page is an `OrderedCollectionPage` with `partOf`, up to\s""" + ActivityPubController.COLLECTION_PAGE_SIZE + """
+             `orderedItems`, newest first, and a `next` page if there may be more. A status is a `Create` that embeds \
+            its `Note`, and a boost an `Announce` of the boosted status's ID. Followers-only and direct posts and boosts \
+            are left out.\s""" + DOCUMENT + " " + UNSIGNED;
+
     static final String USERNAME = "The username, matched case-insensitively.";
 
     static final String INBOX = """

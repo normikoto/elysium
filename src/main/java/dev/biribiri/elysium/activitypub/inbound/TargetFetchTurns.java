@@ -12,7 +12,8 @@ import java.util.Optional;
 
 /**
  * Limits the fetches made from each host on another server's word: a forwarded activity's origin, an object that a
- * {@code Delete} which can't be checked otherwise says is gone, and a status that an {@code Announce} boosts. Whoever sends those chooses the URL, so without this a few
+ * {@code Delete} which can't be checked otherwise says is gone, a status that an {@code Announce} boosts, and the outbox of
+ * an actor whose {@code Accept} started a backfill. Whoever sends those chooses the URL, so without this a few
  * servers, each within its own limits in {@link ServerActivityLimits}, could have this server send any number of signed
  * requests to one victim.
  *

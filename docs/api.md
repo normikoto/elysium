@@ -44,7 +44,9 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
 - Statuses from other servers are only stored when they're sent here, which is when a local account follows their author or
   is addressed by them, or when they're a public or unlisted reply to a stored status of a local account or one that's
-  followed here. Older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
+  followed here. When a local account starts following someone, up to 40 of their recent public and unlisted statuses are
+  fetched as well, and these are ordered by when they were posted, so a client that's already loaded newer statuses
+  won't be given them as new. Other older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
   can differ from what the other server shows, and they never have `media_attachments`, `tags`, `emojis`, or a `poll`.
   Their `mentions` only list local accounts, and accounts on other servers that are already known here. A reply whose
   parent isn't stored has a null `in_reply_to_id` and `in_reply_to_account_id`.

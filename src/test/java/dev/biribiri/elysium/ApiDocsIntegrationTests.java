@@ -241,6 +241,8 @@ class ApiDocsIntegrationTests {
                 .andExpect(jsonPath("$.paths['/users/{username}/statuses/{id}'].get").exists())
                 .andExpect(jsonPath("$.paths['/users/{username}/followers'].get").exists())
                 .andExpect(jsonPath("$.paths['/users/{username}/following'].get").exists())
+                .andExpect(jsonPath("$.paths['/users/{username}/outbox'].get").exists())
+                .andExpect(jsonPath("$.paths['/actor/outbox'].get").exists())
                 .andExpect(jsonPath(actor + ".tags[0]").value("ActivityPub"))
                 .andExpect(jsonPath(actor + ".responses['200'].content['application/activity+json'].schema['$ref']")
                         .value("#/components/schemas/Person"))

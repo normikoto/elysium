@@ -380,6 +380,7 @@ class AccountModerationIntegrationTests {
                 .andExpect(jsonPath("$['@context'][2].suspended").value("toot:suspended"));
         mockMvc.perform(get(path + "/statuses/" + status.id()).accept(ACTIVITY_JSON)).andExpect(status().isForbidden());
         mockMvc.perform(get(path + "/followers").accept(ACTIVITY_JSON)).andExpect(status().isForbidden());
+        mockMvc.perform(get(path + "/outbox").accept(ACTIVITY_JSON)).andExpect(status().isForbidden());
         mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:" + user.username() + "@moderation.example"))
                 .andExpect(status().isOk());
         mockMvc.perform(get(path).accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
@@ -445,6 +446,7 @@ class AccountModerationIntegrationTests {
                 .andExpect(status().isGone())
                 .andExpect(jsonPath("$.formerType").value("Note"));
         mockMvc.perform(get(path + "/followers").accept(ACTIVITY_JSON)).andExpect(status().isGone());
+        mockMvc.perform(get(path + "/outbox").accept(ACTIVITY_JSON)).andExpect(status().isGone());
         mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:" + user.username() + "@moderation.example"))
                 .andExpect(status().isGone());
         mockMvc.perform(get("/.well-known/webfinger").param("resource", user.uri().toString()))

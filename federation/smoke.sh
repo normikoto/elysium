@@ -3,8 +3,8 @@
 # and unfollow it, be followed and unfollowed by it, and receive its statuses, their edits and deletion, and profile changes,
 # apart from edits on Misskey, which doesn't apply them, and that Elysium takes the other server's profile changes and status
 # edits, apart from on Misskey, which can't edit, and removes a status and an account that the other server deletes. Both
-# servers also like and unlike, and boost and unboost, each other's posts, and Elysium fetches a post that a followed account
-# boosts.
+# servers also like and unlike, and boost and unboost, each other's posts, Elysium fetches a post that a followed account
+# boosts, and it backfills a followed account's older post from its outbox.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -194,7 +194,8 @@ follow_from_gotosocial() {
 # Passing means that Elysium found the other server's lab user through WebFinger, sent it a Follow that it accepted, and sent
 # an Undo that it took. The second argument, if given, is a function that approves the request, for a server whose users
 # approve followers by hand.
-# post has the lab user post with no mention, so the post only reaches alice through her follow.
+# post has the lab user post with no mention, so the post only reaches alice through her follow. It's also called before
+# alice follows, with other text, for a post that Elysium can only get by backfilling from the lab user's outbox.
 follow_from_elysium() {
     local domain=$1 post=$2 approve=${3:-} read_token write_token lab lab_id lab_uri following status
     read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
@@ -208,6 +209,7 @@ follow_from_elysium() {
     lab_uri=$(jq -r .uri <<<"$lab")
     echo "Elysium found lab@$domain as $lab_uri"
 
+    "$post" 'Posted before alice followed the lab'
     driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$lab_id/follow" \
         -H "Authorization: Bearer $write_token"
     [[ -z $approve ]] || "$approve"
@@ -227,6 +229,7 @@ follow_from_elysium() {
         || fail "alice's following collection doesn't list $lab_uri: $page"
     echo "lab@$domain accepted, and alice's following collection lists it"
 
+    expect_backfilled "$domain" "$read_token" "$lab_id"
     "$post"
     expect_home_status "$domain" "$read_token"
     boost_other_from_peer "$domain" "$read_token"
@@ -316,6 +319,23 @@ boost_other_from_peer() {
     fail "lab@$domain's boost is still in alice's home timeline after it was undone"
 }
 
+# Passing means that Elysium fetched the lab user's outbox once alice's follow was accepted, read its first page, and
+# stored the post from before she followed, which was never sent to Elysium.
+expect_backfilled() {
+    local domain=$1 read_token=$2 lab_id=$3 statuses
+    echo "Waiting for Elysium to backfill lab@$domain's post from before alice followed"
+    for _ in $(seq 1 60); do
+        statuses=$(driver curl -fsS "https://elysium.test/api/v1/accounts/$lab_id/statuses" \
+            -H "Authorization: Bearer $read_token")
+        if jq -e 'any(.[]; .content | contains("Posted before alice followed the lab"))' <<<"$statuses" >/dev/null; then
+            echo "Elysium backfilled lab@$domain's older post from its outbox"
+            return
+        fi
+        sleep 2
+    done
+    fail "lab@$domain's older post was never backfilled: $statuses. Check /admin/db-scheduler, and Elysium's logs at debug level"
+}
+
 expect_home_status() {
     local domain=$1 read_token=$2 home
     echo "Waiting for lab@$domain's post to reach alice's home timeline"
@@ -333,19 +353,20 @@ expect_home_status() {
 }
 
 post_from_mastodon() {
-    docker compose exec -T mastodon-web bin/rails runner '
-        PostStatusService.new.call(Account.find_local("lab"), text: "Hello to followers from the lab")'
+    docker compose exec -T -e TEXT="${1:-Hello to followers from the lab}" mastodon-web bin/rails runner '
+        PostStatusService.new.call(Account.find_local("lab"), text: ENV.fetch("TEXT"))'
 }
 
 post_from_gotosocial() {
     driver curl -fsS -o /dev/null https://gts.test/api/v1/statuses \
         -H "Authorization: Bearer $token" \
-        --data-urlencode 'status=Hello to followers from the lab' \
+        --data-urlencode "status=${1:-Hello to followers from the lab}" \
         --data-urlencode 'visibility=public'
 }
 
 post_from_misskey() {
-    misskey_api notes/create '{"text": "Hello to followers from the lab", "visibility": "public"}' >/dev/null
+    misskey_api notes/create "$(jq -cn --arg text "${1:-Hello to followers from the lab}" \
+        '{text: $text, visibility: "public"}')" >/dev/null
 }
 
 # GoToSocial's users approve followers by hand unless they change a setting, so alice's request waits for this.
@@ -1413,4 +1434,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

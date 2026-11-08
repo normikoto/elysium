@@ -43,13 +43,15 @@ public class StatusRepository {
     /**
      * Only finds statuses of accounts that are neither suspended nor deleted, so that those of a suspended account aren't
      * served by anything, and aren't left to be filtered out after a page of them has been chosen. The same goes for boosts
-     * of their statuses.
+     * of their statuses. Counts use this too, so that they agree with what's listed.
      */
-    private static final String SELECT = "SELECT " + COLUMNS + ", (" + COUNT_REPLIES.formatted("s.id")
-            + ") AS replies_count FROM status s "
+    private static final String FROM_ACTIVE = "FROM status s "
             + "JOIN actor author ON author.id = s.actor_id AND author.suspended_at IS NULL AND author.deleted_at IS NULL "
             + "AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status o JOIN actor oa ON oa.id = o.actor_id "
             + "WHERE o.id = s.reblog_of_id AND oa.suspended_at IS NULL AND oa.deleted_at IS NULL)) ";
+
+    private static final String SELECT = "SELECT " + COLUMNS + ", (" + COUNT_REPLIES.formatted("s.id")
+            + ") AS replies_count " + FROM_ACTIVE;
 
     private static final int REMOVAL_BATCH_SIZE = 1000;
 
@@ -586,6 +588,17 @@ public class StatusRepository {
             filter.append(" AND s.reblog_of_id IS NULL");
         }
         return findPage(filter.toString(), parameters, page);
+    }
+
+    /**
+     * Counts what {@link #findByAccount} lists for these visibilities, with no viewer and boosts included.
+     */
+    public long countByAccount(UUID actorId, Collection<Visibility> visibilities) {
+        return jdbc.sql("SELECT count(*) " + FROM_ACTIVE + "WHERE s.actor_id = :actorId AND s.visibility IN (:visibilities)")
+                .param("actorId", actorId)
+                .param("visibilities", visibilities.stream().map(Visibility::value).toList())
+                .query(Long.class)
+                .single();
     }
 
     /**

@@ -17,7 +17,9 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Stores a {@code Note} from another server as a status, when it's for a local account, through a follow or by addressing
@@ -96,7 +98,7 @@ class NoteStorage {
             return Result.IGNORED;
         }
         return save(note, author, visibility, activity.firstReceivedAt(),
-                Addressing.ofActivity(document).with(note.addressing()));
+                Addressing.ofActivity(document).with(note.addressing()), statuses::storeRemote);
     }
 
     /**
@@ -110,25 +112,49 @@ class NoteStorage {
         if (blocks.isBlocked(author.getHost())) {
             return Result.IGNORED;
         }
-        var actor = remoteActors.fetchOrRefresh(author);
-        var visibility = visibility(note.addressing(), actor);
+        return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), statuses::storeRemote);
+    }
+
+    /**
+     * Stores a public or unlisted note from its author's outbox. Like {@link #storeBoosted}, who it's for comes from the
+     * follow that asked for it, not from its addressing, and the caller has to have checked that it's the author's. One
+     * with no {@code published} is ignored, since it would sort as new.
+     *
+     * @param author already fetched or refreshed by the caller
+     */
+    Result storeBackfilled(RemoteNote note, Actor author) {
+        if (note.published() == null) {
+            return Result.IGNORED;
+        }
+        return storeFetched(note, author, note.published(), statuses::storeBackfilled);
+    }
+
+    /**
+     * For a note fetched on its own rather than sent to someone here, which only anyone can be shown, so its addressing
+     * decides nothing else.
+     */
+    private Result storeFetched(
+            RemoteNote note, Actor author, Instant arrivedAt, Function<RemoteStatus, Optional<UUID>> store) {
+        var visibility = visibility(note.addressing(), author);
         if (visibility != Visibility.PUBLIC && visibility != Visibility.UNLISTED) {
-            log.debug("Ignoring boosted note {}, which not everyone can see", note.id());
+            log.debug("Ignoring fetched note {}, which not everyone can see", note.id());
             return Result.IGNORED;
         }
-        if (blocks.isBlocked(author.getHost()) || actors.isInactive(author)) {
+        if (blocks.isBlocked(author.uri().getHost()) || actors.isInactive(author.uri())) {
             return Result.IGNORED;
         }
-        return save(note, actor, visibility, Instant.now(), note.addressing());
+        return save(note, author, visibility, arrivedAt, note.addressing(), store);
     }
 
     /**
      * @param arrivedAt when the note arrived, which stands in for a missing {@code published}
      * @param addressed the addressing that decides who it mentions
+     * @param store     how it's stored, which decides how it sorts
      */
-    private Result save(RemoteNote note, Actor author, Visibility visibility, Instant arrivedAt, Addressing addressed) {
+    private Result save(RemoteNote note, Actor author, Visibility visibility, Instant arrivedAt, Addressing addressed,
+                        Function<RemoteStatus, Optional<UUID>> store) {
         var published = note.published() == null ? arrivedAt : note.published();
-        var stored = statuses.storeRemote(new RemoteStatus(
+        var remote = new RemoteStatus(
                 note.id(),
                 note.url(),
                 author.id(),
@@ -141,8 +167,8 @@ class NoteStorage {
                 published,
                 // So that an Update older than this version can't replace it.
                 note.editedAt(published, Instant.now()),
-                mentions(note, addressed, visibility)));
-        return stored.isPresent() ? Result.STORED : Result.TAKEN;
+                mentions(note, addressed, visibility));
+        return store.apply(remote).isPresent() ? Result.STORED : Result.TAKEN;
     }
 
     /**

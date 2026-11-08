@@ -27,8 +27,12 @@ public class InboxProjection {
         this.notifications = notifications;
     }
 
+    /**
+     * A backfilled status is old, and only public or unlisted, so it neither notifies nor joins a conversation.
+     */
     @ApplicationModuleListener
     public void on(StatusStored event) {
+        if (event.backfilled()) return;
         project(event.statusId(), recipient -> true);
     }
 

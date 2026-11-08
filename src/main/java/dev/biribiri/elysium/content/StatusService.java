@@ -314,6 +314,26 @@ public class StatusService {
      * @throws IllegalArgumentException if the author isn't an active remote actor
      */
     public Optional<UUID> storeRemote(RemoteStatus remote) {
+        return store(remote, false);
+    }
+
+    /**
+     * Like {@link #storeRemote}, for an older status fetched from its author's outbox rather than sent here.
+     *
+     * <p>Its ID comes from its {@code published} date, or now if that's later, so that it sorts among its author's statuses
+     * by when it was posted, rather than putting old ones at the top of every timeline. This is the one exception to IDs
+     * following commits: a client that's already seen later IDs won't be given it as new, which is what's wanted for an old
+     * status. Its {@link StatusStored} says it was backfilled, so the accounts it mentions aren't told about it long after it
+     * was posted.
+     *
+     * @return the stored status's ID, or empty if a status with its URI is already stored
+     * @throws IllegalArgumentException if the author isn't an active remote actor
+     */
+    public Optional<UUID> storeBackfilled(RemoteStatus remote) {
+        return store(remote, true);
+    }
+
+    private Optional<UUID> store(RemoteStatus remote, boolean backfilled) {
         var author = actors.findById(remote.authorId())
                 .filter(found -> found.isActive() && !actors.isLocal(found))
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't an active remote actor"));
@@ -330,7 +350,8 @@ public class StatusService {
             }
             // Inside the lock, so that a reply and its parent arriving together can't miss each other: whichever is stored
             // second sees the other.
-            var id = nextId(Instant.now());
+            var now = Instant.now();
+            var id = backfilled ? backfilledId(remote.publishedAt(), now) : nextId(now);
             var parent = Optional.ofNullable(remote.inReplyToUri()).flatMap(statuses::findParentByUriAndLock);
             var status = new Status(
                     id,
@@ -360,7 +381,7 @@ public class StatusService {
             // Jobs have no order, so replies can be stored before their parent.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
             threads.assign(status, remote.inReplyToUri());
-            events.publishEvent(new StatusStored(id));
+            events.publishEvent(new StatusStored(id, backfilled));
             return Optional.of(id);
         });
     }
@@ -424,6 +445,17 @@ public class StatusService {
         return statuses.findNewestId()
                 .map(newest -> StatusIds.after(newest, now))
                 .orElseGet(() -> StatusIds.fromTimestamp(now));
+    }
+
+    /**
+     * Takes the same lock as {@link #nextId}, because one dated close to now could otherwise commit ahead of a status that
+     * was given an earlier ID, which clients would then miss. A date before 1970 doesn't fit in an ID, and would make one
+     * that sorts after every other, so that every later ID would be worked out from it.
+     */
+    private UUID backfilledId(Instant published, Instant now) {
+        statuses.lockIdAssignment();
+        var timestamp = published.isAfter(now) ? now : published.isBefore(Instant.EPOCH) ? Instant.EPOCH : published;
+        return StatusIds.fromTimestamp(timestamp);
     }
 
     /** Batch visibility lookup for notifications and conversation summaries. */
@@ -689,6 +721,20 @@ public class StatusService {
                 ? Set.of(Visibility.PUBLIC, Visibility.UNLISTED, Visibility.PRIVATE)
                 : Set.of(Visibility.PUBLIC, Visibility.UNLISTED);
         return statuses.findByAccount(actorId, visibilities, viewer.orElse(null), excludeReplies, excludeReblogs, page);
+    }
+
+    /**
+     * Whether a status with this URI is stored, whoever can see it.
+     */
+    public boolean isStored(URI uri) {
+        return statuses.existsByUri(uri);
+    }
+
+    /**
+     * Counts what {@link #findByAccount} lists for a viewer who isn't signed in, boosts and replies included.
+     */
+    public long countVisibleToAnyone(UUID actorId) {
+        return statuses.countByAccount(actorId, Set.of(Visibility.PUBLIC, Visibility.UNLISTED));
     }
 
     /**

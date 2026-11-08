@@ -14,7 +14,7 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 | Receiving follows, remote actors | Live | Follows of local users are accepted automatically, and unfollows work, on all three lab servers. Merged in PR #70 |
 | Sending follows | Live | Local users can follow local and remote users, found through WebFinger or a URL, with `Accept`, `Reject` and `Undo` handled. Checked on all three lab servers. Merged in PR #89, #44 |
 | Followers and following collections | Live | Both are paged, and users can hide what's in them. Merged in PR #89, #43 |
-| Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Received `Note`s for local users are stored and shown in the API, including a home timeline (#41), received `Update`s edit them and refresh actors (#60), and received `Delete`s remove them and deleted actors (#59). Replies to a followed account's posts are stored even when forwarded, and `/statuses/:id/context` shows threads. The outbox is in #40 |
+| Posts between servers | Live, partly | New public, unlisted and followers-only posts are sent, merged in PR #72. Received `Note`s for local users are stored and shown in the API, including a home timeline (#41), received `Update`s edit them and refresh actors (#60), and received `Delete`s remove them and deleted actors (#59). Replies to a followed account's posts are stored even when forwarded, and `/statuses/:id/context` shows threads. Outboxes are served, with public and unlisted posts and boosts (#40), and following a remote account backfills the first page of its outbox (#104) |
 | Likes, boosts, edits, polls | Live, partly | Likes in both directions (#61, PR #118). Boosts in both directions, including of other servers' posts, with a `shares` collection (#62). Sending edits is the rest of #60, and polls are only listed on #1 |
 | Moderation and server policy | Live, partly | Domain blocks (#64, PR #82), suspending and deleting accounts (#65, PR #83), and limits on what each server can have stored (#66, PR #88). Reports and the rest are under #37 |
 
@@ -30,7 +30,7 @@ flowchart TD
     m4["<b>4. Follow out and remote posts (done)</b><br/>Follow remote users, read activities fully, and store and show their posts, including forwarded replies.<br/>#41, #59 and #60 receiving, #94"]
     m5["<b>5. Interactions</b><br/>Mentions, likes, boosts, edits and notifications.<br/>#28, #61, #62, #60 sending"]
     mod["<b>Basic moderation (done)</b><br/>Domain blocks, suspensions and per-server limits.<br/>#64, #65, #66"]
-    m6["<b>6. Completeness</b><br/>Outbox, RFC 9421, polls, quotes.<br/>#40, #5, #9, #63"]
+    m6["<b>6. Completeness</b><br/>RFC 9421, polls, quotes.<br/>#5, #9, #63 (outbox done in #40)"]
 
     m1 --> m2 --> m3 --> m4 --> m5
     mod -- lands first --> m4
@@ -140,8 +140,8 @@ This was the largest step, and the first where other servers' content is stored 
 
 ### 6. Completeness
 
-- **Issues:** #40, #5, #9, #63, and the `Question` item on #1.
-- **Delivers:** outbox backfill, RFC 9421, polls, pinned posts, quote posts and #58. None of these block ordinary federation, so they can be picked up in any order.
+- **Issues:** #5, #9, #63, and the `Question` item on #1. #40 and #104, the outbox and backfill, are done.
+- **Delivers:** RFC 9421, polls, pinned posts, quote posts and #58. None of these block ordinary federation, so they can be picked up in any order.
 
 ## Work across milestones
 
@@ -163,7 +163,7 @@ Basic moderation landing before milestone 4 is confirmed. The rest of the order 
 - [x] Does basic moderation have to land before milestone 4, as proposed? The alternative is a faster path to remote posts, on the basis that the docs already warn against public use. Answer: Yes
 - [x] Should an actor's inbox have to be on the actor's own host? Answer: Yes, as merged in PR #70. A shared inbox on another host is only left out.
 - [ ] Should `Question` get an issue too? The activity types now have #59 to #63, but it's an object, so it's still only a checklist item on #1.
-- [ ] Should unlisted statuses be in the outbox? Open on #40.
+- [x] Should unlisted statuses be in the outbox? Answer: Yes, as on Mastodon. They can already be fetched one by one, and followers' servers are sent them anyway.
 - [x] Should people be able to hide what's in their followers and following collections? Answer: Yes, as an option. Built for #43, as one setting that covers both collections and the API's lists.
 - [ ] Should mentions of remote users show the domain? Open on #28.
 - [x] Can a follower left behind by a retried `Follow` receive followers-only statuses, or can the case be told apart from a re-follow? Answer: No. PR #71 ignores a repeat after an Undo as a retry, since Misskey, Sharkey and Mastodon make a new ID for each request.
