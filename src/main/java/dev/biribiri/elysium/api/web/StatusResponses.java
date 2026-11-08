@@ -10,6 +10,7 @@ import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.LikeStats;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.StatusVersion;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
@@ -65,6 +66,17 @@ class StatusResponses {
      */
     List<StatusResponse> list(List<Status> found, Optional<UUID> viewer) {
         return build(found, false, viewer);
+    }
+
+    /**
+     * @throws RecordNotFoundException if the status's author can't be loaded
+     */
+    List<StatusEditResponse> history(Status status, List<StatusVersion> versions) {
+        var account = actors.findById(status.actorId())
+                .filter(Actor::isActive)
+                .map(accounts::one)
+                .orElseThrow(RecordNotFoundException::new);
+        return versions.stream().map(version -> StatusEditResponse.from(version, account)).toList();
     }
 
     private static StatusResponse only(List<StatusResponse> built) {

@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -105,6 +106,33 @@ class InboxIntegrationTests {
         String id = values(get(NOTIFICATIONS).with(user(bob)), "$[0].id");
         mvc.perform(get(NOTIFICATIONS + "/" + id).with(user(bob))).andExpect(status().isOk());
         mvc.perform(get(NOTIFICATIONS + "/" + id).with(user(carol))).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void anEditOnlyNotifiesTheAccountsItMentionsForTheFirstTime() throws Exception {
+        var status = createStatus(alice, "@inboxbob hi", PUBLIC, null);
+        settled();
+        statuses.edit(status.id(), alice.id(), new StatusEdit("@inboxbob @inboxcarol hi again", null, null, null));
+        settled();
+        mvc.perform(get(NOTIFICATIONS).with(user(bob))).andExpect(jsonPath("$", hasSize(1)));
+        mvc.perform(get(NOTIFICATIONS).with(user(carol)))
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].type").value("mention"))
+                .andExpect(jsonPath("$[0].status.id").value(status.id().toString()));
+    }
+
+    @Test
+    void anEditOfADirectStatusAddsItToTheConversationsOfAccountsItNowMentions() throws Exception {
+        var status = createStatus(alice, "@inboxbob psst", DIRECT, null);
+        settled();
+        statuses.edit(status.id(), alice.id(), new StatusEdit("@inboxcarol psst", null, null, null));
+        settled();
+        mvc.perform(get(CONVERSATIONS).with(user(carol)))
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].last_status.id").value(status.id().toString()));
+        // No longer mentioned, but still sent it.
+        mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$", hasSize(1)));
+        mvc.perform(get("/api/v1/statuses/" + status.id()).with(user(bob))).andExpect(status().isOk());
     }
 
     @Test

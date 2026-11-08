@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, be followed and unfollowed by it, and receive its statuses, their deletion, and profile changes, and that
-# Elysium takes the other server's profile changes and status edits, apart from on Misskey, which can't edit, and removes a
-# status and an account that the other server deletes. Both servers also like and unlike, and boost and unboost, each other's
-# posts, and Elysium fetches a post that a followed account boosts.
+# and unfollow it, be followed and unfollowed by it, and receive its statuses, their edits and deletion, and profile changes,
+# apart from edits on Misskey, which doesn't apply them, and that Elysium takes the other server's profile changes and status
+# edits, apart from on Misskey, which can't edit, and removes a status and an account that the other server deletes. Both
+# servers also like and unlike, and boost and unboost, each other's posts, and Elysium fetches a post that a followed account
+# boosts.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -422,6 +423,50 @@ delete_from_elysium() {
 
     status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$private_uri")
     [[ $status == 404 ]] || fail "Fetching a deleted followers-only status got a $status, not a 404"
+}
+
+edited_text='An edited public status from the lab'
+
+# Posts and edits a status of its own, which isn't deleted later: GoToSocial 0.22.3 fails to delete a remote status once it's
+# applied an edit to it. Misskey doesn't apply edits to notes, so for Misskey, passing only means that it accepted the Update.
+edit_from_elysium() {
+    local note
+    edited_uri=$(post_status "$elysium_token" public)
+    expect_delivered "$edited_uri#create"
+    driver curl -fsS -o /dev/null -X PUT "https://elysium.test/api/v1/statuses/${edited_uri##*/}" \
+        -H "Authorization: Bearer $elysium_token" --data-urlencode "status=$edited_text"
+    note=$(driver curl -fsS -H 'Accept: application/activity+json' "$edited_uri")
+    [[ $(jq -r .updated <<<"$note") != null ]] || fail "The edited status has no updated: $note"
+    expect_delivered "$edited_uri#updates/%"
+    if [[ $target != misskey ]]; then
+        "${target}_expect_edited"
+        echo "$target shows the edited status"
+    fi
+}
+
+mastodon_expect_edited() {
+    local output
+    output=$(docker compose exec -T -e EDITED_URI="$edited_uri" -e EXPECTED="$edited_text" mastodon-web bin/rails runner '
+        status = nil
+        60.times do
+            status = Status.uncached { Status.find_by(uri: ENV["EDITED_URI"]) }
+            break if status&.edited_at && status.text.include?(ENV["EXPECTED"])
+            sleep 2
+        end
+        puts "EDITED #{status&.edited_at.present? && status.text.include?(ENV["EXPECTED"])}"')
+    echo "$output"
+    grep -qxF 'EDITED true' <<<"$output" || fail "Mastodon didn't take the edit of $edited_uri"
+}
+
+gotosocial_expect_edited() {
+    local found=''
+    for _ in $(seq 1 60); do
+        found=$(driver curl -fsS -G "https://gts.test/api/v1/accounts/$alice_id/statuses" -H "Authorization: Bearer $token" \
+            | jq -r --arg uri "$edited_uri" '.[] | select(.uri == $uri) | .content')
+        [[ $found == *"$edited_text"* ]] && return
+        sleep 2
+    done
+    fail "GoToSocial shows $edited_uri as '$found', without the edit"
 }
 
 display_name='Alice in the lab'
@@ -1327,6 +1372,7 @@ case "$target" in
         delete_from_gotosocial
         delete_from_elysium
         gotosocial_expect_deleted
+        edit_from_elysium
         update_profile_from_elysium
         moderate_from_elysium
         ;;
@@ -1344,6 +1390,7 @@ case "$target" in
         delete_from_mastodon
         delete_from_elysium
         mastodon_expect_deleted
+        edit_from_elysium
         update_profile_from_elysium
         moderate_from_elysium
         ;;
@@ -1360,9 +1407,10 @@ case "$target" in
         delete_from_misskey
         delete_from_elysium
         misskey_expect_deleted
+        edit_from_elysium
         update_profile_from_elysium
         moderate_from_elysium
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

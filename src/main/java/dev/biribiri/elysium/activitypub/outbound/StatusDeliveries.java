@@ -5,9 +5,11 @@ import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.activitypub.vocab.Create;
 import dev.biribiri.elysium.activitypub.vocab.Delete;
+import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.StatusDeleted;
+import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusPublished;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -23,8 +25,9 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Sends new and deleted statuses to the author's followers and the accounts they mention on other servers. This can run again for the same status, which
- * only sends it again if its jobs have finished, and other servers ignore an {@code id} they've already seen.
+ * Sends new, edited, and deleted statuses to the author's followers and the accounts they mention on other servers. This can
+ * run again for the same status, which only sends it again if its jobs have finished, and other servers ignore an
+ * {@code id} they've already seen.
  */
 @Service
 public class StatusDeliveries {
@@ -84,24 +87,26 @@ public class StatusDeliveries {
 
     /**
      * Stops any further sending of the status, and tells followers, the accounts it mentioned, and the followers of local
-     * accounts that boosted it to remove it, after any {@code Create} still being sent. Which followers were sent the status isn't kept, so this goes to current followers, as
-     * {@link #inboxes} decides. An author who's been
-     * suspended since can come back, and this waits for that, so that followers don't keep what was deleted.
+     * accounts that boosted it to remove it, after any {@code Create} or {@code Update} still being sent. A server that gets
+     * an {@code Update} of a status it doesn't have can store it, as Mastodon does, so one that arrived after this would
+     * bring the status back. Which followers were sent the status isn't kept, so this goes to current followers, as
+     * {@link #inboxes} decides. An author who's been suspended since can come back, and this waits for that, so that
+     * followers don't keep what was deleted.
      */
     @ApplicationModuleListener
     public void on(StatusDeleted event) {
         var create = Create.idFor(event.statusUri());
+        var updates = Update.idPrefixFor(event.statusUri());
         deliveries.cancel(create);
+        deliveries.cancelStartingWith(updates);
         var author = actors.findAnyLocalById(event.authorId()).filter(found -> !found.isDeleted());
         if (author.isEmpty()) {
             return;
         }
         var mentioned = actors.findByIds(event.mentioned());
-        var inboxes = new LinkedHashSet<>(inboxes(
-                author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned));
-        // Their followers can have it from their boosts, and the boosts go with it.
-        event.boosters().forEach(booster ->
-                recipients.addFollowers(booster, event.visibility(), event.publishedAt(), inboxes));
+        var inboxes = everyoneSent(
+                author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned,
+                event.boosters());
         if (inboxes.isEmpty()) {
             return;
         }
@@ -109,8 +114,64 @@ public class StatusDeliveries {
                 event.statusUri(), author.get(), event.visibility(), mentioned.stream().map(Actor::uri).toList());
         deliveries.enqueueAfter(
                 new OutboundActivity(delete.id().toString(), author.get().id(), json.writeValueAsString(delete)),
-                List.copyOf(inboxes),
-                create);
+                inboxes,
+                create,
+                updates);
+    }
+
+    /**
+     * Sends the status as it is now to everyone its {@code Delete} would go to, which includes the accounts an edit has
+     * stopped mentioning, since they still have it, and those it's started to. The ID comes from the edit, and the body from
+     * what's true when this runs, so a repeat, or a run after a later edit, sends what's current under this edit's ID.
+     * Servers that get two keep the one whose {@code updated} is later.
+     *
+     * <p>A {@code Create} that's still queued is changed to carry the edit too, and this doesn't overtake one being sent,
+     * since a server that doesn't have the status yet can ignore this, as Mastodon does. The status can't be edited while
+     * this runs, so that this can't write an older version over the one a later edit's listener wrote.
+     *
+     * <p>Like the {@code Create}, this is dropped if the author is suspended before it's sent, so that it doesn't tell
+     * servers that never got the {@code Create} about the status once the suspension ends.
+     */
+    @ApplicationModuleListener
+    public void on(StatusEdited event) {
+        var status = statuses.findAndHoldAgainstEdits(event.statusId(), event.authorId());
+        var author = actors.findLocalById(event.authorId());
+        if (status.isEmpty() || author.isEmpty()) {
+            return;
+        }
+        var note = notes.of(status.get(), author.get());
+        var create = Create.of(note);
+        deliveries.replaceBody(create.id().toString(), json.writeValueAsString(create));
+        var inboxes = everyoneSent(
+                author.get().id(),
+                status.get().visibility(),
+                status.get().publishedAt(),
+                note.inReplyTo() == null ? null : status.get().inReplyToAccountId(),
+                actors.findByIds(statuses.findAllMentioned(status.get().id())),
+                statuses.findLocalBoosters(status.get().id()));
+        if (inboxes.isEmpty()) {
+            return;
+        }
+        var update = Update.of(note, event.editedAt());
+        deliveries.enqueueAfter(
+                new OutboundActivity(
+                        update.id().toString(), author.get().id(), json.writeValueAsString(update), WhileSuspended.DROP),
+                inboxes,
+                create.id().toString());
+    }
+
+    /**
+     * Who can have a status: who it was sent to, as {@link #inboxes} decides, and the followers of local accounts that
+     * boosted it, who can have it from their boosts. Its {@code Update}s and {@code Delete} have to use the same rule.
+     *
+     * @param mentioned every account it mentions, silently or not
+     */
+    private List<URI> everyoneSent(
+            UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId, Collection<Actor> mentioned,
+            List<UUID> boosters) {
+        var inboxes = new LinkedHashSet<>(inboxes(authorId, visibility, publishedAt, parentAuthorId, mentioned));
+        boosters.forEach(booster -> recipients.addFollowers(booster, visibility, publishedAt, inboxes));
+        return List.copyOf(inboxes);
     }
 
     /**
@@ -123,8 +184,9 @@ public class StatusDeliveries {
      * its parent could be seen by everyone, which can't be known once it's deleted, and its {@code Delete} has to reach
      * whoever got it.
      *
-     * <p>The accounts a status mentions get them whatever its visibility, and they're all a direct status goes to. Mentions
-     * are kept, and can't change, so its {@code Delete} reaches the same accounts as its {@code Create}.
+     * <p>The accounts a status mentions get them whatever its visibility, and they're all a direct status goes to. An edit
+     * can add mentions, but those it removes are kept as silent ones, so its {@code Delete} reaches every account that was
+     * sent its {@code Create} or an {@code Update}.
      *
      * @param parentAuthorId the parent's author, or null if the status doesn't address them
      * @param mentioned      the accounts the status mentions

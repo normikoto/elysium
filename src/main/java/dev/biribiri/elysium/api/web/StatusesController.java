@@ -4,6 +4,7 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,7 +39,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/statuses")
-@Tag(name = "Statuses", description = "Posting, viewing, and deleting statuses.",
+@Tag(name = "Statuses", description = "Posting, viewing, editing, and deleting statuses.",
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/"))
 public class StatusesController {
 
@@ -141,6 +143,101 @@ public class StatusesController {
         return RequestParameters.uuid(id)
                 .flatMap(statusId -> statuses.findVisible(statusId, RequestParameters.viewer(token)))
                 .map(found -> responses.one(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PutMapping(value = "/{id}", consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
+    @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
+    public StatusResponse editFromForm(
+            @AuthenticationPrincipal TokenPrincipal token, @PathVariable String id,
+            @RequestParam MultiValueMap<String, String> form) {
+        rejectUnsupportedInEdit(form);
+        return edit(token, id, form.toSingleValueMap());
+    }
+
+    @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
+    // The API docs combine both mappings into one operation, and this replaces what the other one documents.
+    @Operation(
+            operationId = "editStatus",
+            summary = "Edit a status",
+            description = """
+                    Only the author can edit a status, and a boost can't be edited. Other servers that were sent it are \
+                    sent an `Update`. The text has the same limits as a new status, and its mentions are looked up \
+                    again in the same way. An account it no longer mentions can still see it.
+
+                    Differences from Mastodon:
+
+                    - Media and polls aren't supported, and `media_ids`, `media_attributes[]`, or `poll` with a value \
+                    gets a 422 rather than being ignored. Empty values are allowed.
+                    - A missing `sensitive` or `language` keeps what the status has, as Mastodon does, and so does an \
+                    empty `language`, so a language can't be removed. `visibility` and `in_reply_to_id` are ignored.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#edit"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = """
+                            The status as it is now, which is unchanged if the edit changes nothing."""),
+                    @ApiResponse(responseCode = "404", description = "Not found, the status isn't the user's, or it's a boost."),
+                    @ApiResponse(responseCode = "413", description = "The body is too large."),
+                    @ApiResponse(responseCode = "422", description = """
+                            The status is empty or too long, a value is unsupported or of the wrong type, or the token \
+                            has no user.""")
+            })
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = StatusEditBody.class)))
+    public StatusResponse editFromJson(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            HttpServletRequest request) throws IOException {
+        var body = json.read(request, statuses.maxStoredCharacters() * MAX_BYTES_PER_CHARACTER + OTHER_FIELDS_BYTES);
+        rejectUnsupportedInEdit(body);
+        return edit(token, id, body);
+    }
+
+    @GetMapping("/{id}/source")
+    @PreAuthorize("hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getStatusSource",
+            summary = "View a status's source",
+            description = "Gives the text and content warning of one of the user's own statuses, for editing it. "
+                    + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#source"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status's source."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the status isn't the user's."),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusSourceResponse source(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = requireUser(token);
+        return RequestParameters.uuid(id)
+                .flatMap(statusId -> statuses.findVisible(statusId, Optional.of(viewer)))
+                .filter(found -> found.actorId().equals(viewer) && !found.isReblog())
+                .map(StatusSourceResponse::from)
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @GetMapping("/{id}/history")
+    @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getStatusHistory",
+            summary = "View a status's edit history",
+            description = """
+                    Works without a token for public and unlisted statuses, and others are only found for a user who \
+                    can see them. Lists each version oldest first, ending with the current one, so a status that was \
+                    never edited has one. A status from another server only has the versions that this server was \
+                    sent, so it can lack some that its own server shows. Only the latest 50 versions are kept.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#history"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Each version of the status."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
+            })
+    public List<StatusEditResponse> history(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = RequestParameters.viewer(token);
+        return RequestParameters.uuid(id)
+                .flatMap(statusId -> statuses.findVisible(statusId, viewer))
+                .map(found -> responses.history(found, statuses.findHistory(found)))
                 .orElseThrow(RecordNotFoundException::new);
     }
 
@@ -330,6 +427,19 @@ public class StatusesController {
         return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
     }
 
+    private StatusResponse edit(TokenPrincipal token, String id, Map<String, ?> parameters) {
+        var author = requireUser(token);
+        var statusId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
+        var draft = new StatusEdit(
+                RequestParameters.string(parameters, "status"),
+                RequestParameters.string(parameters, "spoiler_text"),
+                RequestParameters.string(parameters, "language"),
+                isPresent(parameters.get("sensitive")) ? RequestParameters.flag(parameters, "sensitive") : null);
+        return statuses.edit(statusId, author, draft)
+                .map(found -> responses.one(found, Optional.of(author)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
     private static UUID requireUser(TokenPrincipal token) {
         return token.actorId().orElseThrow(InvalidRequestException::requiresUser);
     }
@@ -355,12 +465,26 @@ public class StatusesController {
             if (repeated || name.startsWith("visibility[")) {
                 throw new InvalidRequestException("Validation failed: visibility must be a single value");
             }
-            var unsupported = name.equals("media_ids") || name.equals("media_ids[]") || name.equals("scheduled_at")
-                    || name.equals("poll") || name.startsWith("poll[");
-            if (unsupported && isPresent(value)) {
-                throw new InvalidRequestException("Validation failed: " + name + " is not supported");
-            }
+            rejectIfPresent(name, value, isMediaOrPoll(name) || name.equals("scheduled_at"));
         });
+    }
+
+    /**
+     * As for a new status, ignoring these would leave out what the user meant to change without telling them.
+     */
+    private static void rejectUnsupportedInEdit(Map<String, ?> parameters) {
+        parameters.forEach((name, value) ->
+                rejectIfPresent(name, value, isMediaOrPoll(name) || name.startsWith("media_attributes")));
+    }
+
+    private static boolean isMediaOrPoll(String name) {
+        return name.equals("media_ids") || name.equals("media_ids[]") || name.equals("poll") || name.startsWith("poll[");
+    }
+
+    private static void rejectIfPresent(String name, Object value, boolean unsupported) {
+        if (unsupported && isPresent(value)) {
+            throw new InvalidRequestException("Validation failed: " + name + " is not supported");
+        }
     }
 
     private static boolean isPresent(Object value) {
@@ -393,6 +517,26 @@ public class StatusesController {
             @Schema(allowableValues = {"public", "unlisted", "private"}, defaultValue = "public",
                     description = "Who can see the boost. A boost of a followers-only status is always followers-only.")
             String visibility) {
+    }
+
+    /**
+     * Only documents the body, which is read by hand.
+     */
+    @Schema(name = "StatusEdit")
+    private record StatusEditBody(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = """
+                    The new text, as plain text. Mentions are looked up again, as for a new status.""")
+            String status,
+            @Schema(description = "A content warning, shown in place of the text until it's opened. Missing means none.")
+            String spoiler_text,
+            @Schema(description = "An ISO 639 language code. Missing or empty keeps the status's language.")
+            String language,
+            @Schema(description = "Whether the content is sensitive. Missing keeps what the status has.")
+            Boolean sensitive,
+            @Schema(description = "Not supported, and only accepted when empty.")
+            List<String> media_ids,
+            @Schema(description = "Not supported, and only accepted when empty.")
+            Map<String, Object> poll) {
     }
 
     /**

@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.sql.Types;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -114,7 +115,8 @@ class DeliveryTask {
                 }
                 return later(backingOff.get());
             }
-            if (job.staysBehind() != null && isRunningFor(job.staysBehind(), host)) {
+            if ((job.staysBehind() != null || job.staysBehindPrefix() != null)
+                    && isRunningFor(job.staysBehind(), job.staysBehindPrefix(), host)) {
                 return Jobs.rescheduleAt(now.plus(BEHIND_DELAY));
             }
             send(activity.get(), signer, inbox, host);
@@ -128,13 +130,17 @@ class DeliveryTask {
      * By host and not by inbox, because a server's followers can have moved to its shared inbox since. A job that's dead stays
      * picked until another node notices, so this can wait for that.
      */
-    private boolean isRunningFor(String activityId, String host) {
+    private boolean isRunningFor(String activityId, String activityIdPrefix, String host) {
         return jdbc.sql("""
-                        SELECT convert_from(task_data, 'UTF8')::json ->> 'inbox' FROM scheduled_tasks
-                        WHERE task_name = :task AND picked AND convert_from(task_data, 'UTF8')::json ->> 'activityId' = :id
+                        SELECT task.data ->> 'inbox' FROM scheduled_tasks
+                        CROSS JOIN LATERAL (SELECT convert_from(task_data, 'UTF8')::json AS data) task
+                        WHERE task_name = :task AND picked
+                          AND (task.data ->> 'activityId' = :id
+                               OR starts_with(task.data ->> 'activityId', CAST(:prefix AS text)))
                         """)
                 .param("task", ActivityDeliveries.TASK.getTaskName())
-                .param("id", activityId)
+                .param("id", activityId, Types.VARCHAR)
+                .param("prefix", activityIdPrefix, Types.VARCHAR)
                 .query(String.class)
                 .list()
                 .stream()
