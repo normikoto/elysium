@@ -41,7 +41,7 @@ The script checks:
   deleted account's followers. Once it's deleted, Elysium has to mark the actor as deleted and remove its follows. This uses a
   second account because later checks need `lab`, and Misskey can't delete `lab`, which is its admin.
 - **Sending statuses:** alice posts a public and a followers-only status. The other server has to accept the signed `Create`
-  for each and store it with the right visibility, though it can't fetch the followers-only one, which gets a `404`.
+  for each and store it with the right visibility. An unsigned fetch of the followers-only one has to get a `404`.
   GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in
   GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating until a restart. Misskey has to show
   both in the `lab` user's home timeline too, with the text that was posted. Mastodon has to have both in the `lab` user's home

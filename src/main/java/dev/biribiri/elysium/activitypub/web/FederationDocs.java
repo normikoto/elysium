@@ -17,12 +17,17 @@ final class FederationDocs {
     static final String UNSIGNED = "Doesn't need a signature, and any signature on the request is ignored.";
 
     /**
-     * For URLs that serve a web page too.
+     * For URLs that serve a web page too, without what they do with signatures.
      */
-    static final String NEGOTIATED = "Served as `" + ACTIVITY_JSON + "` or `" + LD_JSON + "`, to a request that asks "
+    static final String CONTENT_NEGOTIATION = "Served as `" + ACTIVITY_JSON + "` or `" + LD_JSON + "`, to a request that asks "
             + "for one of these in its `Accept` header, and `" + ANY_LD_JSON + "` is accepted with any profile. " + """
             A request that accepts HTML instead, including `*/*` or no header, gets the web page at the same URL, and \
-            others get a 406. Any origin can read both through CORS, and the response varies by `Accept`.\s""" + UNSIGNED;
+            others get a 406. Any origin can read both through CORS, and the response varies by `Accept`.""";
+
+    /**
+     * For URLs that serve a web page too, and ignore signatures.
+     */
+    static final String NEGOTIATED = CONTENT_NEGOTIATION + " " + UNSIGNED;
 
     /**
      * For URLs that only serve an ActivityPub document.

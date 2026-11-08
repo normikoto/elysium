@@ -235,6 +235,25 @@ public class FollowRepository {
     }
 
     /**
+     * Like {@link #isFollowing}, for a follow that started at or before this time, as {@link #findFollowerInboxesAsOf}
+     * counts it.
+     */
+    public boolean wasFollowingAsOf(UUID followerId, UUID followedId, Instant time) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM follow
+                            WHERE follower_id = :followerId AND followed_id = :followedId AND state = 'accepted'
+                              AND created_at <= :time
+                        )
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .param("time", time(time))
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
      * Lists an account's accepted followers, or the accounts it follows, leaving out suspended and deleted ones.
      *
      * @param followers true for its followers, and false for the accounts it follows
