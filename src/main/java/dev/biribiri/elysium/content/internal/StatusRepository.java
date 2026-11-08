@@ -270,6 +270,27 @@ public class StatusRepository {
     }
 
     /**
+     * Finds a status that's about to be deleted, and waits for anything holding it, such as a boost being made of it. Nothing
+     * new can hold it until the transaction ends, so what's read about it afterward is all there is to delete with it.
+     */
+    public Optional<Parent> findForDelete(UUID id) {
+        return jdbc.sql("SELECT id, actor_id FROM status WHERE id = :id AND reblog_of_id IS NULL FOR UPDATE")
+                .param("id", id)
+                .query((rs, rowNum) -> new Parent(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class)))
+                .optional();
+    }
+
+    /**
+     * Finds a status by its URI that's about to be deleted, as {@link #findForDelete} does.
+     */
+    public Optional<Parent> findForDeleteByUri(URI uri) {
+        return jdbc.sql("SELECT id, actor_id FROM status WHERE uri = :uri AND reblog_of_id IS NULL FOR UPDATE")
+                .param("uri", uri.toString())
+                .query((rs, rowNum) -> new Parent(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class)))
+                .optional();
+    }
+
+    /**
      * Links the replies that arrived before their parent did.
      */
     public void linkWaitingReplies(URI parentUri, Parent parent) {

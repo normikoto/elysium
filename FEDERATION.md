@@ -566,8 +566,10 @@ signed as the user goes to their followers and to the status's author. Its `obje
 
 It's addressed like a status of the same visibility, with the author in `cc`. A boost can be public, unlisted, or
 followers-only, and a boost of a followers-only status is always followers-only. Its `id` can't be fetched. Unboosting
-cancels the `Announce` if it hasn't been sent, and sends an `Undo` that embeds it to the same servers, after any request with
-the `Announce` to them has ended. So does deleting the boosted status, here or on its server. A local status's `Delete` also
+cancels the `Announce` if it hasn't been sent, and sends an `Undo` that embeds it, after any request with the `Announce` to
+the same server has ended. So does deleting the boosted status, here or on its server. The `Undo` goes to the status's author
+and to whoever follows the booster at the time, or for a followers-only boost, only to those who were already following when
+it was made. A local status's `Delete` also
 goes to the followers of local users who boosted it.
 
 An `Announce` is only read for its `object`'s ID, and an embedded copy is never used. A boost of a local public or unlisted

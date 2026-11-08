@@ -447,6 +447,10 @@ public class StatusService {
      */
     public Optional<Status> delete(UUID id, UUID authorId) {
         return transaction.execute(tx -> {
+            // Locked first, so that a boost made meanwhile is either found here or fails to find the status.
+            if (statuses.findForDelete(id).filter(status -> status.actorId().equals(authorId)).isEmpty()) {
+                return Optional.<Status>empty();
+            }
             // Before the status goes, and its mentions and boosts with it.
             var mentioned = statuses.findAllMentioned(id);
             var localBoosts = boosts.findLocal(id);
@@ -492,7 +496,8 @@ public class StatusService {
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             statuses.lockUri(uri);
             statuses.markRemoteDeleted(uri, authorUri);
-            var boosted = statuses.findParentByUriAndLock(uri);
+            // Locked so that a boost made meanwhile is either found here or fails to find the status.
+            var boosted = statuses.findForDeleteByUri(uri);
             var localBoosts = boosted.map(status -> boosts.findLocal(status.id())).orElse(List.of());
             var deleted = statuses.deleteRemote(uri, authorUri);
             if (deleted) {

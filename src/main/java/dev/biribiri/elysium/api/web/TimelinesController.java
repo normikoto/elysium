@@ -51,8 +51,8 @@ public class TimelinesController {
                     from a feed kept for each user, so it never answers `206`, and a newly followed account's stored \
                     statuses show straight away, including older ones. Statuses from other servers are only those sent \
                     here since the follow was accepted, or before it if someone else here follows the author. A followed \
-                    account's reply to a status that isn't stored here is left out, since who it's replying to isn't known. `local` has no \
-                    effect.
+                    account's reply to a status that isn't stored here is left out, since who it's replying to isn't known. Every boost \
+                    from a followed account is listed, even of a status that's already there. `local` has no effect.
 
                     Lists all of the user's own statuses, visible statuses of accounts they follow, and direct \
                     statuses from followed accounts that address the user. A followed account's reply is only listed \
