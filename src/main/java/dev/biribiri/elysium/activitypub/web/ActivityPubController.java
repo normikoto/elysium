@@ -27,6 +27,10 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,7 +58,7 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.LD_JSON;
 public class ActivityPubController {
 
     /**
-     * Requests aren't signed yet, so there's no way to tell who is asking. Everything is served as to an anonymous viewer.
+     * For documents that don't read the signature yet, which are served as to an anonymous viewer.
      */
     private static final Optional<UUID> ANONYMOUS = Optional.empty();
 
@@ -67,6 +71,7 @@ public class ActivityPubController {
     private final Notes notes;
     private final InstanceProperties instance;
     private final ProfileService profiles;
+    private final FetchSigners signers;
 
     ActivityPubController(
             ActorService actors,
@@ -75,7 +80,9 @@ public class ActivityPubController {
             FollowService follows,
             Notes notes,
             InstanceProperties instance,
-            ProfileService profiles) {
+            ProfileService profiles,
+            FetchSigners signers) {
+        this.signers = signers;
         this.instance = instance;
         this.profiles = profiles;
         this.actors = actors;
@@ -301,9 +308,13 @@ public class ActivityPubController {
             operationId = "getNote",
             summary = "Fetch a status as a Note",
             description = """
-                    Public and unlisted statuses are `Note` objects, and private and direct ones get a 404, even for a \
-                    follower. A deleted public or unlisted status gets a 410 with a `Tombstone`, and a deleted private \
-                    or direct one still gets a 404.\s""" + FederationDocs.NEGOTIATED,
+                    Public and unlisted statuses are `Note` objects. A signature is read if there is one, but never \
+                    required. A private status is only served to a signer who was already following its author when \
+                    it was posted, or that it mentions, and a direct one to a signer it mentions. A signature that \
+                    can't be accepted is answered as if there were none. A deleted public or unlisted status gets a \
+                    410 with a `Tombstone`, and a deleted private or direct one a 404. Answers have \
+                    `Vary: Signature`, and a private or direct `Note` has `Cache-Control: no-store, private`. A \
+                    browser can't send a `Signature` header from another origin.\s""" + FederationDocs.CONTENT_NEGOTIATION,
             parameters = {
                     @Parameter(name = "username", description = "The author's username, matched case-insensitively."),
                     @Parameter(name = "id", description = "The status's ID.")
@@ -316,7 +327,7 @@ public class ActivityPubController {
                     }),
                     @ApiResponse(responseCode = "403", description = "The author is suspended."),
                     @ApiResponse(responseCode = "404", description = """
-                            There's no such status by this author, or it isn't public or unlisted."""),
+                            There's no such status by this author, or the signer can't see it."""),
                     @ApiResponse(responseCode = "406", description = "The `Accept` header allows neither type."),
                     @ApiResponse(responseCode = "410", description = """
                             The status was deleted, with a `Tombstone` whose `formerType` is `Note`, or the author \
@@ -324,7 +335,14 @@ public class ActivityPubController {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Tombstone.class)),
                     })
             })
-    ResponseEntity<?> note(@PathVariable String username, @PathVariable String id) {
+    ResponseEntity<?> note(
+            @PathVariable String username,
+            @PathVariable String id,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        response.addHeader(HttpHeaders.VARY, FetchSigners.SIGNATURE);
+        // Before anything is looked up, so that how long this takes doesn't depend on whether a private status exists.
+        var signer = signers.signer(request).map(Actor::id);
         var author = actors.findAnyLocalByUsername(username);
         var statusId = Ids.parse(id);
         if (author.isEmpty() || statusId.isEmpty()) {
@@ -338,11 +356,17 @@ public class ActivityPubController {
         if (author.get().isSuspended()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        var status = statuses.findVisible(statusId.get(), ANONYMOUS)
+        var status = statuses.findFetchable(statusId.get(), signer)
                 // Otherwise any account's URL could serve this status.
                 .filter(found -> found.actorId().equals(author.get().id()));
         if (status.isPresent()) {
-            return ResponseEntity.ok(notes.of(status.get(), author.get()));
+            var ok = ResponseEntity.ok();
+            if (!status.get().isVisibleTo(ANONYMOUS)) {
+                // Only the signer could see this. Said here rather than left to Spring Security's default, which would
+                // stop applying if Notes were ever made cacheable.
+                ok.cacheControl(CacheControl.noStore().cachePrivate());
+            }
+            return ok.body(notes.of(status.get(), author.get()));
         }
         return statuses.findTombstone(statusId.get(), author.get().id())
                 .<ResponseEntity<?>>map(deleted -> ResponseEntity.status(HttpStatus.GONE).body(Tombstone.from(deleted)))
