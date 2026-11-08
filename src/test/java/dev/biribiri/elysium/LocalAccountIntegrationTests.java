@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -26,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.registration.enabled=true")
+@SpringBootTest(properties = "elysium.registration.mode=open")
 @AutoConfigureMockMvc
 class LocalAccountIntegrationTests {
 
@@ -37,6 +38,9 @@ class LocalAccountIntegrationTests {
 
     @Autowired
     private ActorService actors;
+
+    @Autowired
+    private JdbcClient jdbc;
 
     @MockitoSpyBean
     private PasswordEncoder passwordEncoder;
@@ -146,6 +150,7 @@ class LocalAccountIntegrationTests {
     private org.springframework.test.web.servlet.ResultActions signUp(
             String username, String password, String confirmPassword) throws Exception {
         return mockMvc.perform(post("/signup").with(csrf())
+                .param("invite", TestAccounts.invite(jdbc))
                 .param("username", username)
                 .param("password", password)
                 .param("confirmPassword", confirmPassword));

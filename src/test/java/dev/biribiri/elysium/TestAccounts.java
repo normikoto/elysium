@@ -3,6 +3,10 @@ package dev.biribiri.elysium;
 import dev.biribiri.elysium.actor.ActorService;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.UUID;
 
 /**
@@ -12,6 +16,35 @@ import java.util.UUID;
 public final class TestAccounts {
 
     private TestAccounts() {
+    }
+
+    /**
+     * An invite that works for any number of accounts, so that a test can sign up with it whatever the registration mode,
+     * without confirming an email address. It's added to the database by {@link #invite}.
+     */
+    private static final String INVITE = "test-invite-for-any-number-of-accounts";
+
+    /**
+     * @return the code of {@link #INVITE}, which this makes sure exists
+     */
+    public static String invite(JdbcClient jdbc) {
+        jdbc.sql("""
+                        INSERT INTO invite (id, code_hash) VALUES (:id, :codeHash)
+                        ON CONFLICT (code_hash) DO NOTHING
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("codeHash", sha256Hex(INVITE))
+                .update();
+        return INVITE;
+    }
+
+    private static String sha256Hex(String text) {
+        try {
+            var digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public static void makeSureAnAccountExists(ActorService actors) {

@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.auth;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -43,4 +44,10 @@ public interface AccountActions {
      * @return which of these accounts have the admin role
      */
     Set<UUID> adminsAmong(Collection<UUID> accountIds);
+
+    /**
+     * @return the email addresses of those of these accounts that have one, which only accounts that signed up without an
+     * invite do
+     */
+    Map<UUID, String> emailsOf(Collection<UUID> accountIds);
 }

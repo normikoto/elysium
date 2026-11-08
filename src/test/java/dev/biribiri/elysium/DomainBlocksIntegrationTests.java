@@ -45,7 +45,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
         "elysium.instance.base-url=https://blocks.example",
-        "elysium.registration.enabled=true",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -468,6 +467,7 @@ class DomainBlocksIntegrationTests {
     private void ensureAccount(String username) throws Exception {
         if (actors.findLocalByUsername(username).isEmpty()) {
             mockMvc.perform(post("/signup").with(csrf())
+                            .param("invite", TestAccounts.invite(jdbc))
                             .param("username", username)
                             .param("password", PASSWORD)
                             .param("confirmPassword", PASSWORD))

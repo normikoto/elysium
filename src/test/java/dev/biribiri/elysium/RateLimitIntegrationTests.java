@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Each test uses its own addresses and usernames, because the limits' counts last for the whole context.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.registration.enabled=true", "elysium.rate-limit.enabled=true"})
+@SpringBootTest(properties = {"elysium.registration.mode=open", "elysium.rate-limit.enabled=true"})
 @AutoConfigureMockMvc
 class RateLimitIntegrationTests {
 
@@ -48,6 +49,9 @@ class RateLimitIntegrationTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcClient jdbc;
 
     @Autowired
     private ActorService actors;
@@ -208,6 +212,7 @@ class RateLimitIntegrationTests {
         var address = newAddress();
         for (var i = 0; i < 6; i++) {
             mockMvc.perform(from(address, post("/signup")).with(csrf())
+                            .param("invite", TestAccounts.invite(jdbc))
                             .param("username", "mistyped")
                             .param("password", PASSWORD)
                             .param("confirmPassword", PASSWORD + "!"))
@@ -283,6 +288,7 @@ class RateLimitIntegrationTests {
 
     private ResultActions signUp(String username, String password, String address) throws Exception {
         return mockMvc.perform(from(address, post("/signup")).with(csrf())
+                .param("invite", TestAccounts.invite(jdbc))
                 .param("username", username)
                 .param("password", password)
                 .param("confirmPassword", password));

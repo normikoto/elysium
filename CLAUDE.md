@@ -36,10 +36,11 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | Module        | Purpose                                    | May depend on                                  |
 |---------------|--------------------------------------------|------------------------------------------------|
 | `media`       | Uploaded images, kept on disk              | nothing                                        |
+| `mail`        | Sending email over SMTP                    | nothing                                        |
 | `text`        | Rendering plain text as HTML               | nothing                                        |
 | `actor`       | Local and remote actors, profiles, keys    | `media`, `text`                                |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
-| `auth`        | Logins, OAuth, HTTP security configuration | `actor`, `ratelimit`                           |
+| `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `ratelimit`                   |
 | `content`     | Posts and related records                  | `actor`, `graph`, `text`                       |
 | `graph`       | Follows (blocks and mutes to come)         | `actor`                                        |
 | `moderation`  | Domain blocks                              | `actor`                                        |

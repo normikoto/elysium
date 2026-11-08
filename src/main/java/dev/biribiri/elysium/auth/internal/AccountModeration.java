@@ -10,6 +10,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -90,6 +91,11 @@ class AccountModeration implements AccountActions {
     @Override
     public Set<UUID> adminsAmong(Collection<UUID> accountIds) {
         return accounts.adminsAmong(accountIds);
+    }
+
+    @Override
+    public Map<UUID, String> emailsOf(Collection<UUID> accountIds) {
+        return accounts.emailsOf(accountIds);
     }
 
     private void remove(UUID accountId) {

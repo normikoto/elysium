@@ -69,7 +69,7 @@ class PagesController {
         model.addAttribute("userCount", actors.countLocal());
         model.addAttribute("statusCount", statuses.countLocal());
         model.addAttribute("showLogin", principal == null);
-        model.addAttribute("registrationEnabled", registration.enabled());
+        model.addAttribute("registrationEnabled", registration.acceptsUninvited());
         model.addAttribute("statuses", views(statuses.findPublic(StatusOrigin.LOCAL, firstPage(null))));
         return "home";
     }

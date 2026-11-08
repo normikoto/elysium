@@ -50,6 +50,7 @@ class SecurityConfig {
     static final String CONSENT_PATH = "/oauth/consent";
     static final String LOGIN_PATH = "/login";
     static final String SIGNUP_PATH = "/signup";
+    static final String SIGNUP_VERIFY_PATH = SIGNUP_PATH + "/verify";
     static final String DELETE_ACCOUNT_PATH = "/settings/delete-account";
     static final String SETTINGS_PATH = "/settings";
 
@@ -210,8 +211,8 @@ class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_PATHS).permitAll()
                         .requestMatchers(HttpMethod.HEAD, PUBLIC_PATHS).permitAll()
-                        .requestMatchers(HttpMethod.GET, SIGNUP_PATH).permitAll()
-                        .requestMatchers(HttpMethod.POST, SIGNUP_PATH).permitAll()
+                        .requestMatchers(HttpMethod.GET, SIGNUP_PATH, SIGNUP_VERIFY_PATH).permitAll()
+                        .requestMatchers(HttpMethod.POST, SIGNUP_PATH, SIGNUP_VERIFY_PATH).permitAll()
                         .requestMatchers(HttpMethod.GET, CONSENT_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, DELETE_ACCOUNT_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, DELETE_ACCOUNT_PATH).authenticated()

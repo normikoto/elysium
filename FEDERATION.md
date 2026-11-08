@@ -604,7 +604,8 @@ are served as `application/jrd+json` or `application/json`, include a `self` lin
 from any origin through CORS. The documents match, except that only 2.1 includes the software's repository. They report
 `activitypub` as the protocol, even though federation isn't complete yet. Their usage statistics include the total number
 of local users and `localPosts`, which counts replies but not direct messages. Active user counts and `localComments`
-aren't reported.
+aren't reported. `openRegistrations` is `true` when anyone can ask for an account, even if an admin has to approve it, as
+on Mastodon.
 
 ## Additional documentation
 

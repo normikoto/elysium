@@ -271,19 +271,23 @@ public class AdminAccountsController {
     }
 
     private List<AdminAccountResponse> responses(Collection<Actor> found) {
-        var admins = accounts.adminsAmong(found.stream().map(Actor::id).toList());
+        var ids = found.stream().map(Actor::id).toList();
+        var admins = accounts.adminsAmong(ids);
+        var emails = accounts.emailsOf(ids);
         var built = accountResponses.byId(found);
         return found.stream()
-                .map(account -> from(account, built.get(account.id()), admins.contains(account.id())))
+                .map(account -> from(
+                        account, built.get(account.id()), admins.contains(account.id()), emails.get(account.id())))
                 .toList();
     }
 
-    private AdminAccountResponse from(Actor account, AccountResponse response, boolean admin) {
+    private AdminAccountResponse from(Actor account, AccountResponse response, boolean admin, String email) {
         var local = actors.isLocal(account);
         return new AdminAccountResponse(
                 account.id().toString(),
                 account.username(),
                 local ? null : account.domain(),
+                email,
                 ApiTimestamps.format(account.createdAt()),
                 local ? new AdminAccountResponse.Role(admin ? "Admin" : "User") : null,
                 !account.isActive(),

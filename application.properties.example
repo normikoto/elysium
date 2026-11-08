@@ -10,9 +10,19 @@ spring.datasource.url=jdbc:postgresql://localhost:5432/elysium
 spring.datasource.username=elysium
 spring.datasource.password=
 
-# Lets anyone create an account at /signup. There's no email confirmation. The first account has to come from the
-# create-user command, and becomes an admin.
-#elysium.registration.enabled=false
+# Who can create an account at /signup: open lets anyone, once they've confirmed their email address, approval also needs an
+# admin to approve each one, and closed only lets people with an invite from the create-invite command. Open and approval
+# need the SMTP server below. The first account has to come from the create-user command, and becomes an admin.
+#elysium.registration.mode=closed
+
+# The SMTP server that sends email, such as the links that confirm a sign-up's address. Without a host, no email is sent.
+#spring.mail.host=
+#spring.mail.port=587
+#spring.mail.username=
+#spring.mail.password=
+#spring.mail.properties.mail.smtp.starttls.required=true
+# Required with a host: the address that email comes from.
+#elysium.mail.from=
 
 # Limits logins and sign-ups. Only turn this off if you enforce your own limits elsewhere.
 #elysium.rate-limit.enabled=true

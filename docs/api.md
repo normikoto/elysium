@@ -34,7 +34,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
 - `GET /api/v1/instance` reports the limit in `max_toot_chars` and `configuration.statuses.max_characters`, but
   `/api/v2/instance` isn't implemented. Clients that don't read the limit from v1 may apply their own limit of 500. Its
   `version` is a Mastodon version followed by `(compatible; Elysium)`. The streaming API isn't implemented, though
-  `urls.streaming_api` is set.
+  `urls.streaming_api` is set. `invites_enabled` is always `false`, since only admins can make invites, from the command
+  line. People sign up on the server's `/signup` page, since `POST /api/v1/accounts` isn't implemented.
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
 - Statuses from other servers are only stored when they're sent here, which is when a local account follows their author or
   is addressed by them, or when they're a public or unlisted reply to a stored status of a local account or one that's
@@ -115,8 +116,11 @@ with the `admin:read:accounts` and `admin:write:accounts` scopes, and these diff
   `/api/v2/admin/accounts`.
 - `GET /api/v1/admin/accounts` only filters by `local`, `remote`, `suspended`, `username`, which matches the start of the
   username, and `by_domain`. Accounts are ordered by their random IDs, not by age, and deleted accounts aren't listed.
-- An account only has `id`, `username`, `domain`, `created_at`, `role`, `suspended`, and `account`, and `role` only has a `name`,
-  of `Admin` or `User`, or is null for a remote account.
+- An account only has `id`, `username`, `domain`, `email`, `created_at`, `role`, `suspended`, and `account`, and `role` only
+  has a `name`, of `Admin` or `User`, or is null for a remote account. `email` is null for a remote account, and for a local
+  one that signed up with an invite or was made from the command line.
+- Sign-ups waiting for approval aren't accounts yet, so they aren't listed, and the `pending` filter and the `approve` and
+  `reject` endpoints don't exist. Admins approve them on the `/admin/sign-ups` page.
 - `type` has to be `suspend`, and other values get a 422, rather than doing more than an admin meant. Other parameters are
   ignored.
 - `DELETE` doesn't need the account to be suspended first. It's only for local accounts, and gets a 403 for a remote one.
