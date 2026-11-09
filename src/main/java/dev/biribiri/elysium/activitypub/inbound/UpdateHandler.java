@@ -16,6 +16,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -156,6 +157,7 @@ class UpdateHandler implements InboundActivityHandler {
                 note.summary(),
                 note.language(),
                 note.sensitive(),
-                note.editedAt(note.published(), Instant.now())));
+                note.editedAt(note.published(), Instant.now()),
+                Set.copyOf(note.hashtags())));
     }
 }

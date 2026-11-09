@@ -12,13 +12,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Mastodon's Status entity. Media, polls, and hashtags don't exist yet, so those fields hold the values a status without
- * any of them would have.
+ * Mastodon's Status entity. Media and polls don't exist yet, so those fields hold the values a status without either would
+ * have.
  *
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Media, polls, cards, and hashtags don't exist yet, so those fields \
+        Mastodon's Status entity. Media, polls, and cards don't exist yet, so those fields \
         are always empty, null, zero, or false. A boost has the boosted status in `reblog`, and no content of its own. \
         `reblogs_count` and `favourites_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
@@ -47,7 +47,7 @@ record StatusResponse(
         AccountResponse account,
         @JsonProperty("media_attachments") List<Object> mediaAttachments,
         List<MentionResponse> mentions,
-        List<Object> tags,
+        List<StatusTagResponse> tags,
         List<Object> emojis,
         Object card,
         Object poll,
@@ -62,8 +62,8 @@ record StatusResponse(
      * @param reblog the boosted status, for a boost, or null
      */
     static StatusResponse from(
-            Status status, AccountResponse account, List<MentionResponse> mentions, boolean includeText, LikeStats likes,
-            BoostStats boosts, StatusResponse reblog) {
+            Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
+            boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -86,7 +86,7 @@ record StatusResponse(
                 account,
                 List.of(),
                 mentions,
-                List.of(),
+                tags,
                 List.of(),
                 null,
                 null,

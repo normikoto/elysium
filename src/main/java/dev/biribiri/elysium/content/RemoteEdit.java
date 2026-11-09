@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -11,6 +12,7 @@ import java.util.UUID;
  * @param spoilerText HTML, which is reduced to plain text, as clients show it, or null if it has none
  * @param language    a language code, or null if not given or not valid
  * @param editedAt    when its server says it was edited, which orders edits that arrive out of order
+ * @param tags        the names of its hashtags, which are normalized again here
  */
 public record RemoteEdit(
         URI uri,
@@ -19,8 +21,22 @@ public record RemoteEdit(
         String spoilerText,
         String language,
         boolean sensitive,
-        Instant editedAt
+        Instant editedAt,
+        Set<String> tags
 ) {
+
+    public RemoteEdit {
+        tags = Set.copyOf(tags);
+    }
+
+    /**
+     * An edit that leaves the status with no hashtags.
+     */
+    public RemoteEdit(
+            URI uri, UUID authorId, String content, String spoilerText, String language, boolean sensitive,
+            Instant editedAt) {
+        this(uri, authorId, content, spoilerText, language, sensitive, editedAt, Set.of());
+    }
 
     /**
      * What {@link StatusService#updateRemote} did with an edit.

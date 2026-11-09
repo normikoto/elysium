@@ -22,7 +22,7 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
 - `GET /api/v1/statuses/:id/history` only has the versions of a status from another server that were sent here, so it
   can lack some that its server shows, and it has no versions from before the upgrade that added it. Only the latest 50
   versions of a status are kept. Its entries have empty `media_attachments` and `emojis`, and a null `poll`.
-- URLs and mentions in a status are linked, but hashtags aren't yet. A mention of an account on another server is looked
+- URLs, mentions, and hashtags in a status are linked. A mention of an account on another server is looked
   up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
   mention that can't be found, or one past that limit of an account that isn't already known here, stays as text rather
   than failing the request.
@@ -30,6 +30,10 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   it's longer than 2048 characters, in which case it counts at its full length. URLs can save at most 4096 characters
   per status, and any URLs after that also count at their full length. A mention counts without its domain, as in
   Mastodon, and the domains can save at most 4096 characters per status.
+- A hashtag needs a letter, and can be up to 100 characters. Tags are matched without regard to case or Unicode
+  composition, and `tags[].name` is the normalized form: lowercase, in Unicode's NFKC form. A status keeps at most 100
+  tags. `tags[].url` is this server's page for the tag, even on a status from another server, as on Mastodon. Statuses
+  posted before the upgrade that added hashtags have no `tags`, and their hashtags aren't linked, until they're edited.
 - A followers-only or direct status can be seen by the accounts it mentions, as on Mastodon. Mentions from accounts
   the user does not follow appear in notifications, and direct messages in conversations, rather than in the home timeline.
 - `mentions` leaves out accounts that have been suspended or deleted since. For a status from another server, it also
@@ -47,7 +51,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   followed here. When a local account starts following someone, up to 40 of their recent public and unlisted statuses are
   fetched as well, and these are ordered by when they were posted, so a client that's already loaded newer statuses
   won't be given them as new. Other older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
-  can differ from what the other server shows, and they never have `media_attachments`, `tags`, `emojis`, or a `poll`.
+  can differ from what the other server shows, and they never have `media_attachments`, `emojis`, or a `poll`. Their
+  `tags` are the hashtags their server listed for them, and are replaced when they're edited.
   Their `mentions` only list local accounts, and accounts on other servers that are already known here. A reply whose
   parent isn't stored has a null `in_reply_to_id` and `in_reply_to_account_id`.
 - `GET /api/v1/statuses/:id/context` only lists statuses stored here, and never fetches missing parents or replies from other
@@ -57,9 +62,18 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   never answers `206`, and an account's stored statuses show as soon as it's followed, older ones too. A followed
   account's reply is only listed when it's to its author, to the user, or to someone they follow, as on Mastodon, and one
   to a status that isn't stored here is left out. Direct messages addressed to the user are included only when they
-  follow the author. The user's own statuses and replies are always listed. `local` has no effect. List and hashtag timelines aren't implemented.
+  follow the author. The user's own statuses and replies are always listed. `local` has no effect. List timelines aren't implemented, and
+  followed hashtags don't add statuses to it.
 - `GET /api/v1/timelines/public` lists public statuses from other servers too, as on Mastodon. With both `local` and
   `remote`, `local` wins. Boosts aren't listed there, as on Mastodon.
+- `GET /api/v1/timelines/tag/:hashtag` lists public statuses with the tag, replies included, from this server and others,
+  as on Mastodon, with the same `local`, `remote`, and `only_media` as the public timeline. `any[]`, `all[]`, and
+  `none[]` each use their first 4 names, as on Mastodon. A `:hashtag` that isn't a valid name, or a name in `all[]` that
+  isn't one, gives an empty list.
+- `GET /api/v1/tags/:id` finds any valid tag name, even one that nothing uses, and gets a 404 for an invalid one. Any token
+  works, or none. `history` counts only public statuses stored here, over the last 7 days. Tags can't be followed or
+  featured, so `following` is always false, and is left out without a user token. The endpoints for following,
+  unfollowing, featuring, and trending tags, and `GET /api/v1/followed_tags`, aren't implemented.
 - `POST /api/v1/statuses/:id/reblog` boosts a public or unlisted status, or one of the user's own followers-only statuses,
   whose boost is always followers-only. Any other status gets a 404. `visibility` can be `public`, the default, `unlisted`,
   or `private`, sent as a form, a query parameter, or JSON, and `direct` gets a 422. Boosting a status again returns the
@@ -151,11 +165,14 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   page. If the account hides them, anyone else gets an empty list.
 - `lookup` and `search` only ask another server about an account for a signed-in user, and `search` only when `resolve` is
   true. Each user can make 30 of those lookups a minute, and then gets a 429.
-- `search` only finds accounts. `statuses` and `hashtags` are always empty, and a `type` other than `accounts` returns nothing.
+- `search` finds accounts and hashtags. `statuses` is always empty, and a `type` of `statuses` returns nothing.
   A query that's a `username@domain` or an `https` URL finds that one account. Any other query matches the start of the
   usernames this server knows. Only the first 200 matches can be paged through with `offset`, and an `offset` past them
   returns no accounts. `following`, `account_id`, `exclude_unreviewed`,
   `min_id`, and `max_id` are ignored.
+- `search` finds hashtags by the start of their name, from those that public statuses stored here use, most used first.
+  A query that's a valid name, with or without its `#`, also finds that tag when nothing uses it, as the first result,
+  as on Mastodon. Only the first 200 can be paged through with `offset`.
 - `GET /api/v1/accounts/:id/statuses` for an account on another server only lists its statuses stored here.
 
 Domain blocks follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/domain_blocks/), under

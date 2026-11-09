@@ -32,15 +32,16 @@ public final class PlainText {
     }
 
     public static String render(String text) {
-        return render(text, mention -> null);
+        return render(text, mention -> null, null);
     }
 
     /**
      * @param mentions where each mention links to, or null to leave it as text, as for an account that doesn't exist
+     * @param tagBase  the base URL that hashtags link under, or null to leave them as text
      */
-    public static String render(String text, Function<Mentions.Match, MentionLink> mentions) {
+    public static String render(String text, Function<Mentions.Match, MentionLink> mentions, URI tagBase) {
         return PARAGRAPH_BREAK.splitAsStream(text)
-                .map(paragraph -> "<p>" + renderLines(paragraph, mentions) + "</p>")
+                .map(paragraph -> "<p>" + renderLines(paragraph, mentions, tagBase) + "</p>")
                 .collect(Collectors.joining());
     }
 
@@ -49,17 +50,18 @@ public final class PlainText {
      * own with {@code rel="me"}, which is what lets the linked site and other servers check that they link back.
      */
     public static String renderFieldValue(String text) {
-        return text.lines().map(line -> renderLine(line, ME_LINK, mention -> null)).collect(Collectors.joining(" "));
+        return text.lines().map(line -> renderLine(line, ME_LINK, mention -> null, null)).collect(Collectors.joining(" "));
     }
 
-    private static String renderLines(String paragraph, Function<Mentions.Match, MentionLink> mentions) {
-        return paragraph.lines().map(line -> renderLine(line, LINK, mentions)).collect(Collectors.joining("<br>"));
+    private static String renderLines(String paragraph, Function<Mentions.Match, MentionLink> mentions, URI tagBase) {
+        return paragraph.lines().map(line -> renderLine(line, LINK, mentions, tagBase)).collect(Collectors.joining("<br>"));
     }
 
     private record Span(int start, int end, String html) {
     }
 
-    private static String renderLine(String line, String rel, Function<Mentions.Match, MentionLink> mentions) {
+    private static String renderLine(
+            String line, String rel, Function<Mentions.Match, MentionLink> mentions, URI tagBase) {
         var spans = new ArrayList<Span>();
         for (var url : Urls.find(line)) {
             spans.add(new Span(url.start(), url.end(), link(line.substring(url.start(), url.end()), rel)));
@@ -69,6 +71,14 @@ public final class PlainText {
             var target = mentions.apply(mention);
             if (target != null) {
                 spans.add(new Span(mention.start(), mention.end(), mention(mention.username(), target)));
+            }
+        }
+        // Hashtags leave out those inside a URL too. None should overlap a mention, but the spans mustn't if one did.
+        if (tagBase != null) {
+            for (var tag : Hashtags.find(line)) {
+                if (spans.stream().noneMatch(span -> tag.start() < span.end() && span.start() < tag.end())) {
+                    spans.add(new Span(tag.start(), tag.end(), hashtag(tag.name(), tagBase)));
+                }
             }
         }
         spans.sort(Comparator.comparingInt(Span::start));
@@ -89,6 +99,15 @@ public final class PlainText {
         return "<span class=\"h-card\" translate=\"no\"><a href=\"" + escape(target.href().toString())
                 + "\" class=\"u-url mention\" title=\"@" + escape(target.acct()) + "\">@<span>" + escape(username)
                 + "</span></a></span>";
+    }
+
+    /**
+     * Mastodon's markup, which clients look for to open the tag's timeline rather than the link. The name is shown as
+     * written, and the link uses the normalized one.
+     */
+    private static String hashtag(String name, URI tagBase) {
+        return "<a href=\"" + escape(Hashtags.url(tagBase, Hashtags.normalize(name)).toString())
+                + "\" class=\"mention hashtag\" rel=\"tag\">#<span>" + escape(name) + "</span></a>";
     }
 
     private static String link(String url, String rel) {

@@ -21,10 +21,24 @@ class PlainTextTests {
         var html = PlainText.render("hi @bob@Example.com, @nobody & https://a.example/@bob", mention ->
                 mention.username().equals("bob")
                         ? new PlainText.MentionLink(URI.create("https://example.com/users/bob?a=1&b=2"), "bob@example.com")
-                        : null);
+                        : null, null);
         assertThat(html).isEqualTo("<p>hi <span class=\"h-card\" translate=\"no\"><a href=\"https://example.com/users/bob?a=1&amp;b=2\" "
                 + "class=\"u-url mention\" title=\"@bob@example.com\">@<span>bob</span></a></span>, @nobody &amp; "
                 + link("https://a.example/@bob") + "</p>");
+    }
+
+    @Test
+    void linksHashtagsUnderTheBase() {
+        var html = PlainText.render("#Cats & #café https://a.example/#top", mention -> null, URI.create("https://e.example"));
+        assertThat(html).isEqualTo("<p><a href=\"https://e.example/tags/cats\" class=\"mention hashtag\" rel=\"tag\">"
+                + "#<span>Cats</span></a> &amp; <a href=\"https://e.example/tags/caf%C3%A9\" class=\"mention hashtag\" "
+                + "rel=\"tag\">#<span>café</span></a> " + link("https://a.example/#top") + "</p>");
+    }
+
+    @Test
+    void leavesHashtagsAsTextWithoutABase() {
+        assertThat(PlainText.render("#cats")).isEqualTo("<p>#cats</p>");
+        assertThat(PlainText.renderFieldValue("#cats")).isEqualTo("#cats");
     }
 
     @Test

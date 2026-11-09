@@ -545,7 +545,7 @@ public class StatusesController {
     @Schema(name = "NewStatus")
     private record NewStatusBody(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = """
-                    The text, as plain text. URLs and mentions are linked, but hashtags aren't yet. A mention of an \
+                    The text, as plain text. URLs, mentions, and hashtags are linked. A mention of an \
                     account that can't be found, or one past the limit on lookups of accounts on other servers, stays \
                     as text.""")
             String status,

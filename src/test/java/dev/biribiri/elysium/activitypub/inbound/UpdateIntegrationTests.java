@@ -117,6 +117,24 @@ class UpdateIntegrationTests {
     }
 
     @Test
+    void replacesTheHashtags() {
+        var noteId = noteId();
+        var tagged = note(noteId, null);
+        tagged.put("tag", List.of(Map.of("type", "Hashtag", "name", "#old"), Map.of("type", "Hashtag", "name", "#kept")));
+        creates.handle(create(tagged));
+        var edited = edit(noteId, "2026-02-01T00:00:00Z", "<p>Edited</p>");
+        edited.put("tag", List.of(Map.of("type", "Hashtag", "name", "#Kept"), Map.of("type", "Hashtag", "name", "#new")));
+
+        handler.handle(update(edited));
+        assertThat(tags(noteId)).containsExactlyInAnyOrder("kept", "new");
+
+        // An edit that isn't applied leaves them as they are.
+        var older = edit(noteId, "2026-01-15T00:00:00Z", "<p>Older</p>");
+        handler.handle(update(older));
+        assertThat(tags(noteId)).containsExactlyInAnyOrder("kept", "new");
+    }
+
+    @Test
     void ignoresAnOlderOrRepeatedEdit() {
         var noteId = stored();
         handler.handle(update(edit(noteId, "2026-03-01T00:00:00Z", "<p>Newest</p>")));
@@ -470,6 +488,13 @@ class UpdateIntegrationTests {
     private InboundActivity updateOf(String id, URI actor, String object) {
         var body = "{\"id\":\"%s\",\"type\":\"Update\",\"actor\":\"%s\",\"object\":%s}".formatted(id, actor, object);
         return new InboundActivity(id, actor.toString(), "Update", body);
+    }
+
+    private List<String> tags(String uri) {
+        return jdbc.sql("SELECT t.name FROM status_tag t JOIN status s ON s.id = t.status_id WHERE s.uri = :uri")
+                .param("uri", uri)
+                .query(String.class)
+                .list();
     }
 
     private Optional<Map<String, Object>> status(String uri) {

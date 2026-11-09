@@ -3,6 +3,7 @@ package dev.biribiri.elysium.content;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -17,6 +18,7 @@ import java.util.UUID;
  * @param mentions     the stored accounts it mentions, each with whether that's silent, as for a local account it was sent
  *                     to without being tagged. These can see it even when it's followers-only or direct, so they have to
  *                     have been checked against who it was addressed to
+ * @param tags         the names of its hashtags, which are normalized again here
  */
 public record RemoteStatus(
         URI uri,
@@ -30,11 +32,23 @@ public record RemoteStatus(
         URI inReplyToUri,
         Instant publishedAt,
         Instant editedAt,
-        Map<UUID, Boolean> mentions
+        Map<UUID, Boolean> mentions,
+        Set<String> tags
 ) {
 
     public RemoteStatus {
         mentions = Map.copyOf(mentions);
+        tags = Set.copyOf(tags);
+    }
+
+    /**
+     * A status with no hashtags.
+     */
+    public RemoteStatus(
+            URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
+            boolean sensitive, URI inReplyToUri, Instant publishedAt, Instant editedAt, Map<UUID, Boolean> mentions) {
+        this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, editedAt,
+                mentions, Set.of());
     }
 
     /**
@@ -44,6 +58,6 @@ public record RemoteStatus(
             URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
             boolean sensitive, URI inReplyToUri, Instant publishedAt) {
         this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, null,
-                Map.of());
+                Map.of(), Set.of());
     }
 }

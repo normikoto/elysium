@@ -1,9 +1,11 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
+import dev.biribiri.elysium.activitypub.vocab.Hashtag;
 import dev.biribiri.elysium.activitypub.vocab.Mention;
 import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -20,10 +22,12 @@ public class Notes {
 
     private final StatusService statuses;
     private final ActorService actors;
+    private final InstanceProperties instance;
 
-    Notes(StatusService statuses, ActorService actors) {
+    Notes(StatusService statuses, ActorService actors, InstanceProperties instance) {
         this.statuses = statuses;
         this.actors = actors;
+        this.instance = instance;
     }
 
     public Note of(Status status, Actor author) {
@@ -34,13 +38,21 @@ public class Notes {
      * @param mentioned the accounts {@link StatusService#findMentions} gives, for a caller that has looked them up already
      */
     public Note of(Status status, Actor author, List<Actor> mentioned) {
+        return of(status, author, mentioned, statuses.findTags(List.of(status.id())).getOrDefault(status.id(), List.of()));
+    }
+
+    /**
+     * @param tags the names {@link StatusService#findTags} gives, for a caller that has looked them up already
+     */
+    public Note of(Status status, Actor author, List<Actor> mentioned, List<String> tags) {
         var parent = shownParent(status, mentioned);
         return Note.from(
                 status,
                 author,
                 parent.map(Status::uri).orElse(null),
                 parent.flatMap(shown -> actors.findById(shown.actorId())).filter(Actor::isActive).map(Actor::uri).orElse(null),
-                mentioned.stream().map(actor -> Mention.of(actor.uri(), "@" + actor.username() + "@" + actor.domain())).toList());
+                mentioned.stream().map(actor -> Mention.of(actor.uri(), "@" + actor.username() + "@" + actor.domain())).toList(),
+                Hashtag.of(tags, instance));
     }
 
     /**

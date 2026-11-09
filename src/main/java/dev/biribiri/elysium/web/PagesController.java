@@ -10,6 +10,8 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.TagFilter;
+import dev.biribiri.elysium.text.Hashtags;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -95,6 +97,7 @@ class PagesController {
         var profile = profiles.find(actor.id());
         model.addAttribute("actor", actor);
         model.addAttribute("profile", profile);
+        model.addAttribute("bio", profile.noteHtml(instance.baseUrl()));
         model.addAttribute("name", profile.displayName().isEmpty() ? "@" + actor.username() : profile.displayName());
         model.addAttribute("avatar", profile.avatar() == null ? null : instance.resolve(profile.avatar().path()));
         model.addAttribute("header", profile.header() == null ? null : instance.resolve(profile.header().path()));
@@ -135,6 +138,27 @@ class PagesController {
                 .flatMap(this::view)
                 .orElse(null));
         return "status";
+    }
+
+    /**
+     * Where hashtags link to, here and on other servers, which is why this is a page for people rather than an ActivityPub
+     * collection. It lists public statuses from any server, as Mastodon's does.
+     */
+    @GetMapping("/tags/{name}")
+    String tag(
+            @PathVariable String name,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            Model model,
+            HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
+        requireHtmlAccepted(request);
+        var tag = Hashtags.parse(name).orElseThrow(PagesController::notFound);
+        var page = firstPage(maxId == null ? null : Ids.parse(maxId).orElseThrow(PagesController::notFound));
+        var found = statuses.findTagged(TagFilter.of(tag), StatusOrigin.ANY, page);
+
+        model.addAttribute("tag", tag);
+        model.addAttribute("statuses", anyAuthorViews(found));
+        model.addAttribute("olderThan", found.size() == page.limit() ? found.getLast().id() : null);
+        return "tag";
     }
 
     @GetMapping({"/users/{username}/statuses/{id}/likes", "/users/{username}/statuses/{id}/shares"})
@@ -206,6 +230,22 @@ class PagesController {
         return found.stream()
                 .filter(status -> authors.containsKey(status.actorId()))
                 .map(status -> StatusView.from(status, authors.get(status.actorId())))
+                .toList();
+    }
+
+    /**
+     * Like {@link #views}, for statuses that can be from any server. None of them are boosts.
+     */
+    private List<StatusView> anyAuthorViews(List<Status> found) {
+        var authors = actors.findByIds(found.stream().map(Status::actorId).collect(Collectors.toSet())).stream()
+                .filter(Actor::isActive)
+                .collect(Collectors.toMap(Actor::id, Function.identity()));
+        return found.stream()
+                .filter(status -> authors.containsKey(status.actorId()))
+                .map(status -> {
+                    var author = authors.get(status.actorId());
+                    return StatusView.of(status, author, actors.isLocal(author));
+                })
                 .toList();
     }
 

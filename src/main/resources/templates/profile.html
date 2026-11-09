@@ -6,7 +6,7 @@
         <img class="avatar" th:if="${avatar != null}" th:src="${avatar}" alt="">
         <p th:text="|@${actor.username}@${actor.domain}|"></p>
         <!-- The bio and field values are rendered from plain text, which escapes everything they contain. -->
-        <div class="bio" th:if="${!profile.note().isEmpty()}" th:utext="${profile.noteHtml()}"></div>
+        <div class="bio" th:if="${!profile.note().isEmpty()}" th:utext="${bio}"></div>
         <dl class="fields" th:if="${!profile.fields().isEmpty()}">
             <th:block th:each="field : ${profile.fields()}">
                 <dt th:text="${field.name()}"></dt>

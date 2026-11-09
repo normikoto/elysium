@@ -113,6 +113,24 @@ class CreateIntegrationTests {
     }
 
     @Test
+    void storesTheHashtagsInItsTagNormalized() {
+        var noteId = noteId();
+        var note = new HashMap<>(note(noteId, List.of(PUBLIC), List.of(followers)));
+        note.put("content", "<p><a href=\"https://" + host + "/tags/Cats\" class=\"mention hashtag\">#Cats</a> #inText</p>");
+        note.put("tag", List.of(
+                Map.of("type", "Hashtag", "href", "https://" + host + "/tags/cats", "name", "#Cats"),
+                Map.of("type", "Hashtag", "name", "dogs"),
+                Map.of("type", "Hashtag", "name", "#CATS"),
+                Map.of("type", "Hashtag", "name", "#not a tag"),
+                Map.of("type", "Mention", "href", follower.uri().toString(), "name", "#mention")));
+
+        handler.handle(create(note));
+
+        // Only the tag array counts, as on Mastodon, so #inText in the content isn't a tag.
+        assertThat(tags(statusId(noteId))).containsExactlyInAnyOrder("cats", "dogs");
+    }
+
+    @Test
     void readsVisibilityFromTheNotesAddressing() {
         var unlisted = noteId();
         var followersOnly = noteId();
@@ -464,6 +482,10 @@ class CreateIntegrationTests {
 
     private UUID statusId(String uri) {
         return (UUID) status(uri).orElseThrow().get("id");
+    }
+
+    private List<String> tags(UUID statusId) {
+        return jdbc.sql("SELECT name FROM status_tag WHERE status_id = :id").param("id", statusId).query(String.class).list();
     }
 
     private Map<UUID, Boolean> mentions(UUID statusId) {

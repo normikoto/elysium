@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.text.Hashtags;
 import dev.biribiri.elysium.text.Mentions;
 import dev.biribiri.elysium.text.PlainText;
 import dev.biribiri.elysium.text.RemoteHtml;
@@ -22,6 +23,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -146,6 +149,7 @@ public class StatusService {
             statuses.insert(status);
             statuses.insertMentions(id, mentionedIds(mentioned, authorId).stream()
                     .collect(Collectors.toMap(Function.identity(), mentionedId -> false)));
+            statuses.insertTags(id, Hashtags.names(text));
             threads.assign(status, parent.map(Status::uri).orElse(null));
             events.publishEvent(new StatusStored(id));
             events.publishEvent(new StatusPublished(id, authorId));
@@ -202,6 +206,7 @@ public class StatusService {
                 return Optional.<Status>empty();
             }
             var added = statuses.replaceMentions(id, mentionedIds(mentioned, authorId));
+            statuses.replaceTags(id, Hashtags.names(text));
             events.publishEvent(new StatusEdited(id, authorId, editedAt, added));
             return statuses.findById(id);
         });
@@ -239,7 +244,7 @@ public class StatusService {
     private String render(String text, Map<String, Actor> mentioned) {
         return PlainText.render(text, match -> Optional.ofNullable(mentioned.get(acct(match)))
                 .map(actor -> new PlainText.MentionLink(actor.uri(), actor.username() + "@" + actor.domain()))
-                .orElse(null));
+                .orElse(null), instance.baseUrl());
     }
 
     /**
@@ -378,6 +383,7 @@ public class StatusService {
             var mentions = new HashMap<>(remote.mentions());
             mentions.remove(author.id());
             statuses.insertMentions(id, mentions);
+            statuses.insertTags(id, remoteTags(remote.tags()));
             // Jobs have no order, so replies can be stored before their parent.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
             threads.assign(status, remote.inReplyToUri());
@@ -390,24 +396,33 @@ public class StatusService {
      * Replaces a remote status with a version its author's server edited. Only what an author can change in an edit on
      * Mastodon is replaced, so its visibility, its parent and when it was published stay as they were. So do its mentions,
      * which decide who can see a followers-only or direct status, so that an edit can't show it to anyone it wasn't sent
-     * to. The version it replaces is kept. Nothing is published for this edit, since it isn't this server's to send.
+     * to. Its hashtags are replaced, since they don't. The version it replaces is kept. Nothing is published for this edit,
+     * since it isn't this server's to send.
      *
      * @return what happened to the edit
      */
     public RemoteEdit.Outcome updateRemote(RemoteEdit edit) {
         var html = RemoteText.of(edit.content(), edit.spoilerText(), edit.language());
+        var tags = remoteTags(edit.tags());
         // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
-        // caller that stores the status after NOT_STORED has to cope with one stored in between.
-        var edited = statuses.updateRemote(
-                edit.uri(),
-                edit.authorId(),
-                html.text(),
-                html.content(),
-                html.spoilerText(),
-                html.language(),
-                edit.sensitive() || !html.spoilerText().isEmpty(),
-                edit.editedAt().truncatedTo(ChronoUnit.MICROS));
-        if (edited) {
+        // caller that stores the status after NOT_STORED has to cope with one stored in between. The tags are replaced in
+        // the same transaction, while the edit's row lock keeps a concurrent edit waiting.
+        var edited = transaction.execute(tx -> {
+            var changed = statuses.updateRemote(
+                    edit.uri(),
+                    edit.authorId(),
+                    html.text(),
+                    html.content(),
+                    html.spoilerText(),
+                    html.language(),
+                    edit.sensitive() || !html.spoilerText().isEmpty(),
+                    edit.editedAt().truncatedTo(ChronoUnit.MICROS));
+            if (changed) {
+                statuses.replaceTagsByUri(edit.uri(), tags);
+            }
+            return changed;
+        });
+        if (Boolean.TRUE.equals(edited)) {
             return RemoteEdit.Outcome.EDITED;
         }
         return statuses.existsByUri(edit.uri()) ? RemoteEdit.Outcome.UNCHANGED : RemoteEdit.Outcome.NOT_STORED;
@@ -695,6 +710,63 @@ public class StatusService {
      */
     public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
         return statuses.findPublic(origin, page);
+    }
+
+    /**
+     * Lists public statuses with these hashtags, including replies.
+     */
+    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page) {
+        return statuses.findTagged(tags, origin, page);
+    }
+
+    /**
+     * The names of each status's hashtags, in no particular order.
+     *
+     * @return an entry for each status that has any
+     */
+    public Map<UUID, List<String>> findTags(Collection<UUID> statusIds) {
+        return statuses.findTags(statusIds);
+    }
+
+    /**
+     * Finds hashtags that public statuses here use, by the start of their name, most used first.
+     *
+     * @param prefix a normalized name
+     */
+    public List<String> searchTags(String prefix, int limit, int offset) {
+        return statuses.searchTags(prefix, limit, offset);
+    }
+
+    /**
+     * How much each hashtag was used on each of the last {@code days} days, today first, counting public statuses stored
+     * here. A day it wasn't used has zeros.
+     */
+    public Map<String, List<TagDay>> findTagHistory(Collection<String> names, int days) {
+        var today = LocalDate.now(ZoneOffset.UTC);
+        var first = today.minusDays(days - 1L);
+        var used = statuses.tagDays(names, first.atStartOfDay(ZoneOffset.UTC).toInstant());
+        var history = new HashMap<String, List<TagDay>>();
+        for (var name : names) {
+            var byDay = used.getOrDefault(name, List.of()).stream()
+                    .collect(Collectors.toMap(TagDay::day, Function.identity()));
+            history.put(name, Stream.iterate(today, day -> !day.isBefore(first), day -> day.minusDays(1))
+                    .map(day -> byDay.getOrDefault(day, new TagDay(day, 0, 0)))
+                    .toList());
+        }
+        return history;
+    }
+
+    /**
+     * Another server's tags have only been checked by the code that read them, so they're checked again before they're
+     * stored.
+     */
+    private static List<String> remoteTags(Collection<String> names) {
+        return names.stream()
+                .map(Hashtags::parse)
+                .flatMap(Optional::stream)
+                .distinct()
+                .limit(Hashtags.MAX_PER_STATUS)
+                .toList();
     }
 
     /**

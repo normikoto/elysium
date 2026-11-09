@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -167,7 +168,8 @@ class NoteStorage {
                 published,
                 // So that an Update older than this version can't replace it.
                 note.editedAt(published, Instant.now()),
-                mentions(note, addressed, visibility));
+                mentions(note, addressed, visibility),
+                Set.copyOf(note.hashtags()));
         return store.apply(remote).isPresent() ? Result.STORED : Result.TAKEN;
     }
 

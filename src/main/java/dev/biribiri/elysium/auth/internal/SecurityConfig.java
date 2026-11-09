@@ -69,7 +69,7 @@ class SecurityConfig {
 
     private static final String[] PUBLIC_PATHS = {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
-            "/users/*/followers", "/users/*/following", "/users/*/outbox", "/users/*/statuses/*", "/users/*/statuses/*/likes", "/users/*/statuses/*/shares", "/actor", "/actor/outbox", "/actuator/health", "/actuator/health/**", "/images/*", "/media/*", "/api-docs/**",
+            "/users/*/followers", "/users/*/following", "/tags/*", "/users/*/outbox", "/users/*/statuses/*", "/users/*/statuses/*/likes", "/users/*/statuses/*/shares", "/actor", "/actor/outbox", "/actuator/health", "/actuator/health/**", "/images/*", "/media/*", "/api-docs/**",
             "/api-docs.yaml"
     };
 
@@ -80,7 +80,7 @@ class SecurityConfig {
     private static final String[] PUBLIC_API_PATHS = {
             "/api/v1/instance", "/api/v1/statuses/*", "/api/v1/statuses/*/context", "/api/v1/statuses/*/history",
             "/api/v1/accounts/*/statuses",
-            "/api/v1/timelines/public",
+            "/api/v1/timelines/public", "/api/v1/timelines/tag/*", "/api/v1/tags/*",
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}", "/api/v1/accounts/{id:[0-9a-fA-F-]+}/followers",
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}/following", "/api/v1/accounts/lookup", "/api/v2/search"
     };

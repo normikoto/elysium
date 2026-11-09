@@ -4,6 +4,7 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Service;
 
@@ -31,5 +32,9 @@ public class TimelineService {
 
     public List<Status> publicTimeline(StatusOrigin origin, StatusPage page) {
         return statuses.findPublic(origin, page);
+    }
+
+    public List<Status> tagTimeline(TagFilter tags, StatusOrigin origin, StatusPage page) {
+        return statuses.findTagged(tags, origin, page);
     }
 }

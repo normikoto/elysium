@@ -100,7 +100,7 @@ record AccountResponse(
                 false,
                 false,
                 actor.createdAt().toString(),
-                shown.noteHtml(),
+                shown.noteHtml(instance.baseUrl()),
                 actor.uri().toString(),
                 actor.uri().toString(),
                 url(shown.avatar(), false, placeholder, instance),
