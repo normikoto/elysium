@@ -93,8 +93,9 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
 - V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Only `mention`, `follow`, `favourite`, and `reblog` notifications are generated. Follow requests await support for
-  approving followers; subscribed-account posts, edits, and admin notifications await their respective features.
+- Only `mention`, `follow`, `follow_request`, `favourite`, and `reblog` notifications are generated. Subscribed-account
+  posts, edits, and admin notifications await their respective features. As on Mastodon, a `follow_request` notification
+  is removed once the request is approved, refused, or withdrawn, and approving it doesn't add a `follow` notification.
 - Notifications start with new activity after upgrading; historical mentions and follows do not generate notifications.
   Inbox updates may appear shortly after their source activity is stored. Silent mentions and self-mentions do not notify.
 - Notification policies and notification requests are not implemented. `include_filtered` has no effect, and
@@ -135,13 +136,15 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
 
 - Only `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `:id/statuses`, `:id/followers`,
   `:id/following`, `POST /:id/follow` and `/:id/unfollow`, `PATCH update_credentials`, `DELETE /api/v1/profile/avatar`
-  and `/api/v1/profile/header`, and `GET /api/v2/search` exist.
+  and `/api/v1/profile/header`, `GET /api/v1/follow_requests`, `POST /api/v1/follow_requests/:account_id/authorize` and
+  `/reject`, and `GET /api/v2/search` exist.
 - Profiles of accounts on other servers aren't stored yet, so theirs have the username as `display_name`, an empty `note`
   and `fields`, and placeholder images. For an account on another server, `followers_count` and `following_count` only
-  count accounts on this server, and `hide_collections` is null.
-- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, and `hide_collections`.
-  `locked`, `bot`, `discoverable`, `indexable`, and `source` are accepted only with the values the account already has:
-  false, and `public` for `source[privacy]`. Any other value for them, or any other field with a value, gets a 422 naming
+  count accounts on this server, `hide_collections` is null, and `locked` is false, even when that server approves its
+  followers by hand.
+- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`, and
+  `hide_collections`. `bot`, `discoverable`, `indexable`, and `source` are accepted only with the values the account
+  already has: false, and `public` for `source[privacy]`. Any other value for them, or any other field with a value, gets a 422 naming
   it, and then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it, as
   on Mastodon.
 - `fields_attributes` replaces all of the fields. It can be a list or an object keyed by position, in JSON or in a form
@@ -155,8 +158,12 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
 - A field whose value is only an `https` URL gets a `verified_at` once that page links back to the account with
   `rel="me"`. This server checks when the field is saved, and only follows 3 redirects. A field keeps its `verified_at`
   while its value stays the same.
-- Following a local account takes effect straight away. Following an account on another server returns `requested: true`
-  until that server accepts. Following yourself, or an account on a blocked server, gets a 422.
+- Following an account on another server returns `requested: true` until that server accepts, even if it doesn't approve
+  followers by hand. Following yourself, or an account on a blocked server, gets a 422.
+- Turning `locked` off approves the requests that are waiting, as on Mastodon, but in the background, so they can still be
+  listed just after the response. Turning it on keeps the account's followers.
+- `GET /api/v1/follow_requests` pages by the request, like `:id/followers`, and leaves out suspended and deleted accounts.
+  `authorize` and `reject` get a 404 when that account has no request waiting.
 - `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true whenever
   `following` or `requested` is. Blocks, mutes, notes, and endorsements don't exist, so those fields are always false or empty.
 - A suspended account gets a 404 from `GET /api/v1/accounts/:id` and the lists, and is left out of `relationships`, even

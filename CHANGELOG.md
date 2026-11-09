@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   anyone. Only follows accepted after upgrading do this. See `FEDERATION.md`.
 - Other servers can fetch a followers-only or direct post again when they sign the request as an account that was sent
   it, such as a follower or a mentioned account. Before, they got a 404, so they couldn't refresh it or fill in a thread.
+- Approving followers by hand, as Mastodon's locked accounts do. Users turn it on at `/settings` or through `locked` in
+  `PATCH /api/v1/accounts/update_credentials`. Requests then wait, and get a `follow_request` notification, until the
+  user approves or refuses them through `/api/v1/follow_requests`. Other servers see the setting as
+  `manuallyApprovesFollowers`, and get an `Accept` or a `Reject` once the user decides. See `docs/api.md` and
+  `FEDERATION.md`.
 
 - Initial scaffolding
 - Local accounts with username and password login, hashed with Argon2id

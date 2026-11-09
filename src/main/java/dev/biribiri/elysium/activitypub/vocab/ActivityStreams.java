@@ -48,7 +48,8 @@ public final class ActivityStreams {
             CONTEXT,
             "https://w3id.org/security/v1",
             Map.of("schema", "http://schema.org#", "PropertyValue", "schema:PropertyValue", "value", "schema:value",
-                    Hashtag.CONTEXT_TERM, Hashtag.CONTEXT_IRI));
+                    Hashtag.CONTEXT_TERM, Hashtag.CONTEXT_IRI,
+                    "manuallyApprovesFollowers", "as:manuallyApprovesFollowers"));
 
     /**
      * The {@code @context} of an actor document or activity saying that the actor is suspended, which adds Mastodon's term for

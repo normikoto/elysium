@@ -141,9 +141,9 @@ public class AccountsController {
             operationId = "updateAccountCredentials",
             summary = "Change the user's profile and account settings",
             description = """
-                    Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, and \
-                    `hide_collections` can be changed. `locked`, `bot`, `discoverable`, `indexable`, and `source` are \
-                    accepted only with the values the account already has (false, and `public` for `source[privacy]`), \
+                    Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, \
+                    `locked`, and `hide_collections` can be changed. `bot`, `discoverable`, `indexable`, and `source` \
+                    are accepted only with the values the account already has (false, and `public` for `source[privacy]`), \
                     and any other value for them, or any other field with a value, gets a 422 naming it. Then nothing \
                     is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it.
 
@@ -156,6 +156,9 @@ public class AccountsController {
                     field can go. They have to be a PNG, JPEG, GIF, or WebP, and are always re-encoded as WebP, cropped \
                     to 400 × 400 and 1500 × 500. Animated ones stay animated, and `avatar_static` and `header_static` \
                     are their first frame.
+
+                    Turning `locked` off approves the requests to follow the user that are still waiting, as on \
+                    Mastodon. They're approved in the background, so they can still be waiting just after the response.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#update_credentials"),
@@ -286,8 +289,7 @@ public class AccountsController {
             description = """
                     Differences from Mastodon:
 
-                    - Following an account on this server takes effect straight away. Following one on another server \
-                    returns `requested: true` until that server accepts.
+                    - Following an account on another server returns `requested: true` until that server accepts.
                     - Following yourself, or an account on a blocked server, gets a 422.
                     - `reblogs`, `notify`, and `languages` are ignored.
 
@@ -518,6 +520,10 @@ public class AccountsController {
             Object avatar,
             @Schema(type = "string", format = "binary", description = "An image file, in a multipart form only.")
             Object header,
+            @Schema(description = """
+                    Whether requests to follow the user wait for the user to approve them. Turning it off approves \
+                    those still waiting.""")
+            Boolean locked,
             @Schema(description = """
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")

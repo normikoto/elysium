@@ -27,6 +27,7 @@ public class ProfileRepository {
             String note,
             StoredImage avatar,
             StoredImage header,
+            boolean manuallyApprovesFollowers,
             Instant updatedAt) {
     }
 
@@ -34,7 +35,7 @@ public class ProfileRepository {
     }
 
     private static final String COLUMNS =
-            "actor_id, display_name, note, avatar, avatar_static, header, header_static, updated_at";
+            "actor_id, display_name, note, avatar, avatar_static, header, header_static, manually_approves_followers, updated_at";
 
     private final JdbcClient jdbc;
 
@@ -80,13 +81,26 @@ public class ProfileRepository {
     }
 
     /**
+     * Reads whether an account approves its followers by hand, and holds that until the caller's transaction ends. A change
+     * of it waits for the request being decided, and a request waits for the change, so none is left waiting after the
+     * account stops approving them.
+     */
+    public boolean lockFollowerApproval(UUID actorId) {
+        return jdbc.sql("SELECT manually_approves_followers FROM profile WHERE actor_id = :actorId FOR SHARE")
+                .param("actorId", actorId)
+                .query(Boolean.class)
+                .optional()
+                .orElse(false);
+    }
+
+    /**
      * @return when it was saved, from the database's clock, as the other times on an account are
      */
     public Instant save(Row row) {
         return jdbc.sql("""
                         UPDATE profile SET display_name = :displayName, note = :note, avatar = :avatar,
                             avatar_static = :avatarStatic, header = :header, header_static = :headerStatic,
-                            updated_at = clock_timestamp()
+                            manually_approves_followers = :manuallyApprovesFollowers, updated_at = clock_timestamp()
                         WHERE actor_id = :actorId
                         RETURNING updated_at
                         """)
@@ -97,6 +111,7 @@ public class ProfileRepository {
                 .param("avatarStatic", row.avatar() == null ? null : row.avatar().staticName())
                 .param("header", row.header() == null ? null : row.header().name())
                 .param("headerStatic", row.header() == null ? null : row.header().staticName())
+                .param("manuallyApprovesFollowers", row.manuallyApprovesFollowers())
                 .query(OffsetDateTime.class)
                 .single()
                 .toInstant();
@@ -155,6 +170,7 @@ public class ProfileRepository {
                 rs.getString("note"),
                 image(rs.getString("avatar"), rs.getString("avatar_static")),
                 image(rs.getString("header"), rs.getString("header_static")),
+                rs.getBoolean("manually_approves_followers"),
                 instant(rs.getObject("updated_at", OffsetDateTime.class)));
     }
 

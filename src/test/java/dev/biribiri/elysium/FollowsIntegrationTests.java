@@ -84,6 +84,7 @@ class FollowsIntegrationTests {
     void setUp() {
         TestAccounts.makeSureAnAccountExists(actors);
         jdbc.sql("DELETE FROM follow").update();
+        jdbc.sql("UPDATE profile SET manually_approves_followers = false").update();
         for (var username : List.of("alice", "bob", "carol")) {
             actors.findLocalByUsername(username).ifPresent(actor -> actors.setHidesCollections(actor.id(), false));
         }
@@ -175,6 +176,153 @@ class FollowsIntegrationTests {
         mockMvc.perform(get("/api/v1/statuses/" + statusId)).andExpect(status().isNotFound());
         var direct = createStatus(token("bob"), "only me", "direct");
         mockMvc.perform(withToken(get("/api/v1/statuses/" + direct), token("alice"))).andExpect(status().isNotFound());
+    }
+
+    // Approving followers by hand
+
+    @Test
+    void aRequestToFollowALockedAccountWaitsForIt() throws Exception {
+        var alice = account("alice");
+        var carol = account("carol");
+        mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("carol"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("locked", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.locked").value(true))
+                .andExpect(jsonPath("$.source.follow_requests_count").value(0));
+        var statusId = createStatus(token("carol"), "for followers", "private");
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + carol.id() + "/follow"), token("alice")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.following").value(false))
+                .andExpect(jsonPath("$.requested").value(true));
+
+        mockMvc.perform(get("/api/v1/accounts/" + carol.id()))
+                .andExpect(jsonPath("$.locked").value(true))
+                .andExpect(jsonPath("$.followers_count").value(0));
+        mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), token("carol")))
+                .andExpect(jsonPath("$.source.follow_requests_count").value(1));
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", alice.id().toString()), token("carol")))
+                .andExpect(jsonPath("$[0].followed_by").value(false))
+                .andExpect(jsonPath("$[0].requested_by").value(true));
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("carol")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].username", contains("alice")));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + statusId), token("alice"))).andExpect(status().isNotFound());
+        expectStatusIds(withToken(get("/api/v1/accounts/" + carol.id() + "/statuses"), token("alice")));
+        mockMvc.perform(get("/users/carol/followers").accept(ACTIVITY_JSON)).andExpect(jsonPath("$.totalItems").value(0));
+    }
+
+    @Test
+    void approvingARequestMakesAFollower() throws Exception {
+        var alice = account("alice");
+        var carol = account("carol");
+        lock("carol", true);
+        var before = createStatus(token("carol"), "before", "private");
+        follow("alice", carol);
+
+        mockMvc.perform(withToken(post("/api/v1/follow_requests/" + alice.id() + "/authorize"), token("carol")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(alice.id().toString()))
+                .andExpect(jsonPath("$.followed_by").value(true))
+                .andExpect(jsonPath("$.requested_by").value(false));
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", carol.id().toString()), token("alice")))
+                .andExpect(jsonPath("$[0].following").value(true))
+                .andExpect(jsonPath("$[0].requested").value(false));
+        mockMvc.perform(get("/api/v1/accounts/" + carol.id())).andExpect(jsonPath("$.followers_count").value(1));
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("carol"))).andExpect(jsonPath("$", empty()));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + before), token("alice"))).andExpect(status().isOk());
+        mockMvc.perform(withToken(post("/api/v1/follow_requests/" + alice.id() + "/authorize"), token("carol")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void rejectingARequestRemovesIt() throws Exception {
+        var alice = account("alice");
+        var bob = account("bob");
+        lock("bob", true);
+        follow("alice", bob);
+
+        mockMvc.perform(withToken(post("/api/v1/follow_requests/" + alice.id() + "/reject"), token("bob")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.followed_by").value(false))
+                .andExpect(jsonPath("$.requested_by").value(false));
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", bob.id().toString()), token("alice")))
+                .andExpect(jsonPath("$[0].following").value(false))
+                .andExpect(jsonPath("$[0].requested").value(false));
+        mockMvc.perform(withToken(post("/api/v1/follow_requests/" + alice.id() + "/reject"), token("bob")))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(withToken(post("/api/v1/follow_requests/" + bob.id() + "/authorize"), token("alice")))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(withToken(post("/api/v1/follow_requests/not-a-uuid/authorize"), token("bob")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void withdrawingARequestRemovesIt() throws Exception {
+        var bob = account("bob");
+        lock("bob", true);
+        follow("alice", bob);
+        unfollow("alice", bob);
+
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("bob"))).andExpect(jsonPath("$", empty()));
+    }
+
+    @Test
+    void lockingKeepsFollowersAndUnlockingApprovesWhoIsWaiting() throws Exception {
+        var bob = account("bob");
+        follow("alice", bob);
+        lock("bob", true);
+        follow("carol", bob);
+        mockMvc.perform(get("/api/v1/accounts/" + bob.id())).andExpect(jsonPath("$.followers_count").value(1));
+
+        lock("bob", false);
+
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(get("/api/v1/accounts/" + bob.id()))
+                .andExpect(jsonPath("$.followers_count").value(2)));
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("bob"))).andExpect(jsonPath("$", empty()));
+        follow("alice", account("carol"));
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", account("carol").id().toString()),
+                        token("alice")))
+                .andExpect(jsonPath("$[0].following").value(true));
+    }
+
+    @Test
+    void pagesThroughFollowRequests() throws Exception {
+        var alice = account("alice");
+        lock("alice", true);
+        follow("bob", alice);
+        follow("carol", alice);
+
+        var response = mockMvc.perform(withToken(get("/api/v1/follow_requests").param("limit", "1"), token("alice")))
+                .andExpect(jsonPath("$[*].username", contains("carol")))
+                .andExpect(header().string("Link", containsString("rel=\"next\"")))
+                .andReturn().getResponse();
+        var next = response.getHeader("Link").replaceAll(".*<([^>]*)>; rel=\"next\".*", "$1");
+
+        mockMvc.perform(withToken(get(URI.create(next)), token("alice")))
+                .andExpect(jsonPath("$[*].username", contains("bob")));
+    }
+
+    @Test
+    void followRequestsNeedTheScope() throws Exception {
+        var alice = account("alice");
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("bob", "read:accounts")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(withToken(post("/api/v1/follow_requests/" + alice.id() + "/authorize"), token("bob", "read")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void theActorDocumentSaysWhetherFollowersAreApprovedByHand() throws Exception {
+        account("alice");
+        mockMvc.perform(get("/users/alice").accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.manuallyApprovesFollowers").value(false));
+        lock("alice", true);
+        mockMvc.perform(get("/users/alice").accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.manuallyApprovesFollowers").value(true));
     }
 
     // Following remote accounts
@@ -331,14 +479,14 @@ class FollowsIntegrationTests {
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("alice"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("hide_collections", "true")
-                        .param("locked", "true"))
+                        .param("bot", "true"))
                 .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.error").value(containsString("locked")));
+                .andExpect(jsonPath("$.error").value(containsString("bot")));
         assertThat(actors.hidesCollections(account("alice").id())).isFalse();
 
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("alice"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("locked", "false")
+                        .param("bot", "false")
                         .param("unknown", ""))
                 .andExpect(status().isOk());
     }
@@ -350,7 +498,8 @@ class FollowsIntegrationTests {
 
         mockMvc.perform(get("/settings").session(session))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("name=\"hideCollections\"")));
+                .andExpect(content().string(containsString("name=\"hideCollections\"")))
+                .andExpect(content().string(containsString("name=\"manuallyApprovesFollowers\"")));
         mockMvc.perform(post("/settings").session(session).with(csrf()).param("hideCollections", "true"))
                 .andExpect(redirectedUrl("/settings?saved"));
         assertThat(actors.hidesCollections(account("alice").id())).isTrue();
@@ -358,6 +507,10 @@ class FollowsIntegrationTests {
         mockMvc.perform(post("/settings").session(session).with(csrf()))
                 .andExpect(redirectedUrl("/settings?saved"));
         assertThat(actors.hidesCollections(account("alice").id())).isFalse();
+
+        mockMvc.perform(post("/settings").session(session).with(csrf()).param("manuallyApprovesFollowers", "true"))
+                .andExpect(redirectedUrl("/settings?saved"));
+        mockMvc.perform(get("/api/v1/accounts/" + account("alice").id())).andExpect(jsonPath("$.locked").value(true));
     }
 
     @Test
@@ -515,6 +668,14 @@ class FollowsIntegrationTests {
     private void follow(String username, Actor followed) throws Exception {
         mockMvc.perform(withToken(post("/api/v1/accounts/" + followed.id() + "/follow"), token(username)))
                 .andExpect(status().isOk());
+    }
+
+    private void lock(String username, boolean locked) throws Exception {
+        mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token(username))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"locked\":" + locked + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.locked").value(locked));
     }
 
     private void unfollow(String username, Actor followed) throws Exception {

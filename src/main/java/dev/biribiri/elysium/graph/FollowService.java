@@ -2,6 +2,7 @@ package dev.biribiri.elysium.graph;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.graph.internal.FollowRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -12,7 +13,6 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,19 +38,22 @@ public class FollowService {
 
     private final FollowRepository follows;
     private final ActorService actors;
+    private final ProfileService profiles;
     private final ApplicationEventPublisher events;
 
-    FollowService(FollowRepository follows, ActorService actors, ApplicationEventPublisher events) {
+    FollowService(FollowRepository follows, ActorService actors, ProfileService profiles, ApplicationEventPublisher events) {
         this.follows = follows;
         this.actors = actors;
+        this.profiles = profiles;
         this.events = events;
     }
 
     /**
-     * Makes a local account follow another account. A local account is followed straight away, since nobody can approve
-     * followers by hand yet. An account on another server has to answer first, so the follow waits for that, and
-     * {@link FollowRequested} is published so that it's asked. Asking again while it's waiting publishes that again, as its
-     * server may have lost the request. Following an account already followed does nothing.
+     * Makes a local account follow another account. A local account is followed straight away, unless it approves its
+     * followers by hand, when the request waits for it and {@link FollowRequestReceived} is published. An account on another
+     * server has to answer first, so the follow waits for that, and {@link FollowRequested} is published so that it's asked.
+     * Asking it again while it's waiting publishes that again, as its server may have lost the request. Following an
+     * account already followed or asked does nothing else.
      *
      * <p>The caller checks that both accounts can take part, since this has no view of domain blocks.
      *
@@ -64,23 +67,26 @@ public class FollowService {
         }
         follows.lock(pairKey(follower.uri().toString(), followed.id()));
         var existing = follows.findByPair(follower.id(), followed.id());
+        var local = actors.isLocal(followed);
         if (existing.isPresent()) {
-            // Only a follow of a remote account waits for an answer.
-            if (!existing.get().accepted()) {
+            if (!existing.get().accepted() && !local) {
                 events.publishEvent(new FollowRequested(
                         follower.id(), followed.id(), existing.get().activityUri(), Instant.now()));
             }
             return;
         }
         var id = UUID.randomUUID();
-        if (actors.isLocal(followed)) {
-            if (follows.insertOutgoing(id, follower.id(), followed.id(), null)) {
-                events.publishEvent(new FollowEstablished(id, follower.id(), followed.id()));
+        if (local) {
+            var approved = !profiles.lockFollowerApproval(followed.id());
+            if (follows.insertOutgoing(id, follower.id(), followed.id(), null, approved)) {
+                events.publishEvent(approved
+                        ? new FollowEstablished(id, follower.id(), followed.id())
+                        : new FollowRequestReceived(id, follower.id(), followed.id()));
             }
             return;
         }
         var activityUri = followActivityUri(follower, id);
-        follows.insertOutgoing(id, follower.id(), followed.id(), activityUri);
+        follows.insertOutgoing(id, follower.id(), followed.id(), activityUri, false);
         events.publishEvent(new FollowRequested(follower.id(), followed.id(), activityUri, Instant.now()));
     }
 
@@ -198,19 +204,108 @@ public class FollowService {
      */
     public List<Relationship> relationships(UUID viewerId, List<UUID> otherIds) {
         var outgoing = new HashMap<UUID, Boolean>();
-        var followedBy = new HashSet<UUID>();
+        var incoming = new HashMap<UUID, Boolean>();
         for (var pair : follows.findPairsWith(viewerId, otherIds)) {
             if (pair.followerId().equals(viewerId)) {
                 outgoing.put(pair.followedId(), pair.accepted());
-            } else if (pair.accepted()) {
-                followedBy.add(pair.followerId());
+            } else {
+                incoming.put(pair.followerId(), pair.accepted());
             }
         }
         return otherIds.stream().map(other -> new Relationship(
                 other,
                 Boolean.TRUE.equals(outgoing.get(other)),
                 Boolean.FALSE.equals(outgoing.get(other)),
-                followedBy.contains(other))).toList();
+                Boolean.TRUE.equals(incoming.get(other)),
+                Boolean.FALSE.equals(incoming.get(other)))).toList();
+    }
+
+    /**
+     * Lists the requests waiting for a local account to approve them, newest first, leaving out suspended and deleted
+     * followers.
+     */
+    public List<FollowEntry> requests(UUID followedId, FollowPage page) {
+        return follows.findRequestPage(followedId, page);
+    }
+
+    /**
+     * Counts the requests waiting for a local account to approve them, leaving out suspended and deleted followers.
+     */
+    public long countRequests(UUID followedId) {
+        return follows.countRequests(followedId);
+    }
+
+    /**
+     * Approves a request to follow a local account, and publishes {@link FollowRequestAuthorized} so that the follower's
+     * server is told.
+     *
+     * @return whether a request was waiting
+     */
+    @Transactional
+    public boolean authorize(Actor follower, UUID followedId) {
+        follows.lock(pairKey(follower.uri().toString(), followedId));
+        return authorizeLocked(follower, followedId);
+    }
+
+    /**
+     * Like {@link #authorize}, unless the account approves its followers by hand again. That's read in the same transaction,
+     * after the same lock as {@link #receive}, so an account that locks itself again stops any more from being approved.
+     *
+     * @return false if the account approves its followers by hand, and nothing was changed
+     */
+    @Transactional
+    public boolean authorizeUnlessLocked(Actor follower, UUID followedId) {
+        follows.lock(pairKey(follower.uri().toString(), followedId));
+        if (profiles.lockFollowerApproval(followedId)) {
+            return false;
+        }
+        authorizeLocked(follower, followedId);
+        return true;
+    }
+
+    private boolean authorizeLocked(Actor follower, UUID followedId) {
+        var authorized = follows.authorize(follower.id(), followedId);
+        authorized.ifPresent(row -> events.publishEvent(
+                new FollowRequestAuthorized(row.id(), follower.id(), followedId, row.activityUri())));
+        return authorized.isPresent();
+    }
+
+    /**
+     * Refuses a request to follow a local account, and publishes {@link FollowRequestRejected} so that the follower's
+     * server is told. A repeat of the same {@code Follow} is then ignored for as long as an undone one is, while one with a
+     * new ID is a new request.
+     *
+     * @return whether a request was waiting
+     */
+    @Transactional
+    public boolean reject(Actor follower, UUID followedId) {
+        var followerUri = follower.uri().toString();
+        follows.lock(pairKey(followerUri, followedId));
+        var removed = follows.deletePending(follower.id(), followedId);
+        removed.ifPresent(row -> {
+            if (row.activityUri() != null) {
+                follows.markUndone(row.activityUri(), followerUri, Instant.now());
+            }
+            events.publishEvent(new FollowRequestRejected(follower.id(), followedId, row.activityUri()));
+        });
+        return removed.isPresent();
+    }
+
+    /**
+     * Lists who's waiting for a local account to approve their requests, in batches, so that they can all be approved.
+     *
+     * @param after only return followers whose IDs sort after this one, in PostgreSQL's order
+     */
+    public List<UUID> requesterIds(UUID followedId, UUID after, int limit) {
+        return follows.findRequesterIds(followedId, after, limit);
+    }
+
+    /**
+     * Whether a follow is still accepted through this activity, so that an {@code Accept} queued for an earlier request isn't
+     * sent.
+     */
+    public boolean isAcceptedThrough(UUID followerId, UUID followedId, String activityUri) {
+        return follows.isAcceptedThrough(followerId, followedId, activityUri);
     }
 
     /**
@@ -252,15 +347,16 @@ public class FollowService {
     }
 
     /**
-     * Stores an accepted follow, unless it's been undone, or the follow already comes from an activity that first arrived
-     * later.
-     * This takes part in the caller's transaction, so that the caller can save its answer along with it.
+     * Stores a request to follow a local account, unless it's been undone, or the follow already comes from an activity
+     * that first arrived later. It's accepted, unless the account approves its followers by hand and doesn't already have
+     * this follower, when it waits for the account. This takes part in the caller's transaction, so that the caller can save
+     * its answer along with it.
      *
-     * @return what happened if this activity is now the one behind the follow, or empty if it should get no answer
+     * @return what happened if this activity is now the one behind the follow, or empty if nothing changed
      * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public Optional<Accepted> accept(UUID followerId, URI followerUri, UUID followedId, String activityUri, Arrival arrival) {
+    public Optional<Received> receive(UUID followerId, URI followerUri, UUID followedId, String activityUri, Arrival arrival) {
         var follower = followerUri.toString();
         // The caller checks wasUndone before fetching anything, but an Undo can run after that, or be running right now.
         // Without the locks, neither transaction would see what the other one is doing. They're always taken in this order.
@@ -273,8 +369,17 @@ public class FollowService {
         if (existing.isPresent() && existing.get().activityAt().isAfter(arrival.first())) {
             return Optional.empty();
         }
+        var waiting = existing.isEmpty() || !existing.get().accepted();
+        if (waiting && profiles.lockFollowerApproval(followedId)) {
+            follows.savePending(followerId, followedId, activityUri, arrival.first());
+            if (existing.isEmpty()) {
+                var saved = follows.findByPair(followerId, followedId).orElseThrow();
+                events.publishEvent(new FollowRequestReceived(saved.id(), followerId, followedId));
+            }
+            return Optional.of(new Pending());
+        }
         follows.saveAccepted(followerId, followedId, activityUri, arrival.first());
-        if (existing.isEmpty() || !existing.get().accepted()) {
+        if (waiting) {
             var saved = follows.findByPair(followerId, followedId).orElseThrow();
             events.publishEvent(new FollowEstablished(saved.id(), followerId, followedId));
         }
@@ -284,7 +389,7 @@ public class FollowService {
     }
 
     /**
-     * Whether an activity has been undone. {@link #accept} checks too, so this is only for avoiding unnecessary work.
+     * Whether an activity has been undone. {@link #receive} checks too, so this is only for avoiding unnecessary work.
      */
     public boolean wasUndone(String activityUri, String followerUri, UUID followedId, Arrival arrival) {
         // By first arrival, because a repeat of a Follow that was undone is a retry and not a new request. Servers make a new
@@ -423,9 +528,23 @@ public class FollowService {
     }
 
     /**
+     * What a request to follow did.
+     */
+    public sealed interface Received {
+    }
+
+    /**
+     * The follow is accepted, and its {@code Follow} should be answered with an {@code Accept}.
+     *
      * @param replacedActivity the activity that was behind the follow until now, if there was a different one
      */
-    public record Accepted(Optional<String> replacedActivity) {
+    public record Accepted(Optional<String> replacedActivity) implements Received {
+    }
+
+    /**
+     * The request waits for the account followed to approve it, and gets no answer until then.
+     */
+    public record Pending() implements Received {
     }
 
     public record Removed(UUID followedId, String activityUri) {

@@ -11,7 +11,8 @@ statuses are counted. Attachments, polls, and other activities aren't supported 
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, and `Announce` and their
   `Undo`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete`, and
-  sending `Follow`, `Like`, and `Announce` and their `Undo`, `Accept`, `Create`, `Update`, and `Delete`
+  sending `Follow`, `Like`, and `Announce` and their `Undo`, `Accept` and `Reject` of a `Follow`, `Create`, `Update`, and
+  `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -46,10 +47,12 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
   sent, since each server checks for itself.
 - `published`, when the account was created, and `updated`, when the profile last changed, both to the second.
 
-The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields, and
-`Hashtag` (`as:Hashtag`).
+`manuallyApprovesFollowers` is always included, and is true when the user [approves followers by hand](#follows).
 
-When a user changes their profile, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
+The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields,
+`Hashtag` (`as:Hashtag`), and `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`).
+
+When a user changes their profile, or whether they approve followers by hand, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
 `{actor-uri}#profile/{milliseconds}`. It's addressed to the public, with the followers collection in `cc`, and its
 `object` is the actor document, without a `@context` of its own, as it is when it's sent. A save that changes nothing
 sends nothing, and neither does verifying a field. These aren't ordered, so a server that's been down can get an older
@@ -252,8 +255,8 @@ collections of other actors aren't fetched.
 
 ### Follows
 
-A `Follow` whose `object` is a local user is always accepted, because accounts can't approve followers by hand yet. Who's
-following comes from the signature, and not from the activity's body. The `object` can be an ID, an embedded object with an
+A `Follow` whose `object` is a local user is accepted straight away, unless the user approves followers by hand, when it
+waits for them. Who's following comes from the signature, and not from the activity's body. The `object` can be an ID, an embedded object with an
 `id`, or an array of one of those. A `Follow` of anything else is ignored.
 
 The follower's document is fetched, signed as the [instance actor](#instance-actor), unless a copy from the last 24 hours
@@ -268,9 +271,9 @@ is stored. If an older copy is stored, it's used when the fetch fails, unless th
   without refusing the actor.
 - Is on a different domain from this server.
 
-Each `Follow` that's stored gets an `Accept`, signed as the user being followed, and sent to the follower's `inbox`. This
+Each `Follow` that's accepted gets an `Accept`, signed as the user being followed, and sent to the follower's `inbox`. This
 includes another `Follow` from someone who's already following, since their server may have lost track, whether or not it
-has a new `id`. The `Accept`'s `id` is
+has a new `id`, and whether or not the user approves followers by hand. The `Accept`'s `id` is
 `{actor-uri}#accepts/follows/{hash}`, where the hash is the SHA-256 of the `Follow`'s `id`, and its `object` is the `Follow`
 with its `id`, `type`, `actor`, and `object`:
 
@@ -289,8 +292,35 @@ with its `id`, `type`, `actor`, and `object`:
 }
 ```
 
-An `Undo` removes a follow if its `object` names the `Follow` that created it, by `id`, or as an embedded `Follow` with an
-`id`. An embedded `Follow` with no `id` removes the follow between its actor and its `object`. Nothing happens if:
+A `Follow` that waits for the user gets no answer until they decide, however often it's repeated, and the follower doesn't
+count as one meanwhile: it's left out of the followers collection, gets no activities sent to followers, and can't fetch
+followers-only statuses. A newer `Follow` from the same actor while it's waiting takes its place, and the answer names that
+one. If the user approves it, the follower gets an `Accept` as above. Followers-only statuses posted before then aren't
+served to it. If the user refuses it, the follower gets a `Reject`, with the `id` `{actor-uri}#rejects/follows/{hash}` and the
+`Follow` as its `object`, in the same form as an `Accept`:
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice#rejects/follows/2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+  "type": "Reject",
+  "actor": "https://elysium.example/users/alice",
+  "object": {
+    "id": "https://remote.example/activities/1",
+    "type": "Follow",
+    "actor": "https://remote.example/users/bob",
+    "object": "https://elysium.example/users/alice"
+  }
+}
+```
+
+A repeat of a refused `Follow`'s `id` is ignored for about 34 days, as for one that's been undone, and a `Follow` with a
+new `id` is a new request. When the user stops approving followers by hand, every request that's waiting is approved.
+Turning it on doesn't change who's already following.
+
+An `Undo` removes a follow, or a request that's waiting, if its `object` names the `Follow` that created it, by `id`, or
+as an embedded `Follow` with an `id`. An embedded `Follow` with no `id` removes the follow between its actor and its
+`object`. Nothing happens if:
 
 - The embedded `Follow`'s `actor` isn't the actor that signed the `Undo`.
 - The follow came from a different `Follow`, which would be a newer one.
@@ -669,8 +699,7 @@ ends.
 
 ### Differences from Mastodon
 
-- Local users can't approve followers by hand, and actor documents don't include `manuallyApprovesFollowers`. `Reject` is
-  never sent.
+- An actor's `manuallyApprovesFollowers` isn't read, so local users see every account on another server as unlocked.
 - Only `Note`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
   are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.

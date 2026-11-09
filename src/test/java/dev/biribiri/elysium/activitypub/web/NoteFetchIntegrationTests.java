@@ -230,7 +230,7 @@ class NoteFetchIntegrationTests {
         var alice = alice();
         var activity = follower.actor().uri() + "/follows/" + UUID.randomUUID();
         var now = Instant.now();
-        transaction.executeWithoutResult(tx -> follows.accept(follower.actor().id(), follower.actor().uri(), alice.id(),
+        transaction.executeWithoutResult(tx -> follows.receive(follower.actor().id(), follower.actor().uri(), alice.id(),
                 activity, new FollowService.Arrival(now, now)));
         jdbc.sql("UPDATE follow SET created_at = :at WHERE follower_id = :follower AND followed_id = :followed")
                 .param("at", Timestamp.from(now.plus(offset)))

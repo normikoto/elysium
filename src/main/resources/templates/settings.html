@@ -62,6 +62,15 @@
         <p>
             Other people and servers still see how many there are. You can always see your own lists.
         </p>
+        <label>
+            <input type="checkbox" name="manuallyApprovesFollowers" value="true"
+                   th:checked="${manuallyApprovesFollowers}">
+            Approve followers by hand
+        </label>
+        <p>
+            Requests to follow you wait until you approve or refuse them in your app. Turning this off approves those
+            still waiting.
+        </p>
         <button type="submit">Save</button>
     </form>
     <p><a href="/settings/delete-account">Delete your account</a></p>

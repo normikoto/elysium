@@ -12,8 +12,7 @@ import java.util.List;
  */
 @Schema(name = "Relationship", description = """
         Mastodon's Relationship entity. Blocks, mutes, notes, endorsements, and notifications don't exist, so those \
-        fields are always false or empty, and `requested_by` is always false, since requests to follow are accepted \
-        straight away.""")
+        fields are always false or empty.""")
 record RelationshipResponse(
         String id,
         boolean following,
@@ -47,8 +46,7 @@ record RelationshipResponse(
                 false,
                 false,
                 relationship.requested(),
-                // Requests to follow local accounts are always accepted straight away.
-                false,
+                relationship.requestedBy(),
                 false,
                 false,
                 "");

@@ -6,6 +6,8 @@ import dev.biribiri.elysium.content.StatusLiked;
 import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
 import dev.biribiri.elysium.graph.FollowEstablished;
+import dev.biribiri.elysium.graph.FollowRequestAuthorized;
+import dev.biribiri.elysium.graph.FollowRequestReceived;
 import dev.biribiri.elysium.inbox.internal.ConversationRepository;
 import dev.biribiri.elysium.inbox.internal.NotificationRepository;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -90,13 +92,39 @@ public class InboxProjection {
         return people;
     }
 
+    /**
+     * Requests are normally approved through {@link FollowRequestAuthorized}, which adds no notification, including when
+     * the account stops approving followers by hand. A remote request that's repeated after that, before its approval
+     * runs, is accepted as a new follow instead, so it gets this notification in place of its request's.
+     */
     @ApplicationModuleListener
     public void on(FollowEstablished event) {
         notifications.lock();
         conversations.holdActors(List.of(event.followerId(), event.followedId()));
+        notifications.deleteFollowRequest(event.followId());
         if (conversations.currentFollow(event.followId(), event.followerId(), event.followedId())) {
             notifications.insert(event.followedId(), event.followerId(), "follow", event.followId(), null, event.followId());
         }
+    }
+
+    @ApplicationModuleListener
+    public void on(FollowRequestReceived event) {
+        notifications.lock();
+        conversations.holdActors(List.of(event.followerId(), event.followedId()));
+        if (conversations.currentFollowRequest(event.followId(), event.followerId(), event.followedId())) {
+            notifications.insert(
+                    event.followedId(), event.followerId(), "follow_request", event.followId(), null, event.followId());
+        }
+    }
+
+    /**
+     * The account approved the request itself, so it isn't told about it as a new follower, as on Mastodon. A rejected or
+     * withdrawn request takes its notification with it.
+     */
+    @ApplicationModuleListener
+    public void on(FollowRequestAuthorized event) {
+        notifications.lock();
+        notifications.deleteFollowRequest(event.followId());
     }
 
     @ApplicationModuleListener

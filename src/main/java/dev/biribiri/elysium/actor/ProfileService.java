@@ -9,6 +9,8 @@ import dev.biribiri.elysium.media.StoredImage;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
@@ -80,9 +82,22 @@ public class ProfileService {
                     image(row.avatar()),
                     image(row.header()),
                     fields.getOrDefault(row.actorId(), List.of()),
+                    row.manuallyApprovesFollowers(),
                     row.updatedAt()));
         }
         return found;
+    }
+
+    /**
+     * Whether requests to follow a local account wait for its approval. This holds the setting until the caller's
+     * transaction ends, so that a request can't be left waiting by an account that has just stopped approving them:
+     * {@link FollowerApprovalTurnedOff} is only published once the change commits, and it can't commit before this.
+     *
+     * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean lockFollowerApproval(UUID actorId) {
+        return profiles.lockFollowerApproval(actorId);
     }
 
     /**
@@ -118,6 +133,7 @@ public class ProfileService {
                         note.orElse(old.note()),
                         choose(change.avatar(), avatar, old.avatar(), removed),
                         choose(change.header(), header, old.header(), removed),
+                        change.manuallyApprovesFollowers().orElse(old.manuallyApprovesFollowers()),
                         old.updatedAt());
                 var oldFields = fields.isPresent() ? profiles.findFields(List.of(actorId)) : List.<ProfileRepository.FieldRow>of();
                 var newFields = fields.map(list -> keepVerification(list, actorId, oldFields));
@@ -128,6 +144,9 @@ public class ProfileService {
                 var at = profiles.save(row);
                 newFields.ifPresent(list -> profiles.replaceFields(actorId, list));
                 events.publishEvent(new ProfileUpdated(actorId, at));
+                if (old.manuallyApprovesFollowers() && !row.manuallyApprovesFollowers()) {
+                    events.publishEvent(new FollowerApprovalTurnedOff(actorId));
+                }
                 return removed;
             });
             if (replaced == null) {

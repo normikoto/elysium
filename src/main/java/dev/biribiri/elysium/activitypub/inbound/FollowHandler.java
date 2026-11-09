@@ -17,7 +17,8 @@ import java.net.URI;
 import java.util.List;
 
 /**
- * Accepts every request to follow a local account. The instance actor can't be followed: it isn't in the table that follows
+ * Stores requests to follow local accounts. Each is accepted straight away, unless the account approves its followers by
+ * hand, when its answer is sent once it decides, by {@code FollowRequestAnswers}. The instance actor can't be followed: it isn't in the table that follows
  * refer to, and activities can't be sent as it.
  */
 @Component
@@ -85,7 +86,7 @@ class FollowHandler implements InboundActivityHandler {
     /**
      * An {@code Accept} is sent even if the follow already exists, because the other server may have lost its copy and be
      * asking again. One for a {@code Follow} that this replaces isn't needed any more, which leaves one to cancel at most if
-     * the follow is undone.
+     * the follow is undone. A request that waits for approval gets no answer yet, however often it's repeated.
      */
     private void accept(InboundActivity activity, Actor follower, Actor followed) {
         var accept = Accept.of(followed.uri(), activity.id(), follower.uri());
@@ -99,11 +100,11 @@ class FollowHandler implements InboundActivityHandler {
             if (actors.isInactive(follower.uri()) || actors.findLocalById(followed.id()).isEmpty()) {
                 return;
             }
-            var accepted = follows.accept(follower.id(), follower.uri(), followed.id(), activity.id(), activity.arrival());
-            if (accepted.isEmpty()) {
+            var received = follows.receive(follower.id(), follower.uri(), followed.id(), activity.id(), activity.arrival());
+            if (!(received.orElse(null) instanceof FollowService.Accepted accepted)) {
                 return;
             }
-            accepted.get().replacedActivity()
+            accepted.replacedActivity()
                     .ifPresent(replaced -> deliveries.cancel(Accept.idFor(followed.uri(), replaced)));
             // By arrival, so that a repeat gets an answer even if the answer to the last one failed and was set aside, while
             // this job running again doesn't send another.

@@ -197,9 +197,9 @@ class ProfileIntegrationTests {
 
         mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("display_name", "Changed")
-                        .param("locked", "true"))
+                        .param("bot", "true"))
                 .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.error").value(containsString("locked")));
+                .andExpect(jsonPath("$.error").value(containsString("bot")));
         mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"source\":{\"privacy\":\"private\"}}"))
                 .andExpect(status().isUnprocessableContent())

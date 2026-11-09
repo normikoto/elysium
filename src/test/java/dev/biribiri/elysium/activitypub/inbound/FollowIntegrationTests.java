@@ -6,6 +6,9 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileChange;
+import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -24,6 +28,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -58,6 +63,10 @@ class FollowIntegrationTests {
     private JsonMapper json;
     @Autowired
     private DomainBlocks blocks;
+    @Autowired
+    private ProfileService profiles;
+    @Autowired
+    private FollowService followService;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -924,6 +933,129 @@ class FollowIntegrationTests {
     }
 
     // Helpers
+
+    // Approving followers by hand
+
+    @Test
+    void aFollowOfALockedAccountWaitsWithNoAnswer() {
+        lock(true);
+        var activity = follow(newId());
+
+        followHandler.handle(arrive(activity));
+        inbound.accept(again(activity));
+        followHandler.handle(stored(activity));
+
+        assertThat(state()).isEqualTo("pending");
+        assertThat(accepts()).isEmpty();
+        assertThat(deliveryInboxes()).isEmpty();
+    }
+
+    @Test
+    void anUndoWithdrawsAWaitingRequest() {
+        lock(true);
+        var followId = newId();
+        followHandler.handle(follow(followId));
+
+        undoHandler.handle(undo(followerUri, embeddedFollow(followId, followerUri)));
+
+        assertThat(follows()).isEmpty();
+    }
+
+    @Test
+    void approvingARequestSendsAnAcceptNamingItsFollow() {
+        lock(true);
+        var followId = newId();
+        followHandler.handle(follow(followId));
+
+        assertThat(followService.authorize(follower(), followed.id())).isTrue();
+
+        assertThat(state()).isEqualTo("accepted");
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(answers("Accept")).hasSize(1));
+        var accept = json.readTree(answers("Accept").getFirst());
+        assertThat(accept.path("id").stringValue()).startsWith(followed.uri() + "#accepts/follows/");
+        assertThat(accept.path("object").path("id").stringValue()).isEqualTo(followId);
+        assertThat(deliveryInboxes()).containsExactly(followerUri + "/inbox");
+
+        undoHandler.handle(undo(followerUri, embeddedFollow(followId, followerUri)));
+
+        assertThat(follows()).isEmpty();
+        assertThat(answers("Accept")).isEmpty();
+    }
+
+    @Test
+    void refusingARequestSendsARejectAndIgnoresItsRepeats() {
+        lock(true);
+        var activity = follow(newId());
+        followHandler.handle(arrive(activity));
+
+        assertThat(followService.reject(follower(), followed.id())).isTrue();
+
+        assertThat(follows()).isEmpty();
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(answers("Reject")).hasSize(1));
+        var reject = json.readTree(answers("Reject").getFirst());
+        assertThat(reject.path("id").stringValue()).startsWith(followed.uri() + "#rejects/follows/");
+        assertThat(reject.path("actor").stringValue()).isEqualTo(followed.uri().toString());
+        assertThat(reject.path("object").path("id").stringValue()).isEqualTo(activity.id());
+        assertThat(reject.path("object").path("actor").stringValue()).isEqualTo(followerUri);
+
+        inbound.accept(again(activity));
+        followHandler.handle(stored(activity));
+        assertThat(follows()).isEmpty();
+
+        followHandler.handle(follow(newId()));
+        assertThat(state()).isEqualTo("pending");
+    }
+
+    @Test
+    void anExistingFollowerOfALockedAccountIsStillAnswered() {
+        var activity = follow(newId());
+        followHandler.handle(arrive(activity));
+        lock(true);
+
+        inbound.accept(again(activity));
+        followHandler.handle(stored(activity));
+
+        assertThat(state()).isEqualTo("accepted");
+        assertThat(deliveryInboxes().stream().filter((followerUri + "/inbox")::equals)).hasSizeGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    void unlockingAcceptsWaitingRequests() {
+        lock(true);
+        var followId = newId();
+        followHandler.handle(follow(followId));
+
+        lock(false);
+
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            assertThat(state()).isEqualTo("accepted");
+            assertThat(answers("Accept")).hasSize(1);
+        });
+    }
+
+    @Test
+    void anAccountThatLocksAgainStopsTheApprovalsLeft() {
+        lock(true);
+        followHandler.handle(follow(newId()));
+
+        assertThat(followService.authorizeUnlessLocked(follower(), followed.id())).isFalse();
+        assertThat(state()).isEqualTo("pending");
+
+        lock(false);
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(state()).isEqualTo("accepted"));
+    }
+
+    private void lock(boolean locked) {
+        assertThat(profiles.update(followed.id(), ProfileChange.NONE.withManuallyApprovesFollowers(locked))).isTrue();
+    }
+
+    private Actor follower() {
+        return actors.findByUri(URI.create(followerUri)).orElseThrow();
+    }
+
+    private List<String> answers(String type) {
+        return accepts().stream().filter(body -> json.readTree(body).path("type").stringValue().equals(type)).toList();
+    }
 
     private String newId() {
         return "https://" + host + "/activities/" + UUID.randomUUID();

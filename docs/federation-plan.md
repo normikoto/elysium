@@ -52,7 +52,7 @@ Merged in PR #57. Real servers deliver signed activities, and Elysium fetches th
 ### 2. Receive follows (done)
 
 - **Issues:** the receiving half of #44, merged in PRs #70 and #71.
-- **Delivers:** remote actors stored, the first code in `graph`, the first handler, and the first real signed delivery. Every `Follow` is accepted automatically, and manual approval is in #58.
+- **Delivers:** remote actors stored, the first code in `graph`, the first handler, and the first real signed delivery. Every `Follow` was accepted automatically at first, and manual approval came later, with #58.
 - **Done when:** a Mastodon or GoToSocial user can follow and unfollow a local user in the lab.
 - **Result:** `federation/smoke.sh` now follows, unfollows and follows again on all three servers, and checks the `follow` table each time. On Misskey it unfollows a second time, which reuses the `Undo` ID (#69).
 
@@ -141,7 +141,7 @@ This was the largest step, and the first where other servers' content is stored 
 ### 6. Completeness
 
 - **Issues:** #5, #9, #63, and the `Question` item on #1. #40 and #104, the outbox and backfill, are done.
-- **Delivers:** RFC 9421, polls, pinned posts, quote posts and #58. None of these block ordinary federation, so they can be picked up in any order.
+- **Delivers:** RFC 9421, polls, pinned posts and quote posts. #58 is done. None of these block ordinary federation, so they can be picked up in any order.
 
 ## Work across milestones
 
