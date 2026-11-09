@@ -156,7 +156,7 @@ class PagesController {
         var found = statuses.findTagged(TagFilter.of(tag), StatusOrigin.ANY, page);
 
         model.addAttribute("tag", tag);
-        model.addAttribute("statuses", anyAuthorViews(found));
+        model.addAttribute("statuses", profileViews(found, null));
         model.addAttribute("olderThan", found.size() == page.limit() ? found.getLast().id() : null);
         return "tag";
     }
@@ -190,8 +190,8 @@ class PagesController {
     }
 
     /**
-     * Shows each boost as the status it boosts, which can be from another server. A boost whose status can't be shown is
-     * left out.
+     * Shows each boost as the status it boosts. Statuses and boosted statuses can be from another server. A boost whose
+     * status can't be shown is left out.
      *
      * @param owner the local account whose statuses these are, or null to look up each booster
      */
@@ -214,7 +214,7 @@ class PagesController {
                     }
                     return Stream.of(status.isReblog()
                             ? StatusView.boosted(shown, author, actors.isLocal(author), booster)
-                            : StatusView.from(status, author));
+                            : StatusView.of(status, author, actors.isLocal(author)));
                 })
                 .toList();
     }
@@ -230,22 +230,6 @@ class PagesController {
         return found.stream()
                 .filter(status -> authors.containsKey(status.actorId()))
                 .map(status -> StatusView.from(status, authors.get(status.actorId())))
-                .toList();
-    }
-
-    /**
-     * Like {@link #views}, for statuses that can be from any server. None of them are boosts.
-     */
-    private List<StatusView> anyAuthorViews(List<Status> found) {
-        var authors = actors.findByIds(found.stream().map(Status::actorId).collect(Collectors.toSet())).stream()
-                .filter(Actor::isActive)
-                .collect(Collectors.toMap(Actor::id, Function.identity()));
-        return found.stream()
-                .filter(status -> authors.containsKey(status.actorId()))
-                .map(status -> {
-                    var author = authors.get(status.actorId());
-                    return StatusView.of(status, author, actors.isLocal(author));
-                })
                 .toList();
     }
 

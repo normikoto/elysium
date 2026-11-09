@@ -408,7 +408,7 @@ public class StatusService {
         // caller that stores the status after NOT_STORED has to cope with one stored in between. The tags are replaced in
         // the same transaction, while the edit's row lock keeps a concurrent edit waiting.
         var edited = transaction.execute(tx -> {
-            var changed = statuses.updateRemote(
+            var id = statuses.updateRemote(
                     edit.uri(),
                     edit.authorId(),
                     html.text(),
@@ -417,10 +417,8 @@ public class StatusService {
                     html.language(),
                     edit.sensitive() || !html.spoilerText().isEmpty(),
                     edit.editedAt().truncatedTo(ChronoUnit.MICROS));
-            if (changed) {
-                statuses.replaceTagsByUri(edit.uri(), tags);
-            }
-            return changed;
+            id.ifPresent(editedId -> statuses.replaceTags(editedId, tags));
+            return id.isPresent();
         });
         if (Boolean.TRUE.equals(edited)) {
             return RemoteEdit.Outcome.EDITED;
@@ -757,16 +755,10 @@ public class StatusService {
     }
 
     /**
-     * Another server's tags have only been checked by the code that read them, so they're checked again before they're
-     * stored.
+     * Another server's tags are only checked here, so that what counts as a tag is decided in one place.
      */
-    private static List<String> remoteTags(Collection<String> names) {
-        return names.stream()
-                .map(Hashtags::parse)
-                .flatMap(Optional::stream)
-                .distinct()
-                .limit(Hashtags.MAX_PER_STATUS)
-                .toList();
+    private static Collection<String> remoteTags(Collection<String> names) {
+        return Hashtags.parseAll(names);
     }
 
     /**

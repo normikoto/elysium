@@ -2,7 +2,6 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.text.Hashtags;
@@ -23,11 +22,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/timelines")
@@ -96,8 +93,7 @@ public class TimelinesController {
     }
 
     /**
-     * No status has media yet, so {@code only_media} has nothing to return. Mastodon lets {@code local} win when both it and
-     * {@code remote} are given.
+     * No status has media yet, so {@code only_media} has nothing to return.
      */
     @GetMapping("/public")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
@@ -133,18 +129,11 @@ public class TimelinesController {
             @RequestParam(required = false) String remote,
             @RequestParam(name = "only_media", required = false) String onlyMedia) {
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
-        var origin = RequestParameters.flag(local) ? StatusOrigin.LOCAL
-                : RequestParameters.flag(remote) ? StatusOrigin.REMOTE
-                : StatusOrigin.ANY;
+        var origin = RequestParameters.origin(local, remote);
         List<Status> found = RequestParameters.flag(onlyMedia) ? List.of() : timelines.publicTimeline(origin, page);
 
         var filters = new LinkedHashMap<String, String>();
-        switch (origin) {
-            case LOCAL -> filters.put("local", "true");
-            case REMOTE -> filters.put("remote", "true");
-            case ANY -> {
-            }
-        }
+        RequestParameters.putOrigin(filters, origin);
         return responses.page(PUBLIC_PATH, filters, page, found, RequestParameters.viewer(token));
     }
 
@@ -200,54 +189,29 @@ public class TimelinesController {
             @RequestParam(required = false) String remote,
             @RequestParam(name = "only_media", required = false) String onlyMedia) {
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
-        var origin = RequestParameters.flag(local) ? StatusOrigin.LOCAL
-                : RequestParameters.flag(remote) ? StatusOrigin.REMOTE
-                : StatusOrigin.ANY;
-        var name = Hashtags.parse(hashtag);
-        // Without a Link header, which would have to repeat a name that may not fit in a URL.
-        if (name.isEmpty()) {
-            return ResponseEntity.ok(List.of());
-        }
+        var origin = RequestParameters.origin(local, remote);
         var anyNames = first(any);
         var allNames = first(all);
         var noneNames = first(none);
-        var anyTags = new LinkedHashSet<String>();
-        anyTags.add(name.get());
-        anyTags.addAll(parsed(anyNames));
-        var impossible = allNames.stream().anyMatch(candidate -> Hashtags.parse(candidate).isEmpty());
-        List<Status> found = impossible || RequestParameters.flag(onlyMedia)
-                ? List.of()
-                : timelines.tagTimeline(new TagFilter(anyTags, parsed(allNames), parsed(noneNames)), origin, page);
+        var filter = TagFilter.parse(hashtag, anyNames, allNames, noneNames);
+        // Without a Link header, which would have to repeat a name that may not fit in a URL.
+        if (filter.isEmpty()) {
+            return ResponseEntity.ok(List.of());
+        }
+        List<Status> found = RequestParameters.flag(onlyMedia) ? List.of() : timelines.tagTimeline(filter.get(), origin, page);
 
         var filters = new LinkedHashMap<String, Object>();
-        if (!anyNames.isEmpty()) {
-            filters.put("any[]", anyNames);
-        }
-        if (!allNames.isEmpty()) {
-            filters.put("all[]", allNames);
-        }
-        if (!noneNames.isEmpty()) {
-            filters.put("none[]", noneNames);
-        }
-        switch (origin) {
-            case LOCAL -> filters.put("local", "true");
-            case REMOTE -> filters.put("remote", "true");
-            case ANY -> {
+        for (var mode : List.of(Map.entry("any[]", anyNames), Map.entry("all[]", allNames), Map.entry("none[]", noneNames))) {
+            if (!mode.getValue().isEmpty()) {
+                filters.put(mode.getKey(), mode.getValue());
             }
         }
-        return responses.page(TAG_PATH + name.get(), filters, page, found, RequestParameters.viewer(token));
+        RequestParameters.putOrigin(filters, origin);
+        var path = TAG_PATH + Hashtags.parse(hashtag).orElseThrow();
+        return responses.page(path, filters, page, found, RequestParameters.viewer(token));
     }
 
     private static List<String> first(List<String> names) {
         return names == null ? List.of() : names.stream().limit(TAGS_PER_MODE).toList();
-    }
-
-    /**
-     * @return the distinct normalized names, leaving out any that aren't tags
-     */
-    private static Set<String> parsed(List<String> names) {
-        var tags = new LinkedHashSet<String>();
-        names.stream().map(Hashtags::parse).flatMap(Optional::stream).forEach(tags::add);
-        return tags;
     }
 }

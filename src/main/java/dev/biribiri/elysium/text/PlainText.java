@@ -63,7 +63,8 @@ public final class PlainText {
     private static String renderLine(
             String line, String rel, Function<Mentions.Match, MentionLink> mentions, URI tagBase) {
         var spans = new ArrayList<Span>();
-        for (var url : Urls.find(line)) {
+        var urls = Urls.find(line);
+        for (var url : urls) {
             spans.add(new Span(url.start(), url.end(), link(line.substring(url.start(), url.end()), rel)));
         }
         // Mentions never overlap a URL, since Mentions leaves out those inside one.
@@ -75,7 +76,7 @@ public final class PlainText {
         }
         // Hashtags leave out those inside a URL too. None should overlap a mention, but the spans mustn't if one did.
         if (tagBase != null) {
-            for (var tag : Hashtags.find(line)) {
+            for (var tag : Hashtags.find(line, urls)) {
                 if (spans.stream().noneMatch(span -> tag.start() < span.end() && span.start() < tag.end())) {
                     spans.add(new Span(tag.start(), tag.end(), hashtag(tag.name(), tagBase)));
                 }

@@ -1,8 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
-import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.text.Hashtags;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/tags")
@@ -25,12 +22,10 @@ import java.util.Set;
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "tags/"))
 public class TagsController {
 
-    private final StatusService statuses;
-    private final InstanceProperties instance;
+    private final TagResponses tags;
 
-    TagsController(StatusService statuses, InstanceProperties instance) {
-        this.statuses = statuses;
-        this.instance = instance;
+    TagsController(TagResponses tags) {
+        this.tags = tags;
     }
 
     /**
@@ -55,8 +50,6 @@ public class TagsController {
             })
     public TagResponse tag(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var name = Hashtags.parse(id).orElseThrow(RecordNotFoundException::new);
-        var history = statuses.findTagHistory(Set.of(name), SearchController.HISTORY_DAYS);
-        return TagResponse.of(name, history.getOrDefault(name, List.of()), RequestParameters.viewer(token).isPresent(),
-                instance);
+        return tags.build(List.of(name), RequestParameters.viewer(token).isPresent()).getFirst();
     }
 }

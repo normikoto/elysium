@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.moderation.DomainBlockPage;
@@ -61,6 +62,25 @@ final class RequestParameters {
             case String string -> flag(string);
             default -> throw new InvalidRequestException("Validation failed: " + name + " must be a boolean");
         };
+    }
+
+    /**
+     * Mastodon lets {@code local} win when both it and {@code remote} are given.
+     */
+    static StatusOrigin origin(String local, String remote) {
+        return flag(local) ? StatusOrigin.LOCAL : flag(remote) ? StatusOrigin.REMOTE : StatusOrigin.ANY;
+    }
+
+    /**
+     * Adds the flag that {@link #origin} read, for the links to a timeline's other pages.
+     */
+    static void putOrigin(Map<String, ? super String> filters, StatusOrigin origin) {
+        switch (origin) {
+            case LOCAL -> filters.put("local", "true");
+            case REMOTE -> filters.put("remote", "true");
+            case ANY -> {
+            }
+        }
     }
 
     static StatusPage page(String limit, String maxId, String sinceId, String minId) {

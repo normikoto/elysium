@@ -1,7 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.content.StatusService;
-import dev.biribiri.elysium.text.Hashtags;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
@@ -26,8 +25,7 @@ import java.util.Optional;
  * @param published    its {@code published}, or null if that's missing or isn't a date
  * @param updated      its {@code updated}, when it was last edited, or null if that's missing or isn't a date
  * @param mentions     the {@code href} of each {@code Mention} in its {@code tag}, up to {@value #MAX_MENTIONS}
- * @param hashtags     the normalized name of each {@code Hashtag} in its {@code tag}, up to
- *                     {@value Hashtags#MAX_PER_STATUS}
+ * @param hashtags     the {@code name} of each {@code Hashtag} in its {@code tag}, which {@link StatusService} checks
  */
 record RemoteNote(
         URI id,
@@ -106,15 +104,12 @@ record RemoteNote(
     }
 
     /**
-     * Only the {@code tag} array decides a note's hashtags, as on Mastodon, not links in its content. A name that isn't
-     * one here, such as one with a space, is left out, rather than stored as a tag nobody could link to.
+     * Only the {@code tag} array decides a note's hashtags, as on Mastodon, not links in its content.
      */
     private static List<String> hashtags(JsonNode tag) {
         return ActivityJson.tags(tag).stream()
-                .filter(candidate -> "Hashtag".equals(candidate.type()))
-                .flatMap(candidate -> Hashtags.parse(candidate.name()).stream())
-                .distinct()
-                .limit(Hashtags.MAX_PER_STATUS)
+                .filter(candidate -> "Hashtag".equals(candidate.type()) && candidate.name() != null)
+                .map(ActivityJson.Tag::name)
                 .toList();
     }
 

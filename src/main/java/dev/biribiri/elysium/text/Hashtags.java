@@ -6,6 +6,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -54,7 +55,13 @@ public final class Hashtags {
      * Hashtags inside a URL, such as {@code https://example.com/page#section}, are part of the URL, and aren't returned.
      */
     public static List<Match> find(String text) {
-        var urls = Urls.find(text);
+        return find(text, Urls.find(text));
+    }
+
+    /**
+     * @param urls the URLs in the text, for a caller that has found them already
+     */
+    static List<Match> find(String text, List<Urls.Match> urls) {
         var matches = new ArrayList<Match>();
         var matcher = HASHTAG.matcher(text);
         while (matcher.find()) {
@@ -80,6 +87,22 @@ public final class Hashtags {
             parse(match.name()).ifPresent(names::add);
         }
         return names;
+    }
+
+    /**
+     * Reads names that another server or a request gave, leaving out those that aren't tags.
+     *
+     * @return the distinct normalized names, in the order given, up to {@value MAX_PER_STATUS}
+     */
+    public static SequencedSet<String> parseAll(Collection<String> names) {
+        var parsed = new LinkedHashSet<String>();
+        for (var name : names) {
+            if (parsed.size() == MAX_PER_STATUS) {
+                break;
+            }
+            parse(name).ifPresent(parsed::add);
+        }
+        return parsed;
     }
 
     /**

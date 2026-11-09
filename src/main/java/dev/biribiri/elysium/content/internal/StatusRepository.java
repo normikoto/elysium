@@ -193,10 +193,10 @@ public class StatusRepository {
     }
 
     /**
-     * @return whether the status was changed, which it isn't if it's someone else's, if it was edited at this time or later
-     * already, or if it was published at this time or later, so this isn't an edit
+     * @return the ID of the status if it was changed, which it isn't if it's someone else's, if it was edited at this time
+     * or later already, or if it was published at this time or later, so this isn't an edit
      */
-    public boolean updateRemote(
+    public Optional<UUID> updateRemote(
             URI uri, UUID actorId, String text, String content, String spoilerText, String language, boolean sensitive,
             Instant editedAt) {
         return edit("""
@@ -220,7 +220,7 @@ public class StatusRepository {
                         id = :id AND actor_id = :actorId AND reblog_of_id IS NULL
                         AND EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)""",
                 Map.of("id", id, "actorId", actorId),
-                text, content, spoilerText, language, sensitive, editedAt);
+                text, content, spoilerText, language, sensitive, editedAt).isPresent();
     }
 
     /**
@@ -230,7 +230,7 @@ public class StatusRepository {
      *
      * @param condition which status, from columns of {@code status}
      */
-    private boolean edit(
+    private Optional<UUID> edit(
             String condition, Map<String, Object> parameters, String text, String content, String spoilerText,
             String language, boolean sensitive, Instant editedAt) {
         var edited = jdbc.sql("""
@@ -259,7 +259,7 @@ public class StatusRepository {
                 .query(UUID.class)
                 .optional();
         edited.ifPresent(this::removeOldestEdits);
-        return edited.isPresent();
+        return edited;
     }
 
     /**
@@ -556,19 +556,19 @@ public class StatusRepository {
                 s.visibility = 'public' AND s.reblog_of_id IS NULL
                 AND EXISTS (SELECT 1 FROM status_tag t WHERE t.status_id = s.id AND t.name = ANY (CAST(:any AS text[])))""");
         var parameters = new HashMap<String, Object>();
-        parameters.put("any", textArray(tags.any()));
+        parameters.put("any", tags.any().toArray(String[]::new));
         if (!tags.all().isEmpty()) {
             filter.append("""
                      AND (SELECT count(*) FROM status_tag t WHERE t.status_id = s.id
                           AND t.name = ANY (CAST(:all AS text[]))) = :allCount""");
-            parameters.put("all", textArray(tags.all()));
+            parameters.put("all", tags.all().toArray(String[]::new));
             parameters.put("allCount", tags.all().size());
         }
         if (!tags.none().isEmpty()) {
             filter.append("""
                      AND NOT EXISTS (SELECT 1 FROM status_tag t WHERE t.status_id = s.id
                                      AND t.name = ANY (CAST(:none AS text[])))""");
-            parameters.put("none", textArray(tags.none()));
+            parameters.put("none", tags.none().toArray(String[]::new));
         }
         filter.append(origin(origin));
         return findPage(filter.toString(), parameters, page);
@@ -723,7 +723,7 @@ public class StatusRepository {
                         ON CONFLICT DO NOTHING
                         """)
                 .param("statusId", statusId)
-                .param("names", textArray(names))
+                .param("names", names.toArray(String[]::new))
                 .update();
     }
 
@@ -733,36 +733,9 @@ public class StatusRepository {
     public void replaceTags(UUID statusId, Collection<String> names) {
         jdbc.sql("DELETE FROM status_tag WHERE status_id = :statusId AND NOT (name = ANY (CAST(:names AS text[])))")
                 .param("statusId", statusId)
-                .param("names", textArray(names))
+                .param("names", names.toArray(String[]::new))
                 .update();
         insertTags(statusId, names);
-    }
-
-    /**
-     * Like {@link #replaceTags}, for the status stored under a URI. The status may have been deleted since it was edited,
-     * in which case nothing's inserted.
-     */
-    public void replaceTagsByUri(URI uri, Collection<String> names) {
-        jdbc.sql("""
-                        DELETE FROM status_tag
-                        WHERE status_id = (SELECT id FROM status WHERE uri = :uri)
-                        AND NOT (name = ANY (CAST(:names AS text[])))
-                        """)
-                .param("uri", uri.toString())
-                .param("names", textArray(names))
-                .update();
-        if (names.isEmpty()) {
-            return;
-        }
-        jdbc.sql("""
-                        INSERT INTO status_tag (status_id, name)
-                        SELECT s.id, t.name FROM status s, unnest(CAST(:names AS text[])) AS t (name)
-                        WHERE s.uri = :uri
-                        ON CONFLICT DO NOTHING
-                        """)
-                .param("uri", uri.toString())
-                .param("names", textArray(names))
-                .update();
     }
 
     /**
@@ -791,11 +764,9 @@ public class StatusRepository {
     public List<String> searchTags(String prefix, int limit, int offset) {
         // Of the characters LIKE treats specially, only _ can be in a name.
         var pattern = prefix.replace("_", "\\_") + "%";
-        return jdbc.sql("""
-                        SELECT t.name FROM status_tag t
-                        JOIN status s ON s.id = t.status_id AND s.visibility = 'public'
-                        JOIN actor author ON author.id = s.actor_id AND author.suspended_at IS NULL AND author.deleted_at IS NULL
-                        WHERE t.name LIKE :pattern
+        return jdbc.sql("SELECT t.name " + FROM_ACTIVE + """
+                        JOIN status_tag t ON t.status_id = s.id
+                        WHERE s.visibility = 'public' AND t.name LIKE :pattern
                         GROUP BY t.name
                         ORDER BY count(*) DESC, t.name
                         LIMIT :limit OFFSET :offset
@@ -815,31 +786,25 @@ public class StatusRepository {
             return Map.of();
         }
         var days = new HashMap<String, List<TagDay>>();
+        // A status's ID comes from when it arrived, or for a backfilled one from when it was published, so no status
+        // published since then has an earlier ID. Bounding the ID lets the index skip the tag's older statuses.
         jdbc.sql("""
                         SELECT t.name, (s.published_at AT TIME ZONE 'UTC')::date AS day,
                                count(*) AS uses, count(DISTINCT s.actor_id) AS accounts
-                        FROM status_tag t
-                        JOIN status s ON s.id = t.status_id AND s.visibility = 'public' AND s.published_at >= :since
-                        JOIN actor author ON author.id = s.actor_id AND author.suspended_at IS NULL AND author.deleted_at IS NULL
-                        WHERE t.name = ANY (CAST(:names AS text[]))
+                        """ + FROM_ACTIVE + """
+                        JOIN status_tag t ON t.status_id = s.id
+                        WHERE s.visibility = 'public' AND s.published_at >= :since
+                        AND t.name = ANY (CAST(:names AS text[])) AND t.status_id >= :lowestId
                         GROUP BY t.name, day
                         """)
-                .param("names", textArray(names))
+                .param("names", names.toArray(String[]::new))
+                .param("lowestId", new UUID(since.toEpochMilli() << 16, 0L))
                 .param("since", OffsetDateTime.ofInstant(since, ZoneOffset.UTC))
                 .query(rs -> {
                     days.computeIfAbsent(rs.getString("name"), name -> new ArrayList<>()).add(new TagDay(
                             rs.getObject("day", LocalDate.class), rs.getLong("uses"), rs.getLong("accounts")));
                 });
         return days;
-    }
-
-    /**
-     * A PostgreSQL array literal. Each value is quoted, so that one such as {@code null} isn't read as NULL.
-     */
-    private static String textArray(Collection<String> values) {
-        return values.stream()
-                .map(value -> "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
-                .collect(Collectors.joining(",", "{", "}"));
     }
 
     /**

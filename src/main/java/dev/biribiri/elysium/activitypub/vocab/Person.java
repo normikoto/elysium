@@ -76,6 +76,7 @@ public record Person(
     }
 
     public static Person from(Actor actor, Profile profile, InstanceProperties instance) {
+        var hashtags = profile.hashtags();
         return new Person(
                 ActivityStreams.PERSON_CONTEXT,
                 actor.uri(),
@@ -98,7 +99,7 @@ public record Person(
                         : profile.fields().stream()
                         .map(field -> new PropertyValue("PropertyValue", field.name(), field.valueHtml()))
                         .toList(),
-                profile.hashtags().isEmpty() ? null : Hashtag.of(profile.hashtags(), instance),
+                hashtags.isEmpty() ? null : Hashtag.of(hashtags, instance),
                 ActivityStreams.time(actor.createdAt()),
                 ActivityStreams.time(profile.updatedAt()),
                 null);

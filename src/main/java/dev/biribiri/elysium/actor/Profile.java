@@ -40,7 +40,7 @@ public record Profile(
     }
 
     /**
-     * The normalized names of the hashtags in the note.
+     * What an actor document lists in its {@code tag}, as Mastodon's do.
      */
     public SequencedSet<String> hashtags() {
         return Hashtags.names(note);

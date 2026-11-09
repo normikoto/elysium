@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.StatusService;
@@ -43,11 +42,6 @@ public class SearchController {
     private static final Pattern USERNAME_PREFIX = Pattern.compile("@?[A-Za-z0-9_]{1,30}");
 
     /**
-     * How many days of use each hashtag found shows, as on Mastodon.
-     */
-    static final int HISTORY_DAYS = 7;
-
-    /**
      * How far {@code offset} can page through hashtags. Each page is counted from every public status that has a matching
      * tag, so a deep page would cost as much as a shallow one, for results nobody reads.
      */
@@ -57,16 +51,16 @@ public class SearchController {
     private final AccountLookup lookup;
     private final AccountResponses accounts;
     private final StatusService statuses;
-    private final InstanceProperties instance;
+    private final TagResponses tags;
 
     SearchController(
             ActorService actors, AccountLookup lookup, AccountResponses accounts, StatusService statuses,
-            InstanceProperties instance) {
+            TagResponses tags) {
         this.actors = actors;
         this.lookup = lookup;
         this.accounts = accounts;
         this.statuses = statuses;
-        this.instance = instance;
+        this.tags = tags;
     }
 
     @GetMapping("/api/v2/search")
@@ -132,12 +126,12 @@ public class SearchController {
         var pageSize = Math.clamp(RequestParameters.number("limit", limit, DEFAULT_LIMIT), 1, MAX_LIMIT);
         // Only the first results can be paged through, and an offset past them gets an empty page, so that a client paging
         // by offset sees the end rather than the last page again.
-        var skipped = Math.clamp(RequestParameters.number("offset", offset, 0), 0, AccountFilter.MAX_LIMIT);
+        var requestedOffset = Math.max(RequestParameters.number("offset", offset, 0), 0);
+        var skipped = Math.min(requestedOffset, AccountFilter.MAX_LIMIT);
 
-        var tagOffset = Math.max(RequestParameters.number("offset", offset, 0), 0);
-        var tags = searchTags ? tags(query, pageSize, tagOffset, viewer.isPresent()) : List.<TagResponse>of();
+        var foundTags = searchTags ? tags(query, pageSize, requestedOffset, viewer.isPresent()) : List.<TagResponse>of();
         if (!searchAccounts) {
-            return new SearchResponse(List.of(), List.of(), tags);
+            return new SearchResponse(List.of(), List.of(), foundTags);
         }
 
         List<Actor> found;
@@ -150,7 +144,7 @@ public class SearchController {
         } else {
             found = List.of();
         }
-        return new SearchResponse(accounts.build(found), List.of(), tags);
+        return new SearchResponse(accounts.build(found), List.of(), foundTags);
     }
 
     /**
@@ -169,10 +163,7 @@ public class SearchController {
                 names.removeLast();
             }
         }
-        var history = statuses.findTagHistory(names, HISTORY_DAYS);
-        return names.stream()
-                .map(name -> TagResponse.of(name, history.getOrDefault(name, List.of()), signedIn, instance))
-                .toList();
+        return tags.build(names, signedIn);
     }
 
     private List<Actor> byUsernamePrefix(String prefix, int pageSize, int skipped) {
