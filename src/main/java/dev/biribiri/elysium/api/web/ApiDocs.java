@@ -76,7 +76,7 @@ class ApiDocs {
      * after these. This runs after the customizer that adds the OAuth tag, which is ordered first.
      */
     private static final List<String> TAG_ORDER = List.of(
-            "Apps", "OAuth", "Accounts", "Statuses", "Timelines", "Notifications", "Grouped notifications", "Conversations", "Markers", "Search", "Instance", "Admin: accounts",
+            "Apps", "OAuth", "Accounts", "Follow requests", "Statuses", "Timelines", "Notifications", "Grouped notifications", "Conversations", "Markers", "Search", "Instance", "Admin: accounts",
             "Admin: domain blocks", "ActivityPub", "WebFinger", "NodeInfo");
 
     @Bean

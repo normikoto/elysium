@@ -9,16 +9,18 @@ import java.util.Optional;
  * Changes to a profile. Whatever's empty or {@link Image#KEEP} stays as it is.
  *
  * @param fields all the fields the profile should have, in order, replacing the ones it has
+ * @param manuallyApprovesFollowers whether requests to follow the account should wait for its approval
  */
 public record ProfileChange(
         Optional<String> displayName,
         Optional<String> note,
         Optional<List<NewField>> fields,
         Image avatar,
-        Image header) {
+        Image header,
+        Optional<Boolean> manuallyApprovesFollowers) {
 
-    public static final ProfileChange NONE =
-            new ProfileChange(Optional.empty(), Optional.empty(), Optional.empty(), Image.KEEP, Image.KEEP);
+    public static final ProfileChange NONE = new ProfileChange(
+            Optional.empty(), Optional.empty(), Optional.empty(), Image.KEEP, Image.KEEP, Optional.empty());
 
     public ProfileChange {
         Objects.requireNonNull(displayName);
@@ -26,6 +28,7 @@ public record ProfileChange(
         fields = fields.map(List::copyOf);
         Objects.requireNonNull(avatar);
         Objects.requireNonNull(header);
+        Objects.requireNonNull(manuallyApprovesFollowers);
     }
 
     public record NewField(String name, String value) {
@@ -71,23 +74,27 @@ public record ProfileChange(
     }
 
     public ProfileChange withDisplayName(String value) {
-        return new ProfileChange(Optional.of(value), note, fields, avatar, header);
+        return new ProfileChange(Optional.of(value), note, fields, avatar, header, manuallyApprovesFollowers);
     }
 
     public ProfileChange withNote(String value) {
-        return new ProfileChange(displayName, Optional.of(value), fields, avatar, header);
+        return new ProfileChange(displayName, Optional.of(value), fields, avatar, header, manuallyApprovesFollowers);
     }
 
     public ProfileChange withFields(List<NewField> value) {
-        return new ProfileChange(displayName, note, Optional.of(value), avatar, header);
+        return new ProfileChange(displayName, note, Optional.of(value), avatar, header, manuallyApprovesFollowers);
     }
 
     public ProfileChange withAvatar(Image value) {
-        return new ProfileChange(displayName, note, fields, value, header);
+        return new ProfileChange(displayName, note, fields, value, header, manuallyApprovesFollowers);
     }
 
     public ProfileChange withHeader(Image value) {
-        return new ProfileChange(displayName, note, fields, avatar, value);
+        return new ProfileChange(displayName, note, fields, avatar, value, manuallyApprovesFollowers);
+    }
+
+    public ProfileChange withManuallyApprovesFollowers(boolean value) {
+        return new ProfileChange(displayName, note, fields, avatar, header, Optional.of(value));
     }
 
     public boolean isEmpty() {

@@ -16,9 +16,13 @@ import java.util.List;
         written. The settings in `source` don't exist yet, so they have the values a new account would have.""")
 record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source source) {
 
-    static CredentialAccountResponse from(AccountResponse account, Profile profile) {
+    /**
+     * @param followRequests how many requests to follow the account are waiting for it
+     */
+    static CredentialAccountResponse from(AccountResponse account, Profile profile, long followRequests) {
         var fields = profile.fields().stream().map(field -> AccountResponse.Field.of(field, field.value())).toList();
-        return new CredentialAccountResponse(account, new Source("public", false, "", profile.note(), fields, 0));
+        return new CredentialAccountResponse(
+                account, new Source("public", false, "", profile.note(), fields, followRequests));
     }
 
     /**
@@ -31,7 +35,7 @@ record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source 
             String language,
             String note,
             List<AccountResponse.Field> fields,
-            @JsonProperty("follow_requests_count") int followRequestsCount
+            @JsonProperty("follow_requests_count") long followRequestsCount
     ) {
     }
 }

@@ -25,13 +25,15 @@ import java.util.List;
  */
 @Schema(name = "Account", description = """
         Mastodon's Account entity. Profiles of accounts on other servers aren't stored yet, so for those `display_name` \
-        is the username, `note` and `fields` are empty, and the images are a placeholder. `emojis` is always empty, and \
-        `locked`, `bot`, `group`, and `discoverable` are false.""")
+        is the username, `note` and `fields` are empty, the images are a placeholder, and `locked` is false. `emojis` is \
+        always empty, and `bot`, `group`, and `discoverable` are false.""")
 record AccountResponse(
         String id,
         String username,
         String acct,
         @JsonProperty("display_name") String displayName,
+        @Schema(description = """
+                Whether the account approves its followers by hand. Always false for an account on another server.""")
         boolean locked,
         boolean bot,
         boolean group,
@@ -95,7 +97,7 @@ record AccountResponse(
                 acct,
                 // Mastodon sends an empty display name as it is, and clients show the username instead.
                 profile == null ? actor.username() : profile.displayName(),
-                false,
+                shown.manuallyApprovesFollowers(),
                 false,
                 false,
                 false,

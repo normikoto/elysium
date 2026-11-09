@@ -134,7 +134,10 @@ too, which they may not do. Its username can't be used again, because other serv
 servers can't be deleted, so suspend them instead.
 
 People can delete their own account at `/settings/delete-account`, with their password. At `/settings`, they can also hide
-who follows them and who they follow, from other people and other servers, which still see how many there are.
+who follows them and who they follow, from other people and other servers, which still see how many there are. They can
+also choose to approve followers by hand, there or from an app, and then approve or refuse each request in an app. A
+request that's waiting doesn't make someone a follower, so they don't see followers-only posts. Turning it off approves
+every request that's waiting, and turning it on keeps the followers they already have.
 
 ## Profiles
 People can change their profile at `/settings`, or from an app: a display name of up to 30 characters, a bio of up to 500,

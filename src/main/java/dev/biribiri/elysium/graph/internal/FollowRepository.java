@@ -75,12 +75,102 @@ public class FollowRepository {
                 .optional();
     }
 
+    /**
+     * Stores a request that waits for the account followed to approve it. A request that's already waiting takes this
+     * activity, while an accepted follow is left as it is.
+     */
+    public void savePending(UUID followerId, UUID followedId, String activityUri, Instant activityAt) {
+        jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri, activity_at)
+                        VALUES (:id, :followerId, :followedId, 'pending', :activityUri, :activityAt)
+                        ON CONFLICT (follower_id, followed_id)
+                        DO UPDATE SET activity_uri = EXCLUDED.activity_uri, activity_at = EXCLUDED.activity_at
+                        WHERE follow.state = 'pending'
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .param("activityUri", activityUri)
+                .param("activityAt", time(activityAt))
+                .update();
+    }
+
+    /**
+     * Accepts a request to follow an account here. It counts as following from now, so that it doesn't get followers-only
+     * statuses posted while it waited.
+     *
+     * @return the follow, if a request was waiting
+     */
+    public Optional<Row> authorize(UUID followerId, UUID followedId) {
+        return jdbc.sql("""
+                        UPDATE follow SET state = 'accepted', created_at = now()
+                        WHERE follower_id = :followerId AND followed_id = :followedId AND state = 'pending'
+                        RETURNING id, followed_id, activity_uri, activity_at, state
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .query(ROW_MAPPER)
+                .optional();
+    }
+
+    /**
+     * @return the removed request, if one was waiting
+     */
+    public Optional<Row> deletePending(UUID followerId, UUID followedId) {
+        return jdbc.sql("""
+                        DELETE FROM follow
+                        WHERE follower_id = :followerId AND followed_id = :followedId AND state = 'pending'
+                        RETURNING id, followed_id, activity_uri, activity_at, state
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .query(ROW_MAPPER)
+                .optional();
+    }
+
+    /**
+     * @param after only return IDs that sort after this one, in PostgreSQL's order
+     * @return who has asked to follow an account, in order of their IDs, whatever state their accounts are in
+     */
+    public List<UUID> findRequesterIds(UUID followedId, UUID after, int limit) {
+        return jdbc.sql("""
+                        SELECT follower_id FROM follow
+                        WHERE followed_id = :followedId AND state = 'pending' AND follower_id > :after
+                        ORDER BY follower_id
+                        LIMIT :limit
+                        """)
+                .param("followedId", followedId)
+                .param("after", after)
+                .param("limit", limit)
+                .query(UUID.class)
+                .list();
+    }
+
+    /**
+     * @return whether the follower follows the actor, and has been accepted, through this activity
+     */
+    public boolean isAcceptedThrough(UUID followerId, UUID followedId, String activityUri) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM follow
+                            WHERE follower_id = :followerId AND followed_id = :followedId AND activity_uri = :activityUri
+                              AND state = 'accepted'
+                        )
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .param("activityUri", activityUri)
+                .query(Boolean.class)
+                .single();
+    }
+
     public void saveAccepted(UUID followerId, UUID followedId, String activityUri, Instant activityAt) {
         jdbc.sql("""
                         INSERT INTO follow (id, follower_id, followed_id, state, activity_uri, activity_at)
                         VALUES (:id, :followerId, :followedId, 'accepted', :activityUri, :activityAt)
                         ON CONFLICT (follower_id, followed_id)
-                        DO UPDATE SET state = 'accepted', activity_uri = EXCLUDED.activity_uri, activity_at = EXCLUDED.activity_at
+                        DO UPDATE SET state = 'accepted', activity_uri = EXCLUDED.activity_uri, activity_at = EXCLUDED.activity_at,
+                            created_at = CASE WHEN follow.state = 'pending' THEN now() ELSE follow.created_at END
                         """)
                 .param("id", UUID.randomUUID())
                 .param("followerId", followerId)
@@ -93,11 +183,11 @@ public class FollowRepository {
     /**
      * Inserts a follow by a local account, unless the two already have one.
      *
-     * @param activityUri the {@code Follow} sent for it, which leaves it waiting for an answer, or null for a follow of a
-     *                    local account, which is accepted straight away
+     * @param activityUri the {@code Follow} sent for it, or null for a follow of a local account
+     * @param accepted    false if it waits for an answer
      * @return whether it was inserted
      */
-    public boolean insertOutgoing(UUID id, UUID followerId, UUID followedId, String activityUri) {
+    public boolean insertOutgoing(UUID id, UUID followerId, UUID followedId, String activityUri, boolean accepted) {
         return jdbc.sql("""
                         INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
                         VALUES (:id, :followerId, :followedId, :state, :activityUri)
@@ -106,7 +196,7 @@ public class FollowRepository {
                 .param("id", id)
                 .param("followerId", followerId)
                 .param("followedId", followedId)
-                .param("state", activityUri == null ? "accepted" : "pending")
+                .param("state", accepted ? "accepted" : "pending")
                 .param("activityUri", activityUri, Types.VARCHAR)
                 .update() > 0;
     }
@@ -261,13 +351,25 @@ public class FollowRepository {
      * @param followers true for its followers, and false for the accounts it follows
      */
     public List<FollowEntry> findPage(UUID actorId, boolean followers, FollowPage page) {
+        return findPage(actorId, followers, "accepted", page);
+    }
+
+    /**
+     * Lists the requests waiting for an account to approve them, leaving out suspended and deleted followers.
+     */
+    public List<FollowEntry> findRequestPage(UUID followedId, FollowPage page) {
+        return findPage(followedId, true, "pending", page);
+    }
+
+    private List<FollowEntry> findPage(UUID actorId, boolean followers, String state, FollowPage page) {
         var self = followers ? "f.followed_id" : "f.follower_id";
         var other = followers ? "f.follower_id" : "f.followed_id";
         var sql = new StringBuilder("SELECT f.id, a.id AS other_id, a.uri AS other_uri FROM follow f JOIN actor a ON a.id = ")
-                .append(other).append(" WHERE ").append(self).append(" = :actorId AND f.state = 'accepted' AND ")
+                .append(other).append(" WHERE ").append(self).append(" = :actorId AND f.state = :state AND ")
                 .append(ACTIVE_OTHER);
         var parameters = new HashMap<String, Object>();
         parameters.put("actorId", actorId);
+        parameters.put("state", state);
         // A cursor whose follow has since been removed matches nothing, so its page is empty.
         if (page.maxId() != null) {
             sql.append(" AND (f.created_at, f.id) < (SELECT created_at, id FROM follow WHERE id = :maxId)");
@@ -317,6 +419,17 @@ public class FollowRepository {
      * @return an entry for each account with any
      */
     public Map<UUID, Long> count(Collection<UUID> actorIds, boolean followers) {
+        return count(actorIds, followers, "accepted");
+    }
+
+    /**
+     * Counts the requests waiting for an account to approve them, leaving out suspended and deleted followers.
+     */
+    public long countRequests(UUID followedId) {
+        return count(List.of(followedId), true, "pending").getOrDefault(followedId, 0L);
+    }
+
+    private Map<UUID, Long> count(Collection<UUID> actorIds, boolean followers, String state) {
         if (actorIds.isEmpty()) {
             return Map.of();
         }
@@ -324,9 +437,10 @@ public class FollowRepository {
         var other = followers ? "f.follower_id" : "f.followed_id";
         var counts = new HashMap<UUID, Long>();
         jdbc.sql("SELECT " + self + " AS id, count(*) AS n FROM follow f JOIN actor a ON a.id = " + other
-                        + " WHERE " + self + " IN (:ids) AND f.state = 'accepted' AND " + ACTIVE_OTHER
+                        + " WHERE " + self + " IN (:ids) AND f.state = :state AND " + ACTIVE_OTHER
                         + " GROUP BY " + self)
                 .param("ids", actorIds)
+                .param("state", state)
                 .query(rs -> {
                     counts.put(rs.getObject("id", UUID.class), rs.getLong("n"));
                 });
@@ -384,7 +498,8 @@ public class FollowRepository {
 
     /**
      * Like {@link #findFollowerInboxes}, leaving out followers who started following after this time. A newer {@code Follow}
-     * from a follower updates the same row and keeps {@code created_at}, so that's when they started following.
+     * from a follower updates the same row and keeps {@code created_at}, so that's when they started following. A request
+     * that waited for approval starts then, rather than when it was made.
      */
     public List<URI> findFollowerInboxesAsOf(UUID followedId, Instant time) {
         return jdbc.sql("""

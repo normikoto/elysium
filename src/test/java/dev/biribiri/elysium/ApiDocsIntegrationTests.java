@@ -341,6 +341,19 @@ class ApiDocsIntegrationTests {
         assertThat(marker.path("responses").propertyNames()).contains("409", "413");
     }
 
+    @Test
+    void documentsFollowRequests() throws Exception {
+        var paths = document().get("paths");
+        var list = paths.get("/api/v1/follow_requests").get("get");
+        assertThat(list.at("/security/0/oauth2/0").asString()).isEqualTo("read:follows");
+        assertThat(list.at("/responses/200/headers/Link").isMissingNode()).isFalse();
+        for (var answer : List.of("authorize", "reject")) {
+            var operation = paths.get("/api/v1/follow_requests/{account_id}/" + answer).get("post");
+            assertThat(operation.at("/security/0/oauth2/0").asString()).isEqualTo("write:follows");
+            assertThat(operation.path("responses").propertyNames()).contains("200", "401", "403", "404", "422");
+        }
+    }
+
     private JsonNode document() throws Exception {
         return json.readTree(mockMvc.perform(get("/api-docs")).andReturn().getResponse().getContentAsString());
     }

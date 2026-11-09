@@ -31,7 +31,6 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections) {
      * Settings that don't exist here, with the value that's reported for them.
      */
     private static final Map<String, Object> FIXED = Map.of(
-            "locked", false,
             "bot", false,
             "discoverable", false,
             "indexable", false);
@@ -102,6 +101,11 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections) {
                 case "hide_collections" -> {
                     if (!isEmpty(value)) {
                         hide = RequestParameters.flag(values, key);
+                    }
+                }
+                case "locked" -> {
+                    if (!isEmpty(value)) {
+                        change = change.withManuallyApprovesFollowers(RequestParameters.flag(values, key));
                     }
                 }
                 case "avatar", "header" -> {

@@ -28,6 +28,11 @@ The script checks:
   and following again has to work. Misskey goes through this twice and then follows once more, since it uses the same ID for
   each `Undo` between two actors, and a new one for each `Follow`. The script checks that `inbound_activity` has 3 `Follow`
   rows and 1 `Undo` row, so it fails if Misskey stops reusing the ID and the check stops testing that.
+- **Locked accounts:** while `lab` follows alice, alice turns on approving followers by hand, and the other server has to
+  show her as locked, which it learns from the `Update` of her actor. `lab` then unfollows and asks again. Elysium has to hold
+  the request, list it in alice's follow requests, and send no `Accept`, and the other server has to show it as requested.
+  alice refuses it, and the other server has to take the `Reject` and drop it. `lab` asks once more, alice approves it, and
+  the other server has to show `lab` following. alice then turns the setting off again, for the checks after this.
 - **Following out:** alice looks up `lab` on the other server through Elysium's client API, which makes Elysium use
   WebFinger, and follows it. The other server has to accept the signed `Follow`, which Elysium shows as `following`. On
   GoToSocial, whose users approve followers by hand by default, the request waits until `lab` approves it, which tests the

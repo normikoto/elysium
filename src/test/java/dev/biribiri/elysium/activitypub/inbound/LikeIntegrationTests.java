@@ -268,7 +268,7 @@ class LikeIntegrationTests {
         var hidden = createPost(PRIVATE);
         handler.handle(like(remote, hidden, "hidden", ago(10)));
         assertThat(likes.count(hidden.id())).isZero();
-        transaction.executeWithoutResult(tx -> follows.accept(remote.id(), remote.uri(), alice.id(),
+        transaction.executeWithoutResult(tx -> follows.receive(remote.id(), remote.uri(), alice.id(),
                 remote.uri() + "/follow", new FollowService.Arrival(ago(20), ago(20))));
         handler.handle(like(remote, hidden, "visible", ago(5)));
         assertThat(likes.count(hidden.id())).isEqualTo(1);

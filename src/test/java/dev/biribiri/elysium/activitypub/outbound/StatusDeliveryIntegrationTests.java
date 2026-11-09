@@ -1021,7 +1021,7 @@ class StatusDeliveryIntegrationTests {
                 sharedInbox ? URI.create("http://" + domain + "/inbox") : null,
                 null));
         var now = Instant.now();
-        transactions.executeWithoutResult(transaction -> follows.accept(
+        transactions.executeWithoutResult(transaction -> follows.receive(
                 follower.id(), uri, followed.id(), uri + "#follow", new FollowService.Arrival(now, now)));
         return uri;
     }

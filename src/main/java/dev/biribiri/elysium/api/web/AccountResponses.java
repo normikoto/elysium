@@ -50,7 +50,7 @@ class AccountResponses {
     CredentialAccountResponse credential(Actor actor) {
         var profile = profiles.find(actor.id());
         var account = byId(List.of(actor), Map.of(actor.id(), profile)).get(actor.id());
-        return CredentialAccountResponse.from(account, profile);
+        return CredentialAccountResponse.from(account, profile, follows.countRequests(actor.id()));
     }
 
     /**

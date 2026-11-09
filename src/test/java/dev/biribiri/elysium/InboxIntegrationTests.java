@@ -3,6 +3,8 @@ package dev.biribiri.elysium;
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileChange;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.NewStatus;
@@ -65,6 +67,7 @@ class InboxIntegrationTests {
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
     @Autowired FollowService follows;
+    @Autowired ProfileService profiles;
     @Autowired InboxService inbox;
     @Autowired InboxProjection projection;
     @Autowired DomainBlocks blocks;
@@ -86,6 +89,7 @@ class InboxIntegrationTests {
         jdbc.sql("DELETE FROM status_thread_alias").update();
         jdbc.sql("DELETE FROM follow").update();
         jdbc.sql("DELETE FROM domain_block").update();
+        jdbc.sql("UPDATE profile SET manually_approves_followers = false").update();
         alice = local("inboxalice");
         bob = local("inboxbob");
         carol = local("inboxcarol");
@@ -216,6 +220,27 @@ class InboxIntegrationTests {
                 .andExpect(jsonPath("$[*].id").value(contains(carol.id().toString(), alice.id().toString())));
         mvc.perform(get(GROUPS + "/" + key).with(user(alice))).andExpect(status().isNotFound());
         mvc.perform(post(GROUPS + "/" + key + "/dismiss").with(user(bob))).andExpect(content().json("{}"));
+        mvc.perform(get(NOTIFICATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
+    }
+
+    @Test
+    void aFollowRequestNotifiesUntilItIsAnswered() throws Exception {
+        profiles.update(bob.id(), ProfileChange.NONE.withManuallyApprovesFollowers(true));
+        follows.follow(alice, bob);
+        follows.follow(carol, bob);
+        settled();
+        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[*].type").value(contains("follow_request", "follow_request")))
+                .andExpect(jsonPath("$[*].account.id").value(contains(carol.id().toString(), alice.id().toString())));
+        mvc.perform(get(GROUPS).with(user(bob)))
+                .andExpect(jsonPath("$.notification_groups", hasSize(2)))
+                .andExpect(jsonPath("$.notification_groups[0].group_key", startsWith("ungrouped-")));
+
+        follows.authorize(alice, bob.id());
+        follows.reject(carol, bob.id());
+        settled();
+
         mvc.perform(get(NOTIFICATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
     }
 
@@ -446,7 +471,7 @@ class InboxIntegrationTests {
             var sender = remote("deleting.example");
             store(sender, note(sender), null, Map.of(bob.id(), false), DIRECT);
             var now = Instant.now();
-            new TransactionTemplate(transactions).executeWithoutResult(tx -> follows.accept(sender.id(), sender.uri(), bob.id(),
+            new TransactionTemplate(transactions).executeWithoutResult(tx -> follows.receive(sender.id(), sender.uri(), bob.id(),
                     sender.uri() + "/follow", new FollowService.Arrival(now, now)));
             jdbc.sql("DELETE FROM actor WHERE id = :id").param("id", sender.id()).update();
         }

@@ -52,6 +52,15 @@ public class NotificationRepository {
         insert(recipient, sender, type, source, status, follow, null, null);
     }
 
+    /**
+     * Removes the notification of a request to follow, once it's been answered.
+     */
+    public void deleteFollowRequest(UUID followId) {
+        jdbc.sql("DELETE FROM inbox_notification WHERE follow_id = :follow AND type = 'follow_request'")
+                .param("follow", followId)
+                .update();
+    }
+
     public void insertFavourite(UUID recipient, UUID sender, UUID like, UUID status) {
         insert(recipient, sender, "favourite", like, status, null, like, null);
     }

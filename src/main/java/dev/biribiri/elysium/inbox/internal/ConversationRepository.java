@@ -75,13 +75,25 @@ public class ConversationRepository {
     }
 
     public boolean currentFollow(UUID id, UUID sender, UUID recipient) {
+        return currentFollow(id, sender, recipient, "accepted");
+    }
+
+    /**
+     * Like {@link #currentFollow}, for a request that's still waiting for the recipient to approve it.
+     */
+    public boolean currentFollowRequest(UUID id, UUID sender, UUID recipient) {
+        return currentFollow(id, sender, recipient, "pending");
+    }
+
+    private boolean currentFollow(UUID id, UUID sender, UUID recipient, String state) {
         return !jdbc.sql("""
                         SELECT f.id FROM follow f JOIN actor a ON a.id = f.follower_id
                         JOIN actor recipient ON recipient.id = f.followed_id
                         WHERE f.id = :id AND f.follower_id = :sender AND f.followed_id = :recipient
-                        AND f.state = 'accepted' AND recipient.is_local AND
+                        AND f.state = :state AND recipient.is_local AND
                         """ + InboxSql.active("a") + " AND " + InboxSql.active("recipient") + " FOR KEY SHARE OF f")
-                .param("id", id).param("sender", sender).param("recipient", recipient).query(UUID.class).list().isEmpty();
+                .param("id", id).param("sender", sender).param("recipient", recipient).param("state", state)
+                .query(UUID.class).list().isEmpty();
     }
 
     public boolean currentLike(UUID id, UUID sender, UUID statusId) {

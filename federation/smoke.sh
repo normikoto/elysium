@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, be followed and unfollowed by it, and receive its statuses, their edits and deletion, and profile changes,
+# and unfollow it, including while it approves followers by hand, be followed and unfollowed by it, and receive its statuses, their edits and deletion, and profile changes,
 # apart from edits on Misskey, which doesn't apply them, and that Elysium takes the other server's profile changes and status
 # edits, apart from on Misskey, which can't edit, and removes a status and an account that the other server deletes. Both
 # servers also like and unlike, and boost and unboost, each other's posts, Elysium fetches a post that a followed account
@@ -1313,6 +1313,188 @@ check_boosts() {
     echo "$target and Elysium exchanged signed Announces and Undos, with counts, notifications, and a shares collection"
 }
 
+# Passing means that the other server read manuallyApprovesFollowers from the Update that locking sends to followers, that
+# Elysium held the lab user's next Follow without answering it, and that the other server took the Reject and, for the request
+# after it, the Accept that alice sent once she decided. The lab user follows alice again at the end, and alice is unlocked,
+# for the steps after this.
+check_locked() {
+    local domain=$1 read_token write_token lab_id activity requests sent
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write)
+    [[ -n $read_token && -n $write_token ]] || fail "Couldn't get Elysium access tokens"
+    lab_id=$(driver curl -fsS -G https://elysium.test/api/v1/accounts/lookup \
+        -H "Authorization: Bearer $read_token" --data-urlencode "acct=lab@$domain" | jq -r .id)
+
+    set_locked true "$write_token"
+    "${target}_expect_alice_locked" true
+    echo "$target shows alice as locked"
+
+    "${target}_unfollow_alice"
+    expect_followers "$domain" 0
+    "${target}_request_follow"
+    activity=$(expect_follow_request "$domain")
+    requests=$(driver curl -fsS https://elysium.test/api/v1/follow_requests -H "Authorization: Bearer $read_token")
+    jq -e --arg id "$lab_id" 'map(.id) == [$id]' <<<"$requests" >/dev/null \
+        || fail "alice's follow requests don't list lab@$domain: $requests"
+    "${target}_expect_relation" requested
+    sent=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT count(*) FROM outbound_activity WHERE body LIKE '%\"type\":\"Accept\"%' AND body LIKE '%$activity%'")
+    [[ $sent -eq 0 ]] || fail "Elysium sent an Accept for lab@$domain's request before alice approved it"
+    echo "Elysium holds lab@$domain's request, unanswered, and $target shows it as requested"
+
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/follow_requests/$lab_id/reject" \
+        -H "Authorization: Bearer $write_token"
+    expect_delivered "$expected_actor#rejects/follows/%"
+    "${target}_expect_relation" none
+    echo "$target took alice's Reject"
+
+    "${target}_request_follow"
+    expect_follow_request "$domain" >/dev/null
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/follow_requests/$lab_id/authorize" \
+        -H "Authorization: Bearer $write_token"
+    "${target}_expect_relation" following
+    expect_followers "$domain" 1
+    echo "$target took the Accept that alice sent when she approved lab@$domain"
+
+    set_locked false "$write_token"
+    "${target}_expect_alice_locked" false
+}
+
+set_locked() {
+    local locked=$1 write_token=$2 actor
+    driver curl -fsS -o /dev/null -X PATCH https://elysium.test/api/v1/accounts/update_credentials \
+        -H "Authorization: Bearer $write_token" --data-urlencode "locked=$locked"
+    actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
+    [[ $(jq -r .manuallyApprovesFollowers <<<"$actor") == "$locked" ]] \
+        || fail "alice's actor document doesn't have manuallyApprovesFollowers $locked: $actor"
+    expect_delivered "$expected_actor#profile/%"
+}
+
+# Prints the id of the Follow behind the waiting request, once there is one.
+expect_follow_request() {
+    local server=$1 found
+    echo "Waiting for Elysium to hold a request from $server" >&2
+    for _ in $(seq 1 60); do
+        found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT f.activity_uri FROM follow f JOIN actor a ON a.id = f.follower_id
+             WHERE f.state = 'pending' AND a.domain = '$server'")
+        if [[ -n $found ]]; then
+            echo "$found"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium never held a request from $server. Check its failed jobs and logs"
+}
+
+mastodon_unfollow_alice() {
+    docker compose exec -T mastodon-web bin/rails runner '
+        UnfollowService.new.call(Account.find_local("lab"), ResolveAccountService.new.call("alice@elysium.test"))'
+}
+
+mastodon_request_follow() {
+    docker compose exec -T mastodon-web bin/rails runner '
+        FollowService.new.call(Account.find_local("lab"), ResolveAccountService.new.call("alice@elysium.test"))'
+}
+
+# Inside one process, as in mastodon_follow.
+mastodon_expect_relation() {
+    local output
+    output=$(docker compose exec -T -e EXPECTED="$1" mastodon-web bin/rails runner '
+        lab = Account.find_local("lab")
+        alice = Account.find_by!(username: "alice", domain: "elysium.test")
+        relation = -> {
+            Follow.uncached do
+                if Follow.exists?(account: lab, target_account: alice) then "following"
+                elsif FollowRequest.exists?(account: lab, target_account: alice) then "requested"
+                else "none" end
+            end
+        }
+        60.times do
+            break if relation.call == ENV["EXPECTED"]
+            sleep 2
+        end
+        puts "RELATION #{relation.call}"')
+    grep -qxF "RELATION $1" <<<"$output" || fail "Mastodon shows lab's relationship to alice as: $output, not $1"
+}
+
+mastodon_expect_alice_locked() {
+    local output
+    output=$(docker compose exec -T -e EXPECTED="$1" mastodon-web bin/rails runner '
+        locked = -> { Account.uncached { Account.find_by!(username: "alice", domain: "elysium.test").locked.to_s } }
+        60.times do
+            break if locked.call == ENV["EXPECTED"]
+            sleep 2
+        end
+        puts "LOCKED #{locked.call}"')
+    grep -qxF "LOCKED $1" <<<"$output" || fail "Mastodon shows alice's locked as: $output, not $1"
+}
+
+gotosocial_unfollow_alice() {
+    driver curl -fsS -o /dev/null -X POST "https://gts.test/api/v1/accounts/$alice_id/unfollow" \
+        -H "Authorization: Bearer $token"
+}
+
+gotosocial_request_follow() {
+    driver curl -fsS -o /dev/null -X POST "https://gts.test/api/v1/accounts/$alice_id/follow" \
+        -H "Authorization: Bearer $token"
+}
+
+gotosocial_relation() {
+    driver curl -fsS -G https://gts.test/api/v1/accounts/relationships \
+        -H "Authorization: Bearer $token" --data-urlencode "id[]=$alice_id" \
+        | jq -r '.[0] | if .following then "following" elif .requested then "requested" else "none" end'
+}
+
+gotosocial_expect_relation() {
+    expect_peer "lab's relationship to alice" "$1" gotosocial_relation
+}
+
+gotosocial_alice_locked() {
+    driver curl -fsS "https://gts.test/api/v1/accounts/$alice_id" -H "Authorization: Bearer $token" | jq -r .locked
+}
+
+gotosocial_expect_alice_locked() {
+    expect_peer "alice's locked" "$1" gotosocial_alice_locked
+}
+
+misskey_unfollow_alice() {
+    misskey_api following/delete "$(misskey_user_body)" >/dev/null
+}
+
+misskey_request_follow() {
+    misskey_api following/create "$(misskey_user_body)" >/dev/null
+}
+
+misskey_relation() {
+    misskey_api users/relation "$(misskey_user_body)" \
+        | jq -r '.[0] | if .isFollowing then "following" elif .hasPendingFollowRequestFromYou then "requested" else "none" end'
+}
+
+misskey_expect_relation() {
+    expect_peer "lab's relationship to alice" "$1" misskey_relation
+}
+
+misskey_alice_locked() {
+    misskey_api users/show "$(misskey_user_body)" | jq -r .isLocked
+}
+
+misskey_expect_alice_locked() {
+    expect_peer "alice's locked" "$1" misskey_alice_locked
+}
+
+# Waits for a function that reads something from the other server to print what's expected.
+expect_peer() {
+    local what=$1 expected=$2 read=$3 found=''
+    echo "Waiting for $target to show $what as $expected"
+    for _ in $(seq 1 60); do
+        found=$("$read")
+        [[ $found == "$expected" ]] && return
+        sleep 2
+    done
+    fail "$target shows $what as $found, not $expected"
+}
+
 # These delete a second account, which follows alice, or which she follows, so that its server tells Elysium, rather than the
 # lab user, which later steps need, and which Misskey can't delete because it's the admin.
 delete_account_from_mastodon() {
@@ -1383,6 +1565,7 @@ case "$target" in
         resolve_from_gotosocial
         deliver_from_gotosocial
         follow_from_gotosocial
+        check_locked gts.test
         follow_from_elysium gts.test post_from_gotosocial gotosocial_approve
         edit_from_gotosocial
         delete_account_from_gotosocial
@@ -1401,6 +1584,7 @@ case "$target" in
         resolve_from_mastodon
         deliver_from_mastodon
         follow_from_mastodon
+        check_locked mastodon.test
         follow_from_elysium mastodon.test post_from_mastodon
         edit_from_mastodon
         delete_account_from_mastodon
@@ -1419,6 +1603,7 @@ case "$target" in
         resolve_from_misskey
         deliver_from_misskey
         follow_from_misskey
+        check_locked misskey.test
         follow_from_elysium misskey.test post_from_misskey
         delete_account_from_misskey
         post_from_elysium
@@ -1434,4 +1619,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

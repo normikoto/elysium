@@ -13,6 +13,7 @@ import java.util.SequencedSet;
  *
  * @param avatar    null if there isn't one
  * @param header    null if there isn't one
+ * @param manuallyApprovesFollowers whether requests to follow the account wait for its approval
  * @param updatedAt null if it's never been changed
  */
 public record Profile(
@@ -21,9 +22,10 @@ public record Profile(
         ProfileImage avatar,
         ProfileImage header,
         List<ProfileField> fields,
+        boolean manuallyApprovesFollowers,
         Instant updatedAt) {
 
-    public static final Profile EMPTY = new Profile("", "", null, null, List.of(), null);
+    public static final Profile EMPTY = new Profile("", "", null, null, List.of(), false, null);
 
     public Profile {
         fields = List.copyOf(fields);
