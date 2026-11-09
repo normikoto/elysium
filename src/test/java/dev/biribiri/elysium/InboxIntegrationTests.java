@@ -232,7 +232,9 @@ class InboxIntegrationTests {
         mvc.perform(get(NOTIFICATIONS).with(user(bob)))
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[*].type").value(contains("follow_request", "follow_request")))
-                .andExpect(jsonPath("$[*].account.id").value(contains(carol.id().toString(), alice.id().toString())));
+                // Each request is notified by its own listener, which can run in either order.
+                .andExpect(jsonPath("$[*].account.id")
+                        .value(containsInAnyOrder(carol.id().toString(), alice.id().toString())));
         mvc.perform(get(GROUPS).with(user(bob)))
                 .andExpect(jsonPath("$.notification_groups", hasSize(2)))
                 .andExpect(jsonPath("$.notification_groups[0].group_key", startsWith("ungrouped-")));
