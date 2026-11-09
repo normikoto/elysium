@@ -10,6 +10,8 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.TagFilter;
+import dev.biribiri.elysium.text.Hashtags;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -95,6 +97,7 @@ class PagesController {
         var profile = profiles.find(actor.id());
         model.addAttribute("actor", actor);
         model.addAttribute("profile", profile);
+        model.addAttribute("bio", profile.noteHtml(instance.baseUrl()));
         model.addAttribute("name", profile.displayName().isEmpty() ? "@" + actor.username() : profile.displayName());
         model.addAttribute("avatar", profile.avatar() == null ? null : instance.resolve(profile.avatar().path()));
         model.addAttribute("header", profile.header() == null ? null : instance.resolve(profile.header().path()));
@@ -137,6 +140,27 @@ class PagesController {
         return "status";
     }
 
+    /**
+     * Where hashtags link to, here and on other servers, which is why this is a page for people rather than an ActivityPub
+     * collection. It lists public statuses from any server, as Mastodon's does.
+     */
+    @GetMapping("/tags/{name}")
+    String tag(
+            @PathVariable String name,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            Model model,
+            HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
+        requireHtmlAccepted(request);
+        var tag = Hashtags.parse(name).orElseThrow(PagesController::notFound);
+        var page = firstPage(maxId == null ? null : Ids.parse(maxId).orElseThrow(PagesController::notFound));
+        var found = statuses.findTagged(TagFilter.of(tag), StatusOrigin.ANY, page);
+
+        model.addAttribute("tag", tag);
+        model.addAttribute("statuses", profileViews(found, null));
+        model.addAttribute("olderThan", found.size() == page.limit() ? found.getLast().id() : null);
+        return "tag";
+    }
+
     @GetMapping({"/users/{username}/statuses/{id}/likes", "/users/{username}/statuses/{id}/shares"})
     String collection(@PathVariable String username, @PathVariable String id, HttpServletRequest request)
             throws HttpMediaTypeNotAcceptableException {
@@ -166,8 +190,8 @@ class PagesController {
     }
 
     /**
-     * Shows each boost as the status it boosts, which can be from another server. A boost whose status can't be shown is
-     * left out.
+     * Shows each boost as the status it boosts. Statuses and boosted statuses can be from another server. A boost whose
+     * status can't be shown is left out.
      *
      * @param owner the local account whose statuses these are, or null to look up each booster
      */
@@ -190,7 +214,7 @@ class PagesController {
                     }
                     return Stream.of(status.isReblog()
                             ? StatusView.boosted(shown, author, actors.isLocal(author), booster)
-                            : StatusView.from(status, author));
+                            : StatusView.of(status, author, actors.isLocal(author)));
                 })
                 .toList();
     }

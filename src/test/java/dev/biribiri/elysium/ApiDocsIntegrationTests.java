@@ -51,6 +51,8 @@ class ApiDocsIntegrationTests {
                 .andExpect(jsonPath("$.paths['/api/v1/statuses']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/statuses/{id}']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/timelines/public']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/timelines/tag/{hashtag}']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/tags/{id}']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/instance']").exists());
     }
 
@@ -201,7 +203,7 @@ class ApiDocsIntegrationTests {
     void namesSchemasAfterMastodonsEntities() throws Exception {
         var schemas = document().get("components").get("schemas");
         assertThat(schemas.propertyNames()).contains(
-                "Account", "CredentialAccount", "Status", "Relationship", "Application", "Instance", "Search",
+                "Account", "CredentialAccount", "Status", "Relationship", "Application", "Instance", "Search", "Tag",
                 "AdminAccount", "AdminDomainBlock", "Error");
     }
 

@@ -31,12 +31,11 @@ record StatusView(Status status, String authorName, String authorUrl, String url
     }
 
     /**
-     * @param local whether the boosted status's author is a local account
+     * @param local whether the author is a local account
      */
-    static StatusView boosted(Status status, Actor author, boolean local, Actor booster) {
+    static StatusView of(Status status, Actor author, boolean local) {
         if (local) {
-            var view = from(status, author);
-            return new StatusView(status, view.authorName, view.authorUrl, view.url, view.publishedAt, booster.username());
+            return from(status, author);
         }
         return new StatusView(
                 status,
@@ -44,6 +43,14 @@ record StatusView(Status status, String authorName, String authorUrl, String url
                 author.uri().toString(),
                 (status.url() == null ? status.uri() : status.url()).toString(),
                 DISPLAY.format(status.publishedAt()),
-                booster.username());
+                null);
+    }
+
+    /**
+     * @param local whether the boosted status's author is a local account
+     */
+    static StatusView boosted(Status status, Actor author, boolean local, Actor booster) {
+        var view = of(status, author, local);
+        return new StatusView(status, view.authorName, view.authorUrl, view.url, view.publishedAt, booster.username());
     }
 }

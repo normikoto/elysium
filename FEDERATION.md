@@ -36,8 +36,9 @@ Each actor document includes `publicKey` with an RSA 2048 key, identified as `{a
 An actor document also has the user's profile, as Mastodon sends it, and leaves out each part that's empty:
 
 - `name`, the display name, which is plain text of up to 30 characters.
-- `summary`, the bio, as HTML: `<p>` paragraphs and `<br>` line breaks, with URLs as `<a>` links. Everything else is
-  escaped.
+- `summary`, the bio, as HTML: `<p>` paragraphs and `<br>` line breaks, with URLs as `<a>` links and hashtags in
+  [the same markup as a status's](#objects). Everything else is escaped.
+- `tag`, a `Hashtag` for each hashtag in the bio, as a `Note` has them.
 - `icon` and `image`, the avatar and header, as `Image`s with a `url` and a `mediaType` of `image/webp`. They're always WebP,
   and can be animated. An avatar is 400 × 400, and a header 1500 × 500.
 - `attachment`, the fields, as `PropertyValue`s (`schema:PropertyValue`), each with a `name` and a `value` that's HTML. A
@@ -45,7 +46,8 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
   sent, since each server checks for itself.
 - `published`, when the account was created, and `updated`, when the profile last changed, both to the second.
 
-The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields.
+The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields, and
+`Hashtag` (`as:Hashtag`).
 
 When a user changes their profile, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
 `{actor-uri}#profile/{milliseconds}`. It's addressed to the public, with the followers collection in `cc`, and its
@@ -124,8 +126,8 @@ that never existed.
 }
 ```
 
-A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, and `sensitive`, which is defined in its
-`@context` as `as:sensitive`. It can also have:
+A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, and `sensitive`. Its `@context` defines
+`sensitive` as `as:sensitive` and `Hashtag` as `as:Hashtag`, as Mastodon's does. It can also have:
 
 - `likes`: the post's likes collection, at `{note-uri}/likes`.
 - `shares`: the post's [boosts](#boosts) collection, at `{note-uri}/shares`.
@@ -134,7 +136,10 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 - `inReplyTo`: the parent status.
 - `contentMap`: the `content` under its language, if one is set.
 - `tag`: a `Mention` for each account the status mentions, with the actor's ID as `href` and its full address, such as
-  `@bob@example.com`, as `name`. Mentioned accounts that have since been suspended or deleted are left out.
+  `@bob@example.com`, as `name`. Mentioned accounts that have since been suspended or deleted are left out. Then a
+  `Hashtag` for each of its hashtags, up to 100, with `#` and the normalized name as `name`, such as `#café`, and this
+  server's page of public statuses with the tag, `/tags/{name}`, as `href`. A normalized name is lowercase, in
+  Unicode's NFKC form. That page is HTML only, and isn't an ActivityPub collection.
 
 Statuses are addressed like this, where `followers` is the author's followers collection and `mentioned` the actors in its
 `Mention` tags:
@@ -151,7 +156,8 @@ direct reply only addresses its parent's author if it mentions them, as on Masto
 
 In the `content`, a mention is a link to the actor's ID, in Mastodon's markup:
 `<span class="h-card" translate="no"><a href="…" class="u-url mention" title="@bob@example.com">@<span>bob</span></a></span>`.
-Only the username is shown, also for an actor on another server.
+Only the username is shown, also for an actor on another server. A hashtag is a link to its `href`, with the name as it
+was written: `<a href="…" class="mention hashtag" rel="tag">#<span>Café</span></a>`.
 
 A reply's `inReplyTo` is shown if the parent is public or unlisted, or if a followers-only status replies to its author's own
 followers-only status. A direct reply also shows a followers-only or direct parent if it mentions the parent's author, so
@@ -399,7 +405,7 @@ followers-only status only goes to those who were already following when it was 
 
 ```json
 {
-  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive"}],
+  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive", "Hashtag": "as:Hashtag"}],
   "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000#create",
   "type": "Create",
   "actor": "https://elysium.example/users/alice",
@@ -433,7 +439,7 @@ text, content warning, sensitivity, and language, but not the visibility or `inR
 
 ```json
 {
-  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive"}],
+  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive", "Hashtag": "as:Hashtag"}],
   "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000#updates/1767229260000",
   "type": "Update",
   "actor": "https://elysium.example/users/alice",
@@ -510,6 +516,10 @@ that isn't for anyone here is ignored, even if it's public, unless it's [boosted
   one. A `Mention` tag alone doesn't show it to anyone. A local user it addresses without a `Mention` tag can see it, but
   isn't listed as mentioned, as on Mastodon. A public or unlisted `Note` lists every local user it tags. Actors on other
   servers are only listed as mentioned if they're already known here, and they're never fetched for this.
+- **Hashtags:** a `Hashtag` tag's `name`, with or without its `#`, is the tag, up to 100 of them. Its `href` isn't
+  read. Names are matched without regard to case or Unicode composition, and one that needs no letter, has characters
+  other than letters, marks, digits, `_`, and an inner `·` or zero-width non-joiner, or is longer than 100 characters,
+  is ignored. Hashtag links in the `content` don't count, as on Mastodon.
 - **Content:** `content` is sanitized. `p`, `br`, `span`, `a`, `del`, `s`, `pre`, `code`, `em`, `strong`, `b`, `i`, `u`,
   `ul`, `ol`, `li`, and `blockquote` are kept, headings become bold paragraphs, and other elements are replaced by their
   text. Links keep only HTTP and HTTPS `href`s, and get `rel="nofollow noopener noreferrer"`. Only Mastodon's `h-card`,
@@ -518,7 +528,7 @@ that isn't for anyone here is ignored, even if it's public, unless it's [boosted
 - **Other properties:** `url` is kept if it's an HTTP or HTTPS URL, or a `Link` to one that's `text/html` or has no
   `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
   other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the
-  parent arrives later. Attachments, tags other than `Mention`, emoji, and polls aren't read yet.
+  parent arrives later. Attachments, tags other than `Mention` and `Hashtag`, emoji, and polls aren't read yet.
 - **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again. An
   [`Update`](#receiving-updates) is how it's changed.
 - **Edits:** a `Note` that has an `updated` later than its `published`, and no more than an hour ahead of this server's
@@ -542,8 +552,8 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   an actor. An `Update` of an actor that isn't stored, or of another actor, is ignored.
 - **Statuses:** an `Update` whose `object` is a `Note` is read with [the same checks as a `Create`](#receiving-statuses):
   it has to be attributed to the `actor` alone, with an `id` on the same host and port, and one sent as an ID is fetched.
-  It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, and the language
-  are replaced, and sanitized as they are for a `Create`. Its visibility, `inReplyTo`, `url`, and `published` aren't
+  It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, the language, and
+  the `Hashtag` tags are replaced, and read as they are for a `Create`. Its visibility, `inReplyTo`, `url`, and `published` aren't
   changed. Other object types, such as `Question`, are ignored.
 - **Order:** the `Note` needs an `updated`, and is only applied if that's later than its `published` and the edit stored
   last. Activities are processed in no order, so one that's older is ignored, and one without `updated` is ignored too, as

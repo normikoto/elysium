@@ -90,7 +90,7 @@ class StatusResponses {
      * @param filters the request's parameters to repeat in those links, leaving out the page cursors
      */
     ResponseEntity<List<StatusResponse>> page(
-            String path, Map<String, String> filters, StatusPage page, List<Status> found, Optional<UUID> viewer) {
+            String path, Map<String, ?> filters, StatusPage page, List<Status> found, Optional<UUID> viewer) {
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, path, filters, page.limit(), found.stream().map(Status::id).toList());
         return response.body(build(found, false, viewer));
@@ -115,6 +115,7 @@ class StatusResponses {
         var accountResponses = accounts.byId(authors.values());
         var ids = all.stream().map(Status::id).distinct().toList();
         var mentions = statuses.findMentions(ids);
+        var tags = statuses.findTags(ids);
         var likeStats = likes.stats(ids, viewer);
         var boostStats = boosts.stats(ids, viewer);
         BiFunction<Status, StatusResponse, StatusResponse> response = (status, reblog) -> StatusResponse.from(
@@ -122,6 +123,9 @@ class StatusResponses {
                 accountResponses.get(status.actorId()),
                 mentions.getOrDefault(status.id(), List.of()).stream()
                         .map(actor -> MentionResponse.from(actor, actors.isLocal(actor)))
+                        .toList(),
+                tags.getOrDefault(status.id(), List.of()).stream()
+                        .map(name -> StatusTagResponse.of(name, instance))
                         .toList(),
                 includeText,
                 status.isReblog() ? LikeStats.EMPTY : likeStats.getOrDefault(status.id(), LikeStats.EMPTY),

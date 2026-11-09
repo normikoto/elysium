@@ -2,8 +2,9 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.TagFilter;
+import dev.biribiri.elysium.text.Hashtags;
 import dev.biribiri.elysium.timeline.TimelineService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,6 +34,13 @@ public class TimelinesController {
 
     private static final String PUBLIC_PATH = "/api/v1/timelines/public";
     private static final String HOME_PATH = "/api/v1/timelines/home";
+    private static final String TAG_PATH = "/api/v1/timelines/tag/";
+
+    /**
+     * How many tags each of {@code any[]}, {@code all[]} and {@code none[]} can name, as on Mastodon, which ignores the
+     * rest.
+     */
+    private static final int TAGS_PER_MODE = 4;
 
     private final TimelineService timelines;
     private final StatusResponses responses;
@@ -84,8 +93,7 @@ public class TimelinesController {
     }
 
     /**
-     * No status has media yet, so {@code only_media} has nothing to return. Mastodon lets {@code local} win when both it and
-     * {@code remote} are given.
+     * No status has media yet, so {@code only_media} has nothing to return.
      */
     @GetMapping("/public")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
@@ -121,18 +129,89 @@ public class TimelinesController {
             @RequestParam(required = false) String remote,
             @RequestParam(name = "only_media", required = false) String onlyMedia) {
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
-        var origin = RequestParameters.flag(local) ? StatusOrigin.LOCAL
-                : RequestParameters.flag(remote) ? StatusOrigin.REMOTE
-                : StatusOrigin.ANY;
+        var origin = RequestParameters.origin(local, remote);
         List<Status> found = RequestParameters.flag(onlyMedia) ? List.of() : timelines.publicTimeline(origin, page);
 
         var filters = new LinkedHashMap<String, String>();
-        switch (origin) {
-            case LOCAL -> filters.put("local", "true");
-            case REMOTE -> filters.put("remote", "true");
-            case ANY -> {
+        RequestParameters.putOrigin(filters, origin);
+        return responses.page(PUBLIC_PATH, filters, page, found, RequestParameters.viewer(token));
+    }
+
+    /**
+     * Mastodon answers a name that isn't a tag with an empty list rather than a 404, and so does this. A name in
+     * {@code all[]} that isn't a tag can't match anything, so it empties the list, while one in {@code any[]} or
+     * {@code none[]} is ignored.
+     */
+    @GetMapping("/tag/{hashtag}")
+    @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getTagTimeline",
+            summary = "View public statuses with a hashtag",
+            description = """
+                    Differences from Mastodon: statuses from other servers are only stored when they're sent here, \
+                    which is when a local account follows their author or is addressed, and their hashtags are only \
+                    those in their `tag`. Statuses can't have media, so `only_media` returns an empty list. Tags are \
+                    matched without regard to case or Unicode composition, as Mastodon's normalized names are.
+
+                    Only public statuses are listed, including replies, and not ones from suspended accounts. A \
+                    `hashtag` that isn't a valid tag name gives an empty list.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#tag"),
+            parameters = {
+                    @Parameter(name = "hashtag", description = "The tag's name, without its `#`."),
+                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                            + StatusPage.MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
+                    @Parameter(name = "any[]", description = "Also list statuses with any of these tags. Only the "
+                            + "first " + TAGS_PER_MODE + " count."),
+                    @Parameter(name = "all[]", description = "Only list statuses that also have every one of these "
+                            + "tags. Only the first " + TAGS_PER_MODE + " count."),
+                    @Parameter(name = "none[]", description = "Leave out statuses with any of these tags. Only the "
+                            + "first " + TAGS_PER_MODE + " count."),
+                    @Parameter(name = "local", description = "Only list statuses from this server. " + ApiDocs.FLAG),
+                    @Parameter(name = "remote", description = "Only list statuses from other servers. Ignored if "
+                            + "`local` is true. " + ApiDocs.FLAG),
+                    @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG)
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The statuses, newest first.")
+            })
+    public ResponseEntity<List<StatusResponse>> tagTimeline(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @PathVariable String hashtag,
+            @RequestParam(required = false) String limit,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            @RequestParam(name = "since_id", required = false) String sinceId,
+            @RequestParam(name = "min_id", required = false) String minId,
+            @RequestParam(name = "any[]", required = false) List<String> any,
+            @RequestParam(name = "all[]", required = false) List<String> all,
+            @RequestParam(name = "none[]", required = false) List<String> none,
+            @RequestParam(required = false) String local,
+            @RequestParam(required = false) String remote,
+            @RequestParam(name = "only_media", required = false) String onlyMedia) {
+        var page = RequestParameters.page(limit, maxId, sinceId, minId);
+        var origin = RequestParameters.origin(local, remote);
+        var anyNames = first(any);
+        var allNames = first(all);
+        var noneNames = first(none);
+        var filter = TagFilter.parse(hashtag, anyNames, allNames, noneNames);
+        // Without a Link header, which would have to repeat a name that may not fit in a URL.
+        if (filter.isEmpty()) {
+            return ResponseEntity.ok(List.of());
+        }
+        List<Status> found = RequestParameters.flag(onlyMedia) ? List.of() : timelines.tagTimeline(filter.get(), origin, page);
+
+        var filters = new LinkedHashMap<String, Object>();
+        for (var mode : List.of(Map.entry("any[]", anyNames), Map.entry("all[]", allNames), Map.entry("none[]", noneNames))) {
+            if (!mode.getValue().isEmpty()) {
+                filters.put(mode.getKey(), mode.getValue());
             }
         }
-        return responses.page(PUBLIC_PATH, filters, page, found, RequestParameters.viewer(token));
+        RequestParameters.putOrigin(filters, origin);
+        var path = TAG_PATH + Hashtags.parse(hashtag).orElseThrow();
+        return responses.page(path, filters, page, found, RequestParameters.viewer(token));
+    }
+
+    private static List<String> first(List<String> names) {
+        return names == null ? List.of() : names.stream().limit(TAGS_PER_MODE).toList();
     }
 }

@@ -295,14 +295,17 @@ public class ActivityPubController {
     }
 
     private List<Object> outboxItems(Actor author, List<Status> entries) {
-        var mentions = statuses.findMentions(entries.stream().filter(status -> !status.isReblog()).map(Status::id).toList());
+        var noteIds = entries.stream().filter(status -> !status.isReblog()).map(Status::id).toList();
+        var mentions = statuses.findMentions(noteIds);
+        var tags = statuses.findTags(noteIds);
         var boosted = statuses.findVisibleToAnyone(entries.stream().filter(Status::isReblog).map(Status::reblogOfId).toList())
                 .stream().collect(Collectors.toMap(Status::id, Function.identity()));
         var boostedAuthors = activeActors(boosted.values().stream().map(Status::actorId).distinct().toList());
         var items = new ArrayList<Object>();
         for (var status : entries) {
             if (!status.isReblog()) {
-                var note = notes.of(status, author, mentions.getOrDefault(status.id(), List.of()));
+                var note = notes.of(status, author, mentions.getOrDefault(status.id(), List.of()),
+                        tags.getOrDefault(status.id(), List.of()));
                 items.add(Create.of(note).withoutContext());
                 continue;
             }

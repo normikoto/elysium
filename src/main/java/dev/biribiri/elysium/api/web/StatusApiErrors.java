@@ -28,6 +28,7 @@ import java.util.Map;
         ProfileController.class,
         SearchController.class,
         StatusesController.class,
+        TagsController.class,
         TimelinesController.class})
 class StatusApiErrors {
 

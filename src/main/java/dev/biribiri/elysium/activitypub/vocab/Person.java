@@ -17,6 +17,7 @@ import java.util.List;
  * @param name       the display name, left out if there isn't one
  * @param summary    the bio as HTML, left out if there isn't one
  * @param attachment the profile's fields, as Mastodon sends them
+ * @param tag        the hashtags in the bio, as Mastodon sends them, left out if there are none
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
  * @param suspended  true if the actor is suspended. Otherwise this is left out, as other servers treat a missing one as false.
  */
@@ -38,6 +39,7 @@ public record Person(
         Image icon,
         Image image,
         List<PropertyValue> attachment,
+        List<Hashtag> tag,
         String published,
         String updated,
         Boolean suspended
@@ -74,13 +76,14 @@ public record Person(
     }
 
     public static Person from(Actor actor, Profile profile, InstanceProperties instance) {
+        var hashtags = profile.hashtags();
         return new Person(
                 ActivityStreams.PERSON_CONTEXT,
                 actor.uri(),
                 "Person",
                 actor.username(),
                 profile.displayName().isEmpty() ? null : profile.displayName(),
-                profile.note().isEmpty() ? null : profile.noteHtml(),
+                profile.note().isEmpty() ? null : profile.noteHtml(instance.baseUrl()),
                 // Browsers get the profile page from the same URL as the actor document.
                 actor.uri(),
                 actor.inboxUri(),
@@ -96,6 +99,7 @@ public record Person(
                         : profile.fields().stream()
                         .map(field -> new PropertyValue("PropertyValue", field.name(), field.valueHtml()))
                         .toList(),
+                hashtags.isEmpty() ? null : Hashtag.of(hashtags, instance),
                 ActivityStreams.time(actor.createdAt()),
                 ActivityStreams.time(profile.updatedAt()),
                 null);
@@ -119,6 +123,6 @@ public record Person(
     private Person with(List<?> context, Boolean suspended) {
         return new Person(
                 context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, endpoints,
-                publicKey, icon, image, attachment, published, updated, suspended);
+                publicKey, icon, image, attachment, tag, published, updated, suspended);
     }
 }

@@ -8,7 +8,7 @@ import java.net.URI;
  *
  * @param name the account's full address, such as {@code @alice@example.com}, which is what Mastodon sends
  */
-public record Mention(String type, URI href, String name) {
+public record Mention(String type, URI href, String name) implements Tag {
 
     public static Mention of(URI href, String name) {
         return new Mention("Mention", href, name);

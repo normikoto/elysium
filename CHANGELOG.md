@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   posts and the edits that other servers send, and `GET /api/v1/statuses/:id/history` lists them.
   `GET /api/v1/statuses/:id/source` gives a post's text for editing it. Versions from before upgrading aren't there. See
   `docs/api.md` and `FEDERATION.md`.
+- Hashtags. A `#tag` in a post or a bio links to a new page at `/tags/{name}` listing public posts with the tag, from
+  this server and others. Clients can read a post's `tags`, list a tag's posts through
+  `GET /api/v1/timelines/tag/:hashtag`, look a tag up through `GET /api/v1/tags/:id`, and find tags through
+  `GET /api/v2/search`. Tags are sent to other servers, and read from theirs. Posts from before upgrading have no tags,
+  and their hashtags aren't links, until they're edited, but bios link theirs straight away. Following and featuring
+  tags aren't supported yet. See `docs/api.md` and `FEDERATION.md`.
 - Outboxes, at `/users/{username}/outbox`, list each user's public and unlisted posts and boosts, so other servers can
   fetch a user's older posts.
 - Following an account on another server fetches its recent posts from its outbox, up to 40, so its profile and the home

@@ -167,7 +167,8 @@ class NoteStorage {
                 published,
                 // So that an Update older than this version can't replace it.
                 note.editedAt(published, Instant.now()),
-                mentions(note, addressed, visibility));
+                mentions(note, addressed, visibility),
+                note.hashtags());
         return store.apply(remote).isPresent() ? Result.STORED : Result.TAKEN;
     }
 

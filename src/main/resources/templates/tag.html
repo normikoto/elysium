@@ -1,0 +1,13 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(|#${tag}|, ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p th:if="${#lists.isEmpty(statuses)}">No posts to show.</p>
+        <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>
+        <p th:if="${olderThan != null}">
+            <a th:href="@{/tags/{name}(name=${tag},max_id=${olderThan})}">Older posts</a>
+        </p>
+        <p><a href="/">Back to the front page</a></p>
+    </div>
+</th:block>
+</html>

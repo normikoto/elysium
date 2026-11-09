@@ -25,6 +25,7 @@ import java.util.Optional;
  * @param published    its {@code published}, or null if that's missing or isn't a date
  * @param updated      its {@code updated}, when it was last edited, or null if that's missing or isn't a date
  * @param mentions     the {@code href} of each {@code Mention} in its {@code tag}, up to {@value #MAX_MENTIONS}
+ * @param hashtags     the {@code name} of each {@code Hashtag} in its {@code tag}, which {@link StatusService} checks
  */
 record RemoteNote(
         URI id,
@@ -38,7 +39,8 @@ record RemoteNote(
         Instant published,
         Instant updated,
         Addressing addressing,
-        List<URI> mentions) {
+        List<URI> mentions,
+        List<String> hashtags) {
 
     /**
      * Each mention is looked up, so a note can't make this server look up any number of them. Mastodon has no limit, but
@@ -54,6 +56,7 @@ record RemoteNote(
     RemoteNote {
         attributedTo = List.copyOf(attributedTo);
         mentions = List.copyOf(mentions);
+        hashtags = List.copyOf(hashtags);
     }
 
     /**
@@ -96,7 +99,18 @@ record RemoteNote(
                 timestamp(node.path("published")),
                 timestamp(node.path("updated")),
                 Addressing.of(node),
-                mentions(node.path("tag"))));
+                mentions(node.path("tag")),
+                hashtags(node.path("tag"))));
+    }
+
+    /**
+     * Only the {@code tag} array decides a note's hashtags, as on Mastodon, not links in its content.
+     */
+    private static List<String> hashtags(JsonNode tag) {
+        return ActivityJson.tags(tag).stream()
+                .filter(candidate -> "Hashtag".equals(candidate.type()) && candidate.name() != null)
+                .map(ActivityJson.Tag::name)
+                .toList();
     }
 
     private static List<URI> mentions(JsonNode tag) {

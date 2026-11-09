@@ -6,6 +6,8 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusVersion;
+import dev.biribiri.elysium.content.TagDay;
+import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.SimplePropertyRowMapper;
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Repository;
 import java.net.URI;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -190,10 +193,10 @@ public class StatusRepository {
     }
 
     /**
-     * @return whether the status was changed, which it isn't if it's someone else's, if it was edited at this time or later
-     * already, or if it was published at this time or later, so this isn't an edit
+     * @return the ID of the status if it was changed, which it isn't if it's someone else's, if it was edited at this time
+     * or later already, or if it was published at this time or later, so this isn't an edit
      */
-    public boolean updateRemote(
+    public Optional<UUID> updateRemote(
             URI uri, UUID actorId, String text, String content, String spoilerText, String language, boolean sensitive,
             Instant editedAt) {
         return edit("""
@@ -217,7 +220,7 @@ public class StatusRepository {
                         id = :id AND actor_id = :actorId AND reblog_of_id IS NULL
                         AND EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)""",
                 Map.of("id", id, "actorId", actorId),
-                text, content, spoilerText, language, sensitive, editedAt);
+                text, content, spoilerText, language, sensitive, editedAt).isPresent();
     }
 
     /**
@@ -227,7 +230,7 @@ public class StatusRepository {
      *
      * @param condition which status, from columns of {@code status}
      */
-    private boolean edit(
+    private Optional<UUID> edit(
             String condition, Map<String, Object> parameters, String text, String content, String spoilerText,
             String language, boolean sensitive, Instant editedAt) {
         var edited = jdbc.sql("""
@@ -256,7 +259,7 @@ public class StatusRepository {
                 .query(UUID.class)
                 .optional();
         edited.ifPresent(this::removeOldestEdits);
-        return edited.isPresent();
+        return edited;
     }
 
     /**
@@ -541,12 +544,42 @@ public class StatusRepository {
     }
 
     public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
-        var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + switch (origin) {
+        var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + origin(origin);
+        return findPage(filter, Map.of(), page);
+    }
+
+    /**
+     * Replies are listed too, as on Mastodon, since someone following a tag wants every status that uses it.
+     */
+    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page) {
+        var filter = new StringBuilder("""
+                s.visibility = 'public' AND s.reblog_of_id IS NULL
+                AND EXISTS (SELECT 1 FROM status_tag t WHERE t.status_id = s.id AND t.name = ANY (CAST(:any AS text[])))""");
+        var parameters = new HashMap<String, Object>();
+        parameters.put("any", tags.any().toArray(String[]::new));
+        if (!tags.all().isEmpty()) {
+            filter.append("""
+                     AND (SELECT count(*) FROM status_tag t WHERE t.status_id = s.id
+                          AND t.name = ANY (CAST(:all AS text[]))) = :allCount""");
+            parameters.put("all", tags.all().toArray(String[]::new));
+            parameters.put("allCount", tags.all().size());
+        }
+        if (!tags.none().isEmpty()) {
+            filter.append("""
+                     AND NOT EXISTS (SELECT 1 FROM status_tag t WHERE t.status_id = s.id
+                                     AND t.name = ANY (CAST(:none AS text[])))""");
+            parameters.put("none", tags.none().toArray(String[]::new));
+        }
+        filter.append(origin(origin));
+        return findPage(filter.toString(), parameters, page);
+    }
+
+    private static String origin(StatusOrigin origin) {
+        return switch (origin) {
             case ANY -> "";
             case LOCAL -> " AND author.is_local";
             case REMOTE -> " AND NOT author.is_local";
         };
-        return findPage(filter, Map.of(), page);
     }
 
     /**
@@ -675,6 +708,103 @@ public class StatusRepository {
                             .add(rs.getObject("actor_id", UUID.class));
                 });
         return mentions;
+    }
+
+    /**
+     * @param names normalized names
+     */
+    public void insertTags(UUID statusId, Collection<String> names) {
+        if (names.isEmpty()) {
+            return;
+        }
+        jdbc.sql("""
+                        INSERT INTO status_tag (status_id, name)
+                        SELECT :statusId, t.name FROM unnest(CAST(:names AS text[])) AS t (name)
+                        ON CONFLICT DO NOTHING
+                        """)
+                .param("statusId", statusId)
+                .param("names", names.toArray(String[]::new))
+                .update();
+    }
+
+    /**
+     * Unlike mentions, tags that an edit takes out go, since a tag doesn't decide who can see a status.
+     */
+    public void replaceTags(UUID statusId, Collection<String> names) {
+        jdbc.sql("DELETE FROM status_tag WHERE status_id = :statusId AND NOT (name = ANY (CAST(:names AS text[])))")
+                .param("statusId", statusId)
+                .param("names", names.toArray(String[]::new))
+                .update();
+        insertTags(statusId, names);
+    }
+
+    /**
+     * @return each status's tags, by name, for each status that has any
+     */
+    public Map<UUID, List<String>> findTags(Collection<UUID> statusIds) {
+        if (statusIds.isEmpty()) {
+            return Map.of();
+        }
+        var tags = new HashMap<UUID, List<String>>();
+        jdbc.sql("SELECT status_id, name FROM status_tag WHERE status_id IN (:statusIds) ORDER BY status_id, name")
+                .param("statusIds", statusIds)
+                .query(rs -> {
+                    tags.computeIfAbsent(rs.getObject("status_id", UUID.class), id -> new ArrayList<>())
+                            .add(rs.getString("name"));
+                });
+        return tags;
+    }
+
+    /**
+     * Tags whose names start with a prefix, used by the most public statuses first. Only statuses that could be listed
+     * count, so a tag that only a suspended account used isn't found.
+     *
+     * @param prefix a normalized name
+     */
+    public List<String> searchTags(String prefix, int limit, int offset) {
+        // Of the characters LIKE treats specially, only _ can be in a name.
+        var pattern = prefix.replace("_", "\\_") + "%";
+        return jdbc.sql("SELECT t.name " + FROM_ACTIVE + """
+                        JOIN status_tag t ON t.status_id = s.id
+                        WHERE s.visibility = 'public' AND t.name LIKE :pattern
+                        GROUP BY t.name
+                        ORDER BY count(*) DESC, t.name
+                        LIMIT :limit OFFSET :offset
+                        """)
+                .param("pattern", pattern)
+                .param("limit", limit)
+                .param("offset", offset)
+                .query(String.class)
+                .list();
+    }
+
+    /**
+     * @return the days since {@code since} on which each tag was used, by public statuses from active accounts
+     */
+    public Map<String, List<TagDay>> tagDays(Collection<String> names, Instant since) {
+        if (names.isEmpty()) {
+            return Map.of();
+        }
+        var days = new HashMap<String, List<TagDay>>();
+        // A status's ID comes from when it arrived, or for a backfilled one from when it was published, so no status
+        // published since then has an earlier ID. Bounding the ID lets the index skip the tag's older statuses.
+        jdbc.sql("""
+                        SELECT t.name, (s.published_at AT TIME ZONE 'UTC')::date AS day,
+                               count(*) AS uses, count(DISTINCT s.actor_id) AS accounts
+                        """ + FROM_ACTIVE + """
+                        JOIN status_tag t ON t.status_id = s.id
+                        WHERE s.visibility = 'public' AND s.published_at >= :since
+                        AND t.name = ANY (CAST(:names AS text[])) AND t.status_id >= :lowestId
+                        GROUP BY t.name, day
+                        """)
+                .param("names", names.toArray(String[]::new))
+                .param("lowestId", new UUID(since.toEpochMilli() << 16, 0L))
+                .param("since", OffsetDateTime.ofInstant(since, ZoneOffset.UTC))
+                .query(rs -> {
+                    days.computeIfAbsent(rs.getString("name"), name -> new ArrayList<>()).add(new TagDay(
+                            rs.getObject("day", LocalDate.class), rs.getLong("uses"), rs.getLong("accounts")));
+                });
+        return days;
     }
 
     /**
