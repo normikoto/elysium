@@ -43,7 +43,7 @@ public class FollowRequestAnswers {
         }
         var followed = actors.findLocalById(event.followedId());
         var follower = actors.findById(event.followerId());
-        if (followed.isEmpty() || follower.isEmpty() || actors.isLocal(follower.get())) {
+        if (followed.isEmpty() || follower.isEmpty() || !follower.get().isActive() || actors.isLocal(follower.get())) {
             return;
         }
         var accept = Accept.of(followed.get().uri(), event.activityUri(), follower.get().uri());
@@ -61,7 +61,7 @@ public class FollowRequestAnswers {
         }
         var followed = actors.findLocalById(event.followedId());
         var follower = actors.findById(event.followerId());
-        if (followed.isEmpty() || follower.isEmpty() || actors.isLocal(follower.get())) {
+        if (followed.isEmpty() || follower.isEmpty() || !follower.get().isActive() || actors.isLocal(follower.get())) {
             return;
         }
         var reject = Reject.of(followed.get().uri(), event.activityUri(), follower.get().uri());

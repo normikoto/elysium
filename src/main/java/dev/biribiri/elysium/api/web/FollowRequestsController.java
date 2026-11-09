@@ -117,8 +117,8 @@ public class FollowRequestsController {
             operationId = "rejectFollowRequest",
             summary = "Refuse a request to follow the user",
             description = """
-                    Differences from Mastodon: an account on another server that sends the same `Follow` again isn't \
-                    asking again, so it stays refused. A new `Follow` is a new request.
+                    Differences from Mastodon: an account on another server that sends the same `Follow` again within \
+                    about 34 days isn't asking again, so it stays refused. A new `Follow` is a new request.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "follow_requests/#reject"),

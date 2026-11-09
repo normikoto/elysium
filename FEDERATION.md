@@ -314,12 +314,13 @@ served to it. If the user refuses it, the follower gets a `Reject`, with the `id
 }
 ```
 
-A repeat of a refused `Follow`'s `id` is ignored, as for one that's been undone, and a `Follow` with a new `id` is a new
-request. When the user stops approving followers by hand, every request that's waiting is approved. Turning it on doesn't
-change who's already following.
+A repeat of a refused `Follow`'s `id` is ignored for about 34 days, as for one that's been undone, and a `Follow` with a
+new `id` is a new request. When the user stops approving followers by hand, every request that's waiting is approved.
+Turning it on doesn't change who's already following.
 
-An `Undo` removes a follow, or a request that's waiting, if its `object` names the `Follow` that created it, by `id`, or as an embedded `Follow` with an
-`id`. An embedded `Follow` with no `id` removes the follow between its actor and its `object`. Nothing happens if:
+An `Undo` removes a follow, or a request that's waiting, if its `object` names the `Follow` that created it, by `id`, or
+as an embedded `Follow` with an `id`. An embedded `Follow` with no `id` removes the follow between its actor and its
+`object`. Nothing happens if:
 
 - The embedded `Follow`'s `actor` isn't the actor that signed the `Undo`.
 - The follow came from a different `Follow`, which would be a newer one.

@@ -93,8 +93,9 @@ public class InboxProjection {
     }
 
     /**
-     * A request that's accepted without the account approving it, because it stopped approving followers by hand, gets
-     * the notification of a new follower in place of its request's.
+     * Requests are normally approved through {@link FollowRequestAuthorized}, which adds no notification, including when
+     * the account stops approving followers by hand. A remote request that's repeated after that, before its approval
+     * runs, is accepted as a new follow instead, so it gets this notification in place of its request's.
      */
     @ApplicationModuleListener
     public void on(FollowEstablished event) {

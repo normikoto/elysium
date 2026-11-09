@@ -1033,6 +1033,18 @@ class FollowIntegrationTests {
         });
     }
 
+    @Test
+    void anAccountThatLocksAgainStopsTheApprovalsLeft() {
+        lock(true);
+        followHandler.handle(follow(newId()));
+
+        assertThat(followService.authorizeUnlessLocked(follower(), followed.id())).isFalse();
+        assertThat(state()).isEqualTo("pending");
+
+        lock(false);
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(state()).isEqualTo("accepted"));
+    }
+
     private void lock(boolean locked) {
         assertThat(profiles.update(followed.id(), ProfileChange.NONE.withManuallyApprovesFollowers(locked))).isTrue();
     }

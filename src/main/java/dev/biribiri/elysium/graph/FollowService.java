@@ -244,6 +244,26 @@ public class FollowService {
     @Transactional
     public boolean authorize(Actor follower, UUID followedId) {
         follows.lock(pairKey(follower.uri().toString(), followedId));
+        return authorizeLocked(follower, followedId);
+    }
+
+    /**
+     * Like {@link #authorize}, unless the account approves its followers by hand again. That's read in the same transaction,
+     * after the same lock as {@link #receive}, so an account that locks itself again stops any more from being approved.
+     *
+     * @return false if the account approves its followers by hand, and nothing was changed
+     */
+    @Transactional
+    public boolean authorizeUnlessLocked(Actor follower, UUID followedId) {
+        follows.lock(pairKey(follower.uri().toString(), followedId));
+        if (profiles.lockFollowerApproval(followedId)) {
+            return false;
+        }
+        authorizeLocked(follower, followedId);
+        return true;
+    }
+
+    private boolean authorizeLocked(Actor follower, UUID followedId) {
         var authorized = follows.authorize(follower.id(), followedId);
         authorized.ifPresent(row -> events.publishEvent(
                 new FollowRequestAuthorized(row.id(), follower.id(), followedId, row.activityUri())));
@@ -252,8 +272,8 @@ public class FollowService {
 
     /**
      * Refuses a request to follow a local account, and publishes {@link FollowRequestRejected} so that the follower's
-     * server is told. A repeat of the same {@code Follow} is then ignored, as if it had been undone, while one with a new ID
-     * is a new request.
+     * server is told. A repeat of the same {@code Follow} is then ignored for as long as an undone one is, while one with a
+     * new ID is a new request.
      *
      * @return whether a request was waiting
      */

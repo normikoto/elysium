@@ -2,9 +2,9 @@ package dev.biribiri.elysium.graph;
 
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.FollowerApprovalTurnedOff;
-import dev.biribiri.elysium.actor.ProfileService;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.List;
 import java.util.UUID;
@@ -14,8 +14,8 @@ import java.util.UUID;
  *
  * <p>Each request is approved in its own transaction, so that an account with a lot of them doesn't hold one long one, and
  * a failure part of the way through leaves the rest for the event's retry. Approving only changes requests that are still
- * waiting, so running this again is harmless. If the account has started approving by hand again since, the requests are
- * left for it.
+ * waiting, so running this again is harmless. If the account starts approving by hand again, the requests not approved yet
+ * are left for it, which each approval checks for under the same locks as a new request.
  */
 @Component
 class FollowRequestApprovals {
@@ -24,15 +24,14 @@ class FollowRequestApprovals {
 
     private final FollowService follows;
     private final ActorService actors;
-    private final ProfileService profiles;
 
-    FollowRequestApprovals(FollowService follows, ActorService actors, ProfileService profiles) {
+    FollowRequestApprovals(FollowService follows, ActorService actors) {
         this.follows = follows;
         this.actors = actors;
-        this.profiles = profiles;
     }
 
-    @ApplicationModuleListener
+    // The listener would otherwise hold one transaction around every request it approves.
+    @ApplicationModuleListener(propagation = Propagation.NOT_SUPPORTED)
     void on(FollowerApprovalTurnedOff event) {
         var followedId = event.actorId();
         if (actors.findLocalById(followedId).isEmpty()) {
@@ -41,12 +40,11 @@ class FollowRequestApprovals {
         var after = new UUID(0, 0);
         List<UUID> followerIds;
         do {
-            if (profiles.find(followedId).manuallyApprovesFollowers()) {
-                return;
-            }
             followerIds = follows.requesterIds(followedId, after, BATCH_SIZE);
             for (var follower : actors.findByIds(followerIds)) {
-                follows.authorize(follower, followedId);
+                if (!follows.authorizeUnlessLocked(follower, followedId)) {
+                    return;
+                }
             }
             if (!followerIds.isEmpty()) {
                 after = followerIds.getLast();
