@@ -43,6 +43,9 @@ class HttpSignatureIntegrationTests {
     private CavageRequestSigner signer;
 
     @Autowired
+    private Rfc9421RequestSigner rfc9421Signer;
+
+    @Autowired
     private List<RequestSigner> signers;
 
     @Autowired
@@ -57,6 +60,20 @@ class HttpSignatureIntegrationTests {
         var verified = verifier.verify(signed("/users/bob/inbox", BODY, key), SignatureFixtures.UNLIMITED);
 
         assertThat(verified).isEqualTo(new VerifiedSignature(alice.publicKeyId(), alice.uri()));
+    }
+
+    @Test
+    void verifiesAnRfc9421RequestSignedWithALocalActorsKey() {
+        var grace = actors.createLocalIfAbsent("grace", actor -> {
+        }).orElseThrow();
+        var key = signingKeys.forActor(grace).orElseThrow();
+        var headers = new HttpHeaders();
+        headers.addAll(rfc9421Signer.sign("POST", URI.create("https://signatures.example/users/bob/inbox"), BODY, key));
+
+        var verified = verifier.verify(
+                new HttpRequestData("POST", "/users/bob/inbox", headers, BODY), SignatureFixtures.UNLIMITED);
+
+        assertThat(verified).isEqualTo(new VerifiedSignature(grace.publicKeyId(), grace.uri()));
     }
 
     @Test
@@ -107,8 +124,8 @@ class HttpSignatureIntegrationTests {
     }
 
     @Test
-    void injectsTheCavageSignerFirst() {
-        assertThat(signers.getFirst()).isSameAs(signer);
+    void injectsTheCavageSignerFirstAndThenRfc9421s() {
+        assertThat(signers).containsExactly(signer, rfc9421Signer);
     }
 
     @Test

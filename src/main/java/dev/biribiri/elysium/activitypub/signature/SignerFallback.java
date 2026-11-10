@@ -4,12 +4,18 @@ import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 /**
  * There's no way to tell which signature formats a server accepts before asking, so this tries each {@link RequestSigner}
  * in order, and moves on to the next one if the server refuses the request.
+ *
+ * <p>A 400 counts as a refusal because Mastodon answers a signature header it can't read with one, and retries on it
+ * itself. A 400 about something else only costs one more request.
  */
 final class SignerFallback {
+
+    private static final Set<Integer> REFUSALS = Set.of(400, 401, 403);
 
     private final List<RequestSigner> signers;
 
@@ -29,7 +35,7 @@ final class SignerFallback {
         Response response = null;
         for (var signer : signers) {
             response = attempt.send(signer);
-            if (response.status() != 401 && response.status() != 403) {
+            if (!REFUSALS.contains(response.status())) {
                 return response;
             }
         }

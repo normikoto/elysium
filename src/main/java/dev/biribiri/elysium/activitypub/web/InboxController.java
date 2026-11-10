@@ -47,8 +47,8 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
         dropped. A stored actor's `Delete` of itself whose key is gone is also answered this way, and checked with its \
         server.""")
 @ApiResponse(responseCode = "400", description = """
-        The signature header can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, \
-        or the `id` isn't a valid URI or is over\s""" + InboundActivity.MAX_ID_BYTES + " bytes.")
+        The signature or digest headers can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, \
+        and `actor`, or the `id` isn't a valid URI or is over\s""" + InboundActivity.MAX_ID_BYTES + " bytes.")
 @ApiResponse(responseCode = "401", description = "There's no signature in a supported format, or it isn't valid.")
 @ApiResponse(responseCode = "403", description = """
         The `id` isn't an HTTPS URL on the same host and port as the `actor`, the signer is suspended or deleted, or the \

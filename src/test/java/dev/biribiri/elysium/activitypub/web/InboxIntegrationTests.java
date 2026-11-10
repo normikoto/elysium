@@ -5,6 +5,7 @@ import dev.biribiri.elysium.activitypub.inbound.Inbox;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentStubs;
 import dev.biribiri.elysium.activitypub.signature.CavageRequestSigner;
+import dev.biribiri.elysium.activitypub.signature.Rfc9421RequestSigner;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -61,6 +62,8 @@ class InboxIntegrationTests {
     @Autowired
     private CavageRequestSigner signer;
     @Autowired
+    private Rfc9421RequestSigner rfc9421Signer;
+    @Autowired
     private Inbox inbox;
     @Autowired
     private DomainBlocks blocks;
@@ -77,6 +80,20 @@ class InboxIntegrationTests {
 
         signed(path, alice, activity(id, alice.uri().toString())).andExpect(status().isAccepted())
                 .andExpect(content().string(""));
+
+        assertThat(stored(id)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/users/alice/inbox", "/inbox"})
+    void queuesAnActivitySignedWithRfc9421(String path) throws Exception {
+        var alice = alice();
+        var id = newId(alice);
+        var body = activity(id, alice.uri().toString());
+        var headers = rfc9421Signer.sign(
+                "POST", URI.create(BASE + path), bytes(body), signingKeys.forActor(alice).orElseThrow());
+
+        send(post(path).contentType(ACTIVITY_JSON).headers(headers).content(body)).andExpect(status().isAccepted());
 
         assertThat(stored(id)).isEqualTo(1);
     }

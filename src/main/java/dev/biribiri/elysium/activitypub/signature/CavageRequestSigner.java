@@ -39,7 +39,7 @@ public class CavageRequestSigner implements RequestSigner {
     @Override
     public HttpHeaders sign(String method, URI target, byte[] body, SigningKey key) {
         // Checked first so that a bad URL always gets this error.
-        var host = host(target);
+        var host = SignedRequests.authority(target);
         var added = new HttpHeaders();
         // Spring writes a proper HTTP date. DateTimeFormatter.RFC_1123_DATE_TIME doesn't pad single-digit days, which
         // other servers can reject.
@@ -48,12 +48,12 @@ public class CavageRequestSigner implements RequestSigner {
         var names = new ArrayList<String>();
         var lines = new ArrayList<String>();
         names.add("(request-target)");
-        lines.add("(request-target): " + method.toLowerCase(Locale.ROOT) + " " + requestTarget(target));
+        lines.add("(request-target): " + method.toLowerCase(Locale.ROOT) + " " + SignedRequests.requestTarget(target));
         names.add("host");
         lines.add("host: " + host);
         names.add("date");
         lines.add("date: " + added.getFirst(HttpHeaders.DATE));
-        if (CavageSignatureScheme.needsDigest(method, body)) {
+        if (SignedRequests.needsDigest(method, body)) {
             added.set("Digest", "SHA-256=" + Base64.getEncoder().encodeToString(Digests.sha256(body)));
             names.add("digest");
             lines.add("digest: " + added.getFirst("Digest"));
@@ -64,22 +64,5 @@ public class CavageRequestSigner implements RequestSigner {
         added.set("Signature", "keyId=\"%s\",algorithm=\"rsa-sha256\",headers=\"%s\",signature=\"%s\"".formatted(
                 key.keyId(), String.join(" ", names), Base64.getEncoder().encodeToString(signature)));
         return added;
-    }
-
-    private static String requestTarget(URI target) {
-        var ascii = URI.create(target.toASCIIString());
-        var path = ascii.getRawPath() == null || ascii.getRawPath().isEmpty() ? "/" : ascii.getRawPath();
-        return ascii.getRawQuery() == null ? path : path + "?" + ascii.getRawQuery();
-    }
-
-    /**
-     * Leaves out a default port, as HTTP clients do when writing the {@code Host} header.
-     */
-    private static String host(URI target) {
-        // URI has no host for names it can't parse, such as ones with underscores or that aren't ASCII.
-        if (target.getScheme() == null || target.getHost() == null) {
-            throw new IllegalArgumentException("Can't sign a request to a URL without a valid host: " + target);
-        }
-        return KeyId.authority(target.getScheme(), target.getHost(), target.getPort());
     }
 }

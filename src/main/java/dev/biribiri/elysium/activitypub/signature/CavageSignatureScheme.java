@@ -51,7 +51,6 @@ class CavageSignatureScheme implements SignatureScheme {
     private static final String HS2019 = "hs2019";
 
     private static final Set<String> PSEUDO_HEADERS = Set.of(REQUEST_TARGET, CREATED, EXPIRES);
-    private static final Set<String> METHODS_WITHOUT_BODIES = Set.of("GET", "HEAD");
 
     /**
      * Limits the digits so that the value always fits in an {@link Instant}. Only {@code (expires)} can have a fraction.
@@ -114,16 +113,6 @@ class CavageSignatureScheme implements SignatureScheme {
         return List.of(names.split("\\s+"));
     }
 
-    /**
-     * This also decides what {@link CavageRequestSigner} signs, so that this server accepts its own requests.
-     *
-     * @return whether a signature has to cover a digest. Any method but these can have a body, so even an empty one
-     *         counts: otherwise, a sender could leave out the digest and have someone else add a body.
-     */
-    static boolean needsDigest(String method, byte[] body) {
-        return !METHODS_WITHOUT_BODIES.contains(method) || body.length > 0;
-    }
-
     private static void checkStrength(HttpRequestData request, String algorithm, List<String> covered) {
         for (var item : covered) {
             if (item.startsWith("(") && !PSEUDO_HEADERS.contains(item)) {
@@ -140,7 +129,7 @@ class CavageSignatureScheme implements SignatureScheme {
         if (!covered.contains(DATE) && !covered.contains(CREATED)) {
             throw rejected("Signature has to cover date or (created)");
         }
-        if (needsDigest(request.method(), request.body()) && !covered.contains(DIGEST_ITEM)) {
+        if (SignedRequests.needsDigest(request.method(), request.body()) && !covered.contains(DIGEST_ITEM)) {
             throw rejected("Signature has to cover digest");
         }
     }

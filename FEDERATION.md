@@ -185,7 +185,7 @@ plain JSON, without a JSON-LD processor, and no `@context` is ever fetched. Inbo
 | Status | Meaning                                                                                                      |
 |--------|--------------------------------------------------------------------------------------------------------------|
 | `202`  | The activity is queued, it's a repeat of one with the same `id`, it was [forwarded](#forwarded-activities) and will be fetched from its origin, or it was dropped |
-| `400`  | The signature header can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, or the `id` isn't a valid URI or is over 2048 bytes |
+| `400`  | The signature or digest headers can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, or the `id` isn't a valid URI or is over 2048 bytes |
 | `401`  | There's no signature in a supported format, or it isn't valid                                                |
 | `403`  | The activity's `id` is a valid URI, but not an HTTPS URL on the same host and port as its `actor`, or the signature's key is on a [blocked domain](#domain-blocks) |
 | `404`  | The user doesn't exist                                                                                       |
@@ -811,16 +811,33 @@ GoToSocial answer the same way.
 
 ### HTTP Signatures
 
-The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12).
-[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) isn't implemented. Inboxes require signatures, and fetches of `Note`s
-check one if it's sent. The only requests this server makes are fetches of keys, actors, outboxes, and other servers' activities
+The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12)
+and [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures. Inboxes require signatures, and fetches of
+`Note`s check one if it's sent. The only requests this server makes are fetches of keys, actors, outboxes, and other servers' activities
 and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`, and `Announce`.
 
-- **Signing:** Requests are signed with `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a
-  method other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.
-- **Verifying:** Signatures have to cover `(request-target)`, `host`, and either `date` or `(created)`, plus `digest` in
-  the same cases as above. `rsa-sha256` and `hs2019` are both accepted, and both are checked as RSA with SHA-256.
-  Signatures last 5 minutes unless they say otherwise, and at most 12 hours, with up to 1 hour of clock difference allowed.
+- **Signing:** Requests are signed with draft-cavage first, as Mastodon does. If the answer is a `400`, `401`, or
+  `403`, the same request is sent once more, signed with RFC 9421 instead. Which format a server accepted isn't
+  remembered, so every request starts with draft-cavage.
+  - draft-cavage signatures use `rsa-sha256`, and cover `(request-target)`, `host`, and `date`. Requests with a method
+    other than `GET` or `HEAD`, or with a body, also cover `digest`, sent as a SHA-256 `Digest` header.
+  - RFC 9421 signatures are labeled `sig1`, use `rsa-v1_5-sha256`, and cover `@method` and `@target-uri`, with
+    `created`, `keyid`, and `alg` parameters, and no `expires`. Requests that need a `digest` above cover
+    `content-digest` instead, sent as a SHA-256 `Content-Digest` header. No `Date` header is sent.
+- **Verifying:** A request with both `Signature-Input` and `Signature` headers is read as RFC 9421, and one with only
+  `Signature` as draft-cavage.
+  - draft-cavage signatures have to cover `(request-target)`, `host`, and either `date` or `(created)`, plus `digest`
+    in the same cases as above. `rsa-sha256` and `hs2019` are both accepted, and both are checked as RSA with SHA-256.
+  - RFC 9421 signatures have to cover `@method`, and either `@target-uri`, or `@authority` with `@request-target` or
+    with both `@path` and `@query`. They also have to cover `content-digest` in the same cases as `digest` above, and
+    have `created` and `keyid` parameters. `alg` can be left out, and if it's there it has to be `rsa-v1_5-sha256`.
+    A `Content-Digest` can have `sha-256` or `sha-512`, and every one of these it has has to match. Components with
+    parameters, such as `;sf` or `;req`, aren't accepted, nor are `@query-param` and `@status`. If a request has several
+    signatures, the first one, in `Signature-Input` order, that meets all of this is checked, and the others are
+    ignored.
+  - In both formats, `host` and `@authority` are always this server's own name, whatever the `Host` header says.
+    Signatures last 5 minutes unless they say otherwise, and at most 12 hours, with up to 1 hour of clock difference
+    allowed.
 - **Fetching keys:** Fetches are signed as the [instance actor](#instance-actor).
 
 ## WebFinger

@@ -95,6 +95,33 @@ final class SignatureFixtures {
             "K7AkJjmrg+0sPNZBWwMUq2AORYdCny++6TJpC7+jQlRrUApPInzUMIoD2sjFj01XUf9y0pkTPSOc4oByPtXFU7ETZYLcwKvOFE/FXQfpeRdU+U7ohwlqCdtezwPJKySrFK3BCW/KO03AHsdki/7ywxvfBuGva675tDbVZBbZskUcHlylacRTXA1AFTsGhjJuvr3ORWZTmFHl2JqVJry4kbnbsrzmLYolecZim0fA/lkBFB/P2hYg1NrfilyMQ551ShEJ+Dl39XllG+DIJNmbvgQMGILYedMA5bvsQupGkMfUGgNRGIQwUpzXXb42fFYsng4/eJCZcVg8eU/kf9ixVA==";
 
     /**
+     * The SHA-512 of {@link #BODY}, made with {@code openssl dgst -sha512 -binary}.
+     */
+    static final String BODY_SHA512 =
+            "2Zff58xsFuebfSQtprwv7ZmmVBQR8ep5Pjta8geJjAeRVjpp/hbJaMWfWo9jglZ5krZKPk4c3ig1De/c5z0+4w==";
+
+    static final String RFC_9421_POST_INPUT = "sig1=(\"@method\" \"@target-uri\" \"content-digest\");created=1793707200;"
+            + "keyid=\"https://remote.example/users/bob#main-key\";alg=\"rsa-v1_5-sha256\"";
+
+    /**
+     * An RFC 9421 signature of {@link #RFC_9421_POST_INPUT}, which covers {@code @method: POST},
+     * {@code @target-uri: https://example.test/users/alice/inbox}, and {@code content-digest: sha-256=:} followed by
+     * {@link #BODY_DIGEST} and {@code :}.
+     */
+    static final String RFC_9421_POST_SIGNATURE =
+            "dU3IGNPAf7d7VG4obA+z3EPNpjwsxjiMWKLsaCPkX+rftFM+9nZ/oUAJ3Q949du30R8e8uIMjB5oj9CAYML3ACCOcC/LE+gb5dtcxIZU2a+EOwACz8XY0e7c6GGfktXDWbCib5xD74bhb/ihwczkiUmngOYTEi0dreRLsIAq7n73UJR/PcZrl4xriRQwjY/SD7h2zhv6c5slw2PopgPmLXmDc4eHHbZM8iffaPqNMUlhlsp7z7IEdWzBseMTEVCGvAUToFkTr+sh5mELYqOrVUTvmgxGCg3mn4aD5NLNgVONWY8nE4V18IEgth7E23ttiUuAZyuiVHcDSBWPRoIbUQ==";
+
+    static final String RFC_9421_GET_INPUT = "sig1=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1793707200;"
+            + "keyid=\"https://remote.example/users/bob#main-key\"";
+
+    /**
+     * An RFC 9421 signature of {@link #RFC_9421_GET_INPUT}, which covers {@code @method: GET},
+     * {@code @authority: example.test}, {@code @path: /users/alice}, and {@code @query: ?page=1}.
+     */
+    static final String RFC_9421_GET_SIGNATURE =
+            "DHPt95ECF4AfDJW6dEzkuo/LETStFEEzQWWjqCvkdqVUo41kfZ0QuaeRIyOFyqJ10i7yR9GqhOl1U5vUalyd+NDiAd9LzYpO0bg4navnAHZzy01MMKjv+cHAsUpaEW9p4s2SfV3vkdiiV9AIQpMpUXqWK4iettk3k3wrNR730vNDX5KncVXVQkDIwcMtl+yKl2uAaadCVhqliQGt3LFLMWBeU3IXty36PVyknGeQG/O3ocUKbJqqyY6ZxUaxGFOlOR4EuOE4s04n3LnJMlUcz3wLD7arwRiZU2037H4S42o9qq8XzIT8p8+SpcGsU40gmon3fV8O+uM3LF5yMMi2xA==";
+
+    /**
      * For tests that aren't about the budget. Application code has no way to skip it, because each caller has to choose one.
      */
     static final KeyFetchBudget UNLIMITED = () -> Optional.of(new KeyFetchBudget.Reservation() {

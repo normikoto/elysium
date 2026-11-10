@@ -62,7 +62,7 @@ class SignedFetcherTests {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {401, 403})
+    @ValueSource(ints = {400, 401, 403})
     void triesTheNextSignerAfterARefusal(int status) throws Exception {
         when(http.get(eq(URL), eq(ACCEPT), any()))
                 .thenReturn(new Response(status, null, null, new byte[0], null))
@@ -78,7 +78,7 @@ class SignedFetcherTests {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {200, 400, 404})
+    @ValueSource(ints = {200, 404, 410, 500})
     void stopsAtAnAnswerThatIsNotARefusal(int status) throws Exception {
         respond(status);
 
