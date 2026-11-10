@@ -3,13 +3,21 @@
 <th:block th:fragment="content">
     <div class="wide">
         <p>
-            Blocking a domain also blocks its subdomains. Nothing more is accepted from those servers or sent to them, and
-            their follows are removed. Removing a block doesn't bring back what was removed.
+            A block covers a domain's subdomains too. Suspending a server means nothing more is accepted from it or sent to
+            it, and what's stored from it is removed, its follows included. A limited server federates as usual, apart from
+            what the block rejects: rejecting its media means its attachments are linked to rather than kept here, and the
+            copies already kept are removed. Removing or easing a block doesn't bring back what was removed.
         </p>
         <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
         <form method="post" th:action="@{/admin/domain-blocks}">
             <label for="domain">Domain</label>
             <input type="text" id="domain" name="domain" th:value="${domain}" placeholder="example.com" required autofocus>
+            <label for="severity">What to do</label>
+            <select id="severity" name="severity">
+                <option value="suspend">Suspend the server</option>
+                <option value="noop">Only limit it</option>
+            </select>
+            <label><input type="checkbox" name="rejectMedia" value="true"> Reject its media</label>
             <label for="comment">Private comment (optional)</label>
             <input type="text" id="comment" name="comment" th:value="${comment}" th:maxlength="${maxCommentLength}">
             <button type="submit">Block</button>
@@ -22,7 +30,17 @@
                 <strong th:text="${block.domain()}"></strong>
                 <time th:datetime="${block.createdAt()}" th:text="${block.createdAt()}"></time>
             </p>
+            <p th:text="${block.suspended()} ? 'Suspended' : (${block.rejectMedia()} ? 'Limited: media rejected' : 'Limited')"></p>
             <p class="status-content" th:if="${block.comment() != null}" th:text="${block.comment()}"></p>
+            <form class="actions" method="post" th:action="@{/admin/domain-blocks/{id}(id=${block.id()})}">
+                <select name="severity" th:aria-label="|What to do about ${block.domain()}|">
+                    <option value="suspend" th:selected="${block.suspended()}">Suspend</option>
+                    <option value="noop" th:selected="${!block.suspended()}">Only limit</option>
+                </select>
+                <label><input type="checkbox" name="rejectMedia" value="true" th:checked="${block.rejectMedia()}"> Reject
+                    media</label>
+                <button type="submit">Save</button>
+            </form>
             <form class="actions" method="post" th:action="@{/admin/domain-blocks/{id}/delete(id=${block.id()})}">
                 <button type="submit">Remove</button>
             </form>

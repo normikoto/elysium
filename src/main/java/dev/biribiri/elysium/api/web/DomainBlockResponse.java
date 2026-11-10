@@ -10,14 +10,13 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * Mastodon's Admin::DomainBlock entity. Every block is a full block, so {@code severity}, {@code reject_media}, and
- * {@code reject_reports} are always the same. The list of blocks is never published, so there's no public comment, and
- * nothing to obfuscate.
+ * Mastodon's Admin::DomainBlock entity. The list of blocks is never published, so there's no public comment, and nothing
+ * to obfuscate.
  */
 @Schema(name = "AdminDomainBlock", description = """
-        Mastodon's Admin::DomainBlock entity. Every block is a full block, so `severity` is always `suspend`, \
-        `reject_media` and `reject_reports` are always true, `obfuscate` is always false, and `public_comment` is \
-        always null.""")
+        Mastodon's Admin::DomainBlock entity. `severity` is `suspend` or `noop`. A suspension always has `reject_media` \
+        and `reject_reports` true, since it rejects everything. Reports aren't supported, so a `noop` block's \
+        `reject_reports` is false. `obfuscate` is always false, and `public_comment` is always null.""")
 record DomainBlockResponse(
         String id,
         String domain,
@@ -31,17 +30,15 @@ record DomainBlockResponse(
         boolean obfuscate
 ) {
 
-    static final String SEVERITY = "suspend";
-
     static DomainBlockResponse from(DomainBlock block) {
         return new DomainBlockResponse(
                 block.id().toString(),
                 block.domain(),
                 digest(block.domain()),
                 ApiTimestamps.format(block.createdAt()),
-                SEVERITY,
-                true,
-                true,
+                block.severity().value(),
+                block.rejectsMedia(),
+                block.severity() == DomainBlock.Severity.SUSPEND,
                 block.privateComment(),
                 null,
                 false);

@@ -20,12 +20,15 @@ import java.util.stream.Collectors;
 
 @Repository
 public class LikeRepository {
-    /** Hides suspended and deleted actors, and those on blocked domains, so that they come back if that ends. */
+    /**
+     * Hides suspended and deleted actors, and those on suspended domains, so that they come back if that ends. A block
+     * that only limits a server, such as by rejecting its media, doesn't hide it.
+     */
     static String eligible(String actor) {
         var host = "regexp_replace(" + actor + ".domain, ':[0-9]+$', '')";
         return actor + ".suspended_at IS NULL AND " + actor + ".deleted_at IS NULL AND (" + actor
-                + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE " + host + " = b.domain OR right("
-                + host + ", length(b.domain) + 1) = '.' || b.domain))";
+                + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE b.severity = 'suspend' AND (" + host
+                + " = b.domain OR right(" + host + ", length(b.domain) + 1) = '.' || b.domain)))";
     }
 
     private final JdbcClient jdbc;

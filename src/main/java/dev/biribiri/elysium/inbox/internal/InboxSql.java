@@ -15,11 +15,12 @@ final class InboxSql {
 
     /** Suspension is left out, since it can be reversed and conversation keys mustn't change when it is. */
     static String notGone(String alias) {
-        // Actor domains can include a port; instance domain blocks apply to the DNS name, as DomainBlocks does.
+        // Actor domains can include a port; instance domain blocks apply to the DNS name, as DomainBlocks does. Only
+        // a suspension hides a server.
         var host = "regexp_replace(" + alias + ".domain, ':[0-9]+$', '')";
         return alias + ".deleted_at IS NULL AND (" + alias
-                + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE " + host + " = b.domain OR "
-                + "right(" + host + ", length(b.domain) + 1) = '.' || b.domain))";
+                + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE b.severity = 'suspend' AND (" + host
+                + " = b.domain OR right(" + host + ", length(b.domain) + 1) = '.' || b.domain)))";
     }
 
     static String visible(String status) {

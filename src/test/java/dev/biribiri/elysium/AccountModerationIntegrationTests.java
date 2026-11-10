@@ -583,6 +583,28 @@ class AccountModerationIntegrationTests {
     }
 
     @Test
+    void anAdminCanRejectARemoteAccountsMediaFromThePage() throws Exception {
+        var remote = newRemote();
+        var local = newAccount();
+        var session = TestOAuth.logIn(mockMvc, ADMIN, PASSWORD);
+
+        mockMvc.perform(post("/admin/accounts/" + remote.id() + "/reject-media").session(session).with(csrf()))
+                .andExpect(redirectedUrl("/admin/accounts"));
+        assertThat(actors.isMediaRejected(remote.id())).isTrue();
+        mockMvc.perform(get("/admin/accounts").session(session).param("username", remote.username()))
+                .andExpect(content().string(containsString("Media rejected")))
+                .andExpect(content().string(containsString("Allow media")));
+        mockMvc.perform(post("/admin/accounts/" + remote.id() + "/allow-media").session(session).with(csrf()))
+                .andExpect(redirectedUrl("/admin/accounts"));
+        assertThat(actors.isMediaRejected(remote.id())).isFalse();
+
+        mockMvc.perform(post("/admin/accounts/" + local.id() + "/reject-media").session(session).with(csrf()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(content().string(containsString("accounts on other servers")));
+        assertThat(actors.isMediaRejected(local.id())).isFalse();
+    }
+
+    @Test
     void thePageShowsWhyAnActionWasRefused() throws Exception {
         var session = TestOAuth.logIn(mockMvc, ADMIN, PASSWORD);
 

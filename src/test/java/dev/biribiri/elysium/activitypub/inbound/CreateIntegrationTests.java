@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.content.Focus;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -174,6 +175,24 @@ class CreateIntegrationTests {
         assertThat(stored.get(3).width()).isNull();
         assertThat(stored.get(3).blurhash()).isNull();
         assertThat(status(noteId).orElseThrow().get("sensitive")).isEqualTo(true);
+    }
+
+    @Test
+    void storesAttachmentsAsRejectedWhenItsServerOrAuthorsMediaIs() {
+        var note = new HashMap<>(note(noteId(), List.of(PUBLIC), List.of(followers)));
+        note.put("attachment", List.of(Map.of("type", "Document", "mediaType", "image/png",
+                "url", "https://" + host + "/a.png")));
+        blocks.create(host, DomainBlock.Severity.NOOP, true, null);
+
+        handler.handle(create(note));
+
+        var id = statusId((String) note.get("id"));
+        assertThat(attachments.findByStatuses(List.of(id)).get(id)).singleElement()
+                .satisfies(attachment -> assertThat(attachment.rejected()).isTrue());
+        assertThat(attachments.findForDownload(attachments.findByStatuses(List.of(id)).get(id).getFirst().id())).isEmpty();
+
+        // A limited server still federates.
+        assertThat(status((String) note.get("id"))).isPresent();
     }
 
     @Test

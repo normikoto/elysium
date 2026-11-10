@@ -64,7 +64,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   copied here shortly after they arrive, as Mastodon does, and until then, or if they can't be, `url` and an image's
   `preview_url` are the same as `remote_url`. A copy is checked like an upload, so its type is what the file is, and a
   file that isn't an accepted format is `unknown`. Copies are removed after 30 days by default, and aren't fetched
-  again, so older ones link to their server. Up to 16 are kept, more than Mastodon shows. Their
+  again, so older ones link to their server. Up to 16 are kept, more than Mastodon shows. One from a server or account
+  whose media an admin rejects is `unknown`, with `url` the same as `remote_url`, and no `preview_url`. Their
   `tags` are the hashtags their server listed for them, and are replaced when they're edited.
   Their `mentions` only list local accounts, and accounts on other servers that are already known here. A reply whose
   parent isn't stored has a null `in_reply_to_id` and `in_reply_to_account_id`.
@@ -222,18 +223,22 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
 - `GET /api/v1/accounts/:id/statuses` for an account on another server only lists its statuses stored here.
 
 Domain blocks follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/domain_blocks/), under
-`/api/v1/admin/domain_blocks`, with the `admin:read:domain_blocks` and `admin:write:domain_blocks` scopes. Every block is a
-full block, so these differ from Mastodon:
+`/api/v1/admin/domain_blocks`, with the `admin:read:domain_blocks` and `admin:write:domain_blocks` scopes, with these
+differences from Mastodon:
 
-- `severity` is required when creating a block, and has to be `suspend`. Mastodon's default is `silence`, and `silence` and
-  `noop` get a 422 here rather than cutting off a server that an admin only meant to limit.
-- `reject_media` and `reject_reports` are always returned as `true`, `obfuscate` as `false`, and `public_comment` as null.
-  Any values sent for them are ignored.
+- `severity` is required when creating a block, and has to be `suspend` or `noop`. Mastodon's default is `silence`, which
+  isn't supported, and gets a 422 here rather than a block that does more or less than an admin meant.
+- `reject_media` works on a `noop` block. A `suspend` block always rejects media, and is returned with `reject_media` and
+  `reject_reports` as `true`. Reports aren't supported, so a `noop` block's `reject_reports` is `false`. `obfuscate` is
+  always `false`, and `public_comment` null, and any values sent for `reject_reports`, `obfuscate`, and `public_comment`
+  are ignored.
+- `PUT` changes only what it's sent, as on Mastodon, and an empty `private_comment` removes it. Changing a block to
+  `suspend`, or turning on `reject_media`, removes what that block removes, and changing it back doesn't bring that back.
 - A domain with a wildcard, a port, or a URL's other parts is refused, as are IP addresses, a domain with only one label such
   as `com`, and this server's own domain or one above it. Blocks always cover subdomains and every port. A Unicode domain
   that converting would change, such as `faß.example`, has to be sent in its `xn--` form.
 - `private_comment` can be up to 1000 characters.
-- A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one that's already blocked.
+- A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one that's already blocked, unless the new block does more, such as suspending a subdomain of a `noop` block.
 
 Accounts follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/accounts/), under `/api/v1/admin/accounts`,
 with the `admin:read:accounts` and `admin:write:accounts` scopes, and these differ from Mastodon:

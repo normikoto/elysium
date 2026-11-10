@@ -782,7 +782,10 @@ A suspended account's actor document has no profile: no `name`, `summary`, `icon
 ### Domain blocks
 
 Admins can [block a domain](docs/accounts.md#domain-blocks), which also covers its subdomains and every port. Domains are
-compared in lowercase ASCII, without a trailing dot. A block is only ever a full one, with no lesser level.
+compared in lowercase ASCII, without a trailing dot. A block is either a suspension, which is what the rest of this section
+describes, or a limit (Mastodon's `noop`), which only rejects what it says. A limited server federates as usual. If its
+media is rejected, its actors' attachments aren't downloaded, and are shown as links to their server, whatever the file's
+host is. An admin can also reject the media of one account on another server. A suspension rejects media too.
 
 - **Inbound:** A delivery signed with a key on a blocked domain gets a `403`, before any key is fetched, so it doesn't use up
   any limits. This also applies to keys this server has already cached. A signature that's malformed or out of date still

@@ -19,6 +19,8 @@ import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.media.MediaProperties;
+import dev.biribiri.elysium.moderation.DomainBlock;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +84,10 @@ class MediaDownloadIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private HostRequests hostRequests;
+    @Autowired
+    private MediaRejections rejections;
+    @Autowired
+    private DomainBlocks blocks;
 
     private final Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
     private HttpServer server;
@@ -240,6 +246,99 @@ class MediaDownloadIntegrationTests {
         statuses.removeForDomain(author.domain());
 
         assertThat(blockedFile).doesNotExist();
+    }
+
+    @Test
+    void rejectingAServersMediaRemovesItsCopiesAndLinksToThem() throws Exception {
+        serve("/kept.png", 200, "image/png", TestImages.png(10, 10));
+        var attachment = attach("/kept.png", "image/png");
+        downloads.run(new MediaDownloadJob(attachment.id(), Instant.now()));
+        var file = media.directory().resolve(find(attachment).fileName());
+
+        var block = blocks.create(host, DomainBlock.Severity.NOOP, true, null);
+        rejections.run(new MediaRejectionJob(block.id(), null, Instant.now()));
+
+        var rejected = find(attachment);
+        assertThat(file).doesNotExist();
+        assertThat(rejected.rejected()).isTrue();
+        assertThat(rejected.shownType()).isEqualTo(AttachmentType.UNKNOWN);
+        assertThat(rejected.url(instance)).isEqualTo(attachment.remoteUrl());
+
+        // Nothing more is downloaded from it.
+        serve("/later.png", 200, "image/png", TestImages.png(10, 10));
+        var later = attach("/later.png", "image/png");
+        downloads.run(new MediaDownloadJob(later.id(), Instant.now()));
+        assertThat(requests).doesNotContainKey("/later.png");
+
+        blocks.delete(block.id());
+        await().atMost(Duration.ofSeconds(10)).until(() -> !find(attachment).rejected());
+        assertThat(find(attachment).shownType()).isEqualTo(AttachmentType.IMAGE);
+        assertThat(find(attachment).isCached()).isFalse();
+    }
+
+    @Test
+    void anotherBlockThatCoversAServerKeepsItsMediaRejected() {
+        var subdomain = "social." + host;
+        var uri = URI.create("https://" + subdomain + "/users/t");
+        var other = actors.upsertRemote(new RemoteActorProfile(uri, "t", subdomain, URI.create(uri + "/inbox"), null, null,
+                null, null));
+        var status = URI.create(uri + "/notes/" + UUID.randomUUID());
+        var id = statuses.storeRemote(new RemoteStatus(status, null, other.id(), "<p>Hi</p>", null, null,
+                Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
+                List.of(new RemoteAttachment(URI.create(uri + "/a.png"), AttachmentType.IMAGE, "image/png", null, null,
+                        null, null, null)))).orElseThrow();
+        var narrow = blocks.create(subdomain, DomainBlock.Severity.NOOP, true, null);
+        var broad = blocks.create(host, DomainBlock.Severity.NOOP, true, null);
+        rejections.run(new MediaRejectionJob(broad.id(), null, Instant.now()));
+        assertThat(attachments.findByStatuses(List.of(id)).get(id).getFirst().rejected()).isTrue();
+
+        // What lifting the broad block does, while the narrow one still covers the server, and then the other way round.
+        attachments.allowForDomain(host);
+        assertThat(attachments.findByStatuses(List.of(id)).get(id).getFirst().rejected()).isTrue();
+        blocks.update(broad.id(), DomainBlock.Severity.NOOP, true, null);
+        blocks.update(narrow.id(), DomainBlock.Severity.NOOP, false, null);
+        attachments.allowForDomain(subdomain);
+        assertThat(attachments.findByStatuses(List.of(id)).get(id).getFirst().rejected()).isTrue();
+
+        blocks.update(broad.id(), DomainBlock.Severity.NOOP, false, null);
+        attachments.allowForDomain(host);
+        assertThat(attachments.findByStatuses(List.of(id)).get(id).getFirst().rejected()).isFalse();
+    }
+
+    @Test
+    void rejectingMediaQueuesItsJobs() {
+        var block = blocks.create(host, DomainBlock.Severity.NOOP, true, null);
+        actors.setMediaRejected(author.id(), true);
+
+        for (var id : List.of(block.id(), author.id())) {
+            await().atMost(Duration.ofSeconds(10)).until(() -> jdbc.sql("""
+                            SELECT count(*) FROM scheduled_tasks
+                            WHERE task_name = 'media-rejection' AND convert_from(task_data, 'UTF8') LIKE :id
+                            """)
+                    .param("id", "%" + id + "%")
+                    .query(Long.class)
+                    .single() == 2);
+        }
+    }
+
+    @Test
+    void rejectingAnAccountsMediaRemovesItsCopies() throws Exception {
+        serve("/mine.png", 200, "image/png", TestImages.png(10, 10));
+        var attachment = attach("/mine.png", "image/png");
+        downloads.run(new MediaDownloadJob(attachment.id(), Instant.now()));
+        var file = media.directory().resolve(find(attachment).fileName());
+
+        assertThat(actors.setMediaRejected(author.id(), true)).isTrue();
+        rejections.run(new MediaRejectionJob(null, author.id(), Instant.now()));
+
+        assertThat(file).doesNotExist();
+        assertThat(find(attachment).rejected()).isTrue();
+
+        // Its server still rejecting media keeps it rejected when the account is allowed again.
+        var block = blocks.create(host, DomainBlock.Severity.NOOP, true, null);
+        actors.setMediaRejected(author.id(), false);
+        blocks.delete(block.id());
+        await().atMost(Duration.ofSeconds(10)).until(() -> !find(attachment).rejected());
     }
 
     @Test

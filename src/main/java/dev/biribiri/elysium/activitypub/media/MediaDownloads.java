@@ -65,6 +65,7 @@ public class MediaDownloads {
     private final HostRequests hostRequests;
     private final AttachmentProperties properties;
     private final RateLimiter budget;
+    private final MediaRejections rejections;
     private final Semaphore running = new Semaphore(MAX_RUNNING);
     private final Set<String> hostsDownloading = ConcurrentHashMap.newKeySet();
 
@@ -72,7 +73,9 @@ public class MediaDownloads {
      * @param scheduler lazy like everywhere else it's used, so that this doesn't affect when the scheduler is created
      */
     MediaDownloads(@Lazy SchedulerClient scheduler, MediaAttachments attachments, ActorService actors,
-                   FederationHttpClient http, HostRequests hostRequests, AttachmentProperties properties) {
+                   FederationHttpClient http, HostRequests hostRequests, AttachmentProperties properties,
+                   MediaRejections rejections) {
+        this.rejections = rejections;
         this.scheduler = scheduler;
         this.attachments = attachments;
         this.actors = actors;
@@ -108,6 +111,10 @@ public class MediaDownloads {
         var author = actors.findById(source.get().authorId()).filter(Actor::isActive);
         var url = source.get().url();
         if (author.isEmpty() || url.getHost() == null) {
+            return Jobs.done();
+        }
+        // A filter added since the attachment was stored. Its job marks the attachment as rejected.
+        if (rejections.isRejected(author.get().id(), author.get().uri())) {
             return Jobs.done();
         }
         if (!running.tryAcquire()) {

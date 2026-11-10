@@ -173,6 +173,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     what's attached to posts, so plan for more disk space. Behind nginx, raise `client_max_body_size`, as
     `docs/configuration.md` describes, or uploads over 1 MB are refused before they reach the server. Copies of other
     servers' attachments also take disk space, and `docs/configuration.md` describes how to limit them.
+- Domain blocks can now only limit a server rather than suspend it, as Mastodon's `noop` severity does, and can reject its
+  media, which shows its attachments as links instead of keeping copies. Admins can also reject the media of one account on
+  another server at `/admin/accounts`. See `docs/accounts.md`.
 
 ### Changed
 

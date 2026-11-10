@@ -183,7 +183,9 @@ public class MediaAttachments {
         for (var i = 0; i < remote.size(); i++) {
             var attachment = fromRemote(remote.get(i), authorId, statusId, now);
             attachments.insert(attachment, null, i);
-            added.add(attachment.id());
+            if (!attachment.rejected()) {
+                added.add(attachment.id());
+            }
         }
         published(added);
     }
@@ -218,7 +220,9 @@ public class MediaAttachments {
             if (existing == null) {
                 attachments.insert(given, null, i);
                 kept.add(given.id());
-                added.add(given.id());
+                if (!given.rejected()) {
+                    added.add(given.id());
+                }
             } else {
                 attachments.updateRemote(existing.id(), i, given.description(), given.focus(), given.blurhash(),
                         given.width(), given.height());
@@ -237,7 +241,7 @@ public class MediaAttachments {
         return new MediaAttachment(
                 Ids.timeOrdered(now), authorId, statusId, remote.type(), null, null, remote.mediaType(), null,
                 remote.width(), remote.height(), null, null, remoteDescription(remote.description()), remote.focus(),
-                remote.blurhash(), remote.url(), false, now);
+                remote.blurhash(), remote.url(), remote.rejected(), now);
     }
 
     private static String remoteDescription(String value) {
@@ -336,6 +340,48 @@ public class MediaAttachments {
             // Each batch commits by itself.
         }
         processDeletions();
+    }
+
+    /**
+     * Rejects the attachments of a server's actors, and removes the copies of them, for when an admin starts rejecting
+     * its media. They're shown as links from then on. Safe to repeat, and to stop partway.
+     *
+     * @param domain a domain as domain blocks have it, which covers its subdomains
+     */
+    public void rejectForDomain(String domain) {
+        while (attachments.rejectForDomain(domain) > 0) {
+            // Each batch commits by itself.
+        }
+        processDeletions();
+    }
+
+    /**
+     * Like {@link #rejectForDomain}, for one account on another server.
+     */
+    public void rejectForAccount(UUID actorId) {
+        while (attachments.rejectForAccount(actorId) > 0) {
+            // Each batch commits by itself.
+        }
+        processDeletions();
+    }
+
+    /**
+     * Stops rejecting a server's attachments, apart from those of accounts whose own are still rejected, or that another
+     * block still covers. They're shown as what they are again, but as links, since copies aren't downloaded again.
+     */
+    public void allowForDomain(String domain) {
+        while (attachments.allowForDomain(domain) > 0) {
+            // Each batch commits by itself.
+        }
+    }
+
+    /**
+     * Like {@link #allowForDomain}, for one account, unless a block on its server still rejects its media.
+     */
+    public void allowForAccount(UUID actorId) {
+        while (attachments.allowForAccount(actorId) > 0) {
+            // Each batch commits by itself.
+        }
     }
 
     private void discard(StoredMedia stored) {

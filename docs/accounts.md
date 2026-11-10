@@ -129,6 +129,11 @@ These apply straight away, but when a command does it, other servers may only be
 **Suspending an account on another server** refuses everything from it, stops sending to it, and removes its follows, which
 don't come back if the suspension ends. Its posts stored here are hidden, and come back if the suspension ends. To cut off a whole server, use a [domain block](#domain-blocks).
 
+**Rejecting an account's media**, at `/admin/accounts`, is for an account on another server whose posts are fine but whose
+attachments you don't want kept here. Its attachments are shown as links to its server instead of being downloaded, and the
+copies already kept are removed. Allowing its media again shows them as what they are, but still as links, since they aren't
+downloaded again.
+
 **Deleting a local account** can't be undone. Its posts and follows are removed, and other servers are asked to remove it
 too, which they may not do. Its username can't be used again, because other servers can still know it. Accounts on other
 servers can't be deleted, so suspend them instead.
@@ -163,10 +168,15 @@ Nobody can suspend or delete the server's last admin, so [choose another](#admin
 themselves from the admin page or the API.
 
 ## Domain blocks
-Admins can cut off another server at `/admin/domain-blocks`, or through the [API](api.md). A block covers the domain's
-subdomains too, and applies straight away. Nothing more is accepted from those servers or sent to them, and their follows and
-posts are removed. Removing a block doesn't bring those back, so followers on that server have to follow again. See
-[`FEDERATION.md`](../FEDERATION.md#domain-blocks) for what a block doesn't stop.
+Admins can cut off or limit another server at `/admin/domain-blocks`, or through the [API](api.md). A block covers the
+domain's subdomains too, and applies straight away. There are two kinds:
+
+- **Suspending** a server means nothing more is accepted from it or sent to it, and its follows and posts are removed.
+  Removing the block, or changing it to only limit the server, doesn't bring those back, so followers on that server have
+  to follow again. See [`FEDERATION.md`](../FEDERATION.md#domain-blocks) for what a suspension doesn't stop.
+- **Limiting** a server lets it federate as usual, apart from what you choose to reject. Rejecting its media shows its
+  posts' attachments as links to its server instead of downloading them, and removes the copies already kept, as rejecting
+  an account's media does.
 
 Comments on a block are only shown to admins. The list of blocks isn't published, but it isn't secret either, because anyone
 can test whether a domain is on it.

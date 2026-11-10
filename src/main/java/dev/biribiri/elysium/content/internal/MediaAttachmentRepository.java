@@ -438,6 +438,94 @@ public class MediaAttachmentRepository {
     }
 
     /**
+     * Matches an actor on a domain or its subdomains, ignoring a port, as domain blocks do.
+     */
+    private static final String ON_DOMAIN = """
+            (regexp_replace(a.domain, ':[0-9]+$', '') = :domain
+             OR right(regexp_replace(a.domain, ':[0-9]+$', ''), length(:domain) + 1) = '.' || :domain)""";
+
+    /**
+     * Rejects the attachments of a server's actors, and removes the copies of them, in one batch.
+     *
+     * @param domain a domain as domain blocks have it
+     * @return how many were changed, which is at most one batch
+     */
+    public int rejectForDomain(String domain) {
+        return reject("NOT a.is_local AND " + ON_DOMAIN, Map.of("domain", domain));
+    }
+
+    /**
+     * Like {@link #rejectForDomain}, for one actor.
+     */
+    public int rejectForAccount(UUID actorId) {
+        return reject("a.id = :actorId AND NOT a.is_local", Map.of("actorId", actorId));
+    }
+
+    private int reject(String actors, Map<String, Object> parameters) {
+        return jdbc.sql("""
+                        WITH old AS (
+                            SELECT m.id, m.file_name, m.preview_name FROM media_attachment m
+                            JOIN actor a ON a.id = m.account_id
+                            WHERE m.remote_url IS NOT NULL AND (NOT m.rejected OR m.file_name IS NOT NULL) AND %s
+                            LIMIT :limit
+                            FOR UPDATE OF m
+                        ), removed AS (
+                            UPDATE media_attachment m SET rejected = true, file_name = NULL, preview_name = NULL
+                            FROM old WHERE m.id = old.id
+                            RETURNING old.file_name, old.preview_name
+                        ), queued AS (
+                        """.formatted(actors) + QUEUE_REMOVED_FILES + """
+                        )
+                        SELECT count(*) FROM removed
+                        """)
+                .params(parameters)
+                .param("limit", BATCH_SIZE)
+                .query(Integer.class)
+                .single();
+    }
+
+    /**
+     * Whether an actor is still covered by a block that rejects its server's media. A narrower block and a broader one
+     * can both cover it, so lifting one doesn't lift the other.
+     */
+    private static final String STILL_REJECTED_BY_A_BLOCK = """
+            EXISTS (SELECT 1 FROM domain_block b WHERE (b.severity = 'suspend' OR b.reject_media)
+                AND (regexp_replace(a.domain, ':[0-9]+$', '') = b.domain
+                     OR right(regexp_replace(a.domain, ':[0-9]+$', ''), length(b.domain) + 1) = '.' || b.domain))""";
+
+    /**
+     * Stops rejecting a server's actors' attachments, other than those of actors whose own are rejected, or that another
+     * block still covers, in one batch. They're linked to again, and aren't downloaded.
+     *
+     * @return how many were changed, which is at most one batch
+     */
+    public int allowForDomain(String domain) {
+        return allow("NOT a.is_local AND " + ON_DOMAIN, Map.of("domain", domain));
+    }
+
+    /**
+     * Like {@link #allowForDomain}, for one actor, unless a block on its server still rejects its media.
+     */
+    public int allowForAccount(UUID actorId) {
+        return allow("a.id = :actorId", Map.of("actorId", actorId));
+    }
+
+    private int allow(String actors, Map<String, Object> parameters) {
+        return jdbc.sql("""
+                        UPDATE media_attachment SET rejected = false
+                        WHERE id IN (
+                            SELECT m.id FROM media_attachment m
+                            JOIN actor a ON a.id = m.account_id
+                            WHERE m.rejected AND a.media_rejected_at IS NULL AND %s AND NOT %s
+                            LIMIT :limit
+                        )
+                        """.formatted(actors, STILL_REJECTED_BY_A_BLOCK))
+                .params(parameters)
+                .param("limit", BATCH_SIZE)
+                .update();
+    }
+
+    /**
      * @return the names of files waiting to be removed, at most one batch
      */
     public List<String> findFilesToDelete() {
