@@ -133,6 +133,22 @@ class StatusRemovalIntegrationTests {
     }
 
     @Test
+    void asksBeforeRemoving() throws Exception {
+        var status = publish(Visibility.PUBLIC, "Not removed yet");
+        var session = logIn(ADMIN);
+
+        mockMvc.perform(get(PAGE + "/" + status.id() + "/remove").session(session))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Not removed yet")))
+                .andExpect(content().string(containsString("Remove permanently")));
+        mockMvc.perform(get(PAGE + "/not-an-id/remove").session(session)).andExpect(status().isNotFound());
+        mockMvc.perform(post(PAGE + "/not-an-id/remove").session(session).with(csrf()))
+                .andExpect(status().isNotFound());
+
+        assertThat(statuses.findVisible(status.id(), Optional.empty())).isPresent();
+    }
+
+    @Test
     void removesALocalStatusAndRemembersWhoDid() throws Exception {
         var status = publish(Visibility.PUBLIC, "Against the rules");
 
@@ -175,18 +191,27 @@ class StatusRemovalIntegrationTests {
     }
 
     @Test
-    void removalsGoWithTheAuthorsAccountOrServer() {
+    void removalsGoWithTheAuthorsAccount() {
         var author = remoteAuthor();
-        var byAccount = remoteStatus(author, Visibility.PUBLIC);
-        var byDomain = remoteStatus(remoteAuthor(), Visibility.PUBLIC);
-        statuses.remove(byAccount.id(), admin.id());
-        statuses.remove(byDomain.id(), admin.id());
+        var status = remoteStatus(author, Visibility.PUBLIC);
+        statuses.remove(status.id(), admin.id());
 
         statuses.removeAllBy(author.id());
-        statuses.removeForDomain(actors.findById(byDomain.actorId()).orElseThrow().domain());
 
-        assertThat(removals(byAccount)).isZero();
-        assertThat(removals(byDomain)).isZero();
+        assertThat(removals(status)).isZero();
+    }
+
+    @Test
+    void removalsOutlastADomainBlock() {
+        var author = remoteAuthor();
+        var status = remoteStatus(author, Visibility.PUBLIC);
+        statuses.remove(status.id(), admin.id());
+
+        statuses.removeForDomain(author.domain());
+        jdbc.sql("DELETE FROM deleted_remote_status WHERE uri = :uri").param("uri", status.uri().toString()).update();
+
+        assertThat(removals(status)).isOne();
+        assertThat(statuses.storeRemote(remote(status.uri(), status.url(), author, Visibility.PUBLIC))).isEmpty();
     }
 
     private Status publish(Visibility visibility, String text) {

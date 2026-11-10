@@ -628,8 +628,8 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
 - **Statuses:** a stored status is removed if its author is the `Delete`'s `actor`. A `Delete` of a status by someone else
   is ignored. Activities are processed in no order, so the `id` is remembered for 34 days, and a `Create` of it from the same
   actor that's processed later is ignored.
-- **Removed by an admin:** a status that an admin removes here is never stored again, whatever later sends it, and nothing
-  is sent to its server.
+- **Removed by an admin:** a status that an admin removes here is never stored again, whatever later sends it. No `Delete`
+  is sent for it, but local accounts that boosted it send an `Undo` of their `Announce`, as when its author deletes it.
 - **Actors:** a `Delete` whose `object` is its own `actor` deletes that actor, if it's stored, and removes its statuses and
   its follows in both directions and likes. Nothing is sent back. This is for good: the actor's URI is refused from then on, with a
   `403` for deliveries signed with its key, even if its server later gives the URI to a new actor. A `Delete` of an actor

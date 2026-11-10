@@ -843,7 +843,8 @@ public class StatusService {
             return Optional.empty();
         }
         var trimmed = query.strip();
-        return Ids.parse(trimmed).flatMap(statuses::findForModeration).or(() -> statuses.findForModeration(trimmed));
+        var id = Ids.parse(trimmed);
+        return id.isPresent() ? id.flatMap(statuses::findForModeration) : statuses.findForModeration(trimmed);
     }
 
     /**
@@ -874,11 +875,9 @@ public class StatusService {
             }
             // Before the row is locked, in the same order as when its server deletes it, which can happen meanwhile.
             statuses.lockUri(status.uri());
-            if (!deleteRemoteLocked(status.uri(), author.get().uri())) {
-                return Optional.<Status>empty();
-            }
+            // Even if its server deleted it meanwhile, since that's only remembered for a while, and it could be sent again.
             statuses.insertRemoval(status.uri(), status.actorId(), author.get().uri(), false, adminId);
-            return Optional.of(status);
+            return deleteRemoteLocked(status.uri(), author.get().uri()) ? Optional.of(status) : Optional.<Status>empty();
         });
         if (removed.isPresent()) {
             attachments.processDeletions();

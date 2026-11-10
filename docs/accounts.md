@@ -173,8 +173,8 @@ can't be undone.
 
 - **A post from this server** is deleted as if its author had deleted it, attachments included, and other servers are
   asked to delete it too, which they may not do.
-- **A post from another server** is only removed here, and nothing is sent to its server. It isn't accepted again, even if
-  its server sends it again.
+- **A post from another server** is only removed here, and its server isn't asked to delete it, though boosts of it by
+  your users are undone. It isn't accepted again, even if its server sends it again.
 
 The page only shows the content of public and unlisted posts, so admins don't get to read followers-only and direct posts
 by looking them up.

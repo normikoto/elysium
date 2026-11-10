@@ -35,9 +35,7 @@
             </th:block>
             <p th:if="${!status.shown()}">This status isn't public, so its content isn't shown.</p>
             <p><a th:href="${status.link()}" rel="nofollow noopener noreferrer">Open the original</a></p>
-            <form class="actions" method="post" th:action="@{/admin/statuses/{id}/remove(id=${status.id()})}">
-                <button type="submit">Remove</button>
-            </form>
+            <a th:href="@{/admin/statuses/{id}/remove(id=${status.id()})}">Remove</a>
         </div>
         <p><a href="/admin/accounts">Accounts</a> · <a href="/admin/domain-blocks">Domain blocks</a></p>
     </div>

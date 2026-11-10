@@ -536,8 +536,9 @@ public class StatusRepository {
     }
 
     /**
-     * Removes the statuses of every remote actor on a domain, in batches like {@link #removeAllBy}, and the deletions and removals
-     * remembered for them. Remote statuses have no tombstones.
+     * Removes the statuses of every remote actor on a domain, in batches like {@link #removeAllBy}, and the deletions
+     * remembered for them. Remote statuses have no tombstones. Admins' removals are kept, unlike other remote data, since a
+     * block can be lifted, and what an admin removed shouldn't come back with the server.
      *
      * @param domain a domain as {@code actor.domain} has it
      */
@@ -567,12 +568,6 @@ public class StatusRepository {
         jdbc.sql("""
                         DELETE FROM deleted_remote_status d USING actor a
                         WHERE a.domain = :domain AND NOT a.is_local AND d.actor_uri = a.uri
-                        """)
-                .param("domain", domain)
-                .update();
-        jdbc.sql("""
-                        DELETE FROM status_removal r USING actor a
-                        WHERE a.id = r.author_id AND a.domain = :domain AND NOT a.is_local
                         """)
                 .param("domain", domain)
                 .update();

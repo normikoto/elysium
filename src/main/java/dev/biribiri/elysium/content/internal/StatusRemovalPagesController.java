@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.time.temporal.ChronoUnit;
@@ -56,12 +57,27 @@ class StatusRemovalPagesController {
     }
 
     /**
+     * Removing can't be undone, and for a local status reaches other servers, so it's confirmed on a page of its own.
+     */
+    @GetMapping(PATH + "/{id}/remove")
+    String confirm(@PathVariable String id, Model model) {
+        var found = statuses.findForModeration(parse(id).toString()).flatMap(this::row)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        model.addAttribute("status", found);
+        return "admin-status-remove";
+    }
+
+    /**
      * A status that's gone meanwhile, whoever removed it, is the outcome that was asked for.
      */
     @PostMapping(PATH + "/{id}/remove")
     String remove(@PathVariable String id, Authentication authentication) {
-        Ids.parse(id).ifPresent(statusId -> statuses.remove(statusId, self(authentication)));
+        statuses.remove(parse(id), self(authentication));
         return "redirect:" + PATH + "?removed";
+    }
+
+    private static UUID parse(String id) {
+        return Ids.parse(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
     }
 
     private Optional<Row> row(Status status) {

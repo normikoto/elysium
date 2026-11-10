@@ -1,6 +1,7 @@
 -- Statuses that an admin removed, and who did. For a remote status this is also what keeps it from being stored again, so
 -- unlike deleted_remote_status, rows aren't purged with old jobs: its server never says it's gone, and can send it again
--- at any time. They go with the author's account or server. removed_by is null once that admin's actor is gone.
+-- at any time. They go with the author's account, but not with a domain block, which can be lifted. removed_by is null
+-- once that admin's actor is gone.
 CREATE TABLE status_removal
 (
     status_uri TEXT        NOT NULL,
