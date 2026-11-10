@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
@@ -51,6 +52,7 @@ class PagesController {
     private final ContentNegotiationManager contentNegotiation;
     private final RegistrationProperties registration;
     private final ProfileService profiles;
+    private final MediaAttachments attachments;
 
     PagesController(
             ActorService actors,
@@ -58,7 +60,9 @@ class PagesController {
             InstanceProperties instance,
             ContentNegotiationManager contentNegotiation,
             RegistrationProperties registration,
-            ProfileService profiles) {
+            ProfileService profiles,
+            MediaAttachments attachments) {
+        this.attachments = attachments;
         this.actors = actors;
         this.profiles = profiles;
         this.statuses = statuses;
@@ -186,7 +190,21 @@ class PagesController {
     }
 
     private Optional<StatusView> view(Status status) {
-        return actors.findLocalById(status.actorId()).map(author -> StatusView.from(status, author));
+        return actors.findLocalById(status.actorId())
+                .map(author -> StatusView.from(status, author))
+                .map(found -> withAttachments(List.of(found)).getFirst());
+    }
+
+    /**
+     * One lookup for every status on a page.
+     */
+    private List<StatusView> withAttachments(List<StatusView> views) {
+        var found = attachments.findByStatuses(views.stream().map(view -> view.status().id()).distinct().toList());
+        return views.stream()
+                .map(view -> view.withAttachments(found.getOrDefault(view.status().id(), List.of()).stream()
+                        .map(attachment -> AttachmentView.of(attachment, instance))
+                        .toList()))
+                .toList();
     }
 
     /**
@@ -216,7 +234,7 @@ class PagesController {
                             ? StatusView.boosted(shown, author, actors.isLocal(author), booster)
                             : StatusView.of(status, author, actors.isLocal(author)));
                 })
-                .toList();
+                .collect(Collectors.collectingAndThen(Collectors.toList(), this::withAttachments));
     }
 
     /**
@@ -230,7 +248,7 @@ class PagesController {
         return found.stream()
                 .filter(status -> authors.containsKey(status.actorId()))
                 .map(status -> StatusView.from(status, authors.get(status.actorId())))
-                .toList();
+                .collect(Collectors.collectingAndThen(Collectors.toList(), this::withAttachments));
     }
 
     private static StatusPage firstPage(UUID maxId) {

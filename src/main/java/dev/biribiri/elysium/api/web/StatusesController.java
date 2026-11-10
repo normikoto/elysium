@@ -4,6 +4,7 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
@@ -31,7 +32,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -78,7 +81,23 @@ public class StatusesController {
     public StatusResponse createFromForm(
             @AuthenticationPrincipal TokenPrincipal token, @RequestParam MultiValueMap<String, String> form) {
         rejectUnsupported(form);
-        return create(token, form.toSingleValueMap());
+        return create(token, withMediaIds(form));
+    }
+
+    /**
+     * A form repeats {@code media_ids[]} for each ID, which a single value for each name would lose.
+     */
+    private static Map<String, Object> withMediaIds(MultiValueMap<String, String> form) {
+        var parameters = new HashMap<String, Object>(form.toSingleValueMap());
+        parameters.remove("media_ids[]");
+        var ids = new ArrayList<String>();
+        ids.addAll(form.getOrDefault("media_ids", List.of()));
+        ids.addAll(form.getOrDefault("media_ids[]", List.of()));
+        ids.removeIf(String::isEmpty);
+        if (form.containsKey("media_ids") || form.containsKey("media_ids[]")) {
+            parameters.put("media_ids", ids);
+        }
+        return parameters;
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -90,8 +109,11 @@ public class StatusesController {
             description = """
                     Differences from Mastodon:
 
-                    - Media, polls, and scheduled statuses aren't supported, and `media_ids`, `poll`, or `scheduled_at` \
-                    with a value gets a 422 rather than being ignored. Empty values are allowed.
+                    - Polls and scheduled statuses aren't supported, and `poll` or `scheduled_at` with a value gets a \
+                    422 rather than being ignored. Empty values are allowed.
+                    - `media_ids` can have up to\s""" + MediaAttachments.MAX_PER_STATUS + """
+                     uploads that the user made and hasn't attached yet. As on Mastodon, a video or audio can't be \
+                    attached with anything else, and a status with media can have no text.
                     - The length limit defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS + """
                      characters rather than 500, and `GET /api/v1/instance` gives it. As in Mastodon, each URL \
                     counts as 23 characters, unless it's longer than 2048 characters, when it \
@@ -113,7 +135,8 @@ public class StatusesController {
                     @ApiResponse(responseCode = "404", description = "`in_reply_to_id` isn't a status the user can see."),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
-                            The status is empty or too long, a value is unsupported or of the wrong type, or the token \
+                            The status is empty or too long, media can't be attached, a value is unsupported or of the \
+                            wrong type, or the token \
                             has no user.""")
             })
     @RequestBody(required = true, content = @Content(
@@ -152,7 +175,9 @@ public class StatusesController {
             @AuthenticationPrincipal TokenPrincipal token, @PathVariable String id,
             @RequestParam MultiValueMap<String, String> form) {
         rejectUnsupportedInEdit(form);
-        return edit(token, id, form.toSingleValueMap());
+        var parameters = withMediaIds(form);
+        parameters.put("media_attributes", MediaAttributes.fromForm(form));
+        return edit(token, id, parameters);
     }
 
     @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -168,8 +193,12 @@ public class StatusesController {
 
                     Differences from Mastodon:
 
-                    - Media and polls aren't supported, and `media_ids`, `media_attributes[]`, or `poll` with a value \
-                    gets a 422 rather than being ignored. Empty values are allowed.
+                    - Polls aren't supported, and `poll` with a value gets a 422 rather than being ignored. Empty values \
+                    are allowed.
+                    - `media_ids` has every attachment the status is to have, in order, and can add the user's uploads \
+                    that aren't attached yet. A missing `media_ids` keeps the attachments it has. `media_attributes[]` \
+                    only changes `description` and `focus`, and a `thumbnail` gets a 422.
+                    - Earlier versions in the status's history don't keep their attachments.
                     - A missing `sensitive` or `language` keeps what the status has, as Mastodon does, and so does an \
                     empty `language`, so a language can't be removed. `visibility` and `in_reply_to_id` are ignored.
 
@@ -181,7 +210,8 @@ public class StatusesController {
                     @ApiResponse(responseCode = "404", description = "Not found, the status isn't the user's, or it's a boost."),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
-                            The status is empty or too long, a value is unsupported or of the wrong type, or the token \
+                            The status is empty or too long, media can't be attached, a value is unsupported or of the \
+                            wrong type, or the token \
                             has no user.""")
             })
     @RequestBody(required = true, content = @Content(
@@ -276,7 +306,10 @@ public class StatusesController {
             summary = "Delete a status",
             description = """
                     Only the author can delete a status. Other servers that were sent it are sent a `Delete`. \
-                    Deleting one of the user's boosts unboosts it, as `POST /api/v1/statuses/:id/unreblog` does. \
+                    Deleting one of the user's boosts unboosts it, as `POST /api/v1/statuses/:id/unreblog` does.
+
+                    Differences from Mastodon: unless `delete_media` is true, the status's attachments can be posted \
+                    again for an hour by default, which the server's admin sets, rather than a day. \
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#delete"),
             responses = {
@@ -286,7 +319,9 @@ public class StatusesController {
                     @ApiResponse(responseCode = "422", description = "The token has no user.")
             })
     public StatusResponse delete(
-            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            @Parameter(description = "Whether to delete its attachments now, rather than keep them to be posted again.")
+            @RequestParam(name = "delete_media", required = false) String deleteMedia) {
         var author = requireUser(token);
         var statusId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
         if (boosts.isOwnBoost(statusId, author)) {
@@ -297,8 +332,11 @@ public class StatusesController {
             boosts.unreblog(statusId, author);
             return response;
         }
-        return statuses.delete(statusId, author)
-                .map(found -> responses.oneWithText(found, RequestParameters.viewer(token)))
+        // Found first, since a deleted status has none.
+        var media = responses.attachmentsOf(statusId);
+        return statuses.delete(statusId, author, RequestParameters.flag(deleteMedia))
+                .map(found -> responses.deleted(found, RequestParameters.viewer(token),
+                        RequestParameters.flag(deleteMedia) ? List.of() : media))
                 .orElseThrow(RecordNotFoundException::new);
     }
 
@@ -423,7 +461,8 @@ public class StatusesController {
                 RequestParameters.string(parameters, "language"),
                 visibility(parameters),
                 RequestParameters.flag(parameters, "sensitive"),
-                replyParent(RequestParameters.string(parameters, "in_reply_to_id")));
+                replyParent(RequestParameters.string(parameters, "in_reply_to_id")),
+                mediaIds(parameters.get("media_ids")));
         return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
     }
 
@@ -434,10 +473,36 @@ public class StatusesController {
                 RequestParameters.string(parameters, "status"),
                 RequestParameters.string(parameters, "spoiler_text"),
                 RequestParameters.string(parameters, "language"),
-                isPresent(parameters.get("sensitive")) ? RequestParameters.flag(parameters, "sensitive") : null);
+                isPresent(parameters.get("sensitive")) ? RequestParameters.flag(parameters, "sensitive") : null,
+                parameters.containsKey("media_ids") ? mediaIds(parameters.get("media_ids")) : null,
+                MediaAttributes.read(parameters.get("media_attributes")));
         return statuses.edit(statusId, author, draft)
                 .map(found -> responses.one(found, Optional.of(author)))
                 .orElseThrow(RecordNotFoundException::new);
+    }
+
+    /**
+     * An ID that isn't one can't be an upload, so it's refused the same way as one that isn't the user's.
+     */
+    private static List<UUID> mediaIds(Object value) {
+        List<?> values = switch (value) {
+            case null -> List.of();
+            case String string when string.isEmpty() -> List.of();
+            case String string -> List.of(string);
+            case List<?> list -> list;
+            default -> throw new InvalidRequestException("Validation failed: media_ids must be a list of IDs");
+        };
+        var ids = new ArrayList<UUID>();
+        for (var id : values) {
+            if (!(id instanceof String string)) {
+                throw new InvalidRequestException("Validation failed: media_ids must be a list of IDs");
+            }
+            if (!string.isEmpty()) {
+                ids.add(RequestParameters.uuid(string).orElseThrow(() -> new InvalidRequestException(
+                        "Validation failed: Media can't be found, or is already attached to a status")));
+            }
+        }
+        return ids;
     }
 
     private static UUID requireUser(TokenPrincipal token) {
@@ -465,7 +530,7 @@ public class StatusesController {
             if (repeated || name.startsWith("visibility[")) {
                 throw new InvalidRequestException("Validation failed: visibility must be a single value");
             }
-            rejectIfPresent(name, value, isMediaOrPoll(name) || name.equals("scheduled_at"));
+            rejectIfPresent(name, value, isPoll(name) || name.equals("scheduled_at"));
         });
     }
 
@@ -473,12 +538,11 @@ public class StatusesController {
      * As for a new status, ignoring these would leave out what the user meant to change without telling them.
      */
     private static void rejectUnsupportedInEdit(Map<String, ?> parameters) {
-        parameters.forEach((name, value) ->
-                rejectIfPresent(name, value, isMediaOrPoll(name) || name.startsWith("media_attributes")));
+        parameters.forEach((name, value) -> rejectIfPresent(name, value, isPoll(name)));
     }
 
-    private static boolean isMediaOrPoll(String name) {
-        return name.equals("media_ids") || name.equals("media_ids[]") || name.equals("poll") || name.startsWith("poll[");
+    private static boolean isPoll(String name) {
+        return name.equals("poll") || name.startsWith("poll[");
     }
 
     private static void rejectIfPresent(String name, Object value, boolean unsupported) {
@@ -533,8 +597,12 @@ public class StatusesController {
             String language,
             @Schema(description = "Whether the content is sensitive. Missing keeps what the status has.")
             Boolean sensitive,
-            @Schema(description = "Not supported, and only accepted when empty.")
+            @Schema(description = """
+                    Every attachment the status is to have, in order, including new uploads. Missing keeps the ones it \
+                    has.""")
             List<String> media_ids,
+            @Schema(description = "Changes to the description and focus of the status's attachments.")
+            List<MediaAttributes.Body> media_attributes,
             @Schema(description = "Not supported, and only accepted when empty.")
             Map<String, Object> poll) {
     }
@@ -562,7 +630,9 @@ public class StatusesController {
             Boolean sensitive,
             @Schema(description = "The status this replies to, which the user has to be able to see.")
             String in_reply_to_id,
-            @Schema(description = "Not supported, and only accepted when empty.")
+            @Schema(description = """
+                    Uploads to attach, in order, which the user made and hasn't attached yet. A status with media can \
+                    have no text.""")
             List<String> media_ids,
             @Schema(description = "Not supported, and only accepted when empty.")
             Map<String, Object> poll,

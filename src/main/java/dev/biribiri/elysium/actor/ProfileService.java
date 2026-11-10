@@ -241,6 +241,35 @@ public class ProfileService {
         return rows;
     }
 
+    /**
+     * Refuses an image that's too large before it's read, since the server takes larger uploads for statuses.
+     *
+     * @throws InvalidProfileException if it's larger than {@link ProfileProperties#maxImageSize}
+     */
+    public void checkAvatarSize(long size) {
+        checkImageSize(ImageKind.AVATAR, size);
+    }
+
+    /**
+     * Like {@link #checkAvatarSize}.
+     */
+    public void checkHeaderSize(long size) {
+        checkImageSize(ImageKind.HEADER, size);
+    }
+
+    private void checkImageSize(ImageKind kind, long size) {
+        try {
+            Images.checkSize(size, properties.maxImageSize());
+        } catch (InvalidImageException e) {
+            throw invalid(kind, e);
+        }
+    }
+
+    private static InvalidProfileException invalid(ImageKind kind, InvalidImageException e) {
+        var name = kind == ImageKind.AVATAR ? "Avatar" : "Header";
+        return new InvalidProfileException("Validation failed: " + name + ": " + e.getMessage(), e);
+    }
+
     private StoredImage store(ProfileChange.Image change, ImageKind kind, List<StoredImage> stored) {
         if (!(change instanceof ProfileChange.Image.Upload(var file))) {
             return null;
@@ -250,8 +279,7 @@ public class ProfileService {
             stored.add(image);
             return image;
         } catch (InvalidImageException e) {
-            var name = kind == ImageKind.AVATAR ? "Avatar" : "Header";
-            throw new InvalidProfileException("Validation failed: " + name + ": " + e.getMessage(), e);
+            throw invalid(kind, e);
         }
     }
 

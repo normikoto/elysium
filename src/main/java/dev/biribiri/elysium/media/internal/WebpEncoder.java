@@ -34,7 +34,7 @@ public final class WebpEncoder {
     /**
      * Enough for a 6000 × 5000 photo. Decoding needs four bytes for each pixel.
      */
-    static final long MAX_PIXELS = 30_000_000;
+    public static final long MAX_PIXELS = 30_000_000;
 
     /**
      * Every frame of an animation is decoded at once, so they share a smaller budget: 100 frames of 500 × 500, say.
@@ -56,12 +56,21 @@ public final class WebpEncoder {
     private final Semaphore running = new Semaphore(2, true);
 
     /**
-     * An encoded image. {@code still} is the first frame of an animation, and null for a still image.
+     * An encoded image. {@code still} is the first frame of an animation, and null for a still image. {@code preview} is
+     * a still at the preview's size, and null if none was asked for.
      */
-    public record Encoded(byte[] image, byte[] still) {
+    public record Encoded(byte[] image, byte[] still, int width, int height, byte[] preview, int previewWidth,
+                          int previewHeight) {
     }
 
     public Encoded encode(byte[] bytes, ImageKind kind) {
+        return encode(bytes, kind, null);
+    }
+
+    /**
+     * @param previewKind the size of a still to make as well, or null for none
+     */
+    public Encoded encode(byte[] bytes, ImageKind kind, ImageKind previewKind) {
         var header = ImageHeader.read(bytes);
         if (header.pixels() > MAX_PIXELS) {
             throw new InvalidImageException("The image is larger than " + MAX_PIXELS / 1_000_000 + " megapixels");
@@ -80,13 +89,15 @@ public final class WebpEncoder {
             throw new IllegalStateException(e);
         }
         try {
-            return header.isAnimated() ? encodeAnimation(bytes, header, kind) : new Encoded(encodeStill(bytes, header, kind), null);
+            return header.isAnimated()
+                    ? encodeAnimation(bytes, header, kind, previewKind)
+                    : encodeStill(bytes, header, kind, previewKind);
         } finally {
             running.release();
         }
     }
 
-    private static byte[] encodeStill(byte[] bytes, ImageHeader header, ImageKind kind) {
+    private static Encoded encodeStill(byte[] bytes, ImageHeader header, ImageKind kind, ImageKind previewKind) {
         var image = decode(() -> {
             var loader = ImmutableImage.loader().detectOrientation(true);
             if (header.format() == ImageHeader.ImageFormat.WEBP) {
@@ -94,7 +105,12 @@ public final class WebpEncoder {
             }
             return loader.fromBytes(bytes);
         });
-        return write(fit(image, kind));
+        var fitted = fit(image, kind);
+        if (previewKind == null) {
+            return new Encoded(write(fitted), null, fitted.width, fitted.height, null, 0, 0);
+        }
+        var preview = fit(fitted, previewKind);
+        return new Encoded(write(fitted), null, fitted.width, fitted.height, write(preview), preview.width, preview.height);
     }
 
     /**
@@ -107,7 +123,7 @@ public final class WebpEncoder {
         }
     }
 
-    private static Encoded encodeAnimation(byte[] bytes, ImageHeader header, ImageKind kind) {
+    private static Encoded encodeAnimation(byte[] bytes, ImageHeader header, ImageKind kind, ImageKind previewKind) {
         var animation = decode(() -> {
             if (header.format() == ImageHeader.ImageFormat.GIF) {
                 var gif = AnimatedGifReader.read(ImageSource.of(bytes));
@@ -119,11 +135,21 @@ public final class WebpEncoder {
         if (animation.frames().isEmpty()) {
             throw new InvalidImageException("The animation has no frames");
         }
-        return writeAnimation(animation, kind);
+        return writeAnimation(animation, kind, previewKind);
     }
 
     private static ImmutableImage fit(ImmutableImage image, ImageKind kind) {
-        return image.cover(kind.width(), kind.height());
+        return switch (kind.fit()) {
+            case COVER -> image.cover(kind.width(), kind.height());
+            case WITHIN -> {
+                var pixels = (long) image.width * image.height;
+                if (pixels <= kind.pixels()) {
+                    yield image;
+                }
+                var scale = Math.sqrt((double) kind.pixels() / pixels);
+                yield image.scaleTo(Math.max(1, (int) (image.width * scale)), Math.max(1, (int) (image.height * scale)));
+            }
+        };
     }
 
     private static byte[] write(ImmutableImage image) {
@@ -139,16 +165,24 @@ public final class WebpEncoder {
      * play once. Each frame is fitted as it's written, so that only one is held at the size it's shown at, which can be
      * larger than the upload's.
      */
-    private static Encoded writeAnimation(Animation animation, ImageKind kind) {
+    private static Encoded writeAnimation(Animation animation, ImageKind kind, ImageKind previewKind) {
         Path directory = null;
         try {
             directory = Files.createTempDirectory("elysium-animation");
             var inputs = new ArrayList<Path>();
             byte[] still = null;
+            ImmutableImage first = null;
+            byte[] preview = null;
+            ImmutableImage previewImage = null;
             for (var i = 0; i < animation.frames().size(); i++) {
                 var fitted = fit(animation.frames().get(i), kind);
                 if (i == 0) {
+                    first = fitted;
                     still = write(fitted);
+                    if (previewKind != null) {
+                        previewImage = fit(fitted, previewKind);
+                        preview = write(previewImage);
+                    }
                 }
                 var input = directory.resolve(i + ".png");
                 Files.write(input, fitted.bytes(PngWriter.NoCompression));
@@ -159,7 +193,8 @@ public final class WebpEncoder {
                     .mapToInt(delay -> (int) (delay.compareTo(SHORTEST_FRAME) < 0 ? DEFAULT_FRAME : delay).toMillis())
                     .toArray();
             new Img2WebpHandler().convert(inputs, milliseconds, output, Math.max(animation.loops(), 0), QUALITY, -1, false);
-            return new Encoded(Files.readAllBytes(output), still);
+            return new Encoded(Files.readAllBytes(output), still, first.width, first.height, preview,
+                    previewImage == null ? 0 : previewImage.width, previewImage == null ? 0 : previewImage.height);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } finally {

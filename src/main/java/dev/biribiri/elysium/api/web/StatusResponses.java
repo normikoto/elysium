@@ -8,12 +8,15 @@ import dev.biribiri.elysium.content.BoostStats;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.LikeStats;
+import dev.biribiri.elysium.content.MediaAttachment;
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusVersion;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,6 +24,7 @@ import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 /**
@@ -35,10 +39,12 @@ class StatusResponses {
     private final StatusService statuses;
     private final LikeService likes;
     private final BoostService boosts;
+    private final MediaAttachments attachments;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
-            StatusService statuses, LikeService likes, BoostService boosts) {
+            StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments) {
+        this.attachments = attachments;
         this.likes = likes;
         this.boosts = boosts;
         this.actors = actors;
@@ -51,21 +57,37 @@ class StatusResponses {
      * @throws RecordNotFoundException if the status's author can't be loaded
      */
     StatusResponse one(Status status, Optional<UUID> viewer) {
-        return only(build(List.of(status), false, viewer));
+        return only(build(List.of(status), false, viewer, Map.of()));
     }
 
     /**
      * @throws RecordNotFoundException if the status's author can't be loaded
      */
     StatusResponse oneWithText(Status status, Optional<UUID> viewer) {
-        return only(build(List.of(status), true, viewer));
+        return only(build(List.of(status), true, viewer, Map.of()));
+    }
+
+    /**
+     * For a status that's just been deleted, whose attachments can't be found by it any more.
+     *
+     * @param media its attachments, from before it was deleted
+     */
+    StatusResponse deleted(Status status, Optional<UUID> viewer, List<MediaAttachment> media) {
+        return only(build(List.of(status), true, viewer, Map.of(status.id(), media)));
+    }
+
+    /**
+     * @return a status's attachments, for {@link #deleted}
+     */
+    List<MediaAttachment> attachmentsOf(UUID statusId) {
+        return attachments.findByStatuses(List.of(statusId)).getOrDefault(statusId, List.of());
     }
 
     /**
      * Leaves out statuses whose author can't be loaded, like {@link #page}.
      */
     List<StatusResponse> list(List<Status> found, Optional<UUID> viewer) {
-        return build(found, false, viewer);
+        return build(found, false, viewer, Map.of());
     }
 
     /**
@@ -76,7 +98,13 @@ class StatusResponses {
                 .filter(Actor::isActive)
                 .map(accounts::one)
                 .orElseThrow(RecordNotFoundException::new);
-        return versions.stream().map(version -> StatusEditResponse.from(version, account)).toList();
+        var media = attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of()).stream()
+                .map(attachment -> MediaAttachmentResponse.from(attachment, instance))
+                .toList();
+        var last = versions.size() - 1;
+        return IntStream.range(0, versions.size())
+                .mapToObj(i -> StatusEditResponse.from(versions.get(i), account, i == last ? media : List.of()))
+                .toList();
     }
 
     private static StatusResponse only(List<StatusResponse> built) {
@@ -93,7 +121,7 @@ class StatusResponses {
             String path, Map<String, ?> filters, StatusPage page, List<Status> found, Optional<UUID> viewer) {
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, path, filters, page.limit(), found.stream().map(Status::id).toList());
-        return response.body(build(found, false, viewer));
+        return response.body(build(found, false, viewer, Map.of()));
     }
 
     /**
@@ -101,7 +129,11 @@ class StatusResponses {
      * statuses were read, so that one of them doesn't fail the whole response. A boost is left out the same way when the
      * status it boosts can't be shown to the viewer.
      */
-    private List<StatusResponse> build(List<Status> found, boolean includeText, Optional<UUID> viewer) {
+    /**
+     * @param knownMedia attachments to use for statuses that can't be found by them any more
+     */
+    private List<StatusResponse> build(
+            List<Status> found, boolean includeText, Optional<UUID> viewer, Map<UUID, List<MediaAttachment>> knownMedia) {
         var originalIds = found.stream().filter(Status::isReblog).map(Status::reblogOfId).distinct().toList();
         var originals = (viewer.isPresent()
                 ? statuses.findVisible(originalIds, viewer.get())
@@ -116,6 +148,8 @@ class StatusResponses {
         var ids = all.stream().map(Status::id).distinct().toList();
         var mentions = statuses.findMentions(ids);
         var tags = statuses.findTags(ids);
+        var media = new HashMap<>(attachments.findByStatuses(ids));
+        media.putAll(knownMedia);
         var likeStats = likes.stats(ids, viewer);
         var boostStats = boosts.stats(ids, viewer);
         BiFunction<Status, StatusResponse, StatusResponse> response = (status, reblog) -> StatusResponse.from(
@@ -126,6 +160,9 @@ class StatusResponses {
                         .toList(),
                 tags.getOrDefault(status.id(), List.of()).stream()
                         .map(name -> StatusTagResponse.of(name, instance))
+                        .toList(),
+                media.getOrDefault(status.id(), List.of()).stream()
+                        .map(attachment -> MediaAttachmentResponse.from(attachment, instance))
                         .toList(),
                 includeText,
                 status.isReblog() ? LikeStats.EMPTY : likeStats.getOrDefault(status.id(), LikeStats.EMPTY),

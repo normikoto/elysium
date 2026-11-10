@@ -12,8 +12,14 @@ differs from Mastodon in these ways:
 
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
-- Media, polls, and scheduled posts aren't implemented. `media_ids`, `poll`, or `scheduled_at` with a value gets a 422
-  rather than being ignored, and so do `media_ids`, `media_attributes[]`, or `poll` with a value in an edit.
+- Polls and scheduled posts aren't implemented. `poll` or `scheduled_at` with a value gets a 422 rather than being
+  ignored, and so does `poll` with a value in an edit.
+- `media_ids` can have up to 4 of the user's uploads that aren't attached yet, as on Mastodon. A video or audio can't be
+  attached with anything else, and a status with media can have no text. In an edit, `media_ids` lists every attachment
+  the status is to have, in order, and a missing one keeps them. `media_attributes[]` only changes `description` and
+  `focus`, and a `thumbnail` in it gets a 422. An attachment that an edit takes out is deleted at once.
+- `DELETE /api/v1/statuses/:id` keeps the status's attachments so that they can be posted again, as on Mastodon, but for
+  an hour by default rather than a day. `delete_media=true` deletes them at once.
 - `PUT /api/v1/statuses/:id` keeps the status's `language` when it's missing or empty, as Mastodon does, so a language
   can't be removed. A missing `sensitive` keeps what the status has. `visibility` and `in_reply_to_id` are ignored. An
   account that an edit no longer mentions can still see the status, as on Mastodon. An edit that changes nothing doesn't
@@ -21,7 +27,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   future, because other servers are sent whole seconds.
 - `GET /api/v1/statuses/:id/history` only has the versions of a status from another server that were sent here, so it
   can lack some that its server shows, and it has no versions from before the upgrade that added it. Only the latest 50
-  versions of a status are kept. Its entries have empty `media_attachments` and `emojis`, and a null `poll`.
+  versions of a status are kept. Only the current version has `media_attachments`, and earlier ones have none. Entries
+  have empty `emojis`, and a null `poll`.
 - URLs, mentions, and hashtags in a status are linked. A mention of an account on another server is looked
   up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
   mention that can't be found, or one past that limit of an account that isn't already known here, stays as text rather
@@ -40,7 +47,9 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   leaves out local accounts that the status was sent to without mentioning them, which can still see it.
 - `visibility` defaults to `public` only when it's missing. An empty value is rejected, as are a repeated value and
   `visibility[]`.
-- `GET /api/v1/instance` reports the limit in `max_toot_chars` and `configuration.statuses.max_characters`, but
+- `GET /api/v1/instance` reports the length limit in `max_toot_chars` and `configuration.statuses.max_characters`, and
+  the media limits in `configuration.media_attachments`, where `video_size_limit` is the larger of the video and audio
+  limits. `video_frame_rate_limit` and `video_matrix_limit` aren't enforced, since video isn't decoded. But
   `/api/v2/instance` isn't implemented. Clients that don't read the limit from v1 may apply their own limit of 500. Its
   `version` is a Mastodon version followed by `(compatible; Elysium)`. The streaming API isn't implemented, though
   `urls.streaming_api` is set. `invites_enabled` is always `false`, since only admins can make invites, from the command
@@ -84,6 +93,32 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   a remote account's other boosts aren't listed with its statuses. A boosted status that isn't stored yet is fetched first,
   so the boost can show up a little later than on Mastodon. `reblogs_count` only counts the boosts this server knows of.
   The home timeline lists every boost from the accounts the user follows, even of a status that's already there.
+
+Uploads follow [Mastodon's media API](https://docs.joinmastodon.org/methods/media/), with the `write:media` scope, and
+with these differences:
+
+- `POST /api/v2/media` processes the file before it answers, so it always answers 200 with a `url`, never 202.
+  `POST /api/v1/media` does the same.
+- Uploads can be PNG, JPEG, GIF, or WebP images, MP4, MOV, or WebM video, or MP3, M4A, Ogg, FLAC, or WAV audio. A file's
+  type is worked out from its content, and anything else gets a 422, whatever it's sent as.
+- Images are re-encoded as WebP, without their metadata, and scaled down to fit 3840 × 2160 pixels in area. Their
+  `preview_url` fits 640 × 360. An animated GIF becomes an animated WebP of type `image`, never `gifv`. An image with more
+  than 30 million pixels gets a 422, and so does an animation with more than 300 frames, or with more than 25 million
+  pixels in all its frames together, such as 100 frames of 500 × 500.
+- Video and audio are kept as they were uploaded, so `meta` has no `original` for them, and they have no `preview_url`
+  unless a `thumbnail` is uploaded with them. A `thumbnail` with an image gets a 422, and so does one in
+  `PUT /api/v1/media/:id`.
+- Images, video, and audio each have their own size limit, 16 MB, 100 MB, and 40 MB by default, and a file over its
+  limit gets a 422. A request that's larger than any upload can be gets a 413.
+- A user can have at most 20 uploads waiting to be posted by default, and one more gets a 422. An upload that isn't
+  posted within a day, by default, is deleted.
+- `blurhash` is always null, and so are `preview_remote_url` and `text_url`.
+- `GET` and `PUT /api/v1/media/:id` only find uploads that aren't attached to a status yet, as on Mastodon. In a `PUT`, a
+  missing `description` or `focus` keeps what the upload has, and an empty `description` removes it.
+- `DELETE /api/v1/media/:id` gets a 422 for an upload that's attached to a status.
+
+`only_media` works on `GET /api/v1/timelines/public`, `GET /api/v1/timelines/tag/:hashtag`, and
+`GET /api/v1/accounts/:id/statuses`, and leaves out boosts.
 
 Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/notifications/) and
 [grouped notifications API](https://docs.joinmastodon.org/methods/grouped_notifications/):

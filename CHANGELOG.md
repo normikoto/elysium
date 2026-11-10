@@ -162,8 +162,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `compose.yaml`, they're in the new `media-data` volume, which `docker compose up -d` creates. With `elysium.service`,
     install the new file and run `systemctl daemon-reload`, and they're in `/var/lib/elysium/media`. Otherwise they go in
     `media`, in the directory the server runs from, unless you set `elysium.media.directory`.
+- Images, video, and audio on posts, through `POST /api/v2/media` and `media_ids`, and shown on the server's public
+  pages. Images are re-encoded without their metadata, and video and audio are kept as uploaded, metadata included. Each
+  kind has its own size limit, and uploads that aren't posted are removed after a day. A deleted post's media can be
+  posted again for an hour, unless the client asks for it to be deleted at once. `only_media` now filters timelines and
+  account statuses. Other servers aren't sent attachments yet, so they see these posts without their media. See
+  `docs/api.md` and `docs/configuration.md`.
+  - **Upgrading:** `spring.servlet.multipart.max-file-size` and `max-request-size` (`SPRING_SERVLET_MULTIPART_*`) are no
+    longer used, since they now follow the largest upload limit, so remove them. The media directory now also holds
+    what's attached to posts, so plan for more disk space. Behind nginx, raise `client_max_body_size`, as
+    `docs/configuration.md` describes, or uploads over 1 MB are refused before they reach the server.
 
 ### Changed
+
+- An avatar or header that's too large now gets a 422 with the reason, rather than a 413, since the server takes
+  larger files for posts.
 
 - Mentions from accounts the user does not follow now appear in notifications and conversations instead of the home
   timeline. Direct messages from followed accounts remain in the home timeline when addressed to the user.

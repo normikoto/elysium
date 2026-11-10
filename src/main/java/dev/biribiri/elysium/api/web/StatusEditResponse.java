@@ -7,12 +7,13 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
- * Mastodon's StatusEdit entity. Media, polls, and emoji don't exist yet, so those fields hold what a version without any of
- * them would have.
+ * Mastodon's StatusEdit entity. Polls and emoji don't exist yet, so those fields hold what a version without any of them
+ * would have.
  */
 @Schema(name = "StatusEdit", description = """
-        Mastodon's StatusEdit entity: one version of a status. Media, polls, and emoji don't exist yet, so \
-        `media_attachments` and `emojis` are always empty, and `poll` is null.""")
+        Mastodon's StatusEdit entity: one version of a status. Only the current version has its \
+        `media_attachments`, since earlier ones don't keep theirs. Polls and emoji don't exist yet, so `emojis` is always \
+        empty, and `poll` is null.""")
 record StatusEditResponse(
         String content,
         @JsonProperty("spoiler_text") String spoilerText,
@@ -20,11 +21,12 @@ record StatusEditResponse(
         @JsonProperty("created_at") String createdAt,
         AccountResponse account,
         Object poll,
-        @JsonProperty("media_attachments") List<Object> mediaAttachments,
+        @JsonProperty("media_attachments") List<MediaAttachmentResponse> mediaAttachments,
         List<Object> emojis
 ) {
 
-    static StatusEditResponse from(StatusVersion version, AccountResponse account) {
+    static StatusEditResponse from(
+            StatusVersion version, AccountResponse account, List<MediaAttachmentResponse> mediaAttachments) {
         return new StatusEditResponse(
                 version.content(),
                 version.spoilerText(),
@@ -32,7 +34,7 @@ record StatusEditResponse(
                 ApiTimestamps.format(version.since()),
                 account,
                 null,
-                List.of(),
+                mediaAttachments,
                 List.of());
     }
 }

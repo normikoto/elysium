@@ -4,6 +4,8 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
+import dev.biribiri.elysium.content.AttachmentProperties;
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -27,12 +29,20 @@ public class InstanceController {
      */
     private static final String VERSION = "4.0.0 (compatible; Elysium)";
 
+    private static final int VIDEO_FRAME_RATE_LIMIT = 120;
+
+    /**
+     * 3840 × 2160.
+     */
+    private static final long VIDEO_MATRIX_LIMIT = 8_294_400;
+
     private final InstanceProperties instance;
     private final StatusProperties statusProperties;
     private final ActorService actors;
     private final StatusService statuses;
     private final RegistrationProperties registration;
     private final ProfileService profiles;
+    private final AttachmentProperties attachments;
 
     InstanceController(
             InstanceProperties instance,
@@ -40,7 +50,9 @@ public class InstanceController {
             ActorService actors,
             StatusService statuses,
             RegistrationProperties registration,
-            ProfileService profiles) {
+            ProfileService profiles,
+            AttachmentProperties attachments) {
+        this.attachments = attachments;
         this.profiles = profiles;
         this.instance = instance;
         this.statusProperties = statusProperties;
@@ -85,10 +97,25 @@ public class InstanceController {
                 maxCharacters,
                 new InstanceResponse.Configuration(
                         new InstanceResponse.Accounts(0, profiles.maxFields()),
-                        new InstanceResponse.Statuses(maxCharacters, 0, statuses.charactersReservedPerUrl()),
-                        new InstanceResponse.MediaAttachments(List.of(), 0, 0, 0, 0, 0),
+                        new InstanceResponse.Statuses(
+                                maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl()),
+                        mediaAttachments(),
                         new InstanceResponse.Polls(0, 0, 0, 0)),
                 null,
                 List.of());
+    }
+
+    /**
+     * Mastodon has one limit for video and audio, so it's the larger of them. Video isn't decoded, so its frame rate and
+     * size aren't limited, and these are what clients are told to keep within.
+     */
+    private InstanceResponse.MediaAttachments mediaAttachments() {
+        return new InstanceResponse.MediaAttachments(
+                MediaAttachments.SUPPORTED_TYPES,
+                attachments.maxImageSize().toBytes(),
+                MediaAttachments.MAX_IMAGE_PIXELS,
+                Math.max(attachments.maxVideoSize().toBytes(), attachments.maxAudioSize().toBytes()),
+                VIDEO_FRAME_RATE_LIMIT,
+                VIDEO_MATRIX_LIMIT);
     }
 }

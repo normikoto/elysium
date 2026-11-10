@@ -11,7 +11,25 @@
     <details th:if="${view.status.sensitive}">
         <summary th:text="${#strings.isEmpty(view.status.spoilerText)} ? 'Sensitive content' : ${view.status.spoilerText}"></summary>
         <div class="status-content" th:utext="${view.status.content}"></div>
+        <div th:replace="~{status-card :: attachments(${view.attachments})}"></div>
     </details>
-    <div class="status-content" th:unless="${view.status.sensitive}" th:utext="${view.status.content}"></div>
+    <th:block th:unless="${view.status.sensitive}">
+        <div class="status-content" th:utext="${view.status.content}"></div>
+        <div th:replace="~{status-card :: attachments(${view.attachments})}"></div>
+    </th:block>
 </article>
+<div class="status-attachments" th:fragment="attachments(attachments)" th:unless="${#lists.isEmpty(attachments)}">
+    <th:block th:each="attachment : ${attachments}">
+        <a th:if="${attachment.kind == 'image'}" th:href="${attachment.href}">
+            <img loading="lazy" th:src="${attachment.preview} ?: ${attachment.src}" th:alt="${attachment.description} ?: ''"
+                 th:title="${attachment.description}">
+        </a>
+        <video th:if="${attachment.kind == 'video'}" controls preload="none" th:src="${attachment.src}"
+               th:poster="${attachment.preview}" th:title="${attachment.description}"></video>
+        <audio th:if="${attachment.kind == 'audio'}" controls preload="none" th:src="${attachment.src}"
+               th:title="${attachment.description}"></audio>
+        <a th:if="${attachment.kind == 'link'}" th:href="${attachment.href}" rel="nofollow noopener noreferrer"
+           th:text="${attachment.description} ?: 'Attachment'"></a>
+    </th:block>
+</div>
 </html>

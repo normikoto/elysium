@@ -67,11 +67,11 @@ record InstanceResponse(
 
     record MediaAttachments(
             @JsonProperty("supported_mime_types") List<String> supportedMimeTypes,
-            @JsonProperty("image_size_limit") int imageSizeLimit,
-            @JsonProperty("image_matrix_limit") int imageMatrixLimit,
-            @JsonProperty("video_size_limit") int videoSizeLimit,
+            @JsonProperty("image_size_limit") long imageSizeLimit,
+            @JsonProperty("image_matrix_limit") long imageMatrixLimit,
+            @JsonProperty("video_size_limit") long videoSizeLimit,
             @JsonProperty("video_frame_rate_limit") int videoFrameRateLimit,
-            @JsonProperty("video_matrix_limit") int videoMatrixLimit
+            @JsonProperty("video_matrix_limit") long videoMatrixLimit
     ) {
     }
 

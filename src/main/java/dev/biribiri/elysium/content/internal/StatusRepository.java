@@ -63,6 +63,9 @@ public class StatusRepository {
      */
     public static final int MAX_VERSIONS = 50;
 
+    private static final String HAS_MEDIA =
+            " AND EXISTS (SELECT 1 FROM media_attachment m WHERE m.status_id = s.id)";
+
     private static final String MENTIONS_VIEWER =
             " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = :viewer)";
 
@@ -543,15 +546,16 @@ public class StatusRepository {
                 .optional();
     }
 
-    public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
-        var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + origin(origin);
+    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia) {
+        var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + origin(origin)
+                + (onlyMedia ? HAS_MEDIA : "");
         return findPage(filter, Map.of(), page);
     }
 
     /**
      * Replies are listed too, as on Mastodon, since someone following a tag wants every status that uses it.
      */
-    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page) {
+    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia) {
         var filter = new StringBuilder("""
                 s.visibility = 'public' AND s.reblog_of_id IS NULL
                 AND EXISTS (SELECT 1 FROM status_tag t WHERE t.status_id = s.id AND t.name = ANY (CAST(:any AS text[])))""");
@@ -571,6 +575,9 @@ public class StatusRepository {
             parameters.put("none", tags.none().toArray(String[]::new));
         }
         filter.append(origin(origin));
+        if (onlyMedia) {
+            filter.append(HAS_MEDIA);
+        }
         return findPage(filter.toString(), parameters, page);
     }
 
@@ -604,7 +611,7 @@ public class StatusRepository {
      */
     public List<Status> findByAccount(
             UUID actorId, Collection<Visibility> visibilities, UUID viewer, boolean excludeReplies,
-            boolean excludeReblogs, StatusPage page) {
+            boolean excludeReblogs, boolean onlyMedia, StatusPage page) {
         var parameters = new HashMap<String, Object>();
         parameters.put("actorId", actorId);
         parameters.put("visibilities", visibilities.stream().map(Visibility::value).toList());
@@ -619,6 +626,9 @@ public class StatusRepository {
         }
         if (excludeReblogs) {
             filter.append(" AND s.reblog_of_id IS NULL");
+        }
+        if (onlyMedia) {
+            filter.append(HAS_MEDIA);
         }
         return findPage(filter.toString(), parameters, page);
     }

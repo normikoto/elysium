@@ -5,6 +5,7 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.graph.FollowService;
@@ -13,7 +14,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses, follows, and profile, and a suspended remote actor's follows, which would otherwise give it a
+ * Removes a deleted account's statuses, attachments, follows, and profile, and a suspended remote actor's follows, which would otherwise give it a
  * way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that they come back
  * if the suspension is undone. A suspended local account keeps everything, for the same reason. This
  * looks at the actor's state now, so it's safe to run again, and does nothing for a suspension that's since ended.
@@ -27,8 +28,11 @@ class AccountCleanupTask {
     private final StatusService statuses;
     private final FollowService follows;
     private final ProfileService profiles;
+    private final MediaAttachments attachments;
 
-    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, ProfileService profiles, InboxService inbox, LikeService likes) {
+    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, ProfileService profiles, InboxService inbox, LikeService likes,
+                       MediaAttachments attachments) {
+        this.attachments = attachments;
         this.inbox = inbox;
         this.likes = likes;
         this.actors = actors;
@@ -47,6 +51,8 @@ class AccountCleanupTask {
             if (actor.isDeleted()) {
                 likes.removeForActor(actor.id());
                 statuses.removeAllBy(actor.id());
+                // Uploads it hadn't posted too, which removing its statuses doesn't reach.
+                attachments.removeAllBy(actor.id());
                 follows.removeForActor(actor.id());
                 profiles.removeAll(actor.id());
                 inbox.removeForActor(actor.id());

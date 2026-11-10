@@ -18,6 +18,7 @@ import java.util.zip.CRC32;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.offset;
 
 class WebpEncoderTests {
 
@@ -184,5 +185,30 @@ class WebpEncoderTests {
                 .put(data)
                 .putInt((int) crc.getValue())
                 .array();
+    }
+
+    @Test
+    void fitsAnAttachmentWithinItsAreaWithoutCroppingOrEnlargingIt() throws IOException {
+        var large = encoder.encode(image("png", 6000, 2000, false), ImageKind.ATTACHMENT, ImageKind.ATTACHMENT_PREVIEW);
+        var header = ImageHeader.read(large.image());
+        assertThat((double) header.width() / header.height()).isCloseTo(3.0, offset(0.01));
+        assertThat(header.pixels()).isLessThanOrEqualTo(ImageKind.ATTACHMENT.pixels());
+        assertThat(large.width()).isEqualTo(header.width());
+        var preview = ImageHeader.read(large.preview());
+        assertThat(preview.pixels()).isLessThanOrEqualTo(ImageKind.ATTACHMENT_PREVIEW.pixels());
+
+        var small = encoder.encode(image("png", 300, 200, false), ImageKind.ATTACHMENT);
+        assertThat(ImageHeader.read(small.image()).width()).isEqualTo(300);
+    }
+
+    @Test
+    void previewsAnAnimationWithItsFirstFrame() throws IOException {
+        var encoded = encoder.encode(TestImages.animatedGif(3, 800, 800), ImageKind.ATTACHMENT,
+                ImageKind.ATTACHMENT_PREVIEW);
+
+        assertThat(ImageHeader.read(encoded.image()).frames()).isEqualTo(3);
+        var preview = ImageHeader.read(encoded.preview());
+        assertThat(preview.isAnimated()).isFalse();
+        assertThat(preview.width()).isEqualTo(480);
     }
 }

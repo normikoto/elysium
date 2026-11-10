@@ -131,6 +131,13 @@ public class AccountsController {
         // Spring Security wraps the request, so it's only multipart underneath.
         var multipart = WebUtils.getNativeRequest(request, MultipartHttpServletRequest.class);
         var files = multipart == null ? Map.<String, MultipartFile>of() : multipart.getFileMap();
+        // Before the files are read into memory, since Spring takes files as large as a video.
+        if (files.get("avatar") != null) {
+            profiles.checkAvatarSize(files.get("avatar").getSize());
+        }
+        if (files.get("header") != null) {
+            profiles.checkHeaderSize(files.get("header").getSize());
+        }
         return updateCredentials(token, CredentialsRequest.fromForm(form, files));
     }
 
@@ -433,8 +440,8 @@ public class AccountsController {
             description = """
                     Differences from Mastodon: for an account on another server, only the statuses it has sent here \
                     are listed, and older ones aren't fetched. Its boosts of other servers' statuses are only stored \
-                    while someone here follows it, so others aren't listed. Statuses can't be pinned, tagged, \
-                    or have media, so `pinned`, `tagged`, and `only_media` return an empty list.
+                    while someone here follows it, so others aren't listed. Statuses can't be pinned or tagged, \
+                    so `pinned` and `tagged` return an empty list. `only_media` leaves out boosts.
 
                     Only statuses the viewer can see are listed. A suspended account gets a 404.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
@@ -444,7 +451,7 @@ public class AccountsController {
                             schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
                     @Parameter(name = "exclude_replies", description = "Leave out replies. " + ApiDocs.FLAG),
                     @Parameter(name = "exclude_reblogs", description = "Leave out boosts. " + ApiDocs.FLAG),
-                    @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG),
+                    @Parameter(name = "only_media", description = "Only list statuses with media. " + ApiDocs.FLAG),
                     @Parameter(name = "pinned", description = "Returns an empty list if true. " + ApiDocs.FLAG),
                     @Parameter(name = "tagged", description = "Returns an empty list if not empty.")
             },
@@ -467,12 +474,11 @@ public class AccountsController {
         var actorId = activeAccount(id).id();
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         var withoutReplies = RequestParameters.flag(excludeReplies);
-        var nothingToReturn = RequestParameters.flag(onlyMedia) || RequestParameters.flag(pinned)
-                || (tagged != null && !tagged.isEmpty());
+        var nothingToReturn = RequestParameters.flag(pinned) || (tagged != null && !tagged.isEmpty());
         List<Status> found = nothingToReturn
                 ? List.of()
                 : statuses.findByAccount(actorId, RequestParameters.viewer(token), withoutReplies,
-                RequestParameters.flag(excludeReblogs), page);
+                RequestParameters.flag(excludeReblogs), RequestParameters.flag(onlyMedia), page);
 
         var filters = new LinkedHashMap<String, String>();
         if (withoutReplies) {
@@ -480,6 +486,9 @@ public class AccountsController {
         }
         if (RequestParameters.flag(excludeReblogs)) {
             filters.put("exclude_reblogs", "true");
+        }
+        if (RequestParameters.flag(onlyMedia)) {
+            filters.put("only_media", "true");
         }
         return responses.page("/api/v1/accounts/" + actorId + "/statuses", filters, page, found, RequestParameters.viewer(token));
     }

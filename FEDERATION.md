@@ -5,7 +5,8 @@ follow its users, and fetch their actors, statuses, outboxes, and collections. I
 whose recent posts are then fetched from their outbox, and like and boost their posts. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
 are sent to their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
 reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
-statuses are counted. Attachments, polls, and other activities aren't supported yet.
+statuses are counted. Attachments aren't sent or read yet, so a local status with media reaches other servers without
+it, and one with only media is sent with empty `content`. Polls and other activities aren't supported yet.
 
 ## Supported federation protocols and standards
 

@@ -7,8 +7,8 @@ import org.springframework.util.unit.DataSize;
 /**
  * @param maxFields    how many fields a profile can have. Lowering this doesn't remove any, but a profile with more can't
  *                     save its fields again until it has few enough.
- * @param maxImageSize the largest avatar or header file that can be uploaded. Spring's limit on each file in
- *                     {@code application.properties} follows this, so that the server reads a file up to this size.
+ * @param maxImageSize the largest avatar or header file that can be uploaded. Spring's limits on uploads follow the
+ *                     largest of this and the limits on attachments.
  */
 @ConfigurationProperties("elysium.profiles")
 public record ProfileProperties(
