@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
@@ -18,6 +19,7 @@ import dev.biribiri.elysium.text.Urls;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -734,36 +736,43 @@ public class StatusService {
             if (statuses.findForDelete(id).filter(status -> status.actorId().equals(authorId)).isEmpty()) {
                 return Optional.<Status>empty();
             }
-            // Before the status goes, and its mentions and boosts with it.
-            var mentioned = statuses.findAllMentioned(id);
-            var localBoosts = boosts.findLocal(id);
-            if (deleteMedia) {
-                media.removeFromStatusExcept(id, List.of());
-            } else {
-                media.keepForRedraft(id, Instant.now().plus(attachmentProperties.redraftRetention()));
-            }
-            var deleted = statuses.delete(id, authorId);
-            if (deleted.isEmpty()) {
-                tx.setRollbackOnly();
-            }
-            deleted.ifPresent(status -> {
-                if (status.isVisibleTo(Optional.empty())) {
-                    statuses.insertTombstone(status, Instant.now().truncatedTo(ChronoUnit.MICROS));
-                }
-                var boosters = localBoosts.stream().map(boost -> {
-                    events.publishEvent(StatusUnreblogged.of(boost, status.uri(), authorId));
-                    return boost.actorId();
-                }).toList();
-                events.publishEvent(new StatusDeleted(
-                        status.id(), status.uri(), authorId, status.visibility(), status.publishedAt(),
-                        shownParentAuthor(status), mentioned, boosters));
-            });
-            return deleted;
+            return deleteLocked(id, authorId, deleteMedia, tx);
         });
         if (deleteMedia && result.isPresent()) {
             attachments.processDeletions();
         }
         return result;
+    }
+
+    /**
+     * Deletes a local status that's already been locked with {@link StatusRepository#findForDelete}.
+     */
+    private Optional<Status> deleteLocked(UUID id, UUID authorId, boolean deleteMedia, TransactionStatus tx) {
+        // Before the status goes, and its mentions and boosts with it.
+        var mentioned = statuses.findAllMentioned(id);
+        var localBoosts = boosts.findLocal(id);
+        if (deleteMedia) {
+            media.removeFromStatusExcept(id, List.of());
+        } else {
+            media.keepForRedraft(id, Instant.now().plus(attachmentProperties.redraftRetention()));
+        }
+        var deleted = statuses.delete(id, authorId);
+        if (deleted.isEmpty()) {
+            tx.setRollbackOnly();
+        }
+        deleted.ifPresent(status -> {
+            if (status.isVisibleTo(Optional.empty())) {
+                statuses.insertTombstone(status, Instant.now().truncatedTo(ChronoUnit.MICROS));
+            }
+            var boosters = localBoosts.stream().map(boost -> {
+                events.publishEvent(StatusUnreblogged.of(boost, status.uri(), authorId));
+                return boost.actorId();
+            }).toList();
+            events.publishEvent(new StatusDeleted(
+                    status.id(), status.uri(), authorId, status.visibility(), status.publishedAt(),
+                    shownParentAuthor(status), mentioned, boosters));
+        });
+        return deleted;
     }
 
     /**
@@ -798,20 +807,80 @@ public class StatusService {
         var removed = Boolean.TRUE.equals(transaction.execute(tx -> {
             statuses.lockUri(uri);
             statuses.markRemoteDeleted(uri, authorUri);
-            // Locked so that a boost made meanwhile is either found here or fails to find the status.
-            var boosted = statuses.findForDeleteByUri(uri);
-            var localBoosts = boosted.map(status -> boosts.findLocal(status.id())).orElse(List.of());
-            var attached = boosted.map(status -> media.findByStatusAndLock(status.id())).orElse(List.of());
-            var deleted = statuses.deleteRemote(uri, authorUri);
-            if (deleted) {
-                media.removeDetached(attached.stream().map(MediaAttachment::id).toList());
-                // Only once it's known to be the author's, since anyone can name any status.
-                boosted.ifPresent(status -> localBoosts.forEach(boost ->
-                        events.publishEvent(StatusUnreblogged.of(boost, uri, status.actorId()))));
-            }
-            return deleted;
+            return deleteRemoteLocked(uri, authorUri);
         }));
         if (removed) {
+            attachments.processDeletions();
+        }
+        return removed;
+    }
+
+    /**
+     * Deletes a remote status once {@link StatusRepository#lockUri} is held.
+     */
+    private boolean deleteRemoteLocked(URI uri, URI authorUri) {
+        // Locked so that a boost made meanwhile is either found here or fails to find the status.
+        var boosted = statuses.findForDeleteByUri(uri);
+        var localBoosts = boosted.map(status -> boosts.findLocal(status.id())).orElse(List.of());
+        var attached = boosted.map(status -> media.findByStatusAndLock(status.id())).orElse(List.of());
+        var deleted = statuses.deleteRemote(uri, authorUri);
+        if (deleted) {
+            media.removeDetached(attached.stream().map(MediaAttachment::id).toList());
+            // Only once it's known to be the author's, since anyone can name any status.
+            boosted.ifPresent(status -> localBoosts.forEach(boost ->
+                    events.publishEvent(StatusUnreblogged.of(boost, uri, status.actorId()))));
+        }
+        return deleted;
+    }
+
+    /**
+     * Finds a status for an admin to remove by its ID, its URI, or the page its server gave. This includes the statuses of
+     * suspended authors, which can come back, so check what's shown: it doesn't make a followers-only or direct status
+     * visible to anyone who couldn't see it before.
+     */
+    public Optional<Status> findForModeration(String query) {
+        if (query == null || query.isBlank()) {
+            return Optional.empty();
+        }
+        var trimmed = query.strip();
+        return Ids.parse(trimmed).flatMap(statuses::findForModeration).or(() -> statuses.findForModeration(trimmed));
+    }
+
+    /**
+     * Removes a status for breaking the rules, and remembers which admin did. A local status is deleted as its author would
+     * have, attachments and all, so its {@code Delete} goes to the same servers. A remote status is only removed from this
+     * server, since this one can't speak for it, and is never stored again, because its server never says it's gone and
+     * can send it again at any time.
+     *
+     * @return the removed status, or empty if there's none with this ID, or it's gone meanwhile
+     */
+    public Optional<Status> remove(UUID id, UUID adminId) {
+        var found = statuses.findForModeration(id);
+        var author = found.flatMap(status -> actors.findById(status.actorId())).filter(actor -> !actor.isDeleted());
+        if (author.isEmpty()) {
+            return Optional.empty();
+        }
+        var status = found.get();
+        var local = actors.isLocal(author.get());
+        var removed = transaction.execute(tx -> {
+            if (local) {
+                if (statuses.findForDelete(id).isEmpty()) {
+                    return Optional.<Status>empty();
+                }
+                var deleted = deleteLocked(id, status.actorId(), true, tx);
+                deleted.ifPresent(gone ->
+                        statuses.insertRemoval(gone.uri(), gone.actorId(), author.get().uri(), true, adminId));
+                return deleted;
+            }
+            // Before the row is locked, in the same order as when its server deletes it, which can happen meanwhile.
+            statuses.lockUri(status.uri());
+            if (!deleteRemoteLocked(status.uri(), author.get().uri())) {
+                return Optional.<Status>empty();
+            }
+            statuses.insertRemoval(status.uri(), status.actorId(), author.get().uri(), false, adminId);
+            return Optional.of(status);
+        });
+        if (removed.isPresent()) {
             attachments.processDeletions();
         }
         return removed;
