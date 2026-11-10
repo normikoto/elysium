@@ -5,6 +5,7 @@ import dev.biribiri.elysium.content.Status;
 
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 /**
  * A status with what the templates need to show it.
@@ -14,8 +15,10 @@ import java.time.format.DateTimeFormatter;
  * @param url         the status's page, which for a status from another server is on that server
  * @param publishedAt when the status was published, for people to read
  * @param boostedBy   the username of the local account whose boost this is shown for, or null
+ * @param attachments the status's attachments, in order
  */
-record StatusView(Status status, String authorName, String authorUrl, String url, String publishedAt, String boostedBy) {
+record StatusView(Status status, String authorName, String authorUrl, String url, String publishedAt, String boostedBy,
+                  List<AttachmentView> attachments) {
 
     private static final DateTimeFormatter DISPLAY =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC);
@@ -27,7 +30,8 @@ record StatusView(Status status, String authorName, String authorUrl, String url
                 "/users/" + author.username(),
                 status.uri().getRawPath(),
                 DISPLAY.format(status.publishedAt()),
-                null);
+                null,
+                List.of());
     }
 
     /**
@@ -43,7 +47,8 @@ record StatusView(Status status, String authorName, String authorUrl, String url
                 author.uri().toString(),
                 (status.url() == null ? status.uri() : status.url()).toString(),
                 DISPLAY.format(status.publishedAt()),
-                null);
+                null,
+                List.of());
     }
 
     /**
@@ -51,6 +56,11 @@ record StatusView(Status status, String authorName, String authorUrl, String url
      */
     static StatusView boosted(Status status, Actor author, boolean local, Actor booster) {
         var view = of(status, author, local);
-        return new StatusView(status, view.authorName, view.authorUrl, view.url, view.publishedAt, booster.username());
+        return new StatusView(status, view.authorName, view.authorUrl, view.url, view.publishedAt, booster.username(),
+                List.of());
+    }
+
+    StatusView withAttachments(List<AttachmentView> attachments) {
+        return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, List.copyOf(attachments));
     }
 }

@@ -40,7 +40,7 @@ import java.util.Map;
 @RestController
 @RequestMapping(DomainBlocksController.PATH)
 @Tag(name = "Admin: domain blocks", description = """
-        Blocking other servers. Every block is a full block, which Mastodon calls `suspend`. Needs an admin's token.""",
+        Blocking or limiting other servers, as `suspend` or `noop` blocks. Needs an admin's token.""",
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/"))
 public class DomainBlocksController {
 
@@ -119,19 +119,24 @@ public class DomainBlocksController {
             description = """
                     Differences from Mastodon:
 
-                    - `severity` is required, and has to be `suspend`. Mastodon's default is `silence`, and `silence` \
-                    and `noop` get a 422 here, rather than cutting off a server that an admin only meant to limit.
-                    - `reject_media`, `reject_reports`, `obfuscate`, and `public_comment` are ignored.
+                    - `severity` is required, and has to be `suspend` or `noop`. Mastodon's default is `silence`, \
+                    which isn't supported, and gets a 422 here, rather than a block that does more or less than an \
+                    admin meant.
+                    - `reject_media` keeps a `noop` block's server's attachments from being downloaded, and removes \
+                    the copies already kept. A suspension rejects them anyway. `reject_reports`, `obfuscate`, and \
+                    `public_comment` are ignored.
                     - A domain with a wildcard, a port, or a URL's other parts is refused, as are IP addresses, a \
                     domain with only one label such as `com`, and this server's own domain or one above it. Blocks \
                     always cover subdomains and every port. A Unicode domain that converting would change, such as \
                     `faß.example`, has to be sent in its `xn--` form.
                     - A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one \
-                    that's already blocked.
+                    that's already blocked, unless the new block does more, such as suspending a subdomain of a \
+                    `noop` block.
                     - `private_comment` can be up to\s""" + DomainBlocks.MAX_COMMENT_LENGTH + """
                      characters.
 
-                    Follows to and from the server's accounts are removed, and come back only if they're made again.""",
+                    A suspension removes follows to and from the server's accounts, which come back only if they're \
+                    made again. A `noop` block doesn't stop the server federating.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/#create"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The new block."),
@@ -159,11 +164,15 @@ public class DomainBlocksController {
     // The API docs combine both mappings into one operation, and this replaces what the other one documents.
     @Operation(
             operationId = "updateDomainBlock",
-            summary = "Change a domain block's comment",
+            summary = "Change a domain block",
             description = """
-                    Differences from Mastodon: only `private_comment` can be changed, and an empty one removes it. \
-                    `severity` can be left out, but otherwise has to be `suspend`, and other fields are ignored. A \
-                    block's domain can't be changed, as on Mastodon.""",
+                    `severity`, `reject_media`, and `private_comment` can be changed, and what's left out stays as it \
+                    is, as on Mastodon. Making a block a suspension removes what's stored from its server, and \
+                    rejecting media removes the copies of its attachments. Neither comes back if it's undone, though \
+                    attachments are shown as links again.
+
+                    Differences from Mastodon: `severity` has to be `suspend` or `noop`, an empty `private_comment` \
+                    removes it, and other fields are ignored. A block's domain can't be changed, as on Mastodon.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/#update"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The block, as changed."),
@@ -218,12 +227,12 @@ public class DomainBlocksController {
     private DomainBlockResponse create(Map<String, ?> parameters) {
         var severity = RequestParameters.string(parameters, "severity");
         if (severity == null) {
-            throw new InvalidRequestException(
-                    "Validation failed: severity is required, and has to be " + DomainBlockResponse.SEVERITY);
+            throw new InvalidRequestException("Validation failed: severity is required, and has to be suspend or noop");
         }
-        checkSeverity(severity);
         return DomainBlockResponse.from(blocks.create(
-                RequestParameters.string(parameters, "domain"), RequestParameters.string(parameters, "private_comment")));
+                RequestParameters.string(parameters, "domain"), severity(severity),
+                RequestParameters.flag(parameters, "reject_media"),
+                RequestParameters.string(parameters, "private_comment")));
     }
 
     /**
@@ -231,22 +240,30 @@ public class DomainBlocksController {
      * clears it.
      */
     private DomainBlockResponse update(String id, Map<String, ?> parameters) {
-        checkSeverity(RequestParameters.string(parameters, "severity"));
-        var comment = RequestParameters.string(parameters, "private_comment");
+        var severity = RequestParameters.string(parameters, "severity");
+        var newSeverity = severity == null ? null : severity(severity);
         var blockId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
-        var updated = parameters.containsKey("private_comment")
-                ? blocks.updateComment(blockId, comment)
-                : blocks.find(blockId);
-        return updated.map(DomainBlockResponse::from).orElseThrow(RecordNotFoundException::new);
+        var old = blocks.find(blockId).orElseThrow(RecordNotFoundException::new);
+        var comment = parameters.containsKey("private_comment")
+                ? RequestParameters.string(parameters, "private_comment")
+                : old.privateComment();
+        var rejectMedia = parameters.containsKey("reject_media")
+                ? RequestParameters.flag(parameters, "reject_media")
+                : old.rejectMedia();
+        return blocks.update(blockId, newSeverity == null ? old.severity() : newSeverity, rejectMedia, comment)
+                .map(DomainBlockResponse::from)
+                .orElseThrow(RecordNotFoundException::new);
     }
 
     /**
-     * Silencing isn't implemented. Making a full block instead would cut off a server that an admin only meant to limit.
+     * Silencing isn't implemented. Making a full block instead would cut off a server that an admin only meant to limit,
+     * and ignoring it would do less than they meant.
      */
-    private static void checkSeverity(String severity) {
-        if (severity != null && !severity.equals(DomainBlockResponse.SEVERITY)) {
-            throw new InvalidRequestException(
-                    "Validation failed: severity has to be " + DomainBlockResponse.SEVERITY + ", the only one supported");
+    private static DomainBlock.Severity severity(String severity) {
+        try {
+            return DomainBlock.Severity.fromValue(severity);
+        } catch (InvalidDomainBlockException e) {
+            throw new InvalidRequestException("Validation failed: severity has to be suspend or noop");
         }
     }
 
@@ -258,8 +275,11 @@ public class DomainBlocksController {
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = """
                     The domain, which also covers its subdomains and every port.""")
             String domain,
-            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = DomainBlockResponse.SEVERITY)
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"suspend", "noop"}, description = """
+                    `suspend` cuts the server off. `noop` only does what the block's other settings say.""")
             String severity,
+            @Schema(description = "Whether to keep its attachments from being downloaded.", defaultValue = "false")
+            Boolean reject_media,
             @Schema(description = "A note for admins, of up to " + DomainBlocks.MAX_COMMENT_LENGTH + " characters.")
             String private_comment) {
     }
@@ -269,8 +289,10 @@ public class DomainBlocksController {
      */
     @Schema(name = "DomainBlockChange")
     private record DomainBlockChangeBody(
-            @Schema(allowableValues = DomainBlockResponse.SEVERITY)
+            @Schema(allowableValues = {"suspend", "noop"}, description = "Leaving it out keeps it.")
             String severity,
+            @Schema(description = "Whether to keep its attachments from being downloaded. Leaving it out keeps it.")
+            Boolean reject_media,
             @Schema(description = "A note for admins, of up to " + DomainBlocks.MAX_COMMENT_LENGTH
                     + " characters. An empty value removes it, and leaving it out keeps it.")
             String private_comment) {

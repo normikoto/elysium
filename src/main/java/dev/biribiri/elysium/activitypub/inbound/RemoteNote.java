@@ -1,5 +1,8 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.content.Focus;
+import dev.biribiri.elysium.content.RemoteAttachment;
 import dev.biribiri.elysium.content.StatusService;
 import tools.jackson.databind.JsonNode;
 
@@ -8,9 +11,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * A {@code Note} from another server, read from its JSON. Nothing here has been checked, and {@code content} and
@@ -26,6 +33,7 @@ import java.util.Optional;
  * @param updated      its {@code updated}, when it was last edited, or null if that's missing or isn't a date
  * @param mentions     the {@code href} of each {@code Mention} in its {@code tag}, up to {@value #MAX_MENTIONS}
  * @param hashtags     the {@code name} of each {@code Hashtag} in its {@code tag}, which {@link StatusService} checks
+ * @param attachments  what's in its {@code attachment} that has an HTTP or HTTPS URL, up to {@value #MAX_ATTACHMENTS}
  */
 record RemoteNote(
         URI id,
@@ -40,13 +48,23 @@ record RemoteNote(
         Instant updated,
         Addressing addressing,
         List<URI> mentions,
-        List<String> hashtags) {
+        List<String> hashtags,
+        List<RemoteAttachment> attachments) {
 
     /**
      * Each mention is looked up, so a note can't make this server look up any number of them. Mastodon has no limit, but
      * a note mentioning more accounts than this would be spam.
      */
     static final int MAX_MENTIONS = 100;
+
+    /**
+     * Misskey's limit, the highest of the common servers', so that none of theirs are cut short. Mastodon shows 4.
+     */
+    static final int MAX_ATTACHMENTS = 16;
+
+    private static final int MAX_DIMENSION = 100_000;
+
+    private static final Pattern BLURHASH = Pattern.compile("[0-9A-Za-z#$%*+,\\-.:;=?@\\[\\]^_{|}~]{6,100}");
 
     /**
      * How far ahead of this server's clock an {@code updated} can be, which is what signatures allow.
@@ -57,6 +75,7 @@ record RemoteNote(
         attributedTo = List.copyOf(attributedTo);
         mentions = List.copyOf(mentions);
         hashtags = List.copyOf(hashtags);
+        attachments = List.copyOf(attachments);
     }
 
     /**
@@ -100,7 +119,101 @@ record RemoteNote(
                 timestamp(node.path("updated")),
                 Addressing.of(node),
                 mentions(node.path("tag")),
-                hashtags(node.path("tag"))));
+                hashtags(node.path("tag")),
+                attachments(node.path("attachment"))));
+    }
+
+    /**
+     * {@code attachment} can be one object or an array. Mastodon sends a {@code Document} for each, and others send
+     * {@code Image}, {@code Video}, or {@code Audio}. Its {@code mediaType} is only what its server says, since the file
+     * isn't read here. One without a URL that can be opened is left out.
+     */
+    private static List<RemoteAttachment> attachments(JsonNode node) {
+        var attachments = new ArrayList<RemoteAttachment>();
+        for (var candidate : node.isArray() ? node.valueStream().toList() : List.of(node)) {
+            if (attachments.size() == MAX_ATTACHMENTS) {
+                break;
+            }
+            if (!candidate.isObject()) {
+                continue;
+            }
+            var types = ActivityJson.types(candidate.path("type"));
+            if (types.stream().noneMatch(type -> Set.of("Document", "Image", "Video", "Audio").contains(type))) {
+                continue;
+            }
+            var url = attachmentUrl(candidate.path("url"));
+            if (url == null) {
+                continue;
+            }
+            var mediaType = ActivityJson.text(candidate.path("mediaType"));
+            attachments.add(new RemoteAttachment(
+                    url,
+                    attachmentType(mediaType, types),
+                    mediaType == null || mediaType.length() > 255 ? null : mediaType,
+                    ActivityJson.text(candidate.path("name")),
+                    dimension(candidate.path("width")),
+                    dimension(candidate.path("height")),
+                    Optional.ofNullable(ActivityJson.text(candidate.path("blurhash")))
+                            .filter(hash -> BLURHASH.matcher(hash).matches())
+                            .orElse(null),
+                    focus(candidate.path("focalPoint"))));
+        }
+        return attachments;
+    }
+
+    /**
+     * Like a note's {@code url}, except that a {@code Link}'s {@code mediaType} is the file's, so any is taken.
+     */
+    private static URI attachmentUrl(JsonNode node) {
+        for (var candidate : node.isArray() ? node.valueStream().toList() : List.of(node)) {
+            var href = candidate.isObject() ? ActivityJson.text(candidate.path("href")) : ActivityJson.text(candidate);
+            var uri = Optional.ofNullable(href)
+                    .flatMap(ActivityObject::parseUri)
+                    .filter(RemoteNote::isWebPage)
+                    .filter(parsed -> InboundActivity.isStorableId(parsed.toString()));
+            if (uri.isPresent()) {
+                return uri.get();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The {@code mediaType} decides, as on Mastodon, and the object's type only when there's none.
+     */
+    private static AttachmentType attachmentType(String mediaType, List<String> types) {
+        if (mediaType != null) {
+            var lower = mediaType.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("image/")) {
+                return AttachmentType.IMAGE;
+            }
+            if (lower.startsWith("video/")) {
+                return AttachmentType.VIDEO;
+            }
+            if (lower.startsWith("audio/")) {
+                return AttachmentType.AUDIO;
+            }
+            return AttachmentType.UNKNOWN;
+        }
+        return types.contains("Image") ? AttachmentType.IMAGE
+                : types.contains("Video") ? AttachmentType.VIDEO
+                : types.contains("Audio") ? AttachmentType.AUDIO
+                : AttachmentType.UNKNOWN;
+    }
+
+    private static Integer dimension(JsonNode node) {
+        return node.isIntegralNumber() && node.canConvertToInt() && node.intValue() > 0 && node.intValue() <= MAX_DIMENSION
+                ? node.intValue()
+                : null;
+    }
+
+    private static Focus focus(JsonNode node) {
+        if (!node.isArray() || node.size() != 2 || !node.get(0).isNumber() || !node.get(1).isNumber()) {
+            return null;
+        }
+        var x = node.get(0).doubleValue();
+        var y = node.get(1).doubleValue();
+        return Double.isFinite(x) && Double.isFinite(y) ? new Focus(x, y) : null;
     }
 
     /**

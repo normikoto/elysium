@@ -92,9 +92,6 @@ public class TimelinesController {
         return responses.page(HOME_PATH, Map.of(), page, timelines.homeTimeline(viewer, page), Optional.of(viewer));
     }
 
-    /**
-     * No status has media yet, so {@code only_media} has nothing to return.
-     */
     @GetMapping("/public")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
     @Operation(
@@ -102,8 +99,7 @@ public class TimelinesController {
             summary = "View public statuses",
             description = """
                     Differences from Mastodon: statuses from other servers are only stored when they're sent here, \
-                    which is when a local account follows their author or is addressed. Statuses can't have media, so \
-                    `only_media` returns an empty list.
+                    which is when a local account follows their author or is addressed.
 
                     Only public statuses are listed, and not ones from suspended accounts.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#public"),
@@ -114,7 +110,7 @@ public class TimelinesController {
                     @Parameter(name = "local", description = "Only list statuses from this server. " + ApiDocs.FLAG),
                     @Parameter(name = "remote", description = "Only list statuses from other servers. Ignored if "
                             + "`local` is true. " + ApiDocs.FLAG),
-                    @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG)
+                    @Parameter(name = "only_media", description = "Only list statuses with media. " + ApiDocs.FLAG)
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first.")
@@ -130,10 +126,13 @@ public class TimelinesController {
             @RequestParam(name = "only_media", required = false) String onlyMedia) {
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         var origin = RequestParameters.origin(local, remote);
-        List<Status> found = RequestParameters.flag(onlyMedia) ? List.of() : timelines.publicTimeline(origin, page);
+        List<Status> found = timelines.publicTimeline(origin, page, RequestParameters.flag(onlyMedia));
 
         var filters = new LinkedHashMap<String, String>();
         RequestParameters.putOrigin(filters, origin);
+        if (RequestParameters.flag(onlyMedia)) {
+            filters.put("only_media", "true");
+        }
         return responses.page(PUBLIC_PATH, filters, page, found, RequestParameters.viewer(token));
     }
 
@@ -150,7 +149,7 @@ public class TimelinesController {
             description = """
                     Differences from Mastodon: statuses from other servers are only stored when they're sent here, \
                     which is when a local account follows their author or is addressed, and their hashtags are only \
-                    those in their `tag`. Statuses can't have media, so `only_media` returns an empty list. Tags are \
+                    those in their `tag`. Tags are \
                     matched without regard to case or Unicode composition, as Mastodon's normalized names are.
 
                     Only public statuses are listed, including replies, and not ones from suspended accounts. A \
@@ -170,7 +169,7 @@ public class TimelinesController {
                     @Parameter(name = "local", description = "Only list statuses from this server. " + ApiDocs.FLAG),
                     @Parameter(name = "remote", description = "Only list statuses from other servers. Ignored if "
                             + "`local` is true. " + ApiDocs.FLAG),
-                    @Parameter(name = "only_media", description = "Returns an empty list if true. " + ApiDocs.FLAG)
+                    @Parameter(name = "only_media", description = "Only list statuses with media. " + ApiDocs.FLAG)
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first.")
@@ -198,7 +197,7 @@ public class TimelinesController {
         if (filter.isEmpty()) {
             return ResponseEntity.ok(List.of());
         }
-        List<Status> found = RequestParameters.flag(onlyMedia) ? List.of() : timelines.tagTimeline(filter.get(), origin, page);
+        List<Status> found = timelines.tagTimeline(filter.get(), origin, page, RequestParameters.flag(onlyMedia));
 
         var filters = new LinkedHashMap<String, Object>();
         for (var mode : List.of(Map.entry("any[]", anyNames), Map.entry("all[]", allNames), Map.entry("none[]", noneNames))) {
@@ -207,6 +206,9 @@ public class TimelinesController {
             }
         }
         RequestParameters.putOrigin(filters, origin);
+        if (RequestParameters.flag(onlyMedia)) {
+            filters.put("only_media", "true");
+        }
         var path = TAG_PATH + Hashtags.parse(hashtag).orElseThrow();
         return responses.page(path, filters, page, found, RequestParameters.viewer(token));
     }

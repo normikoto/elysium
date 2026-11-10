@@ -1,5 +1,8 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
+import dev.biribiri.elysium.moderation.DomainBlock;
+import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.content.RemoteAttachment;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -21,6 +24,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.Map;
 
@@ -155,6 +159,46 @@ class DomainBlockCleanupIntegrationTests {
 
         await().atMost(WAIT).until(() -> jobs(block.id()) == 0);
         assertThat(follows(follower)).isEqualTo(1);
+    }
+
+    @Test
+    void aBlockThatOnlyLimitsAServerRemovesNothingUntilItSuspendsIt() {
+        var follower = remote(domain);
+        follow(follower, local);
+        var status = post(follower);
+        var block = blocks.create(domain, DomainBlock.Severity.NOOP, true, null);
+
+        assertThat(jdbc.sql("""
+                        SELECT count(*) FROM scheduled_tasks
+                        WHERE task_name = 'domain-block-cleanup' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + block.id() + "%").query(Long.class).single()).isZero();
+        assertThat(follows(follower)).isEqualTo(1);
+        assertThat(statusExists(status)).isTrue();
+
+        blocks.update(block.id(), DomainBlock.Severity.SUSPEND, false, null);
+
+        await().atMost(WAIT).until(() -> follows(follower) == 0 && !statusExists(status));
+    }
+
+    @Test
+    void removesTheAttachmentsOfItsStatuses() {
+        var author = remote(domain);
+        follow(local, author);
+        statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(),
+                "<p>Hi</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
+                List.of(new RemoteAttachment(URI.create(author.uri() + "/a.png"), AttachmentType.IMAGE, "image/png",
+                        null, null, null, null, null)))).orElseThrow();
+        assertThat(attachmentsOf(author)).isOne();
+
+        blocks.create(domain, null);
+
+        await().atMost(WAIT).until(() -> attachmentsOf(author) == 0);
+    }
+
+    private long attachmentsOf(Actor author) {
+        return jdbc.sql("SELECT count(*) FROM media_attachment WHERE account_id = :id").param("id", author.id())
+                .query(Long.class).single();
     }
 
     @Test

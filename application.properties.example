@@ -34,11 +34,25 @@ spring.datasource.password=
 # How many fields each profile can have. Lowering this doesn't remove any, but a profile with more can't save its fields
 # until it has few enough.
 #elysium.profiles.max-fields=4
-# The largest avatar or header that can be uploaded. Above 9MB, also raise spring.servlet.multipart.max-request-size,
-# which is 20MB.
+# The largest avatar or header that can be uploaded.
 #elysium.profiles.max-image-size=8MB
 
-# Where uploaded images are kept. Back this directory up along with the database, which refers to the files in it.
+# The largest image, video, and audio file that can be attached to a post. Video and audio keep their metadata.
+#elysium.attachments.max-image-size=16MB
+#elysium.attachments.max-video-size=100MB
+#elysium.attachments.max-audio-size=40MB
+# How many uploads each account can have that aren't in a post yet, and how long they're kept for one.
+#elysium.attachments.max-unattached-uploads=20
+#elysium.attachments.unattached-retention=1d
+# How long a deleted post's attachments are kept, so that it can be posted again.
+#elysium.attachments.redraft-retention=1h
+# Whether copies of other servers' attachments are kept here, for how long, and how much each server can have downloaded
+# in an hour. Past that, they're linked to their server.
+#elysium.attachments.remote-cache-enabled=true
+#elysium.attachments.remote-cache-retention=30d
+#elysium.attachments.remote-download-budget=2GB
+
+# Where uploaded files are kept. Back this directory up along with the database, which refers to the files in it.
 #elysium.media.directory=media
 
 # How long a login session lasts without a request.

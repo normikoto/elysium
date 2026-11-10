@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
+import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
 import dev.biribiri.elysium.graph.FollowService;
@@ -12,8 +13,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.util.unit.DataSize;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -57,7 +60,11 @@ class StatusServiceTests {
                 mock(ApplicationEventPublisher.class),
                 mock(FollowService.class),
                 resolver,
-                mock(BoostRepository.class));
+                mock(BoostRepository.class),
+                mock(MediaAttachmentRepository.class),
+                mock(MediaAttachments.class),
+                new AttachmentProperties(DataSize.ofMegabytes(16), DataSize.ofMegabytes(100), DataSize.ofMegabytes(40),
+                        Duration.ofDays(1), Duration.ofHours(1), 20));
     }
 
     private static Actor actor(String username, String domain) {

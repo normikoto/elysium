@@ -15,6 +15,7 @@ import java.util.UUID;
  * @param editedAt    when its server says it was edited, which orders edits that arrive out of order
  * @param tags        the names of its hashtags as its server gave them, which are checked and normalized
  *                    when it's stored
+ * @param attachments every attachment it has now, in order, which replace the ones it had
  */
 public record RemoteEdit(
         URI uri,
@@ -24,11 +25,22 @@ public record RemoteEdit(
         String language,
         boolean sensitive,
         Instant editedAt,
-        Collection<String> tags
+        Collection<String> tags,
+        List<RemoteAttachment> attachments
 ) {
 
     public RemoteEdit {
         tags = List.copyOf(tags);
+        attachments = List.copyOf(attachments);
+    }
+
+    /**
+     * An edit that leaves the status with no attachments.
+     */
+    public RemoteEdit(
+            URI uri, UUID authorId, String content, String spoilerText, String language, boolean sensitive,
+            Instant editedAt, Collection<String> tags) {
+        this(uri, authorId, content, spoilerText, language, sensitive, editedAt, tags, List.of());
     }
 
     /**
@@ -37,7 +49,7 @@ public record RemoteEdit(
     public RemoteEdit(
             URI uri, UUID authorId, String content, String spoilerText, String language, boolean sensitive,
             Instant editedAt) {
-        this(uri, authorId, content, spoilerText, language, sensitive, editedAt, List.of());
+        this(uri, authorId, content, spoilerText, language, sensitive, editedAt, List.of(), List.of());
     }
 
     /**

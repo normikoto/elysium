@@ -1,5 +1,6 @@
 package dev.biribiri.elysium;
 
+import dev.biribiri.elysium.moderation.DomainBlock;
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -386,6 +387,21 @@ class InboxIntegrationTests {
         new TransactionTemplate(transactions).executeWithoutResult(tx -> projection.on(new StatusStored(id)));
         assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE sender_id = :id")
                 .param("id", remote.id()).query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void aBlockThatOnlyRejectsMediaHidesNothing() throws Exception {
+        var remote = remote("social.limited.example:8443");
+        store(remote, note(remote), null, Map.of(bob.id(), false), DIRECT);
+        settled();
+        mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$", hasSize(1)));
+
+        blocks.create("limited.example", DomainBlock.Severity.NOOP, true, null);
+        settled();
+
+        mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$", hasSize(1)));
+        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
+                .andExpect(jsonPath("$[*].account.id").value(hasItem(remote.id().toString())));
     }
 
     @Test

@@ -12,14 +12,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Mastodon's Status entity. Media and polls don't exist yet, so those fields hold the values a status without either would
- * have.
+ * Mastodon's Status entity. Polls don't exist yet, so those fields hold the values a status without one would have.
  *
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Media, polls, and cards don't exist yet, so those fields \
-        are always empty, null, zero, or false. A boost has the boosted status in `reblog`, and no content of its own. \
+        Mastodon's Status entity. Polls and cards don't exist yet, so those fields \
+        are always null. A boost has the boosted status in `reblog`, and no content of its own. \
         `reblogs_count` and `favourites_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
         edited, or null if it never was.""")
@@ -45,7 +44,7 @@ record StatusResponse(
         StatusResponse reblog,
         Object application,
         AccountResponse account,
-        @JsonProperty("media_attachments") List<Object> mediaAttachments,
+        @JsonProperty("media_attachments") List<MediaAttachmentResponse> mediaAttachments,
         List<MentionResponse> mentions,
         List<StatusTagResponse> tags,
         List<Object> emojis,
@@ -63,7 +62,7 @@ record StatusResponse(
      */
     static StatusResponse from(
             Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
-            boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog) {
+            List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -84,7 +83,7 @@ record StatusResponse(
                 reblog,
                 null,
                 account,
-                List.of(),
+                mediaAttachments,
                 mentions,
                 tags,
                 List.of(),

@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.RemoteAttachment;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -168,8 +170,21 @@ class NoteStorage {
                 // So that an Update older than this version can't replace it.
                 note.editedAt(published, Instant.now()),
                 mentions(note, addressed, visibility),
-                note.hashtags());
+                note.hashtags(),
+                attachments(note, author));
         return store.apply(remote).isPresent() ? Result.STORED : Result.TAKEN;
+    }
+
+    /**
+     * A note's attachments, marked as rejected when an admin rejects its author's media or their server's. The author's
+     * server decides, rather than the file's host, which is often somewhere else.
+     */
+    List<RemoteAttachment> attachments(RemoteNote note, Actor author) {
+        if (note.attachments().isEmpty()) {
+            return List.of();
+        }
+        var rejected = blocks.rejectsMedia(author.uri().getHost()) || actors.isMediaRejected(author.id());
+        return note.attachments().stream().map(attachment -> attachment.rejected(rejected)).toList();
     }
 
     /**

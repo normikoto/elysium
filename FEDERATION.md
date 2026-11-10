@@ -5,7 +5,8 @@ follow its users, and fetch their actors, statuses, outboxes, and collections. I
 whose recent posts are then fetched from their outbox, and like and boost their posts. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
 are sent to their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
 reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
-statuses are counted. Attachments, polls, and other activities aren't supported yet.
+statuses are counted. Their images, video, and audio are sent and read as attachments, and other servers' are
+downloaded and served from here for a while. Polls and other activities aren't supported yet.
 
 ## Supported federation protocols and standards
 
@@ -130,7 +131,8 @@ that never existed.
 ```
 
 A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, and `sensitive`. Its `@context` defines
-`sensitive` as `as:sensitive` and `Hashtag` as `as:Hashtag`, as Mastodon's does. It can also have:
+`sensitive` as `as:sensitive`, `Hashtag` as `as:Hashtag`, and `blurhash` and `focalPoint` in Mastodon's `toot`
+namespace, as Mastodon's does. It can also have:
 
 - `likes`: the post's likes collection, at `{note-uri}/likes`.
 - `shares`: the post's [boosts](#boosts) collection, at `{note-uri}/shares`.
@@ -143,6 +145,11 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
   `Hashtag` for each of its hashtags, up to 100, with `#` and the normalized name as `name`, such as `#café`, and this
   server's page of public statuses with the tag, `/tags/{name}`, as `href`. A normalized name is lowercase, in
   Unicode's NFKC form. That page is HTML only, and isn't an ActivityPub collection.
+- `attachment`: a `Document` for each of its images, video, and audio, up to 4, in order, as Mastodon sends them. Each
+  has `mediaType`, `url`, and, if it has them, `name` (the description, as plain text), `width` and `height` (images
+  only), and `focalPoint`. Images are always `image/webp`. Video and audio are the files as they were uploaded, so their
+  `mediaType` is one of `video/mp4`, `video/quicktime`, `video/webm`, `audio/mp4`, `audio/mpeg`, `audio/ogg`,
+  `audio/flac`, or `audio/wav`. There's no `blurhash`. A status can have attachments and empty `content`.
 
 Statuses are addressed like this, where `followers` is the author's followers collection and `mentioned` the actors in its
 `Mention` tags:
@@ -435,7 +442,9 @@ followers-only status only goes to those who were already following when it was 
 
 ```json
 {
-  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive", "Hashtag": "as:Hashtag"}],
+  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive", "Hashtag": "as:Hashtag",
+    "toot": "http://joinmastodon.org/ns#", "blurhash": "toot:blurhash",
+    "focalPoint": {"@container": "@list", "@id": "toot:focalPoint"}}],
   "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000#create",
   "type": "Create",
   "actor": "https://elysium.example/users/alice",
@@ -469,7 +478,9 @@ text, content warning, sensitivity, and language, but not the visibility or `inR
 
 ```json
 {
-  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive", "Hashtag": "as:Hashtag"}],
+  "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive", "Hashtag": "as:Hashtag",
+    "toot": "http://joinmastodon.org/ns#", "blurhash": "toot:blurhash",
+    "focalPoint": {"@container": "@list", "@id": "toot:focalPoint"}}],
   "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000#updates/1767229260000",
   "type": "Update",
   "actor": "https://elysium.example/users/alice",
@@ -558,7 +569,20 @@ that isn't for anyone here is ignored, even if it's public, unless it's [boosted
 - **Other properties:** `url` is kept if it's an HTTP or HTTPS URL, or a `Link` to one that's `text/html` or has no
   `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
   other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the
-  parent arrives later. Attachments, tags other than `Mention` and `Hashtag`, emoji, and polls aren't read yet.
+  parent arrives later. Tags other than `Mention` and `Hashtag`, emoji, and polls aren't read yet.
+- **Attachments:** each `Document`, `Image`, `Video`, or `Audio` in `attachment`, one object or an array, up to 16 in
+  order, as Misskey allows. Its `url` is a string, a `Link`, or an array of them, and the first HTTP or HTTPS one is
+  taken. One without such a URL is left out. Its `mediaType` decides whether it's shown as an image, video, or audio,
+  and its type does only when there's no `mediaType`. Anything else is shown as a link. `name` is the description, as
+  plain text, up to 1500 characters. `width`, `height`, `blurhash`, and a `focalPoint` of two numbers are kept when
+  they're valid. Each is then downloaded once, shortly afterward, with a `GET` from the same `User-Agent` as other
+  requests and no signature, over HTTPS only, following up to 3 redirects, within 2 minutes. The file's own bytes decide
+  what it is, whatever its `mediaType` says. One that's too large (16 MB for an image, 100 MB for video, and 40 MB for
+  audio by default), isn't an accepted format, or gets any other status than `200`, `5xx`, `408`, or `429` is linked to
+  instead and not fetched again. A `5xx`, `408`, or `429` is tried again later. Only one file is downloaded from a host
+  at a time. Each server's attachments can add up to only so much in an hour, 2 GB by
+  default, counted by the author's server rather than the file's host, and past that they're linked. Copies are kept for
+  30 days by default.
 - **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again. An
   [`Update`](#receiving-updates) is how it's changed.
 - **Edits:** a `Note` that has an `updated` later than its `published`, and no more than an hour ahead of this server's
@@ -582,8 +606,9 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   an actor. An `Update` of an actor that isn't stored, or of another actor, is ignored.
 - **Statuses:** an `Update` whose `object` is a `Note` is read with [the same checks as a `Create`](#receiving-statuses):
   it has to be attributed to the `actor` alone, with an `id` on the same host and port, and one sent as an ID is fetched.
-  It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, the language, and
-  the `Hashtag` tags are replaced, and read as they are for a `Create`. Its visibility, `inReplyTo`, `url`, and `published` aren't
+  It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, the language, the
+  `Hashtag` tags, and the attachments are replaced, and read as they are for a `Create`. An attachment with the same
+  `url` as before is updated rather than replaced. Its visibility, `inReplyTo`, `url`, and `published` aren't
   changed. Other object types, such as `Question`, are ignored.
 - **Order:** the `Note` needs an `updated`, and is only applied if that's later than its `published` and the edit stored
   last. Activities are processed in no order, so one that's older is ignored, and one without `updated` is ignored too, as
@@ -757,7 +782,10 @@ A suspended account's actor document has no profile: no `name`, `summary`, `icon
 ### Domain blocks
 
 Admins can [block a domain](docs/accounts.md#domain-blocks), which also covers its subdomains and every port. Domains are
-compared in lowercase ASCII, without a trailing dot. A block is only ever a full one, with no lesser level.
+compared in lowercase ASCII, without a trailing dot. A block is either a suspension, which is what the rest of this section
+describes, or a limit (Mastodon's `noop`), which only rejects what it says. A limited server federates as usual. If its
+media is rejected, its actors' attachments aren't downloaded, and are shown as links to their server, whatever the file's
+host is. An admin can also reject the media of one account on another server. A suspension rejects media too.
 
 - **Inbound:** A delivery signed with a key on a blocked domain gets a `403`, before any key is fetched, so it doesn't use up
   any limits. This also applies to keys this server has already cached. A signature that's malformed or out of date still

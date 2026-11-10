@@ -15,6 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -157,6 +158,7 @@ class UpdateHandler implements InboundActivityHandler {
                 note.language(),
                 note.sensitive(),
                 note.editedAt(note.published(), Instant.now()),
-                note.hashtags()));
+                note.hashtags(),
+                actors.findById(authorId).map(author -> storage.attachments(note, author)).orElse(List.of())));
     }
 }

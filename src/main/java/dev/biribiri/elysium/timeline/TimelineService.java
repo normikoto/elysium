@@ -30,11 +30,11 @@ public class TimelineService {
         return statuses.findHome(viewerId, follows.followedIds(viewerId), page);
     }
 
-    public List<Status> publicTimeline(StatusOrigin origin, StatusPage page) {
-        return statuses.findPublic(origin, page);
+    public List<Status> publicTimeline(StatusOrigin origin, StatusPage page, boolean onlyMedia) {
+        return statuses.findPublic(origin, page, onlyMedia);
     }
 
-    public List<Status> tagTimeline(TagFilter tags, StatusOrigin origin, StatusPage page) {
-        return statuses.findTagged(tags, origin, page);
+    public List<Status> tagTimeline(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia) {
+        return statuses.findTagged(tags, origin, page, onlyMedia);
     }
 }

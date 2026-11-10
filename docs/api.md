@@ -12,8 +12,14 @@ differs from Mastodon in these ways:
 
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
-- Media, polls, and scheduled posts aren't implemented. `media_ids`, `poll`, or `scheduled_at` with a value gets a 422
-  rather than being ignored, and so do `media_ids`, `media_attributes[]`, or `poll` with a value in an edit.
+- Polls and scheduled posts aren't implemented. `poll` or `scheduled_at` with a value gets a 422 rather than being
+  ignored, and so does `poll` with a value in an edit.
+- `media_ids` can have up to 4 of the user's uploads that aren't attached yet, as on Mastodon. A video or audio can't be
+  attached with anything else, and a status with media can have no text. In an edit, `media_ids` lists every attachment
+  the status is to have, in order, and a missing one keeps them. `media_attributes[]` only changes `description` and
+  `focus`, and a `thumbnail` in it gets a 422. An attachment that an edit takes out is deleted at once.
+- `DELETE /api/v1/statuses/:id` keeps the status's attachments so that they can be posted again, as on Mastodon, but for
+  an hour by default rather than a day. `delete_media=true` deletes them at once.
 - `PUT /api/v1/statuses/:id` keeps the status's `language` when it's missing or empty, as Mastodon does, so a language
   can't be removed. A missing `sensitive` keeps what the status has. `visibility` and `in_reply_to_id` are ignored. An
   account that an edit no longer mentions can still see the status, as on Mastodon. An edit that changes nothing doesn't
@@ -21,7 +27,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   future, because other servers are sent whole seconds.
 - `GET /api/v1/statuses/:id/history` only has the versions of a status from another server that were sent here, so it
   can lack some that its server shows, and it has no versions from before the upgrade that added it. Only the latest 50
-  versions of a status are kept. Its entries have empty `media_attachments` and `emojis`, and a null `poll`.
+  versions of a status are kept. Only the current version has `media_attachments`, and earlier ones have none. Entries
+  have empty `emojis`, and a null `poll`.
 - URLs, mentions, and hashtags in a status are linked. A mention of an account on another server is looked
   up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
   mention that can't be found, or one past that limit of an account that isn't already known here, stays as text rather
@@ -40,7 +47,9 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   leaves out local accounts that the status was sent to without mentioning them, which can still see it.
 - `visibility` defaults to `public` only when it's missing. An empty value is rejected, as are a repeated value and
   `visibility[]`.
-- `GET /api/v1/instance` reports the limit in `max_toot_chars` and `configuration.statuses.max_characters`, but
+- `GET /api/v1/instance` reports the length limit in `max_toot_chars` and `configuration.statuses.max_characters`, and
+  the media limits in `configuration.media_attachments`, where `video_size_limit` is the larger of the video and audio
+  limits. `video_frame_rate_limit` and `video_matrix_limit` aren't enforced, since video isn't decoded. But
   `/api/v2/instance` isn't implemented. Clients that don't read the limit from v1 may apply their own limit of 500. Its
   `version` is a Mastodon version followed by `(compatible; Elysium)`. The streaming API isn't implemented, though
   `urls.streaming_api` is set. `invites_enabled` is always `false`, since only admins can make invites, from the command
@@ -51,7 +60,12 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   followed here. When a local account starts following someone, up to 40 of their recent public and unlisted statuses are
   fetched as well, and these are ordered by when they were posted, so a client that's already loaded newer statuses
   won't be given them as new. Other older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
-  can differ from what the other server shows, and they never have `media_attachments`, `emojis`, or a `poll`. Their
+  can differ from what the other server shows, and they never have `emojis` or a `poll`. Their `media_attachments` are
+  copied here shortly after they arrive, as Mastodon does, and until then, or if they can't be, `url` and an image's
+  `preview_url` are the same as `remote_url`. A copy is checked like an upload, so its type is what the file is, and a
+  file that isn't an accepted format is `unknown`. Copies are removed after 30 days by default, and aren't fetched
+  again, so older ones link to their server. Up to 16 are kept, more than Mastodon shows. One from a server or account
+  whose media an admin rejects is `unknown`, with `url` the same as `remote_url`, and no `preview_url`. Their
   `tags` are the hashtags their server listed for them, and are replaced when they're edited.
   Their `mentions` only list local accounts, and accounts on other servers that are already known here. A reply whose
   parent isn't stored has a null `in_reply_to_id` and `in_reply_to_account_id`.
@@ -84,6 +98,32 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   a remote account's other boosts aren't listed with its statuses. A boosted status that isn't stored yet is fetched first,
   so the boost can show up a little later than on Mastodon. `reblogs_count` only counts the boosts this server knows of.
   The home timeline lists every boost from the accounts the user follows, even of a status that's already there.
+
+Uploads follow [Mastodon's media API](https://docs.joinmastodon.org/methods/media/), with the `write:media` scope, and
+with these differences:
+
+- `POST /api/v2/media` processes the file before it answers, so it always answers 200 with a `url`, never 202.
+  `POST /api/v1/media` does the same.
+- Uploads can be PNG, JPEG, GIF, or WebP images, MP4, MOV, or WebM video, or MP3, M4A, Ogg, FLAC, or WAV audio. A file's
+  type is worked out from its content, and anything else gets a 422, whatever it's sent as.
+- Images are re-encoded as WebP, without their metadata, and scaled down to fit 3840 × 2160 pixels in area. Their
+  `preview_url` fits 640 × 360. An animated GIF becomes an animated WebP of type `image`, never `gifv`. An image with more
+  than 30 million pixels gets a 422, and so does an animation with more than 300 frames, or with more than 25 million
+  pixels in all its frames together, such as 100 frames of 500 × 500.
+- Video and audio are kept as they were uploaded, so `meta` has no `original` for them, and they have no `preview_url`
+  unless a `thumbnail` is uploaded with them. A `thumbnail` with an image gets a 422, and so does one in
+  `PUT /api/v1/media/:id`.
+- Images, video, and audio each have their own size limit, 16 MB, 100 MB, and 40 MB by default, and a file over its
+  limit gets a 422. A request that's larger than any upload can be gets a 413.
+- A user can have at most 20 uploads waiting to be posted by default, and one more gets a 422. An upload that isn't
+  posted within a day, by default, is deleted.
+- `blurhash` is always null, and so are `preview_remote_url` and `text_url`.
+- `GET` and `PUT /api/v1/media/:id` only find uploads that aren't attached to a status yet, as on Mastodon. In a `PUT`, a
+  missing `description` or `focus` keeps what the upload has, and an empty `description` removes it.
+- `DELETE /api/v1/media/:id` gets a 422 for an upload that's attached to a status.
+
+`only_media` works on `GET /api/v1/timelines/public`, `GET /api/v1/timelines/tag/:hashtag`, and
+`GET /api/v1/accounts/:id/statuses`, and leaves out boosts.
 
 Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/notifications/) and
 [grouped notifications API](https://docs.joinmastodon.org/methods/grouped_notifications/):
@@ -183,18 +223,22 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
 - `GET /api/v1/accounts/:id/statuses` for an account on another server only lists its statuses stored here.
 
 Domain blocks follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/domain_blocks/), under
-`/api/v1/admin/domain_blocks`, with the `admin:read:domain_blocks` and `admin:write:domain_blocks` scopes. Every block is a
-full block, so these differ from Mastodon:
+`/api/v1/admin/domain_blocks`, with the `admin:read:domain_blocks` and `admin:write:domain_blocks` scopes, with these
+differences from Mastodon:
 
-- `severity` is required when creating a block, and has to be `suspend`. Mastodon's default is `silence`, and `silence` and
-  `noop` get a 422 here rather than cutting off a server that an admin only meant to limit.
-- `reject_media` and `reject_reports` are always returned as `true`, `obfuscate` as `false`, and `public_comment` as null.
-  Any values sent for them are ignored.
+- `severity` is required when creating a block, and has to be `suspend` or `noop`. Mastodon's default is `silence`, which
+  isn't supported, and gets a 422 here rather than a block that does more or less than an admin meant.
+- `reject_media` works on a `noop` block. A `suspend` block always rejects media, and is returned with `reject_media` and
+  `reject_reports` as `true`. Reports aren't supported, so a `noop` block's `reject_reports` is `false`. `obfuscate` is
+  always `false`, and `public_comment` null, and any values sent for `reject_reports`, `obfuscate`, and `public_comment`
+  are ignored.
+- `PUT` changes only what it's sent, as on Mastodon, and an empty `private_comment` removes it. Changing a block to
+  `suspend`, or turning on `reject_media`, removes what that block removes, and changing it back doesn't bring that back.
 - A domain with a wildcard, a port, or a URL's other parts is refused, as are IP addresses, a domain with only one label such
   as `com`, and this server's own domain or one above it. Blocks always cover subdomains and every port. A Unicode domain
   that converting would change, such as `faß.example`, has to be sent in its `xn--` form.
 - `private_comment` can be up to 1000 characters.
-- A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one that's already blocked.
+- A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one that's already blocked, unless the new block does more, such as suspending a subdomain of a `noop` block.
 
 Accounts follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/accounts/), under `/api/v1/admin/accounts`,
 with the `admin:read:accounts` and `admin:write:accounts` scopes, and these differ from Mastodon:

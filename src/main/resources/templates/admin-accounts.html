@@ -5,7 +5,8 @@
         <p>
             Suspending an account stops it from being used or seen, and keeps its data so that you can undo this. Deleting a
             local account removes its data for good. Accounts on other servers can only be suspended, which also removes their
-            follows.
+            follows, or have their media rejected, which links to their attachments rather than keeping copies here, and
+            removes the copies already kept.
         </p>
         <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
         <form method="get" th:action="@{/admin/accounts}">
@@ -20,6 +21,7 @@
                 <strong th:text="${account.handle()}"></strong>
                 <span th:if="${account.admin()}">Admin</span>
                 <span th:if="${account.suspended()}">Suspended</span>
+                <span th:if="${account.mediaRejected()}">Media rejected</span>
             </p>
             <form class="actions" method="post" th:unless="${account.suspended()}"
                   th:action="@{/admin/accounts/{id}/suspend(id=${account.id()})}">
@@ -28,6 +30,14 @@
             <form class="actions" method="post" th:if="${account.suspended()}"
                   th:action="@{/admin/accounts/{id}/unsuspend(id=${account.id()})}">
                 <button type="submit">Unsuspend</button>
+            </form>
+            <form class="actions" method="post" th:if="${!account.local() && !account.mediaRejected()}"
+                  th:action="@{/admin/accounts/{id}/reject-media(id=${account.id()})}">
+                <button type="submit">Reject media</button>
+            </form>
+            <form class="actions" method="post" th:if="${account.mediaRejected()}"
+                  th:action="@{/admin/accounts/{id}/allow-media(id=${account.id()})}">
+                <button type="submit">Allow media</button>
             </form>
             <a th:if="${account.local()}" th:href="@{/admin/accounts/{id}/delete(id=${account.id()})}">Delete</a>
         </div>

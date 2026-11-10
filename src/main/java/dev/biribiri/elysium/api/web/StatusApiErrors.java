@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.InvalidProfileException;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
+import dev.biribiri.elysium.content.InvalidMediaAttachmentException;
 import dev.biribiri.elysium.content.InvalidStatusException;
 import dev.biribiri.elysium.inbox.MarkerConflictException;
 import dev.biribiri.elysium.content.ReplyParentNotFoundException;
@@ -24,6 +25,7 @@ import java.util.Map;
         GroupedNotificationsController.class,
         ConversationsController.class,
         MarkersController.class,
+        MediaController.class,
         AdminAccountsController.class,
         DomainBlocksController.class,
         ProfileController.class,
@@ -40,6 +42,12 @@ class StatusApiErrors {
 
     @ExceptionHandler
     ResponseEntity<Map<String, String>> invalidStatus(InvalidStatusException e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(Map.of("error", "Validation failed: " + e.getMessage()));
+    }
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> invalidMedia(InvalidMediaAttachmentException e) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .body(Map.of("error", "Validation failed: " + e.getMessage()));
     }

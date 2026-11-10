@@ -1,5 +1,11 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.moderation.DomainBlock;
+import dev.biribiri.elysium.content.Focus;
+import dev.biribiri.elysium.content.MediaAttachment;
+import dev.biribiri.elysium.content.MediaAttachments;
+import java.util.stream.IntStream;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -61,6 +67,8 @@ class CreateIntegrationTests {
     private DomainBlocks blocks;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private MediaAttachments attachments;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -128,6 +136,78 @@ class CreateIntegrationTests {
 
         // Only the tag array counts, as on Mastodon, so #inText in the content isn't a tag.
         assertThat(tags(statusId(noteId))).containsExactlyInAnyOrder("cats", "dogs");
+    }
+
+    @Test
+    void storesAttachmentsAsLinksToTheirServer() {
+        var noteId = noteId();
+        var note = new HashMap<>(note(noteId, List.of(PUBLIC), List.of(followers)));
+        note.put("sensitive", true);
+        note.put("content", "");
+        note.put("attachment", List.of(
+                Map.of("type", "Document", "mediaType", "image/jpeg", "url", "https://files." + host + "/a.jpg",
+                        "name", "A cat\non a mat", "blurhash", "UEHLh[WB2yk8pyoJadR*.7kCMdnjS#M|%1%2", "width", 1200,
+                        "height", 800, "focalPoint", List.of(-0.5, 2.0)),
+                Map.of("type", "Video", "url", Map.of("type", "Link", "href", "https://files." + host + "/b.mp4",
+                        "mediaType", "video/mp4")),
+                Map.of("type", "Document", "mediaType", "application/pdf", "url", List.of("javascript:alert(1)",
+                        "https://files." + host + "/c.pdf")),
+                Map.of("type", "Document", "url", "javascript:alert(1)"),
+                Map.of("type", "Mention", "href", follower.uri().toString()),
+                Map.of("type", "Image", "url", "https://files." + host + "/d.png", "width", -3,
+                        "blurhash", "<script>")));
+
+        handler.handle(create(note));
+
+        var id = statusId(noteId);
+        var stored = attachments.findByStatuses(List.of(id)).get(id);
+        assertThat(stored).extracting(MediaAttachment::type)
+                .containsExactly(AttachmentType.IMAGE, AttachmentType.VIDEO, AttachmentType.UNKNOWN, AttachmentType.IMAGE);
+        var image = stored.getFirst();
+        assertThat(image.remoteUrl()).hasToString("https://files." + host + "/a.jpg");
+        assertThat(image.isCached()).isFalse();
+        assertThat(image.description()).isEqualTo("A cat\non a mat");
+        assertThat(image.blurhash()).isEqualTo("UEHLh[WB2yk8pyoJadR*.7kCMdnjS#M|%1%2");
+        assertThat(image.width()).isEqualTo(1200);
+        assertThat(image.focus()).isEqualTo(new Focus(-0.5, 1.0));
+        assertThat(stored.get(1).remoteUrl()).hasToString("https://files." + host + "/b.mp4");
+        assertThat(stored.get(2).remoteUrl()).hasToString("https://files." + host + "/c.pdf");
+        assertThat(stored.get(3).width()).isNull();
+        assertThat(stored.get(3).blurhash()).isNull();
+        assertThat(status(noteId).orElseThrow().get("sensitive")).isEqualTo(true);
+    }
+
+    @Test
+    void storesAttachmentsAsRejectedWhenItsServerOrAuthorsMediaIs() {
+        var note = new HashMap<>(note(noteId(), List.of(PUBLIC), List.of(followers)));
+        note.put("attachment", List.of(Map.of("type", "Document", "mediaType", "image/png",
+                "url", "https://" + host + "/a.png")));
+        blocks.create(host, DomainBlock.Severity.NOOP, true, null);
+
+        handler.handle(create(note));
+
+        var id = statusId((String) note.get("id"));
+        assertThat(attachments.findByStatuses(List.of(id)).get(id)).singleElement()
+                .satisfies(attachment -> assertThat(attachment.rejected()).isTrue());
+        assertThat(attachments.findForDownload(attachments.findByStatuses(List.of(id)).get(id).getFirst().id())).isEmpty();
+
+        // A limited server still federates.
+        assertThat(status((String) note.get("id"))).isPresent();
+    }
+
+    @Test
+    void keepsAtMostSixteenAttachments() {
+        var noteId = noteId();
+        var note = new HashMap<>(note(noteId, List.of(PUBLIC), List.of(followers)));
+        note.put("attachment", IntStream.range(0, 20)
+                .mapToObj(i -> Map.of("type", "Document", "mediaType", "image/png", "url", "https://" + host + "/" + i + ".png"))
+                .toList());
+
+        handler.handle(create(note));
+
+        var id = statusId(noteId);
+        assertThat(attachments.findByStatuses(List.of(id)).get(id)).hasSize(16)
+                .last().extracting(MediaAttachment::remoteUrl).hasToString("https://" + host + "/15.png");
     }
 
     @Test

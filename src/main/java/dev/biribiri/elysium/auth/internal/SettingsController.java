@@ -80,10 +80,7 @@ class SettingsController {
         var hideCollections = "true".equals(form.getFirst("hideCollections"));
         var manuallyApprovesFollowers = "true".equals(form.getFirst("manuallyApprovesFollowers"));
         // Only what the form has a control for is changed, as a form with no rows for fields has none to send.
-        var change = ProfileChange.NONE
-                .withAvatar(image(avatar, form.containsKey("removeAvatar")))
-                .withHeader(image(header, form.containsKey("removeHeader")))
-                .withManuallyApprovesFollowers(manuallyApprovesFollowers);
+        var change = ProfileChange.NONE.withManuallyApprovesFollowers(manuallyApprovesFollowers);
         if (displayName != null) {
             change = change.withDisplayName(displayName);
         }
@@ -94,6 +91,16 @@ class SettingsController {
             change = change.withFields(fields);
         }
         try {
+            // Before the files are read into memory, since Spring takes files as large as a video.
+            if (avatar != null) {
+                profiles.checkAvatarSize(avatar.getSize());
+            }
+            if (header != null) {
+                profiles.checkHeaderSize(header.getSize());
+            }
+            change = change
+                    .withAvatar(image(avatar, form.containsKey("removeAvatar")))
+                    .withHeader(image(header, form.containsKey("removeHeader")));
             if (!profiles.update(accountId, change)) {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND);
             }

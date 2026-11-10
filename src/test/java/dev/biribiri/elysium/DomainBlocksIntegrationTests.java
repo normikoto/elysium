@@ -1,5 +1,14 @@
 package dev.biribiri.elysium;
 
+import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.moderation.DomainBlock;
+import dev.biribiri.elysium.moderation.DomainBlocks;
+import java.net.URI;
+import java.time.Instant;
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.ActorService;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,6 +76,12 @@ class DomainBlocksIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private ActorService actors;
+    @Autowired
+    private DomainBlocks blocks;
+    @Autowired
+    private StatusService statuses;
+    @Autowired
+    private LikeService likes;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -112,8 +127,84 @@ class DomainBlocksIntegrationTests {
         assertThat(count()).isZero();
     }
 
+    @Test
+    void aLimitedBlockCanRejectMediaWithoutCuttingTheServerOff() throws Exception {
+        var domain = newDomain();
+
+        var created = mockMvc.perform(withToken(post(PATH), write())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"domain\":\"" + domain + "\",\"severity\":\"noop\",\"reject_media\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.severity").value("noop"))
+                .andExpect(jsonPath("$.reject_media").value(true))
+                .andExpect(jsonPath("$.reject_reports").value(false));
+
+        assertThat(blocks.isBlocked("social." + domain)).isFalse();
+        assertThat(blocks.rejectsMedia("social." + domain + ":8443")).isTrue();
+
+        // Only what's sent changes.
+        mockMvc.perform(withToken(put(PATH + "/" + id(created)), write())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"private_comment\":\"Too many files\"}"))
+                .andExpect(jsonPath("$.severity").value("noop"))
+                .andExpect(jsonPath("$.reject_media").value(true));
+        mockMvc.perform(withToken(put(PATH + "/" + id(created)), write())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("reject_media", "false"))
+                .andExpect(jsonPath("$.reject_media").value(false))
+                .andExpect(jsonPath("$.private_comment").value("Too many files"));
+        assertThat(blocks.rejectsMedia(domain)).isFalse();
+
+        mockMvc.perform(withToken(put(PATH + "/" + id(created)), write())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"severity\":\"suspend\"}"))
+                .andExpect(jsonPath("$.severity").value("suspend"))
+                .andExpect(jsonPath("$.reject_media").value(true));
+        assertThat(blocks.isBlocked(domain)).isTrue();
+        mockMvc.perform(withToken(put(PATH + "/" + id(created)), write())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"severity\":\"silence\"}"))
+                .andExpect(status().isUnprocessableContent());
+    }
+
+    @Test
+    void aLimitedBlockDoesntHideItsServersLikes() {
+        var domain = newDomain();
+        var author = actors.findLocalByUsername(USER).orElseThrow();
+        var liker = actors.upsertRemote(new RemoteActorProfile(URI.create("https://" + domain + "/users/l"), "l", domain,
+                URI.create("https://" + domain + "/users/l/inbox"), null, null, null, null));
+        var status = statuses.create(author.id(), new NewStatus("Liked", null, null, Visibility.PUBLIC, false, null));
+        likes.receive(liker.id(), status.id(), liker.uri() + "/like", Instant.now());
+
+        blocks.create(domain, DomainBlock.Severity.NOOP, true, null);
+
+        assertThat(likes.count(status.id())).isOne();
+    }
+
+    @Test
+    void thePageCanLimitAndChangeABlock() throws Exception {
+        var session = logIn(ADMIN);
+        var domain = newDomain();
+
+        mockMvc.perform(post(PAGE).session(session).with(csrf())
+                        .param("domain", domain)
+                        .param("severity", "noop")
+                        .param("rejectMedia", "true"))
+                .andExpect(status().is3xxRedirection());
+        mockMvc.perform(get(PAGE).session(session))
+                .andExpect(content().string(containsString("Limited: media rejected")));
+        var id = jdbc.sql("SELECT id FROM domain_block WHERE domain = :domain").param("domain", domain)
+                .query(UUID.class).single();
+
+        mockMvc.perform(post(PAGE + "/" + id).session(session).with(csrf()).param("severity", "suspend"))
+                .andExpect(status().is3xxRedirection());
+
+        assertThat(blocks.find(id).orElseThrow().severity()).isEqualTo(DomainBlock.Severity.SUSPEND);
+        assertThat(blocks.find(id).orElseThrow().rejectMedia()).isFalse();
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"silence", "noop", "SUSPEND"})
+    @ValueSource(strings = {"silence", "SUSPEND"})
     void refusesOtherSeverities(String severity) throws Exception {
         mockMvc.perform(withToken(post(PATH), write())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -154,6 +245,23 @@ class DomainBlocksIntegrationTests {
         create("sub." + domain)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.existing_domain_block.id").value(id));
+    }
+
+    @Test
+    void allowsASubdomainBlockThatDoesMoreThanABroaderOne() throws Exception {
+        var domain = newDomain();
+        var limited = id(create(domain, "noop", false).andExpect(status().isOk()));
+
+        create("media." + domain, "noop", true).andExpect(status().isOk());
+        create("spam." + domain).andExpect(status().isOk());
+        create("other." + domain, "noop", false)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.existing_domain_block.id").value(limited));
+
+        assertThat(blocks.isBlocked("spam." + domain)).isTrue();
+        assertThat(blocks.isBlocked(domain)).isFalse();
+        assertThat(blocks.rejectsMedia("media." + domain)).isTrue();
+        assertThat(blocks.rejectsMedia(domain)).isFalse();
     }
 
     @Test
@@ -375,8 +483,9 @@ class DomainBlocksIntegrationTests {
         var html = mockMvc.perform(get(PAGE).session(logIn(ADMIN)))
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(html.split("<form", -1)).hasSize(3);
-        assertThat(html.split("name=\"_csrf\"", -1)).hasSize(3);
+        // The form to add a block, then the one block's forms to change it and to remove it, besides the layout's.
+        assertThat(html.split("<form", -1)).hasSize(4);
+        assertThat(html.split("name=\"_csrf\"", -1)).hasSize(4);
     }
 
     @Test
@@ -435,9 +544,14 @@ class DomainBlocksIntegrationTests {
     // Helpers
 
     private ResultActions create(String domain) throws Exception {
+        return create(domain, "suspend", false);
+    }
+
+    private ResultActions create(String domain, String severity, boolean rejectMedia) throws Exception {
         return mockMvc.perform(withToken(post(PATH), write())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"domain\":\"" + domain + "\",\"severity\":\"suspend\"}"));
+                .content("{\"domain\":\"" + domain + "\",\"severity\":\"" + severity + "\",\"reject_media\":"
+                        + rejectMedia + "}"));
     }
 
     private static String id(ResultActions created) throws Exception {

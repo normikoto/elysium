@@ -196,6 +196,33 @@ public class ActorService {
     }
 
     /**
+     * Starts or stops rejecting a remote actor's attachments, which keeps them from being downloaded. Starting removes the
+     * copies already kept, through {@link ActorMediaRejected}.
+     *
+     * @return whether that changed anything, which it doesn't for a local or deleted actor, or one already set this way
+     */
+    public boolean setMediaRejected(UUID id, boolean rejected) {
+        return Boolean.TRUE.equals(transaction.execute(status -> {
+            var changed = actors.setMediaRejected(id, rejected);
+            if (changed) {
+                events.publishEvent(rejected ? new ActorMediaRejected(id) : new ActorMediaAllowed(id));
+            }
+            return changed;
+        }));
+    }
+
+    public boolean isMediaRejected(UUID id) {
+        return !actors.mediaRejectedAmong(List.of(id)).isEmpty();
+    }
+
+    /**
+     * @return those of these actors whose attachments are rejected
+     */
+    public Set<UUID> mediaRejectedAmong(Collection<UUID> ids) {
+        return actors.mediaRejectedAmong(ids);
+    }
+
+    /**
      * Ends an actor's suspension.
      *
      * @return whether this ended it, which it won't have if the actor isn't suspended

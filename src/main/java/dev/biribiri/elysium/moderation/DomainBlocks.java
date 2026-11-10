@@ -16,10 +16,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * The servers this one has cut off. Each check goes to the database rather than a cache, so that a block applies straight
+ * The servers this one has cut off or limited. A block is either a suspension, which cuts a server off, or a {@code noop}
+ * one that only limits it, such as by rejecting its attachments. Each check goes to the database rather than a cache, so that a block applies straight
  * away on every node. This is one indexed lookup, and requests that it's checked for already do far more work.
  */
 @Service
@@ -45,24 +47,66 @@ public class DomainBlocks {
      */
     @Transactional
     public DomainBlock create(String domain, String comment) {
+        return create(domain, DomainBlock.Severity.SUSPEND, false, comment);
+    }
+
+    /**
+     * @param domain      the domain to block, along with its subdomains
+     * @param rejectMedia whether to reject its attachments, which a suspension does anyway
+     * @param comment     a note for admins, or null or empty for none
+     * @throws InvalidDomainBlockException  if this domain can't be blocked
+     * @throws DomainBlockConflictException if it's already blocked, or a broader block does as much
+     */
+    @Transactional
+    public DomainBlock create(String domain, DomainBlock.Severity severity, boolean rejectMedia, String comment) {
         var name = DomainName.parse(domain);
         // Empty for an IP address, which parse has already refused to block.
         var ownHost = DomainName.normalizeHost(instance.baseUrl().getHost());
         if (ownHost.isPresent() && (ownHost.get().equals(name) || ownHost.get().endsWith("." + name))) {
             throw new InvalidDomainBlockException("This server can't block itself.");
         }
-        var covering = blocks.findBroadest(DomainName.suffixes(name));
-        if (covering.isPresent()) {
-            throw new DomainBlockConflictException(covering.get());
-        }
         var now = Instant.now();
-        var block = new DomainBlock(Ids.timeOrdered(now), name, cleanComment(comment), now);
+        var block = new DomainBlock(Ids.timeOrdered(now), name, cleanComment(comment), now, severity, rejectMedia);
+        // As on Mastodon, a subdomain can have a block that does more than a broader one, such as suspending it.
+        var conflict = blocks.findCovering(DomainName.suffixes(name)).stream()
+                .filter(existing -> existing.domain().equals(name) || !block.stricterThan(existing))
+                .findFirst();
+        if (conflict.isPresent()) {
+            throw new DomainBlockConflictException(conflict.get());
+        }
         if (!blocks.insert(block)) {
             // Another request got there since the check above, and has committed by now.
-            throw new DomainBlockConflictException(blocks.findBroadest(List.of(name)).orElse(block));
+            throw new DomainBlockConflictException(blocks.findCovering(List.of(name)).stream().findFirst().orElse(block));
         }
-        events.publishEvent(new DomainBlocked(block.id()));
+        if (severity == DomainBlock.Severity.SUSPEND) {
+            events.publishEvent(new DomainBlocked(block.id()));
+        } else if (rejectMedia) {
+            events.publishEvent(new DomainMediaRejected(block.id()));
+        }
         return block;
+    }
+
+    /**
+     * Changes what a block does. Making it a suspension removes what's stored from the server, as a new one does, and
+     * rejecting its media removes the copies of its attachments. Neither comes back if that's undone.
+     *
+     * @param comment a note for admins, or null or empty for none
+     * @return the block, if there is one with this ID
+     */
+    @Transactional
+    public Optional<DomainBlock> update(UUID id, DomainBlock.Severity severity, boolean rejectMedia, String comment) {
+        var cleaned = cleanComment(comment);
+        return blocks.findAndLock(id).flatMap(old -> blocks.update(id, severity, rejectMedia, cleaned).map(updated -> {
+            if (old.severity() != DomainBlock.Severity.SUSPEND && updated.severity() == DomainBlock.Severity.SUSPEND) {
+                events.publishEvent(new DomainBlocked(id));
+            } else if (!old.rejectsMedia() && updated.rejectsMedia()) {
+                events.publishEvent(new DomainMediaRejected(id));
+            }
+            if (old.rejectsMedia() && !updated.rejectsMedia()) {
+                events.publishEvent(new DomainMediaAllowed(updated.domain()));
+            }
+            return updated;
+        }));
     }
 
     /**
@@ -79,8 +123,12 @@ public class DomainBlocks {
      *
      * @return whether there was a block with this ID
      */
+    @Transactional
     public boolean delete(UUID id) {
-        return blocks.delete(id);
+        var deleted = blocks.deleteReturning(id);
+        deleted.filter(DomainBlock::rejectsMedia)
+                .ifPresent(block -> events.publishEvent(new DomainMediaAllowed(block.domain())));
+        return deleted.isPresent();
     }
 
     public Optional<DomainBlock> find(UUID id) {
@@ -94,10 +142,18 @@ public class DomainBlocks {
     /**
      * @param host a host from another server, with or without a port. A host that can't be read isn't blocked, so callers
      *             still have to deal with it the way they would anyway.
-     * @return whether this host is covered by a block
+     * @return whether this host is covered by a suspension. A block that only limits a server doesn't count
      */
     public boolean isBlocked(String host) {
         return !blockedHosts(Collections.singleton(host)).isEmpty();
+    }
+
+    /**
+     * @param host as for {@link #isBlocked}
+     * @return whether this host's attachments are rejected, by a block that rejects them or by a suspension
+     */
+    public boolean rejectsMedia(String host) {
+        return !covered(Collections.singleton(host), blocks::findMediaRejected).isEmpty();
     }
 
     /**
@@ -106,6 +162,10 @@ public class DomainBlocks {
      * @return those hosts that are covered by a block, each as it was given here
      */
     public Set<String> blockedHosts(Collection<String> hosts) {
+        return covered(hosts, blocks::findBlocked);
+    }
+
+    private static Set<String> covered(Collection<String> hosts, Function<Set<String>, Set<String>> find) {
         var suffixes = new HashMap<String, List<String>>();
         for (var host : hosts) {
             DomainName.normalizeHost(host).ifPresent(name -> suffixes.put(host, DomainName.suffixes(name)));
@@ -114,7 +174,7 @@ public class DomainBlocks {
         if (all.isEmpty()) {
             return Set.of();
         }
-        var blocked = blocks.findBlocked(all);
+        var blocked = find.apply(all);
         return suffixes.entrySet().stream()
                 .filter(entry -> entry.getValue().stream().anyMatch(blocked::contains))
                 .map(Map.Entry::getKey)

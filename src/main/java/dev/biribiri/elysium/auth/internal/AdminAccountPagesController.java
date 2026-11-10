@@ -54,6 +54,16 @@ class AdminAccountPagesController {
         return act(model, response, () -> moderation.unsuspend(parse(id)));
     }
 
+    @PostMapping(PATH + "/{id}/reject-media")
+    String rejectMedia(@PathVariable String id, Model model, HttpServletResponse response) {
+        return act(model, response, () -> moderation.setMediaRejected(parse(id), true));
+    }
+
+    @PostMapping(PATH + "/{id}/allow-media")
+    String allowMedia(@PathVariable String id, Model model, HttpServletResponse response) {
+        return act(model, response, () -> moderation.setMediaRejected(parse(id), false));
+    }
+
     @GetMapping(PATH + "/{id}/delete")
     String confirmDelete(@PathVariable String id, Model model) {
         var account = actors.findById(parse(id))
@@ -95,7 +105,7 @@ class AdminAccountPagesController {
     }
 
     private String confirmation(Actor account, Model model) {
-        model.addAttribute("account", Row.from(account, false, actors.isLocal(account)));
+        model.addAttribute("account", Row.from(account, false, actors.isLocal(account), false));
         return "admin-account-delete";
     }
 
@@ -103,9 +113,12 @@ class AdminAccountPagesController {
         var prefix = username == null || username.isBlank() ? null : username.strip();
         var filter = new AccountFilter(null, false, prefix, null, AccountFilter.MAX_LIMIT, maxId, null, null);
         var found = actors.list(filter);
-        var admins = moderation.adminsAmong(found.stream().map(Actor::id).toList());
+        var ids = found.stream().map(Actor::id).toList();
+        var admins = moderation.adminsAmong(ids);
+        var mediaRejected = moderation.mediaRejectedAmong(ids);
         model.addAttribute("accounts", found.stream()
-                .map(account -> Row.from(account, admins.contains(account.id()), actors.isLocal(account)))
+                .map(account -> Row.from(account, admins.contains(account.id()), actors.isLocal(account),
+                        mediaRejected.contains(account.id())))
                 .toList());
         model.addAttribute("older", found.size() == filter.limit() ? found.getLast().id() : null);
         model.addAttribute("username", prefix == null ? "" : prefix);
@@ -123,16 +136,18 @@ class AdminAccountPagesController {
         return UUID.fromString(authentication.getName());
     }
 
-    record Row(UUID id, String username, String handle, boolean admin, boolean local, boolean suspended) {
+    record Row(UUID id, String username, String handle, boolean admin, boolean local, boolean suspended,
+               boolean mediaRejected) {
 
-        static Row from(Actor account, boolean admin, boolean local) {
+        static Row from(Actor account, boolean admin, boolean local, boolean mediaRejected) {
             return new Row(
                     account.id(),
                     account.username(),
                     local ? account.username() : account.username() + "@" + account.domain(),
                     admin,
                     local,
-                    account.isSuspended());
+                    account.isSuspended(),
+                    mediaRejected);
         }
     }
 }

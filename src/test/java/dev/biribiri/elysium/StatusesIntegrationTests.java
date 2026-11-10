@@ -309,11 +309,10 @@ class StatusesIntegrationTests {
     void rejectsFeaturesThatDoNotExistYet() throws Exception {
         for (var body : List.of(
                 "{\"status\": \"Hello\", \"scheduled_at\": \"2030-01-01T00:00:00Z\"}",
-                "{\"status\": \"Hello\", \"media_ids\": [\"1\"]}",
                 "{\"status\": \"Hello\", \"poll\": {\"options\": [\"a\", \"b\"], \"expires_in\": 60}}")) {
             mockMvc.perform(jsonCreateRequest(alice(), body)).andExpect(status().isUnprocessableContent());
         }
-        for (var field : List.of("media_ids[]", "poll[options][]", "scheduled_at")) {
+        for (var field : List.of("poll[options][]", "scheduled_at")) {
             mockMvc.perform(createRequest(alice(), "Hello").param(field, "x"))
                     .andExpect(status().isUnprocessableContent());
         }
@@ -821,7 +820,7 @@ class StatusesIntegrationTests {
     }
 
     @Test
-    void publicTimelineFiltersByServerAndHasNothingForMedia() throws Exception {
+    void publicTimelineFiltersByServer() throws Exception {
         var local = create(alice(), "Public");
         var remote = remote(Visibility.PUBLIC).toString();
         expectIds(get(TIMELINE), remote, local);
@@ -830,7 +829,6 @@ class StatusesIntegrationTests {
         expectIds(get(TIMELINE).param("local", "true").param("remote", "true"), local);
         mockMvc.perform(get(TIMELINE).param("remote", "true"))
                 .andExpect(header().string("Link", containsString("remote=true")));
-        mockMvc.perform(get(TIMELINE).param("only_media", "1")).andExpect(jsonPath("$", empty()));
         mockMvc.perform(get(TIMELINE).param("only_media", "false")).andExpect(jsonPath("$", hasSize(2)));
     }
 
@@ -1026,7 +1024,6 @@ class StatusesIntegrationTests {
         mockMvc.perform(get(path)).andExpect(jsonPath("$", hasSize(2)));
         mockMvc.perform(withToken(get(path), bob())).andExpect(jsonPath("$", hasSize(2)));
         mockMvc.perform(withToken(get(path), alice())).andExpect(jsonPath("$", hasSize(4)));
-        mockMvc.perform(get(path).param("only_media", "true")).andExpect(jsonPath("$", empty()));
         mockMvc.perform(get(path).param("pinned", "true")).andExpect(jsonPath("$", empty()));
         mockMvc.perform(get(path).param("tagged", "x")).andExpect(jsonPath("$", empty()));
     }
@@ -1174,9 +1171,9 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.urls.streaming_api").value("wss://elysium.example"))
                 .andExpect(jsonPath("$.max_toot_chars").value(5000))
                 .andExpect(jsonPath("$.configuration.statuses.max_characters").value(5000))
-                .andExpect(jsonPath("$.configuration.statuses.max_media_attachments").value(0))
+                .andExpect(jsonPath("$.configuration.statuses.max_media_attachments").value(4))
                 .andExpect(jsonPath("$.configuration.statuses.characters_reserved_per_url").value(23))
-                .andExpect(jsonPath("$.configuration.media_attachments.supported_mime_types", empty()))
+                .andExpect(jsonPath("$.configuration.media_attachments.supported_mime_types", not(empty())))
                 .andExpect(jsonPath("$.configuration.polls.max_options").value(0))
                 .andExpect(jsonPath("$.configuration.accounts.max_featured_tags").value(0))
                 .andExpect(jsonPath("$.stats.status_count").value(1))

@@ -1,5 +1,18 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
+import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.content.RemoteStatus;
+import java.util.Map;
+import dev.biribiri.elysium.TestImages;
+import dev.biribiri.elysium.content.MediaAttachment;
+import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.MediaUpload;
+import dev.biribiri.elysium.media.MediaProperties;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.stream.Stream;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -56,12 +69,38 @@ class AccountCleanupIntegrationTests {
     private TransactionTemplate transactions;
     @Autowired
     private ApplicationEventPublisher events;
+    @Autowired
+    private MediaAttachments attachments;
+    @Autowired
+    private MediaProperties media;
 
     private Actor local;
 
     @BeforeEach
     void setUp() {
         local = newLocal();
+    }
+
+    @Test
+    void deletingAnAccountRemovesItsMediaFilesPostedOrNot() throws IOException {
+        var posted = upload();
+        var waiting = upload();
+        statuses.create(local.id(), new NewStatus("With media", "", null, Visibility.PUBLIC, false, null,
+                List.of(posted.id())));
+        var files = Stream.of(posted.fileName(), posted.previewName(), waiting.fileName(), waiting.previewName())
+                .map(media.directory()::resolve)
+                .toList();
+        assertThat(files).allMatch(Files::exists);
+
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() -> files.stream().noneMatch(Files::exists));
+        assertThat(count("SELECT count(*) FROM media_attachment WHERE account_id = :id", local.id())).isZero();
+    }
+
+    private MediaAttachment upload() throws IOException {
+        return attachments.upload(local.id(), new MediaUpload(
+                new ByteArrayInputStream(TestImages.png(8, 8)), null, null, null));
     }
 
     @Test
@@ -206,11 +245,16 @@ class AccountCleanupIntegrationTests {
                 .param("uri", deleted.uri() + "/statuses/1")
                 .param("actorId", deleted.id())
                 .update();
+        statuses.storeRemote(new RemoteStatus(URI.create(deleted.uri() + "/statuses/2"), null, deleted.id(), "<p>Hi</p>",
+                null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
+                List.of(new RemoteAttachment(URI.create(deleted.uri() + "/a.png"), AttachmentType.IMAGE, "image/png",
+                        null, null, null, null, null)))).orElseThrow();
 
         assertThat(actors.markRemoteDeleted(deleted.id())).isTrue();
 
         await().atMost(WAIT).until(() -> follows(deleted) == 0
-                && count("SELECT count(*) FROM status WHERE actor_id = :id", deleted.id()) == 0);
+                && count("SELECT count(*) FROM status WHERE actor_id = :id", deleted.id()) == 0
+                && count("SELECT count(*) FROM media_attachment WHERE account_id = :id", deleted.id()) == 0);
         assertThat(actors.findById(deleted.id()).orElseThrow().isDeleted()).isTrue();
         assertThat(actors.isInactive(deleted.uri())).isTrue();
         assertThat(activities(deleted, "%")).isEmpty();

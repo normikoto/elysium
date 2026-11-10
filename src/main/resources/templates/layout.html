@@ -21,6 +21,9 @@
         .status-boost { font-size: 0.9rem; margin: 0 0 0.25rem; }
         .status-content { overflow-wrap: anywhere; }
         .status-content p { margin: 0.5rem 0; }
+        .status-attachments { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); margin: 0.5rem 0; }
+        .status-attachments img, .status-attachments video, .status-attachments audio { display: block; max-width: 100%; }
+        .status-attachments img { aspect-ratio: 16 / 9; object-fit: cover; width: 100%; }
         summary { cursor: pointer; overflow-wrap: anywhere; }
         textarea { box-sizing: border-box; font: inherit; padding: 0.5rem; width: 100%; }
         fieldset { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); margin-top: 1rem; }

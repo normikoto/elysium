@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.media;
 
+import dev.biribiri.elysium.media.internal.FileNames;
 import dev.biribiri.elysium.media.internal.WebpEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,7 +13,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * Keeps uploaded images in the media directory. Every image is re-encoded as WebP and cropped to its kind's size, so what's
@@ -26,12 +26,10 @@ public class Images {
 
     public static final String PATH = "/media/";
 
-    private static final Logger log = LoggerFactory.getLogger(Images.class);
+    static final String TEMPORARY_PREFIX = ".upload-";
+    static final String TEMPORARY_SUFFIX = ".tmp";
 
-    /**
-     * Only names this class makes, so that a name read back from the database can't reach outside the directory.
-     */
-    private static final Pattern NAME = Pattern.compile("[0-9a-f-]{36}\\.webp");
+    private static final Logger log = LoggerFactory.getLogger(Images.class);
 
     private final MediaProperties properties;
     private final WebpEncoder encoder = new WebpEncoder();
@@ -46,21 +44,36 @@ public class Images {
      * @throws InvalidImageException if the file is too large, isn't a supported image, or can't be decoded
      */
     public StoredImage store(byte[] upload, ImageKind kind, DataSize limit) {
-        if (upload.length > limit.toBytes()) {
-            throw new InvalidImageException("The image is larger than "
-                    + (limit.toKilobytes() % 1024 == 0 ? limit.toMegabytes() + " MB" : limit.toKilobytes() + " KB"));
-        }
+        checkSize(upload.length, limit);
         var encoded = encoder.encode(upload, kind);
-        var name = write(encoded.image());
+        var name = write(encoded.image(), "webp");
         if (encoded.still() == null) {
             return new StoredImage(name, name);
         }
         try {
-            return new StoredImage(name, write(encoded.still()));
+            return new StoredImage(name, write(encoded.still(), "webp"));
         } catch (RuntimeException e) {
             delete(name);
             throw e;
         }
+    }
+
+    /**
+     * For a caller to refuse a file before reading it, with the same message as {@link #store} gives.
+     *
+     * @throws InvalidImageException if it's larger than the limit
+     */
+    public static void checkSize(long size, DataSize limit) {
+        if (size > limit.toBytes()) {
+            throw new InvalidImageException("The image is larger than " + describe(limit));
+        }
+    }
+
+    /**
+     * A limit as people are told it.
+     */
+    static String describe(DataSize limit) {
+        return limit.toKilobytes() % 1024 == 0 ? limit.toMegabytes() + " MB" : limit.toKilobytes() + " KB";
     }
 
     /**
@@ -78,18 +91,24 @@ public class Images {
         return PATH + name;
     }
 
+    WebpEncoder encoder() {
+        return encoder;
+    }
+
+    Path directory() {
+        return properties.directory();
+    }
+
     /**
      * Written to a temporary file in the same directory, then moved, so that a file is never served half written.
      */
-    private String write(byte[] bytes) {
-        var name = UUID.randomUUID() + ".webp";
+    String write(byte[] bytes, String extension) {
         var directory = properties.directory();
         Path temporary = null;
         try {
-            temporary = Files.createTempFile(directory, ".upload-", ".tmp");
+            temporary = Files.createTempFile(directory, TEMPORARY_PREFIX, TEMPORARY_SUFFIX);
             Files.write(temporary, bytes);
-            Files.move(temporary, directory.resolve(name), StandardCopyOption.ATOMIC_MOVE);
-            return name;
+            return moveIn(temporary, extension);
         } catch (IOException e) {
             if (temporary != null) {
                 try {
@@ -102,8 +121,17 @@ public class Images {
         }
     }
 
-    private void delete(String name) {
-        if (!NAME.matcher(name).matches()) {
+    /**
+     * @param file a temporary file in the media directory, which is moved, so that it's never served half written
+     */
+    String moveIn(Path file, String extension) throws IOException {
+        var name = UUID.randomUUID() + "." + extension;
+        Files.move(file, properties.directory().resolve(name), StandardCopyOption.ATOMIC_MOVE);
+        return name;
+    }
+
+    void delete(String name) {
+        if (!FileNames.isValid(name)) {
             log.warn("Not deleting {}, which isn't the name of an image", name);
             return;
         }

@@ -40,14 +40,19 @@ class DomainBlockPagesController {
         return page(Ids.parse(maxId).orElse(null), model);
     }
 
+    /**
+     * A checkbox that isn't ticked isn't sent, so a missing {@code rejectMedia} means off.
+     */
     @PostMapping(PATH)
     String add(
             @RequestParam(required = false) String domain,
+            @RequestParam(required = false) String severity,
+            @RequestParam(required = false) String rejectMedia,
             @RequestParam(required = false) String comment,
             Model model,
             HttpServletResponse response) {
         try {
-            blocks.create(domain, comment);
+            blocks.create(domain, severity(severity), rejectMedia != null, comment);
             return "redirect:" + PATH;
         } catch (InvalidDomainBlockException | DomainBlockConflictException e) {
             response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
@@ -56,6 +61,24 @@ class DomainBlockPagesController {
             model.addAttribute("comment", comment);
             return page(null, model);
         }
+    }
+
+    /**
+     * A block that someone else has removed meanwhile is left removed.
+     */
+    @PostMapping(PATH + "/{id}")
+    String change(@PathVariable String id, @RequestParam(required = false) String severity,
+                  @RequestParam(required = false) String rejectMedia) {
+        Ids.parse(id).flatMap(blocks::find).ifPresent(block ->
+                blocks.update(block.id(), severity(severity), rejectMedia != null, block.privateComment()));
+        return "redirect:" + PATH;
+    }
+
+    /**
+     * Anything but {@code noop} is a suspension, which is what the form offers first.
+     */
+    private static DomainBlock.Severity severity(String value) {
+        return "noop".equals(value) ? DomainBlock.Severity.NOOP : DomainBlock.Severity.SUSPEND;
     }
 
     /**
@@ -76,14 +99,19 @@ class DomainBlockPagesController {
         return "admin-domain-blocks";
     }
 
-    record Row(UUID id, String domain, String comment, String createdAt) {
+    /**
+     * @param suspended whether it cuts the server off, rather than only limiting it
+     */
+    record Row(UUID id, String domain, String comment, String createdAt, boolean suspended, boolean rejectMedia) {
 
         static Row from(DomainBlock block) {
             return new Row(
                     block.id(),
                     block.domain(),
                     block.privateComment(),
-                    block.createdAt().truncatedTo(ChronoUnit.SECONDS).toString());
+                    block.createdAt().truncatedTo(ChronoUnit.SECONDS).toString(),
+                    block.severity() == DomainBlock.Severity.SUSPEND,
+                    block.rejectMedia());
         }
     }
 }

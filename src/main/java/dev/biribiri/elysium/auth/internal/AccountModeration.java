@@ -46,6 +46,28 @@ class AccountModeration implements AccountActions {
         return true;
     }
 
+    /**
+     * Only accounts on other servers have attachments that are downloaded, so only theirs can be rejected.
+     *
+     * @return whether there's an account with this ID
+     * @throws AccountActionRefusedException if it's a local account
+     */
+    public boolean setMediaRejected(UUID accountId, boolean rejected) {
+        var account = find(accountId);
+        if (account.isEmpty()) {
+            return false;
+        }
+        if (actors.isLocal(account.get())) {
+            throw new AccountActionRefusedException("Only the media of accounts on other servers can be rejected.");
+        }
+        actors.setMediaRejected(accountId, rejected);
+        return true;
+    }
+
+    public Set<UUID> mediaRejectedAmong(Collection<UUID> accountIds) {
+        return actors.mediaRejectedAmong(accountIds);
+    }
+
     @Override
     public boolean unsuspend(UUID accountId) {
         var account = find(accountId);

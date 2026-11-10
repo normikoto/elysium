@@ -15,8 +15,17 @@ Set these in your `application.properties`:
 | `elysium.rate-limit.enabled`       | Optional. Set to `false` to turn off the limits on logins and sign-ups, if you enforce your own elsewhere. Defaults to `true`. See [Rate limits](accounts.md#rate-limits). |
 | `elysium.statuses.max-characters`  | Optional. The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Defaults to `5000`. Lowering it doesn't affect existing statuses. |
 | `elysium.profiles.max-fields`      | Optional. How many fields each profile can have, from 0 to 50. Defaults to `4`, as on Mastodon. Lowering it doesn't remove any, but a profile with more can't save its fields until it has few enough. |
-| `elysium.profiles.max-image-size`  | Optional. The largest avatar or header that can be uploaded, such as `4MB`. Defaults to `8MB`. A request can be 20MB at most, so above `9MB`, also raise `spring.servlet.multipart.max-request-size`. |
-| `elysium.media.directory`          | Optional. Where uploaded images are kept. Defaults to `media` in the working directory. The server has to be able to write to it, and you should back it up along with the database, which refers to the files in it. `compose.yaml` and `elysium.service` already set this. |
+| `elysium.profiles.max-image-size`  | Optional. The largest avatar or header that can be uploaded, such as `4MB`. Defaults to `8MB`. |
+| `elysium.attachments.max-image-size` | Optional. The largest image that can be attached to a post, before it's re-encoded. Defaults to `16MB`. |
+| `elysium.attachments.max-video-size` | Optional. The largest video that can be attached to a post. Defaults to `100MB`. |
+| `elysium.attachments.max-audio-size` | Optional. The largest audio file that can be attached to a post. Defaults to `40MB`. |
+| `elysium.attachments.max-unattached-uploads` | Optional. How many uploads each account can have that aren't in a post yet. Defaults to `20`. |
+| `elysium.attachments.unattached-retention` | Optional. How long an upload is kept for a post, such as `12h`. Defaults to `1d`. |
+| `elysium.attachments.redraft-retention` | Optional. How long a deleted post's attachments are kept, so that it can be posted again, such as `30m`. Defaults to `1h`. |
+| `elysium.attachments.remote-cache-enabled` | Optional. Set to `false` to link to other servers' attachments rather than keep copies of them. Defaults to `true`. See [Media](#media). |
+| `elysium.attachments.remote-cache-retention` | Optional. How long a copy of another server's attachment is kept, such as `7d`. Defaults to `30d`. |
+| `elysium.attachments.remote-download-budget` | Optional. How much each other server's attachments can add up to in an hour, such as `500MB`. Defaults to `2GB`. |
+| `elysium.media.directory`          | Optional. Where uploaded images, video, and audio are kept. Defaults to `media` in the working directory. The server has to be able to write to it, and you should back it up along with the database, which refers to the files in it. `compose.yaml` and `elysium.service` already set this. |
 | `server.servlet.session.timeout`   | Optional. How long a login session lasts without a request. Defaults to `30m`. See [Login sessions](accounts.md#login-sessions). |
 | `elysium.federation.inbox-limits.activities-per-minute` | Optional. How many activities each other server can deliver a minute. Defaults to `120`. See [Inbox limits](#inbox-limits). |
 | `elysium.federation.inbox-limits.data-per-hour` | Optional. How much data each other server's activities can add up to in an hour, such as `50MB`. It can't be less than `1MB`. Defaults to `20MB`. |
@@ -26,6 +35,25 @@ Set these in your `application.properties`:
 | `db-scheduler.polling-strategy-upper-limit-fraction-of-threads` | Set to `1.0` along with `LOCK_AND_FETCH`. Leave it unset otherwise. |
 
 You also need to point `spring.datasource.*` at your PostgreSQL database. Migrations run automatically on startup.
+
+## Media
+
+Images attached to posts are re-encoded, which removes their metadata, such as where a photo was taken. Video and audio
+are kept exactly as they were uploaded, so their metadata stays, including any location or device details, and anyone who
+can see the post can download it. Tell your users if that matters to them.
+
+Uploads are served from `/media` on your server's own domain, with headers that stop browsers from treating them as
+pages. Every file attached to a post counts toward your disk space until the post is deleted, so set the size limits with
+your storage in mind. The limits on Spring's uploads follow the largest of these settings, so you don't set them
+yourself.
+
+The server also keeps copies of the attachments on other servers' posts that it stores, so that your users' browsers
+load them from you rather than from those servers, which would see their addresses. Copies are checked and re-encoded
+like uploads, and ones over the same size limits, or that aren't an accepted format, are linked instead. A copy is
+removed after `remote-cache-retention`, and the attachment is linked to its server again. Each other server can only
+have `remote-download-budget` downloaded in an hour, and past that its attachments are linked. These copies can take a
+lot of space on a server that follows many accounts, so lower the retention, or turn copies off, if you're short of
+disk.
 
 ## Inbox limits
 Each other server can only deliver so many activities, and so much data, before it gets a `429` and has to try again
@@ -73,8 +101,10 @@ location ~ ^/(inbox|actor/inbox|users/[^/]+/inbox)$ {
 }
 ```
 
-nginx's default `client_max_body_size` of `1m` already matches the largest activity the server accepts. Caddy needs a
-third-party module, such as `caddy-ratelimit`, to limit requests.
+nginx's default `client_max_body_size` of `1m` already matches the largest activity the server accepts, but it also
+refuses larger uploads, such as images and video attached to posts. Raise it in the server block to a little over your
+largest upload limit, such as `client_max_body_size 110m;` for the defaults, and keep `1m` in the inbox location. Caddy
+needs a third-party module, such as `caddy-ratelimit`, to limit requests.
 
 Behind a reverse proxy, set `server.forward-headers-strategy=native` so that redirects use the public
 URL, including Swagger UI's OAuth redirect, and [rate limits](accounts.md#rate-limits) apply to each client's address.

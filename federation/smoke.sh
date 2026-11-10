@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, including while it approves followers by hand, be followed and unfollowed by it, and receive its statuses, their edits and deletion, and profile changes,
+# and unfollow it, including while it approves followers by hand, be followed and unfollowed by it, and receive its statuses, their attachments, edits and deletion, and profile changes,
 # apart from edits on Misskey, which doesn't apply them, and that Elysium takes the other server's profile changes and status
-# edits, apart from on Misskey, which can't edit, and removes a status and an account that the other server deletes. Both
+# edits, apart from on Misskey, which can't edit, shows Mastodon's attachments, and removes a status and an account that the other server deletes. Both
 # servers also like and unlike, and boost and unboost, each other's posts, Elysium fetches a post that a followed account
 # boosts, and it backfills a followed account's older post from its outbox.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
@@ -463,6 +463,97 @@ edit_from_elysium() {
         "${target}_expect_edited"
         echo "$target shows the edited status"
     fi
+}
+
+media_text='A picture from the lab'
+
+# Posts a sensitive status with an image, which the other server has to store with the attachment, linked from here.
+media_from_elysium() {
+    local media_id note
+    media_id=$(driver curl -fsS https://elysium.test/api/v2/media -H "Authorization: Bearer $elysium_token" \
+        -F file=@/federation/fixtures/image.png -F 'description=A gradient' | jq -r .id)
+    [[ -n $media_id && $media_id != null ]] || fail "Elysium refused the upload"
+    media_uri=$(driver curl -fsS https://elysium.test/api/v1/statuses -H "Authorization: Bearer $elysium_token" \
+        --data-urlencode "status=$media_text" --data-urlencode 'sensitive=true' --data-urlencode "media_ids[]=$media_id" \
+        | jq -r .uri)
+    note=$(driver curl -fsS -H 'Accept: application/activity+json' "$media_uri")
+    jq -e '.attachment[0].type == "Document" and .attachment[0].mediaType == "image/webp"' <<<"$note" >/dev/null \
+        || fail "The status's Note has no attachment: $note"
+    expect_delivered "$media_uri#create"
+    "${target}_expect_media"
+    echo "$target shows the status's attachment"
+}
+
+mastodon_expect_media() {
+    local output
+    output=$(docker compose exec -T -e MEDIA_URI="$media_uri" mastodon-web bin/rails runner '
+        status = nil
+        60.times do
+            status = Status.uncached { Status.find_by(uri: ENV["MEDIA_URI"]) }
+            break if status
+            sleep 2
+        end
+        media = status&.media_attachments&.to_a || []
+        puts "MEDIA #{media.size} #{status&.sensitive} #{media.first&.remote_url}"')
+    echo "$output"
+    grep -qE '^MEDIA 1 true https://elysium\.test/media/' <<<"$output" \
+        || fail "Mastodon didn't store $media_uri with its attachment"
+}
+
+gotosocial_expect_media() {
+    local found=''
+    for _ in $(seq 1 60); do
+        found=$(driver curl -fsS -G "https://gts.test/api/v1/accounts/$alice_id/statuses" -H "Authorization: Bearer $token" \
+            | jq -c --arg uri "$media_uri" '.[] | select(.uri == $uri)')
+        [[ -n $found ]] && break
+        sleep 2
+    done
+    jq -e '.sensitive and (.media_attachments | length == 1)
+            and (.media_attachments[0].remote_url | startswith("https://elysium.test/media/"))' <<<"$found" >/dev/null \
+        || fail "GoToSocial doesn't show $media_uri with its attachment: $found"
+}
+
+misskey_expect_media() {
+    local note=''
+    for _ in $(seq 1 60); do
+        note=$(misskey_api users/notes "$(jq -cn --arg id "$alice_id" '{userId: $id, limit: 100}')" \
+            | jq -c --arg uri "$media_uri" '.[] | select(.uri == $uri)')
+        [[ -n $note ]] && break
+        sleep 2
+    done
+    jq -e '.files | length == 1' <<<"$note" >/dev/null || fail "Misskey doesn't show $media_uri with its attachment: $note"
+}
+
+# Mastodon's lab user posts an image to alice, and Elysium has to show it, linked from Mastodon. It mentions her, since she's
+# unfollowed lab by now.
+media_from_mastodon() {
+    local statuses status
+    docker compose exec -T mastodon-web bin/rails runner '
+        STDIN.binmode
+        file = Tempfile.new(["lab", ".png"], binmode: true)
+        file.write(STDIN.read)
+        file.rewind
+        account = Account.find_local("lab")
+        media = account.media_attachments.create!(file: file, description: "A gradient from Mastodon")
+        PostStatusService.new.call(account, text: "@alice@elysium.test Media from the lab", media_ids: [media.id])' \
+        <federation/fixtures/image.png
+    echo "Waiting for Elysium to show lab@mastodon.test's status with media"
+    for _ in $(seq 1 60); do
+        statuses=$(driver curl -fsS -G https://elysium.test/api/v1/timelines/public --data-urlencode remote=true)
+        status=$(jq -c 'map(select(.content | contains("Media from the lab"))) | first // empty' <<<"$statuses")
+        # Its attachment is downloaded after the status is stored, so this waits for that too.
+        if [[ -n $status ]] && jq -e '.media_attachments[0].url | startswith("https://elysium.test/media/")' \
+            <<<"$status" >/dev/null; then
+            jq -e '(.media_attachments | length == 1) and .media_attachments[0].type == "image"
+                    and (.media_attachments[0].remote_url | startswith("https://mastodon.test/"))
+                    and .media_attachments[0].description == "A gradient from Mastodon"' <<<"$status" >/dev/null \
+                || fail "Elysium shows lab@mastodon.test's status without its attachment: $status"
+            echo "Elysium shows lab@mastodon.test's attachment, served from Elysium"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium didn't store and download lab@mastodon.test's status with media: $status. Check /admin/db-scheduler"
 }
 
 mastodon_expect_edited() {
@@ -1577,6 +1668,7 @@ case "$target" in
         delete_from_elysium
         gotosocial_expect_deleted
         edit_from_elysium
+        media_from_elysium
         update_profile_from_elysium
         moderate_from_elysium
         ;;
@@ -1587,6 +1679,7 @@ case "$target" in
         check_locked mastodon.test
         follow_from_elysium mastodon.test post_from_mastodon
         edit_from_mastodon
+        media_from_mastodon
         delete_account_from_mastodon
         post_from_elysium
         mastodon_expect_statuses
@@ -1596,6 +1689,7 @@ case "$target" in
         delete_from_elysium
         mastodon_expect_deleted
         edit_from_elysium
+        media_from_elysium
         update_profile_from_elysium
         moderate_from_elysium
         ;;
@@ -1614,6 +1708,7 @@ case "$target" in
         delete_from_elysium
         misskey_expect_deleted
         edit_from_elysium
+        media_from_elysium
         update_profile_from_elysium
         moderate_from_elysium
         ;;

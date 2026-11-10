@@ -35,13 +35,13 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 
 | Module        | Purpose                                    | May depend on                                  |
 |---------------|--------------------------------------------|------------------------------------------------|
-| `media`       | Uploaded images, kept on disk              | nothing                                        |
+| `media`       | Uploaded files, kept on disk               | nothing                                        |
 | `mail`        | Sending email over SMTP                    | nothing                                        |
 | `text`        | Rendering plain text as HTML               | nothing                                        |
 | `actor`       | Local and remote actors, profiles, keys    | `media`, `text`                                |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `ratelimit`                   |
-| `content`     | Posts and related records                  | `actor`, `graph`, `text`                       |
+| `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
 | `graph`       | Follows (blocks and mutes to come)         | `actor`                                        |
 | `moderation`  | Domain blocks                              | `actor`                                        |
 | `inbox`       | Notifications, conversations, read markers | `actor`, `content`, `graph`, `moderation`        |
@@ -79,7 +79,8 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
   anything from `findByUri` or `findById`. `auth.AccountActions` decides who can be suspended or deleted.
 - **Cleanup:** new remote data has to be removed by `DomainBlockCleanupTask`, and new remote or account data by
   `AccountCleanupTask`, including files in the media directory. Domain blocks are decided in `moderation.DomainBlocks` and
-  enforced in `activitypub`.
+  enforced in `activitypub`. A block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended,
+  and SQL that reads `domain_block` has to filter on `severity`.
 - **Outbound HTTP:** use `activitypub.http.FederationHttpClient`, which refuses private addresses. The lab uses
   `elysium.federation.allowed-private-networks`, and `federation/README.md` rules out an on/off switch or plain HTTP.
 

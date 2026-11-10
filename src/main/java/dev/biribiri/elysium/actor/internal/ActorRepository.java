@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -120,6 +121,35 @@ public class ActorRepository {
                 .param("inboxes", inboxes)
                 .query(String.class)
                 .list();
+    }
+
+    /**
+     * Starts or stops rejecting a remote actor's attachments.
+     *
+     * @return whether that changed anything, which it doesn't for a local or deleted actor, or one already set this way
+     */
+    public boolean setMediaRejected(UUID id, boolean rejected) {
+        return jdbc.sql("""
+                        UPDATE actor SET media_rejected_at = CASE WHEN :rejected THEN now() END
+                        WHERE id = :id AND NOT is_local AND deleted_at IS NULL
+                            AND (media_rejected_at IS NOT NULL) <> :rejected
+                        """)
+                .param("id", id)
+                .param("rejected", rejected)
+                .update() == 1;
+    }
+
+    /**
+     * @return those of these actors whose attachments are rejected
+     */
+    public Set<UUID> mediaRejectedAmong(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(jdbc.sql("SELECT id FROM actor WHERE id IN (:ids) AND media_rejected_at IS NOT NULL")
+                .param("ids", ids)
+                .query(UUID.class)
+                .list());
     }
 
     /**

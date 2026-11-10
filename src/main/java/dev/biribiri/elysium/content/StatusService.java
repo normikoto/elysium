@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
+import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
@@ -67,6 +68,9 @@ public class StatusService {
     private final FollowService follows;
     private final RemoteActorResolver resolver;
     private final BoostRepository boosts;
+    private final MediaAttachmentRepository media;
+    private final MediaAttachments attachments;
+    private final AttachmentProperties attachmentProperties;
 
     StatusService(
             StatusRepository statuses,
@@ -78,7 +82,13 @@ public class StatusService {
             ApplicationEventPublisher events,
             FollowService follows,
             RemoteActorResolver resolver,
-            BoostRepository boosts) {
+            BoostRepository boosts,
+            MediaAttachmentRepository media,
+            MediaAttachments attachments,
+            AttachmentProperties attachmentProperties) {
+        this.media = media;
+        this.attachments = attachments;
+        this.attachmentProperties = attachmentProperties;
         this.resolver = resolver;
         this.boosts = boosts;
         this.statuses = statuses;
@@ -104,7 +114,11 @@ public class StatusService {
         // A content warning that can't be seen would hide nothing, but would still mark the status as sensitive.
         var spoilerText = looksBlank(normalize(draft.spoilerText())) ? "" : normalize(draft.spoilerText());
         var language = draft.language() == null || draft.language().isBlank() ? null : draft.language().strip();
+        var mediaIds = checkMediaIds(draft.mediaIds());
         validate(text, spoilerText, language);
+        if (mediaIds.isEmpty()) {
+            requireText(text);
+        }
 
         var author = actors.findLocalById(authorId)
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
@@ -117,6 +131,8 @@ public class StatusService {
         var content = render(text, mentioned);
 
         return transaction.execute(tx -> {
+            // Before the status, so that one that can't have them isn't given an ID.
+            var claimed = claimMedia(mediaIds, authorId);
             var parent = draft.inReplyToId() == null
                     ? Optional.<Status>empty()
                     : Optional.of(statuses.findByIdAndLock(draft.inReplyToId())
@@ -147,6 +163,7 @@ public class StatusService {
                     null,
                     0);
             statuses.insert(status);
+            media.attach(id, authorId, claimed);
             statuses.insertMentions(id, mentionedIds(mentioned, authorId).stream()
                     .collect(Collectors.toMap(Function.identity(), mentionedId -> false)));
             statuses.insertTags(id, Hashtags.names(text));
@@ -169,7 +186,17 @@ public class StatusService {
         var text = normalize(draft.text());
         var spoilerText = looksBlank(normalize(draft.spoilerText())) ? "" : normalize(draft.spoilerText());
         var language = draft.language() == null || draft.language().isBlank() ? null : draft.language().strip();
+        var newMediaIds = draft.mediaIds() == null ? null : checkMediaIds(draft.mediaIds());
         validate(text, spoilerText, language);
+        if (newMediaIds != null && newMediaIds.isEmpty()) {
+            requireText(text);
+        }
+        var changes = new LinkedHashMap<UUID, MediaChange>();
+        for (var change : draft.mediaChanges()) {
+            changes.put(change.id(), new MediaChange(change.id(),
+                    change.description() == null ? null : Objects.requireNonNullElse(
+                            MediaAttachments.description(change.description()), ""), change.focus()));
+        }
 
         var author = actors.findLocalById(authorId)
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
@@ -181,20 +208,39 @@ public class StatusService {
         var mentioned = resolveMentions(author, text);
         var content = render(text, mentioned);
 
-        return transaction.execute(tx -> {
+        var edited = transaction.execute(tx -> {
             var found = statuses.findByIdForEdit(id).filter(candidate -> isEditableBy(candidate, authorId));
             if (found.isEmpty()) {
-                return Optional.<Status>empty();
+                return new Edited(Optional.<Status>empty(), false);
             }
             var old = found.get();
             var newLanguage = language == null ? old.language() : language;
             var sensitive = (draft.sensitive() == null ? old.sensitive() : draft.sensitive()) || !spoilerText.isEmpty();
+            var current = media.findByStatusAndLock(id);
+            var currentIds = current.stream().map(MediaAttachment::id).toList();
+            var mediaIds = newMediaIds == null ? currentIds : newMediaIds;
+            if (mediaIds.isEmpty()) {
+                requireText(text);
+            }
+            var added = mediaIds.stream().filter(mediaId -> !currentIds.contains(mediaId)).toList();
+            var claimed = media.findAttachableAndLock(added, authorId);
+            if (claimed.size() != added.size()) {
+                throw new InvalidStatusException("Media can't be found, or is already attached to a status");
+            }
+            var byId = new HashMap<UUID, MediaAttachment>();
+            current.forEach(attachment -> byId.put(attachment.id(), attachment));
+            claimed.forEach(attachment -> byId.put(attachment.id(), attachment));
+            checkMediaTypes(mediaIds.stream().map(byId::get).map(MediaAttachment::type).toList());
+            var describe = changes.values().stream()
+                    .filter(change -> mediaIds.contains(change.id()))
+                    .filter(change -> isChange(byId.get(change.id()), change))
+                    .toList();
             // The content links each mention, so it changes whenever they do.
             var unchanged = text.equals(old.text()) && content.equals(old.content())
                     && spoilerText.equals(old.spoilerText()) && Objects.equals(newLanguage, old.language())
-                    && sensitive == old.sensitive();
+                    && sensitive == old.sensitive() && mediaIds.equals(currentIds) && describe.isEmpty();
             if (unchanged) {
-                return found;
+                return new Edited(found, false);
             }
             // In a later second than the version it replaces, even when that's in the future, since other servers are sent
             // whole seconds and ignore an edit that isn't later than what they have.
@@ -203,13 +249,83 @@ public class StatusService {
             var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
             var editedAt = now.isBefore(next) ? next : now;
             if (!statuses.editLocal(id, authorId, text, content, spoilerText, newLanguage, sensitive, editedAt)) {
-                return Optional.<Status>empty();
+                return new Edited(Optional.<Status>empty(), false);
             }
-            var added = statuses.replaceMentions(id, mentionedIds(mentioned, authorId));
+            var removed = !currentIds.stream().allMatch(mediaIds::contains);
+            media.removeFromStatusExcept(id, mediaIds);
+            media.attach(id, authorId, mediaIds);
+            for (var change : describe) {
+                var attachment = byId.get(change.id());
+                media.updateDescription(change.id(),
+                        change.description() == null ? attachment.description()
+                                : change.description().isEmpty() ? null : change.description(),
+                        change.focus() == null ? attachment.focus() : change.focus());
+            }
+            var addedMentions = statuses.replaceMentions(id, mentionedIds(mentioned, authorId));
             statuses.replaceTags(id, Hashtags.names(text));
-            events.publishEvent(new StatusEdited(id, authorId, editedAt, added));
-            return statuses.findById(id);
+            events.publishEvent(new StatusEdited(id, authorId, editedAt, addedMentions));
+            return new Edited(statuses.findById(id), removed);
         });
+        if (edited.removedMedia()) {
+            attachments.processDeletions();
+        }
+        return edited.status();
+    }
+
+    private record Edited(Optional<Status> status, boolean removedMedia) {
+    }
+
+    /**
+     * @param change a description that's empty to remove it, or null to keep it
+     */
+    private static boolean isChange(MediaAttachment attachment, MediaChange change) {
+        var description = change.description() == null ? attachment.description()
+                : change.description().isEmpty() ? null : change.description();
+        var focus = change.focus() == null ? attachment.focus() : change.focus();
+        return !Objects.equals(description, attachment.description()) || !Objects.equals(focus, attachment.focus());
+    }
+
+    /**
+     * @throws InvalidStatusException if there are too many, or one is given twice
+     */
+    private static List<UUID> checkMediaIds(List<UUID> ids) {
+        if (ids.size() > MediaAttachments.MAX_PER_STATUS) {
+            throw new InvalidStatusException(
+                    "A status can't have more than %d attachments".formatted(MediaAttachments.MAX_PER_STATUS));
+        }
+        if (Set.copyOf(ids).size() != ids.size()) {
+            throw new InvalidStatusException("The same media can't be attached twice");
+        }
+        return ids;
+    }
+
+    /**
+     * Locks the author's uploads until the transaction ends, so that no other status can have them.
+     *
+     * @return the IDs, in order
+     * @throws InvalidStatusException if one isn't the author's, is attached already, or has expired, or they can't go
+     *                                together
+     */
+    private List<UUID> claimMedia(List<UUID> ids, UUID authorId) {
+        if (ids.isEmpty()) {
+            return ids;
+        }
+        var found = media.findAttachableAndLock(ids, authorId);
+        if (found.size() != ids.size()) {
+            throw new InvalidStatusException("Media can't be found, or is already attached to a status");
+        }
+        checkMediaTypes(found.stream().map(MediaAttachment::type).toList());
+        return ids;
+    }
+
+    /**
+     * As on Mastodon, whose clients lay out either images, or one video or audio.
+     */
+    private static void checkMediaTypes(List<AttachmentType> types) {
+        var playable = types.stream().filter(type -> type == AttachmentType.VIDEO || type == AttachmentType.AUDIO).count();
+        if (playable > 1 || (playable == 1 && types.size() > 1)) {
+            throw new InvalidStatusException("A video or audio can't be attached with any other media");
+        }
     }
 
     private static boolean isEditableBy(Status status, UUID authorId) {
@@ -242,6 +358,9 @@ public class StatusService {
     }
 
     private String render(String text, Map<String, Actor> mentioned) {
+        if (text.isEmpty()) {
+            return "";
+        }
         return PlainText.render(text, match -> Optional.ofNullable(mentioned.get(acct(match)))
                 .map(actor -> new PlainText.MentionLink(actor.uri(), actor.username() + "@" + actor.domain()))
                 .orElse(null), instance.baseUrl());
@@ -384,6 +503,7 @@ public class StatusService {
             mentions.remove(author.id());
             statuses.insertMentions(id, mentions);
             statuses.insertTags(id, remoteTags(remote.tags()));
+            attachments.addRemote(id, author.id(), remote.attachments());
             // Jobs have no order, so replies can be stored before their parent.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
             threads.assign(status, remote.inReplyToUri());
@@ -407,6 +527,7 @@ public class StatusService {
         // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
         // caller that stores the status after NOT_STORED has to cope with one stored in between. The tags are replaced in
         // the same transaction, while the edit's row lock keeps a concurrent edit waiting.
+        var removedMedia = new boolean[1];
         var edited = transaction.execute(tx -> {
             var id = statuses.updateRemote(
                     edit.uri(),
@@ -417,9 +538,15 @@ public class StatusService {
                     html.language(),
                     edit.sensitive() || !html.spoilerText().isEmpty(),
                     edit.editedAt().truncatedTo(ChronoUnit.MICROS));
-            id.ifPresent(editedId -> statuses.replaceTags(editedId, tags));
+            id.ifPresent(editedId -> {
+                statuses.replaceTags(editedId, tags);
+                removedMedia[0] = attachments.replaceRemote(editedId, edit.authorId(), edit.attachments());
+            });
             return id.isPresent();
         });
+        if (removedMedia[0]) {
+            attachments.processDeletions();
+        }
         if (Boolean.TRUE.equals(edited)) {
             return RemoteEdit.Outcome.EDITED;
         }
@@ -596,10 +723,13 @@ public class StatusService {
      * others get the same answer for a followers-only or direct status as for one that never existed, and a tombstone would
      * reveal that it had.
      *
+     * <p>Its attachments are kept for {@link AttachmentProperties#redraftRetention}, as on Mastodon, so that its author
+     * can post them again, unless {@code deleteMedia} is set.
+     *
      * @return the deleted status, or empty if the author has no status with this ID
      */
-    public Optional<Status> delete(UUID id, UUID authorId) {
-        return transaction.execute(tx -> {
+    public Optional<Status> delete(UUID id, UUID authorId, boolean deleteMedia) {
+        var result = transaction.execute(tx -> {
             // Locked first, so that a boost made meanwhile is either found here or fails to find the status.
             if (statuses.findForDelete(id).filter(status -> status.actorId().equals(authorId)).isEmpty()) {
                 return Optional.<Status>empty();
@@ -607,7 +737,15 @@ public class StatusService {
             // Before the status goes, and its mentions and boosts with it.
             var mentioned = statuses.findAllMentioned(id);
             var localBoosts = boosts.findLocal(id);
+            if (deleteMedia) {
+                media.removeFromStatusExcept(id, List.of());
+            } else {
+                media.keepForRedraft(id, Instant.now().plus(attachmentProperties.redraftRetention()));
+            }
             var deleted = statuses.delete(id, authorId);
+            if (deleted.isEmpty()) {
+                tx.setRollbackOnly();
+            }
             deleted.ifPresent(status -> {
                 if (status.isVisibleTo(Optional.empty())) {
                     statuses.insertTombstone(status, Instant.now().truncatedTo(ChronoUnit.MICROS));
@@ -622,6 +760,17 @@ public class StatusService {
             });
             return deleted;
         });
+        if (deleteMedia && result.isPresent()) {
+            attachments.processDeletions();
+        }
+        return result;
+    }
+
+    /**
+     * Like {@link #delete(UUID, UUID, boolean)}, keeping its attachments for a while.
+     */
+    public Optional<Status> delete(UUID id, UUID authorId) {
+        return delete(id, authorId, false);
     }
 
     /**
@@ -646,20 +795,26 @@ public class StatusService {
      * @return whether a status was removed
      */
     public boolean deleteRemote(URI uri, URI authorUri) {
-        return Boolean.TRUE.equals(transaction.execute(tx -> {
+        var removed = Boolean.TRUE.equals(transaction.execute(tx -> {
             statuses.lockUri(uri);
             statuses.markRemoteDeleted(uri, authorUri);
             // Locked so that a boost made meanwhile is either found here or fails to find the status.
             var boosted = statuses.findForDeleteByUri(uri);
             var localBoosts = boosted.map(status -> boosts.findLocal(status.id())).orElse(List.of());
+            var attached = boosted.map(status -> media.findByStatusAndLock(status.id())).orElse(List.of());
             var deleted = statuses.deleteRemote(uri, authorUri);
             if (deleted) {
+                media.removeDetached(attached.stream().map(MediaAttachment::id).toList());
                 // Only once it's known to be the author's, since anyone can name any status.
                 boosted.ifPresent(status -> localBoosts.forEach(boost ->
                         events.publishEvent(StatusUnreblogged.of(boost, uri, status.actorId()))));
             }
             return deleted;
         }));
+        if (removed) {
+            attachments.processDeletions();
+        }
+        return removed;
     }
 
     /**
@@ -684,6 +839,7 @@ public class StatusService {
     public void removeAllBy(UUID authorId) {
         statuses.removeAllBy(authorId);
         threads.removeForActor(authorId);
+        attachments.removeOrphans();
     }
 
     /**
@@ -694,6 +850,7 @@ public class StatusService {
     public void removeForDomain(String domain) {
         statuses.removeForDomain(domain);
         threads.removeForDomain(domain);
+        attachments.removeOrphans();
     }
 
     /**
@@ -707,14 +864,28 @@ public class StatusService {
      * Lists public statuses, leaving out replies to other accounts.
      */
     public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
-        return statuses.findPublic(origin, page);
+        return findPublic(origin, page, false);
+    }
+
+    /**
+     * @param onlyMedia whether to only list statuses with attachments
+     */
+    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia) {
+        return statuses.findPublic(origin, page, onlyMedia);
     }
 
     /**
      * Lists public statuses with these hashtags, including replies.
      */
     public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page) {
-        return statuses.findTagged(tags, origin, page);
+        return findTagged(tags, origin, page, false);
+    }
+
+    /**
+     * @param onlyMedia whether to only list statuses with attachments
+     */
+    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia) {
+        return statuses.findTagged(tags, origin, page, onlyMedia);
     }
 
     /**
@@ -779,12 +950,22 @@ public class StatusService {
      */
     public List<Status> findByAccount(
             UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, StatusPage page) {
+        return findByAccount(actorId, viewer, excludeReplies, excludeReblogs, false, page);
+    }
+
+    /**
+     * @param onlyMedia whether to only list statuses with attachments, which leaves out boosts
+     */
+    public List<Status> findByAccount(
+            UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, boolean onlyMedia,
+            StatusPage page) {
         var visibilities = viewer.filter(actorId::equals).isPresent()
                 ? Set.of(Visibility.values())
                 : viewer.filter(id -> follows.isFollowing(id, actorId)).isPresent()
                 ? Set.of(Visibility.PUBLIC, Visibility.UNLISTED, Visibility.PRIVATE)
                 : Set.of(Visibility.PUBLIC, Visibility.UNLISTED);
-        return statuses.findByAccount(actorId, visibilities, viewer.orElse(null), excludeReplies, excludeReblogs, page);
+        return statuses.findByAccount(
+                actorId, visibilities, viewer.orElse(null), excludeReplies, excludeReblogs, onlyMedia, page);
     }
 
     /**
@@ -839,9 +1020,6 @@ public class StatusService {
     private void validate(String text, String spoilerText, String language) {
         requireStorable(text);
         requireStorable(spoilerText);
-        if (looksBlank(text)) {
-            throw new InvalidStatusException("Text can't be blank");
-        }
         var length = Urls.countCharacters(text) + spoilerText.codePointCount(0, spoilerText.length());
         if (length > properties.maxCharacters()) {
             throw new InvalidStatusException(
@@ -849,6 +1027,15 @@ public class StatusService {
         }
         if (language != null && !LANGUAGE.matcher(language).matches()) {
             throw new InvalidStatusException("Language is not a valid language code");
+        }
+    }
+
+    /**
+     * A status with media can have no text, as on Mastodon.
+     */
+    private static void requireText(String text) {
+        if (looksBlank(text)) {
+            throw new InvalidStatusException("Text can't be blank");
         }
     }
 
@@ -868,6 +1055,12 @@ public class StatusService {
      * PostgreSQL rejects NUL, which would be a server error, and an unpaired surrogate would silently be stored as "?".
      */
     private static void requireStorable(String value) {
+        if (!isStorable(value)) {
+            throw new InvalidStatusException("Text contains invalid characters");
+        }
+    }
+
+    static boolean isStorable(String value) {
         for (var i = 0; i < value.length(); i++) {
             var character = value.charAt(i);
             var paired = Character.isHighSurrogate(character)
@@ -876,8 +1069,9 @@ public class StatusService {
             if (paired) {
                 i++;
             } else if (character == '\0' || Character.isSurrogate(character)) {
-                throw new InvalidStatusException("Text contains invalid characters");
+                return false;
             }
         }
+        return true;
     }
 }
