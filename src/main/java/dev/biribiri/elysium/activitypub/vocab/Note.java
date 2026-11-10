@@ -21,6 +21,7 @@ import java.util.Map;
  * @param inReplyTo  the parent status, or null if this isn't a reply or the parent can't be shown
  * @param contentMap the content under its language, or null if no language is set
  * @param tag        the accounts it mentions, then its hashtags, or null if it has neither
+ * @param attachment its attachments, in order, or null if it has none
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record Note(
@@ -39,13 +40,20 @@ public record Note(
         URI inReplyTo,
         Map<String, String> contentMap,
         List<Tag> tag,
+        List<Document> attachment,
         URI likes,
         URI shares
 ) {
 
+    /**
+     * Adds Mastodon's terms for attachments, which aren't in the ActivityStreams vocabulary.
+     */
     static final List<Object> CONTEXT = List.of(
             ActivityStreams.CONTEXT,
-            Map.of("sensitive", "as:sensitive", Hashtag.CONTEXT_TERM, Hashtag.CONTEXT_IRI));
+            Map.of("sensitive", "as:sensitive", Hashtag.CONTEXT_TERM, Hashtag.CONTEXT_IRI,
+                    "toot", "http://joinmastodon.org/ns#",
+                    "blurhash", "toot:blurhash",
+                    "focalPoint", Map.of("@container", "@list", "@id", "toot:focalPoint")));
 
     /**
      * A direct status is only addressed to the accounts it mentions, so its parent's author has to be mentioned to get it,
@@ -55,9 +63,11 @@ public record Note(
      * @param parentAuthor who wrote the parent status, or null if there's none to show
      * @param mentions     the accounts the status mentions
      * @param hashtags     the status's hashtags
+     * @param attachments  the status's attachments, in order
      */
     public static Note from(
-            Status status, Actor author, URI inReplyTo, URI parentAuthor, List<Mention> mentions, List<Hashtag> hashtags) {
+            Status status, Actor author, URI inReplyTo, URI parentAuthor, List<Mention> mentions, List<Hashtag> hashtags,
+            List<Document> attachments) {
         var others = new ArrayList<String>();
         mentions.forEach(mention -> others.add(mention.href().toString()));
         if (parentAuthor != null && !parentAuthor.equals(author.uri()) && status.visibility() != Visibility.DIRECT) {
@@ -82,6 +92,7 @@ public record Note(
                 inReplyTo,
                 status.language() == null ? null : Map.of(status.language(), status.content()),
                 tags(mentions, hashtags),
+                attachments.isEmpty() ? null : List.copyOf(attachments),
                 URI.create(status.uri() + "/likes"),
                 URI.create(status.uri() + "/shares"));
     }
@@ -97,6 +108,7 @@ public record Note(
      */
     public Note withoutContext() {
         return new Note(
-                null, id, type, attributedTo, url, published, updated, to, cc, content, sensitive, summary, inReplyTo, contentMap, tag, likes, shares);
+                null, id, type, attributedTo, url, published, updated, to, cc, content, sensitive, summary, inReplyTo,
+                contentMap, tag, attachment, likes, shares);
     }
 }

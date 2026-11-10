@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -64,6 +65,8 @@ class UpdateIntegrationTests {
     private DomainBlocks blocks;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private MediaAttachments attachments;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -132,6 +135,52 @@ class UpdateIntegrationTests {
         var older = edit(noteId, "2026-01-15T00:00:00Z", "<p>Older</p>");
         handler.handle(update(older));
         assertThat(tags(noteId)).containsExactlyInAnyOrder("kept", "new");
+    }
+
+    @Test
+    void anEditReplacesTheAttachmentsAndKeepsThoseItStillHas() {
+        var noteId = noteId();
+        var note = note(noteId, null);
+        note.put("attachment", List.of(image("kept.png", "Old"), image("gone.png", null)));
+        creates.handle(create(note));
+        var statusId = (UUID) status(noteId).orElseThrow().get("id");
+        var kept = attachments.findByStatuses(List.of(statusId)).get(statusId).getFirst();
+
+        var edited = edit(noteId, "2026-02-01T00:00:00Z", "<p>Edited</p>");
+        edited.put("attachment", List.of(image("new.png", null), image("kept.png", "New")));
+        handler.handle(update(edited));
+
+        var now = attachments.findByStatuses(List.of(statusId)).get(statusId);
+        assertThat(now).extracting(attachment -> attachment.remoteUrl().getPath()).containsExactly("/new.png", "/kept.png");
+        assertThat(now.get(1).id()).isEqualTo(kept.id());
+        assertThat(now.get(1).description()).isEqualTo("New");
+
+        // An edit without attachments removes them.
+        handler.handle(update(edit(noteId, "2026-03-01T00:00:00Z", "<p>Again</p>")));
+        assertThat(attachments.findByStatuses(List.of(statusId))).isEmpty();
+    }
+
+    @Test
+    void deletingANoteRemovesItsAttachments() {
+        var noteId = noteId();
+        var note = note(noteId, null);
+        note.put("attachment", List.of(image("a.png", null)));
+        creates.handle(create(note));
+        var authorId = author.id();
+
+        statuses.deleteRemote(URI.create(noteId), author.uri());
+
+        assertThat(jdbc.sql("SELECT count(*) FROM media_attachment WHERE account_id = :id").param("id", authorId)
+                .query(Long.class).single()).isZero();
+    }
+
+    private Map<String, Object> image(String name, String description) {
+        var image = new HashMap<String, Object>(Map.of(
+                "type", "Document", "mediaType", "image/png", "url", "https://" + host + "/" + name));
+        if (description != null) {
+            image.put("name", description);
+        }
+        return image;
     }
 
     @Test

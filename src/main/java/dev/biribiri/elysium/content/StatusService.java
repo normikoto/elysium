@@ -503,6 +503,7 @@ public class StatusService {
             mentions.remove(author.id());
             statuses.insertMentions(id, mentions);
             statuses.insertTags(id, remoteTags(remote.tags()));
+            attachments.addRemote(id, author.id(), remote.attachments());
             // Jobs have no order, so replies can be stored before their parent.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
             threads.assign(status, remote.inReplyToUri());
@@ -526,6 +527,7 @@ public class StatusService {
         // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
         // caller that stores the status after NOT_STORED has to cope with one stored in between. The tags are replaced in
         // the same transaction, while the edit's row lock keeps a concurrent edit waiting.
+        var removedMedia = new boolean[1];
         var edited = transaction.execute(tx -> {
             var id = statuses.updateRemote(
                     edit.uri(),
@@ -536,9 +538,15 @@ public class StatusService {
                     html.language(),
                     edit.sensitive() || !html.spoilerText().isEmpty(),
                     edit.editedAt().truncatedTo(ChronoUnit.MICROS));
-            id.ifPresent(editedId -> statuses.replaceTags(editedId, tags));
+            id.ifPresent(editedId -> {
+                statuses.replaceTags(editedId, tags);
+                removedMedia[0] = attachments.replaceRemote(editedId, edit.authorId(), edit.attachments());
+            });
             return id.isPresent();
         });
+        if (removedMedia[0]) {
+            attachments.processDeletions();
+        }
         if (Boolean.TRUE.equals(edited)) {
             return RemoteEdit.Outcome.EDITED;
         }
@@ -787,20 +795,26 @@ public class StatusService {
      * @return whether a status was removed
      */
     public boolean deleteRemote(URI uri, URI authorUri) {
-        return Boolean.TRUE.equals(transaction.execute(tx -> {
+        var removed = Boolean.TRUE.equals(transaction.execute(tx -> {
             statuses.lockUri(uri);
             statuses.markRemoteDeleted(uri, authorUri);
             // Locked so that a boost made meanwhile is either found here or fails to find the status.
             var boosted = statuses.findForDeleteByUri(uri);
             var localBoosts = boosted.map(status -> boosts.findLocal(status.id())).orElse(List.of());
+            var attached = boosted.map(status -> media.findByStatusAndLock(status.id())).orElse(List.of());
             var deleted = statuses.deleteRemote(uri, authorUri);
             if (deleted) {
+                media.removeDetached(attached.stream().map(MediaAttachment::id).toList());
                 // Only once it's known to be the author's, since anyone can name any status.
                 boosted.ifPresent(status -> localBoosts.forEach(boost ->
                         events.publishEvent(StatusUnreblogged.of(boost, uri, status.actorId()))));
             }
             return deleted;
         }));
+        if (removed) {
+            attachments.processDeletions();
+        }
+        return removed;
     }
 
     /**

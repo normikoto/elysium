@@ -157,6 +157,7 @@ class UpdateHandler implements InboundActivityHandler {
                 note.language(),
                 note.sensitive(),
                 note.editedAt(note.published(), Instant.now()),
-                note.hashtags()));
+                note.hashtags(),
+                note.attachments()));
     }
 }

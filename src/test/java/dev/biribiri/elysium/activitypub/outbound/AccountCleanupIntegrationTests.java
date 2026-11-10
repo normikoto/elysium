@@ -1,5 +1,9 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
+import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.content.RemoteStatus;
+import java.util.Map;
 import dev.biribiri.elysium.TestImages;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -241,11 +245,16 @@ class AccountCleanupIntegrationTests {
                 .param("uri", deleted.uri() + "/statuses/1")
                 .param("actorId", deleted.id())
                 .update();
+        statuses.storeRemote(new RemoteStatus(URI.create(deleted.uri() + "/statuses/2"), null, deleted.id(), "<p>Hi</p>",
+                null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
+                List.of(new RemoteAttachment(URI.create(deleted.uri() + "/a.png"), AttachmentType.IMAGE, "image/png",
+                        null, null, null, null, null)))).orElseThrow();
 
         assertThat(actors.markRemoteDeleted(deleted.id())).isTrue();
 
         await().atMost(WAIT).until(() -> follows(deleted) == 0
-                && count("SELECT count(*) FROM status WHERE actor_id = :id", deleted.id()) == 0);
+                && count("SELECT count(*) FROM status WHERE actor_id = :id", deleted.id()) == 0
+                && count("SELECT count(*) FROM media_attachment WHERE account_id = :id", deleted.id()) == 0);
         assertThat(actors.findById(deleted.id()).orElseThrow().isDeleted()).isTrue();
         assertThat(actors.isInactive(deleted.uri())).isTrue();
         assertThat(activities(deleted, "%")).isEmpty();

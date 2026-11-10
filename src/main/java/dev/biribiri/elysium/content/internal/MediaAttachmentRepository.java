@@ -55,15 +55,23 @@ public class MediaAttachmentRepository {
      * @param removableAfter when it's removed if it hasn't been attached to a status
      */
     public void insert(MediaAttachment attachment, Instant removableAfter) {
+        insert(attachment, removableAfter, 0);
+    }
+
+    /**
+     * @param position where it comes among its status's attachments
+     */
+    public void insert(MediaAttachment attachment, Instant removableAfter, int position) {
         jdbc.sql("""
-                        INSERT INTO media_attachment (id, account_id, status_id, type, file_name, preview_name, content_type,
-                            file_size, width, height, preview_width, preview_height, description, focus_x, focus_y,
-                            blurhash, remote_url, rejected, removable_after, created_at)
-                        VALUES (:id, :accountId, :statusId, :type, :fileName, :previewName, :contentType, :fileSize,
-                            :width, :height, :previewWidth, :previewHeight, :description, :focusX, :focusY, :blurhash,
-                            :remoteUrl, :rejected, :removableAfter, :createdAt)
+                        INSERT INTO media_attachment (id, account_id, status_id, position, type, file_name, preview_name,
+                            content_type, file_size, width, height, preview_width, preview_height, description, focus_x,
+                            focus_y, blurhash, remote_url, rejected, removable_after, created_at)
+                        VALUES (:id, :accountId, :statusId, :position, :type, :fileName, :previewName, :contentType,
+                            :fileSize, :width, :height, :previewWidth, :previewHeight, :description, :focusX, :focusY,
+                            :blurhash, :remoteUrl, :rejected, :removableAfter, :createdAt)
                         """)
                 .param("id", attachment.id())
+                .param("position", position)
                 .param("accountId", attachment.accountId())
                 .param("statusId", attachment.statusId())
                 .param("type", attachment.type().value())
@@ -214,6 +222,28 @@ public class MediaAttachmentRepository {
                 .update();
     }
 
+    /**
+     * Replaces what another server says about one of its attachments, which an edit can change, keeping any copy of it.
+     */
+    public void updateRemote(UUID id, int position, String description, Focus focus, String blurhash, Integer width,
+                             Integer height) {
+        jdbc.sql("""
+                        UPDATE media_attachment
+                        SET position = :position, description = :description, focus_x = :focusX, focus_y = :focusY,
+                            blurhash = :blurhash, width = :width, height = :height
+                        WHERE id = :id
+                        """)
+                .param("id", id)
+                .param("position", position)
+                .param("description", description)
+                .param("focusX", focus == null ? null : focus.x())
+                .param("focusY", focus == null ? null : focus.y())
+                .param("blurhash", blurhash)
+                .param("width", width)
+                .param("height", height)
+                .update();
+    }
+
     public void updateDescription(UUID id, String description, Focus focus) {
         jdbc.sql("""
                         UPDATE media_attachment SET description = :description, focus_x = :focusX, focus_y = :focusY
@@ -270,6 +300,25 @@ public class MediaAttachmentRepository {
                 .param("limit", BATCH_SIZE)
                 .query(Integer.class)
                 .single();
+    }
+
+    /**
+     * Removes these attachments if their status is gone, which a deletion has only just left them without, so that the
+     * sweep for every orphan doesn't have to run for each one.
+     */
+    public void removeDetached(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        jdbc.sql("""
+                        WITH removed AS (
+                            DELETE FROM media_attachment
+                            WHERE id = ANY (CAST(:ids AS uuid[])) AND status_id IS NULL
+                            RETURNING file_name, preview_name
+                        )
+                        """ + QUEUE_REMOVED_FILES)
+                .param("ids", ids.stream().map(UUID::toString).toArray(String[]::new))
+                .update();
     }
 
     /**

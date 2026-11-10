@@ -1,5 +1,13 @@
 package dev.biribiri.elysium;
 
+import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.content.Focus;
+import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.Visibility;
+import java.time.Instant;
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -24,10 +32,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -73,6 +83,8 @@ class MediaIntegrationTests {
     private MediaAttachments attachments;
     @Autowired
     private MediaProperties media;
+    @Autowired
+    private StatusService statuses;
 
     @BeforeEach
     void setUp() {
@@ -426,6 +438,74 @@ class MediaIntegrationTests {
                 .andExpect(jsonPath("$.configuration.media_attachments.video_size_limit").value(100 * 1024))
                 .andExpect(jsonPath("$.configuration.media_attachments.supported_mime_types",
                         hasItems("image/png", "video/mp4", "audio/mpeg")));
+    }
+
+    // Federation
+
+    @Test
+    void aNoteListsItsAttachmentsAsDocuments() throws Exception {
+        var upload = uploadResponse("mia");
+        var status = postStatus("mia", "{\"status\":\"Look\",\"sensitive\":true,\"media_ids\":[\""
+                + JsonPath.read(upload, "$.id") + "\"]}");
+
+        var fetched = mockMvc.perform(get("/users/mia/statuses/" + status).accept("application/activity+json"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sensitive").value(true))
+                .andExpect(jsonPath("$.attachment", hasSize(1)))
+                .andExpect(jsonPath("$.attachment[0].type").value("Document"))
+                .andExpect(jsonPath("$.attachment[0].mediaType").value("image/webp"))
+                .andExpect(jsonPath("$.attachment[0].url").value(JsonPath.<String>read(upload, "$.url")))
+                .andExpect(jsonPath("$.attachment[0].name").value("A test"))
+                .andExpect(jsonPath("$.attachment[0].width").value(32))
+                .andExpect(jsonPath("$.attachment[0].focalPoint[0]").value(0.5))
+                .andExpect(jsonPath("$.attachment[0].blurhash").doesNotExist())
+                .andExpect(jsonPath("$['@context'][1].focalPoint['@container']").value("@list"))
+                .andExpect(jsonPath("$['@context'][1].toot").value("http://joinmastodon.org/ns#"))
+                .andReturn().getResponse().getContentAsString();
+
+        // The outbox builds the same Note, so one that's fetched matches one that's delivered.
+        var page = mockMvc.perform(get("/users/mia/outbox").param("page", "true").accept("application/activity+json"))
+                .andReturn().getResponse().getContentAsString();
+        var fromOutbox = JsonPath.<List<Map<String, Object>>>read(page, "$.orderedItems[?(@.object.id =~ /.*" + status
+                + "/)].object");
+        var single = JsonPath.<Map<String, Object>>read(fetched, "$");
+        single.remove("@context");
+        assertThat(fromOutbox).containsExactly(single);
+
+        var plain = postStatus("mia", "{\"status\":\"No media\"}");
+        mockMvc.perform(get("/users/mia/statuses/" + plain).accept("application/activity+json"))
+                .andExpect(jsonPath("$.attachment").doesNotExist());
+    }
+
+    @Test
+    void aRemoteAttachmentLinksToItsServer() throws Exception {
+        var host = "h" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/s");
+        var author = actors.upsertRemote(new RemoteActorProfile(uri, "s", host, URI.create(uri + "/inbox"), null, null,
+                null, null));
+        var image = URI.create("https://files." + host + "/a.jpg");
+        var video = URI.create("https://files." + host + "/b.mp4");
+        var id = statuses.storeRemote(new RemoteStatus(URI.create(uri + "/notes/1"), null, author.id(), "<p>Far</p>",
+                null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of("faraway"), List.of(
+                new RemoteAttachment(image, AttachmentType.IMAGE, "image/jpeg", "Far away", 1200, 800, null,
+                        new Focus(0, 0)),
+                new RemoteAttachment(video, AttachmentType.VIDEO, "video/mp4", null, null, null, null, null))))
+                .orElseThrow();
+
+        mockMvc.perform(get("/api/v1/statuses/" + id))
+                .andExpect(jsonPath("$.media_attachments[0].type").value("image"))
+                .andExpect(jsonPath("$.media_attachments[0].url").value(image.toString()))
+                .andExpect(jsonPath("$.media_attachments[0].remote_url").value(image.toString()))
+                .andExpect(jsonPath("$.media_attachments[0].preview_url").value(image.toString()))
+                .andExpect(jsonPath("$.media_attachments[0].meta.original.size").value("1200x800"))
+                .andExpect(jsonPath("$.media_attachments[0].description").value("Far away"))
+                .andExpect(jsonPath("$.media_attachments[1].type").value("video"))
+                .andExpect(jsonPath("$.media_attachments[1].preview_url").isEmpty());
+        // Pages only link to another server's files, so that visitors' browsers don't fetch them unasked.
+        mockMvc.perform(get("/tags/faraway").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"" + image + "\"")))
+                .andExpect(content().string(not(containsString("src=\"" + image + "\""))));
     }
 
     @Test

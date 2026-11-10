@@ -65,6 +65,11 @@ The script checks:
 - **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
   for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
   a `404`.
+- **Sending media:** alice uploads `federation/fixtures/image.png` and posts it in a sensitive status. Its `Note` has to
+  have a `Document` for it, and the other server has to store the status with one attachment, whose remote URL is on
+  Elysium on Mastodon and GoToSocial.
+- **Receiving media:** on Mastodon, `lab` posts the same image in a status mentioning alice, and Elysium has to show the status with one
+  `image` attachment, its description, and a `remote_url` on Mastodon.
 - **Changing a profile:** alice changes her display name through the client API, while the other server's `lab` user
   still follows her. The other server has to accept the signed `Update` of her actor, and show the new name.
 - **Suspending and deleting accounts:** Another admin suspends alice, ends the suspension, and deletes alice's account through the

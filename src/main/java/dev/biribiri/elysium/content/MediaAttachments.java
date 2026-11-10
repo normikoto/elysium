@@ -8,9 +8,12 @@ import dev.biribiri.elysium.media.MediaKind;
 import dev.biribiri.elysium.media.StoredMedia;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -160,6 +163,72 @@ public class MediaAttachments {
             names.forEach(files::delete);
             attachments.forgetDeletedFiles(names);
         } while (!names.isEmpty());
+    }
+
+    /**
+     * Adds the attachments of a status from another server, which are only links to its server's copies until they're
+     * downloaded. Has to run in the transaction that stores the status.
+     */
+    void addRemote(UUID statusId, UUID authorId, List<RemoteAttachment> remote) {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        for (var i = 0; i < remote.size(); i++) {
+            attachments.insert(fromRemote(remote.get(i), authorId, statusId, now), null, i);
+        }
+    }
+
+    /**
+     * Replaces the attachments of a status from another server with those an edit gives. One that's still there, by its
+     * URL, keeps its ID and any copy of it, and the others are removed. Has to run in the transaction that edits the
+     * status.
+     *
+     * @return whether any were removed, whose files {@link #processDeletions} then removes
+     */
+    boolean replaceRemote(UUID statusId, UUID authorId, List<RemoteAttachment> remote) {
+        var all = attachments.findByStatusAndLock(statusId);
+        var current = new HashMap<URI, MediaAttachment>();
+        for (var attachment : all) {
+            if (attachment.remoteUrl() != null) {
+                current.putIfAbsent(attachment.remoteUrl(), attachment);
+            }
+        }
+        var kept = new ArrayList<UUID>();
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        for (var i = 0; i < remote.size(); i++) {
+            var given = fromRemote(remote.get(i), authorId, statusId, now);
+            var existing = current.remove(given.remoteUrl());
+            if (existing == null) {
+                attachments.insert(given, null, i);
+                kept.add(given.id());
+            } else {
+                attachments.updateRemote(existing.id(), i, given.description(), given.focus(), given.blurhash(),
+                        given.width(), given.height());
+                kept.add(existing.id());
+            }
+        }
+        attachments.removeFromStatusExcept(statusId, kept);
+        return all.stream().anyMatch(attachment -> !kept.contains(attachment.id()));
+    }
+
+    /**
+     * Another server's description is plain text, as on Mastodon, so it's only made storable and cut to length.
+     */
+    private static MediaAttachment fromRemote(RemoteAttachment remote, UUID authorId, UUID statusId, Instant now) {
+        return new MediaAttachment(
+                Ids.timeOrdered(now), authorId, statusId, remote.type(), null, null, remote.mediaType(), null,
+                remote.width(), remote.height(), null, null, remoteDescription(remote.description()), remote.focus(),
+                remote.blurhash(), remote.url(), false, now);
+    }
+
+    private static String remoteDescription(String value) {
+        if (value == null) {
+            return null;
+        }
+        var description = new StringBuilder();
+        value.strip().codePoints()
+                .filter(codePoint -> codePoint != 0 && !(codePoint >= Character.MIN_SURROGATE && codePoint <= Character.MAX_SURROGATE))
+                .limit(MAX_DESCRIPTION_LENGTH)
+                .forEach(description::appendCodePoint);
+        return description.isEmpty() ? null : description.toString();
     }
 
     /**

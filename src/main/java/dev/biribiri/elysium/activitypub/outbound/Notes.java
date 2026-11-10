@@ -1,11 +1,14 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
+import dev.biribiri.elysium.activitypub.vocab.Document;
 import dev.biribiri.elysium.activitypub.vocab.Hashtag;
 import dev.biribiri.elysium.activitypub.vocab.Mention;
 import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.MediaAttachment;
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -23,8 +26,10 @@ public class Notes {
     private final StatusService statuses;
     private final ActorService actors;
     private final InstanceProperties instance;
+    private final MediaAttachments attachments;
 
-    Notes(StatusService statuses, ActorService actors, InstanceProperties instance) {
+    Notes(StatusService statuses, ActorService actors, InstanceProperties instance, MediaAttachments attachments) {
+        this.attachments = attachments;
         this.statuses = statuses;
         this.actors = actors;
         this.instance = instance;
@@ -45,6 +50,15 @@ public class Notes {
      * @param tags the names {@link StatusService#findTags} gives, for a caller that has looked them up already
      */
     public Note of(Status status, Actor author, List<Actor> mentioned, List<String> tags) {
+        return of(status, author, mentioned, tags,
+                attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of()));
+    }
+
+    /**
+     * @param media the attachments {@link MediaAttachments#findByStatuses} gives, for a caller that has looked them up
+     *              already
+     */
+    public Note of(Status status, Actor author, List<Actor> mentioned, List<String> tags, List<MediaAttachment> media) {
         var parent = shownParent(status, mentioned);
         return Note.from(
                 status,
@@ -52,7 +66,8 @@ public class Notes {
                 parent.map(Status::uri).orElse(null),
                 parent.flatMap(shown -> actors.findById(shown.actorId())).filter(Actor::isActive).map(Actor::uri).orElse(null),
                 mentioned.stream().map(actor -> Mention.of(actor.uri(), "@" + actor.username() + "@" + actor.domain())).toList(),
-                Hashtag.of(tags, instance));
+                Hashtag.of(tags, instance),
+                media.stream().map(attachment -> Document.of(attachment, instance)).toList());
     }
 
     /**

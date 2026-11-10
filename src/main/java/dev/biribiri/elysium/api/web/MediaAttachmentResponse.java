@@ -3,11 +3,13 @@ package dev.biribiri.elysium.api.web;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.MediaAttachment;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.net.URI;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * Mastodon's MediaAttachment entity.
@@ -51,7 +53,11 @@ record MediaAttachmentResponse(
     static MediaAttachmentResponse from(MediaAttachment attachment, InstanceProperties instance) {
         var type = attachment.shownType();
         var url = attachment.rejected() ? attachment.remoteUrl() : attachment.url(instance);
-        var preview = attachment.rejected() ? null : attachment.previewUrl(instance).orElse(null);
+        // A remote image that isn't kept here is its own preview, as clients expect one for every image.
+        var preview = attachment.rejected() ? null : attachment.previewUrl(instance)
+                .or(() -> Optional.ofNullable(!attachment.isCached() && type == AttachmentType.IMAGE
+                        ? attachment.remoteUrl() : null))
+                .orElse(null);
         var focus = attachment.focus() == null ? null : new Focus(attachment.focus().x(), attachment.focus().y());
         return new MediaAttachmentResponse(
                 attachment.id().toString(),

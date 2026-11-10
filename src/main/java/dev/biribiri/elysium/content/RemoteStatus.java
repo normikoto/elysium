@@ -21,6 +21,7 @@ import java.util.UUID;
  *                     have been checked against who it was addressed to
  * @param tags         the names of its hashtags as its server gave them, which are checked and normalized
  *                     when it's stored
+ * @param attachments  its attachments, in order
  */
 public record RemoteStatus(
         URI uri,
@@ -35,12 +36,25 @@ public record RemoteStatus(
         Instant publishedAt,
         Instant editedAt,
         Map<UUID, Boolean> mentions,
-        Collection<String> tags
+        Collection<String> tags,
+        List<RemoteAttachment> attachments
 ) {
 
     public RemoteStatus {
         mentions = Map.copyOf(mentions);
         tags = List.copyOf(tags);
+        attachments = List.copyOf(attachments);
+    }
+
+    /**
+     * A status with no attachments.
+     */
+    public RemoteStatus(
+            URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
+            boolean sensitive, URI inReplyToUri, Instant publishedAt, Instant editedAt, Map<UUID, Boolean> mentions,
+            Collection<String> tags) {
+        this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, editedAt,
+                mentions, tags, List.of());
     }
 
     /**
@@ -50,7 +64,7 @@ public record RemoteStatus(
             URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
             boolean sensitive, URI inReplyToUri, Instant publishedAt, Instant editedAt, Map<UUID, Boolean> mentions) {
         this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, editedAt,
-                mentions, List.of());
+                mentions, List.of(), List.of());
     }
 
     /**
@@ -60,6 +74,6 @@ public record RemoteStatus(
             URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
             boolean sensitive, URI inReplyToUri, Instant publishedAt) {
         this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, null,
-                Map.of(), List.of());
+                Map.of(), List.of(), List.of());
     }
 }

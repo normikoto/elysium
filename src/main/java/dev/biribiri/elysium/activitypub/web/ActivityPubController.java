@@ -20,6 +20,7 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.activitypub.vocab.Like;
@@ -83,6 +84,7 @@ public class ActivityPubController {
     private final InstanceProperties instance;
     private final ProfileService profiles;
     private final FetchSigners signers;
+    private final MediaAttachments attachments;
 
     ActivityPubController(
             ActorService actors,
@@ -93,7 +95,9 @@ public class ActivityPubController {
             Notes notes,
             InstanceProperties instance,
             ProfileService profiles,
-            FetchSigners signers) {
+            FetchSigners signers,
+            MediaAttachments attachments) {
+        this.attachments = attachments;
         this.signers = signers;
         this.instance = instance;
         this.profiles = profiles;
@@ -298,6 +302,7 @@ public class ActivityPubController {
         var noteIds = entries.stream().filter(status -> !status.isReblog()).map(Status::id).toList();
         var mentions = statuses.findMentions(noteIds);
         var tags = statuses.findTags(noteIds);
+        var media = attachments.findByStatuses(noteIds);
         var boosted = statuses.findVisibleToAnyone(entries.stream().filter(Status::isReblog).map(Status::reblogOfId).toList())
                 .stream().collect(Collectors.toMap(Status::id, Function.identity()));
         var boostedAuthors = activeActors(boosted.values().stream().map(Status::actorId).distinct().toList());
@@ -305,7 +310,7 @@ public class ActivityPubController {
         for (var status : entries) {
             if (!status.isReblog()) {
                 var note = notes.of(status, author, mentions.getOrDefault(status.id(), List.of()),
-                        tags.getOrDefault(status.id(), List.of()));
+                        tags.getOrDefault(status.id(), List.of()), media.getOrDefault(status.id(), List.of()));
                 items.add(Create.of(note).withoutContext());
                 continue;
             }
