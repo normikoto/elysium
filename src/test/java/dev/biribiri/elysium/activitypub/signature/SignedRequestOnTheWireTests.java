@@ -8,9 +8,10 @@ import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.HttpHeaders;
 
 import java.io.IOException;
@@ -21,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -62,20 +64,22 @@ class SignedRequestOnTheWireTests {
         server.stop(0);
     }
 
-    @Test
-    void aServerCanCheckAPathWithOtherCharacters() throws Exception {
-        assertCanBeChecked("/users/ü?name=ü", "/users/%C3%BC?name=%C3%BC");
+    @ParameterizedTest
+    @EnumSource
+    void aServerCanCheckAPathWithOtherCharacters(Format format) throws Exception {
+        assertCanBeChecked(format, "/users/ü?name=ü", "/users/%C3%BC?name=%C3%BC");
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/users/bob", "/users/bob/main-key", "/a%7Eb/%2F/c", "/users/bob?page=1&x=%7E"})
-    void aServerCanCheckWhatItReceives(String pathAndQuery) throws Exception {
-        assertCanBeChecked(pathAndQuery, pathAndQuery);
+    @MethodSource("pathsInEachFormat")
+    void aServerCanCheckWhatItReceives(Format format, String pathAndQuery) throws Exception {
+        assertCanBeChecked(format, pathAndQuery, pathAndQuery);
     }
 
-    @Test
-    void aServerCanCheckASentActivity() throws Exception {
-        var sender = new SignedSender(client, List.of(new CavageRequestSigner()));
+    @ParameterizedTest
+    @EnumSource
+    void aServerCanCheckASentActivity(Format format) throws Exception {
+        var sender = new SignedSender(client, List.of(format.signer()));
         var authority = "remote.example:" + server.getAddress().getPort();
         var body = "{\"text\":\"ü\"}".getBytes(StandardCharsets.UTF_8);
 
@@ -85,17 +89,22 @@ class SignedRequestOnTheWireTests {
         assertThat(request.method()).isEqualTo("POST");
         assertThat(request.body()).isEqualTo(body);
         assertThat(request.headers().getFirst("Content-Type")).isEqualTo("application/activity+json");
-        var claim = new CavageSignatureScheme(new InstanceProperties(URI.create("http://" + authority)))
-                .parse(request);
+        var claim = format.scheme(new InstanceProperties(URI.create("http://" + authority))).parse(request);
         assertThat(claim.keyId()).isEqualTo(KEY.keyId());
         assertThat(claim.algorithm().verify(SignatureFixtures.publicKey(), claim.signatureBase(), claim.signature()))
                 .isTrue();
     }
 
-    private void assertCanBeChecked(String pathAndQuery, String expectedTarget) throws Exception {
+    static Stream<Arguments> pathsInEachFormat() {
+        return Stream.of(Format.values()).flatMap(format -> Stream.of(
+                        "/users/bob", "/users/bob/main-key", "/a%7Eb/%2F/c", "/users/bob?page=1&x=%7E")
+                .map(path -> Arguments.of(format, path)));
+    }
+
+    private void assertCanBeChecked(Format format, String pathAndQuery, String expectedTarget) throws Exception {
         var keys = mock(ActorSigningKeys.class);
         when(keys.forInstance()).thenReturn(KEY);
-        var fetcher = new SignedFetcher(client, List.of(new CavageRequestSigner()), keys);
+        var fetcher = new SignedFetcher(client, List.of(format.signer()), keys);
         var authority = "remote.example:" + server.getAddress().getPort();
 
         fetcher.get(URI.create("http://Remote.Example:" + server.getAddress().getPort() + pathAndQuery),
@@ -105,10 +114,38 @@ class SignedRequestOnTheWireTests {
         assertThat(request.rawTarget()).isEqualTo(expectedTarget);
         // This server's own scheme signs with its own name rather than reading this header, but other servers read it.
         assertThat(request.headers().getFirst("Host")).isEqualTo(authority);
-        var claim = new CavageSignatureScheme(new InstanceProperties(URI.create("http://" + authority)))
-                .parse(request);
+        var claim = format.scheme(new InstanceProperties(URI.create("http://" + authority))).parse(request);
         assertThat(claim.keyId()).isEqualTo(KEY.keyId());
         assertThat(claim.algorithm().verify(SignatureFixtures.publicKey(), claim.signatureBase(), claim.signature()))
                 .isTrue();
+    }
+
+    enum Format {
+        CAVAGE {
+            @Override
+            RequestSigner signer() {
+                return new CavageRequestSigner();
+            }
+
+            @Override
+            SignatureScheme scheme(InstanceProperties instance) {
+                return new CavageSignatureScheme(instance);
+            }
+        },
+        RFC_9421 {
+            @Override
+            RequestSigner signer() {
+                return new Rfc9421RequestSigner();
+            }
+
+            @Override
+            SignatureScheme scheme(InstanceProperties instance) {
+                return new Rfc9421SignatureScheme(instance);
+            }
+        };
+
+        abstract RequestSigner signer();
+
+        abstract SignatureScheme scheme(InstanceProperties instance);
     }
 }

@@ -96,11 +96,16 @@ class FederationApiDocs implements OperationCustomizer {
                 .content(new Content()
                         .addMediaType(ACTIVITY_JSON, new MediaType().schema(body))
                         .addMediaType(ANY_LD_JSON, new MediaType().schema(body))));
-        operation.addParametersItem(header("Signature", "A draft-cavage HTTP signature."));
-        operation.addParametersItem(header("Digest", "The body's SHA-256, as `SHA-256=` and then Base64."));
+        operation.addParametersItem(header("Signature", true,
+                "A draft-cavage HTTP signature, or an RFC 9421 one with `Signature-Input`."));
+        operation.addParametersItem(header("Signature-Input", false, "Required for an RFC 9421 signature."));
+        operation.addParametersItem(header("Digest", false,
+                "Required for a draft-cavage signature: the body's SHA-256, as `SHA-256=` and then Base64."));
+        operation.addParametersItem(header("Content-Digest", false,
+                "Required for an RFC 9421 signature: the body's `sha-256` or `sha-512`, as RFC 9530 describes."));
     }
 
-    private static Parameter header(String name, String description) {
-        return new HeaderParameter().name(name).required(true).description(description).schema(new StringSchema());
+    private static Parameter header(String name, boolean required, String description) {
+        return new HeaderParameter().name(name).required(required).description(description).schema(new StringSchema());
     }
 }

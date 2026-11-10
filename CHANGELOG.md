@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- RFC 9421 HTTP Message Signatures, alongside the older draft-cavage ones. Requests from other servers can be signed
+  with either. Requests to other servers are still signed with draft-cavage first, and are sent again with RFC 9421 if
+  the other server refuses them, including with a `400`, which didn't trigger a retry before. See `FEDERATION.md`.
 - Mention and follow notifications, including grouped notifications for newer Mastodon clients, unread counts, and
   saved read positions. Notifications start with new activity after upgrading.
 - Favourites of local and remote posts, through `POST /api/v1/statuses/:id/favourite` and `/unfavourite`, which are

@@ -7,7 +7,7 @@ Other servers can discover Elysium's users, deliver signed activities to them, f
 | Area | State | Notes |
 | --- | --- | --- |
 | WebFinger, NodeInfo, actor and `Note` documents | Live | Mastodon, GoToSocial and Misskey resolve users in the federation lab |
-| HTTP Signatures, cavage | Live | Verifying on inboxes, and signing key fetches and deliveries. RFC 9421 is open in #5 |
+| HTTP Signatures, cavage and RFC 9421 | Live | Verifying on inboxes, and signing key fetches and deliveries, cavage first. #5 |
 | Inboxes | Live, partly | `Follow`, `Like`, `Announce`, their `Undo`s, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are stored and ignored. Forwarded activities are fetched from their origin, `sharedInbox` is advertised, and local recipients are worked out, which finishes #39 |
 | Delivery and signed `POST` | Live, partly | `Follow`, `Like`, `Announce`, `Undo`, `Accept`, `Create`, `Update` of an actor, and `Delete` are sent, and `federation/smoke.sh` checks that Mastodon, GoToSocial and Misskey accept each of them |
 | Job queue and backoff | Live | Load tested on one node with `./gradlew loadTest`, and not with several nodes or a real server |
@@ -30,7 +30,7 @@ flowchart TD
     m4["<b>4. Follow out and remote posts (done)</b><br/>Follow remote users, read activities fully, and store and show their posts, including forwarded replies.<br/>#41, #59 and #60 receiving, #94"]
     m5["<b>5. Interactions</b><br/>Mentions, likes, boosts, edits and notifications.<br/>#28, #61, #62, #60 sending"]
     mod["<b>Basic moderation (done)</b><br/>Domain blocks, suspensions and per-server limits.<br/>#64, #65, #66"]
-    m6["<b>6. Completeness</b><br/>RFC 9421, polls, quotes.<br/>#5, #9, #63 (outbox done in #40)"]
+    m6["<b>6. Completeness</b><br/>Polls, quotes.<br/>#9, #63 (RFC 9421 done in #5, outbox in #40)"]
 
     m1 --> m2 --> m3 --> m4 --> m5
     mod -- lands first --> m4
@@ -140,8 +140,8 @@ This was the largest step, and the first where other servers' content is stored 
 
 ### 6. Completeness
 
-- **Issues:** #5, #9, #63, and the `Question` item on #1. #40 and #104, the outbox and backfill, are done.
-- **Delivers:** RFC 9421, polls, pinned posts and quote posts. #58 is done. None of these block ordinary federation, so they can be picked up in any order.
+- **Issues:** #9, #63, and the `Question` item on #1. #5, #40 and #104, RFC 9421, the outbox and backfill, are done.
+- **Delivers:** polls, pinned posts and quote posts. #58 is done. None of these block ordinary federation, so they can be picked up in any order.
 
 ## Work across milestones
 
