@@ -92,10 +92,11 @@ public class MediaFiles {
 
     /**
      * @param thumbnail a still to show for a video or audio, or null. An image is its own preview, so it can't have one
-     * @throws InvalidMediaException if the file isn't an accepted format, is larger than its kind's limit, or can't be read
+     * @throws UnsupportedMediaException if the file isn't an accepted format
+     * @throws InvalidMediaException     if it's larger than its kind's limit, or can't be read
      */
     public StoredMedia store(Received file, Received thumbnail, MediaLimits limits) {
-        var sniffed = MediaSniffer.sniff(file.head()).orElseThrow(() -> new InvalidMediaException(
+        var sniffed = MediaSniffer.sniff(file.head()).orElseThrow(() -> new UnsupportedMediaException(
                 "The file has to be a PNG, JPEG, GIF or WebP image, an MP4, MOV or WebM video, "
                         + "or MP3, M4A, Ogg, FLAC or WAV audio"));
         var limit = limits.of(sniffed.kind());

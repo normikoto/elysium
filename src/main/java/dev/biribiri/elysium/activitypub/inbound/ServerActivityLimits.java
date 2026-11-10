@@ -30,7 +30,7 @@ import java.util.Set;
  * <p>Counts are in memory, like the other limits, so they're lost on restart and each instance has its own.
  */
 @Component
-class ServerActivityLimits {
+public class ServerActivityLimits {
 
     private static final int MAX_TRACKED_SERVERS = 100_000;
     private static final PublicSuffixMatcher SUFFIXES = PublicSuffixMatcherLoader.getDefault();
@@ -80,7 +80,7 @@ class ServerActivityLimits {
     /**
      * What counts against a server's limits.
      */
-    static String serverKey(URI signer) {
+    public static String serverKey(URI signer) {
         var host = signer.getHost();
         if (host == null) {
             // Such as a name with an underscore, which URI only reads as an authority. It can still count as itself.

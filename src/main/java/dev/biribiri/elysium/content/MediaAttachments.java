@@ -6,8 +6,13 @@ import dev.biribiri.elysium.media.InvalidMediaException;
 import dev.biribiri.elysium.media.MediaFiles;
 import dev.biribiri.elysium.media.MediaKind;
 import dev.biribiri.elysium.media.StoredMedia;
+import dev.biribiri.elysium.media.UnsupportedMediaException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -48,8 +53,11 @@ public class MediaAttachments {
     private final MediaAttachmentRepository attachments;
     private final MediaFiles files;
     private final AttachmentProperties properties;
+    private final ApplicationEventPublisher events;
 
-    MediaAttachments(MediaAttachmentRepository attachments, MediaFiles files, AttachmentProperties properties) {
+    MediaAttachments(MediaAttachmentRepository attachments, MediaFiles files, AttachmentProperties properties,
+                     ApplicationEventPublisher events) {
+        this.events = events;
         this.attachments = attachments;
         this.files = files;
         this.properties = properties;
@@ -171,8 +179,18 @@ public class MediaAttachments {
      */
     void addRemote(UUID statusId, UUID authorId, List<RemoteAttachment> remote) {
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var added = new ArrayList<UUID>();
         for (var i = 0; i < remote.size(); i++) {
-            attachments.insert(fromRemote(remote.get(i), authorId, statusId, now), null, i);
+            var attachment = fromRemote(remote.get(i), authorId, statusId, now);
+            attachments.insert(attachment, null, i);
+            added.add(attachment.id());
+        }
+        published(added);
+    }
+
+    private void published(List<UUID> added) {
+        if (!added.isEmpty()) {
+            events.publishEvent(new RemoteMediaAdded(added));
         }
     }
 
@@ -192,6 +210,7 @@ public class MediaAttachments {
             }
         }
         var kept = new ArrayList<UUID>();
+        var added = new ArrayList<UUID>();
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         for (var i = 0; i < remote.size(); i++) {
             var given = fromRemote(remote.get(i), authorId, statusId, now);
@@ -199,6 +218,7 @@ public class MediaAttachments {
             if (existing == null) {
                 attachments.insert(given, null, i);
                 kept.add(given.id());
+                added.add(given.id());
             } else {
                 attachments.updateRemote(existing.id(), i, given.description(), given.focus(), given.blurhash(),
                         given.width(), given.height());
@@ -206,6 +226,7 @@ public class MediaAttachments {
             }
         }
         attachments.removeFromStatusExcept(statusId, kept);
+        published(added);
         return all.stream().anyMatch(attachment -> !kept.contains(attachment.id()));
     }
 
@@ -229,6 +250,97 @@ public class MediaAttachments {
                 .limit(MAX_DESCRIPTION_LENGTH)
                 .forEach(description::appendCodePoint);
         return description.isEmpty() ? null : description.toString();
+    }
+
+    public enum CacheOutcome {
+        /** The copy is kept, and served from here. */
+        CACHED,
+        /** It isn't a file that's accepted, or is too large, so it stays a link. */
+        REFUSED,
+        /** It was removed, rejected, or downloaded meanwhile, so the copy was discarded. */
+        DISCARDED
+    }
+
+    /**
+     * Finds another server's attachment that should be downloaded, which is one that hasn't been tried, isn't rejected,
+     * and still has its status.
+     */
+    public Optional<RemoteMediaSource> findForDownload(UUID id) {
+        return attachments.findForDownload(id);
+    }
+
+    /**
+     * Receives a download, stopping at the largest size any attachment can be.
+     *
+     * @throws InvalidMediaAttachmentException if it's larger than that
+     * @throws IOException                     if reading it fails, as the stream it reads from says, so that a caller can
+     *                                         tell a body that's too large from a connection that broke
+     */
+    public ReceivedMedia receive(InputStream body) throws IOException {
+        try {
+            return new ReceivedMedia(files.receive(body, properties.largest().toBytes()));
+        } catch (InvalidMediaException e) {
+            throw new InvalidMediaAttachmentException(e.getMessage());
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        }
+    }
+
+    /**
+     * Keeps a downloaded copy of another server's attachment, checked and re-encoded as an upload would be. What it is
+     * comes from the file, whatever its server said.
+     */
+    public CacheOutcome cacheRemote(UUID id, ReceivedMedia file) {
+        StoredMedia stored;
+        try {
+            stored = files.store(file.file, null, properties.limits());
+        } catch (UnsupportedMediaException e) {
+            // Whatever its server said it was, it's only shown as a link.
+            attachments.giveUpCaching(id, AttachmentType.UNKNOWN);
+            return CacheOutcome.REFUSED;
+        } catch (InvalidMediaException e) {
+            attachments.giveUpCaching(id, null);
+            return CacheOutcome.REFUSED;
+        }
+        boolean recorded;
+        try {
+            recorded = attachments.cache(id, type(stored.kind()), stored.name(), stored.previewName(),
+                    stored.contentType(), stored.size(), stored.width(), stored.height(), stored.previewWidth(),
+                    stored.previewHeight());
+        } catch (RuntimeException e) {
+            recorded = false;
+            discard(stored);
+            throw e;
+        }
+        if (!recorded) {
+            discard(stored);
+            return CacheOutcome.DISCARDED;
+        }
+        return CacheOutcome.CACHED;
+    }
+
+    /**
+     * Stops another server's attachment from being downloaded again, such as when its server says it's gone.
+     */
+    public void giveUpCaching(UUID id) {
+        attachments.giveUpCaching(id, null);
+    }
+
+    /**
+     * Removes the copies of other servers' attachments that are older than {@link AttachmentProperties#remoteCacheRetention},
+     * which are linked again afterward. Safe to stop partway, and to repeat.
+     */
+    public void pruneRemoteCopies() {
+        var before = Instant.now().minus(properties.remoteCacheRetention());
+        while (attachments.uncacheBefore(before) > 0) {
+            // Each batch commits by itself.
+        }
+        processDeletions();
+    }
+
+    private void discard(StoredMedia stored) {
+        files.delete(stored.name());
+        files.delete(stored.previewName());
     }
 
     /**

@@ -46,6 +46,11 @@ spring.datasource.password=
 #elysium.attachments.unattached-retention=1d
 # How long a deleted post's attachments are kept, so that it can be posted again.
 #elysium.attachments.redraft-retention=1h
+# Whether copies of other servers' attachments are kept here, for how long, and how much each server can have downloaded
+# in an hour. Past that, they're linked to their server.
+#elysium.attachments.remote-cache-enabled=true
+#elysium.attachments.remote-cache-retention=30d
+#elysium.attachments.remote-download-budget=2GB
 
 # Where uploaded files are kept. Back this directory up along with the database, which refers to the files in it.
 #elysium.media.directory=media

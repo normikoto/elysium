@@ -60,10 +60,11 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   followed here. When a local account starts following someone, up to 40 of their recent public and unlisted statuses are
   fetched as well, and these are ordered by when they were posted, so a client that's already loaded newer statuses
   won't be given them as new. Other older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
-  can differ from what the other server shows, and they never have `emojis` or a `poll`. Their `media_attachments` link
-  to the files on their server, which `url`, `remote_url`, and an image's `preview_url` all give, and aren't kept here.
-  Their type comes from what that server says, and one it doesn't call an image, video, or audio is `unknown`. Up to
-  16 are kept, more than Mastodon shows. Their
+  can differ from what the other server shows, and they never have `emojis` or a `poll`. Their `media_attachments` are
+  copied here shortly after they arrive, as Mastodon does, and until then, or if they can't be, `url` and an image's
+  `preview_url` are the same as `remote_url`. A copy is checked like an upload, so its type is what the file is, and a
+  file that isn't an accepted format is `unknown`. Copies are removed after 30 days by default, and aren't fetched
+  again, so older ones link to their server. Up to 16 are kept, more than Mastodon shows. Their
   `tags` are the hashtags their server listed for them, and are replaced when they're edited.
   Their `mentions` only list local accounts, and accounts on other servers that are already known here. A reply whose
   parent isn't stored has a null `in_reply_to_id` and `in_reply_to_account_id`.

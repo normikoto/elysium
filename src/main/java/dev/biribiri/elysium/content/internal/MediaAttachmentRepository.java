@@ -3,6 +3,7 @@ package dev.biribiri.elysium.content.internal;
 import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.Focus;
 import dev.biribiri.elysium.content.MediaAttachment;
+import dev.biribiri.elysium.content.RemoteMediaSource;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.net.URI;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -224,13 +226,16 @@ public class MediaAttachmentRepository {
 
     /**
      * Replaces what another server says about one of its attachments, which an edit can change, keeping any copy of it.
+     * A copied image keeps its own size, since it's been scaled and the copy is what's served.
      */
     public void updateRemote(UUID id, int position, String description, Focus focus, String blurhash, Integer width,
                              Integer height) {
         jdbc.sql("""
                         UPDATE media_attachment
                         SET position = :position, description = :description, focus_x = :focusX, focus_y = :focusY,
-                            blurhash = :blurhash, width = :width, height = :height
+                            blurhash = :blurhash,
+                            width = CASE WHEN file_name IS NOT NULL AND type = 'image' THEN width ELSE :width END,
+                            height = CASE WHEN file_name IS NOT NULL AND type = 'image' THEN height ELSE :height END
                         WHERE id = :id
                         """)
                 .param("id", id)
@@ -239,8 +244,8 @@ public class MediaAttachmentRepository {
                 .param("focusX", focus == null ? null : focus.x())
                 .param("focusY", focus == null ? null : focus.y())
                 .param("blurhash", blurhash)
-                .param("width", width)
-                .param("height", height)
+                .param("width", width, Types.INTEGER)
+                .param("height", height, Types.INTEGER)
                 .update();
     }
 
@@ -342,6 +347,94 @@ public class MediaAttachmentRepository {
                     .query(Integer.class)
                     .single();
         } while (removed == BATCH_SIZE);
+    }
+
+    /**
+     * Finds another server's attachment that should be downloaded: one with no copy here that hasn't been tried, isn't
+     * rejected, and still has its status.
+     */
+    public Optional<RemoteMediaSource> findForDownload(UUID id) {
+        return jdbc.sql("""
+                        SELECT id, remote_url, account_id FROM media_attachment
+                        WHERE id = :id AND remote_url IS NOT NULL AND file_name IS NULL AND cached_at IS NULL
+                            AND NOT rejected AND status_id IS NOT NULL
+                        """)
+                .param("id", id)
+                .query((rs, row) -> new RemoteMediaSource(
+                        rs.getObject("id", UUID.class), URI.create(rs.getString("remote_url")),
+                        rs.getObject("account_id", UUID.class)))
+                .optional();
+    }
+
+    /**
+     * Records the copy of another server's attachment that's been downloaded, unless it's been removed, rejected, or
+     * downloaded since.
+     *
+     * @return whether it was recorded. If not, the caller removes the files
+     */
+    public boolean cache(UUID id, AttachmentType type, String fileName, String previewName, String contentType,
+                         long fileSize, Integer width, Integer height, Integer previewWidth, Integer previewHeight) {
+        return jdbc.sql("""
+                        UPDATE media_attachment
+                        SET type = :type, file_name = :fileName, preview_name = :previewName, content_type = :contentType,
+                            file_size = :fileSize, width = coalesce(:width, width), height = coalesce(:height, height),
+                            preview_width = :previewWidth, preview_height = :previewHeight, cached_at = now()
+                        WHERE id = :id AND file_name IS NULL AND cached_at IS NULL AND NOT rejected AND status_id IS NOT NULL
+                        """)
+                .param("id", id)
+                .param("type", type.value())
+                .param("fileName", fileName)
+                .param("previewName", previewName)
+                .param("contentType", contentType)
+                .param("fileSize", fileSize)
+                .param("width", width, Types.INTEGER)
+                .param("height", height, Types.INTEGER)
+                .param("previewWidth", previewWidth, Types.INTEGER)
+                .param("previewHeight", previewHeight, Types.INTEGER)
+                .update() == 1;
+    }
+
+    /**
+     * Stops another server's attachment from being downloaded again, for one that can't be, so that it stays a link.
+     *
+     * @param type what it turned out to be, or null to keep what its server said
+     */
+    public void giveUpCaching(UUID id, AttachmentType type) {
+        jdbc.sql("""
+                        UPDATE media_attachment SET cached_at = now(), type = coalesce(:type, type)
+                        WHERE id = :id AND file_name IS NULL AND cached_at IS NULL
+                        """)
+                .param("id", id)
+                .param("type", type == null ? null : type.value(), Types.VARCHAR)
+                .update();
+    }
+
+    /**
+     * Removes copies of other servers' attachments that were downloaded before a time, which are linked again afterward.
+     * They aren't downloaded again.
+     *
+     * @return how many were removed, which is at most one batch
+     */
+    public int uncacheBefore(Instant before) {
+        return jdbc.sql("""
+                        WITH old AS (
+                            SELECT id, file_name, preview_name FROM media_attachment
+                            WHERE remote_url IS NOT NULL AND file_name IS NOT NULL AND cached_at < :before
+                            LIMIT :limit
+                            FOR UPDATE SKIP LOCKED
+                        ), removed AS (
+                            UPDATE media_attachment m SET file_name = NULL, preview_name = NULL
+                            FROM old WHERE m.id = old.id
+                            RETURNING old.file_name, old.preview_name
+                        ), queued AS (
+                        """ + QUEUE_REMOVED_FILES + """
+                        )
+                        SELECT count(*) FROM removed
+                        """)
+                .param("before", timestamp(before))
+                .param("limit", BATCH_SIZE)
+                .query(Integer.class)
+                .single();
     }
 
     /**

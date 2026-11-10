@@ -69,7 +69,7 @@ The script checks:
   have a `Document` for it, and the other server has to store the status with one attachment, whose remote URL is on
   Elysium on Mastodon and GoToSocial.
 - **Receiving media:** on Mastodon, `lab` posts the same image in a status mentioning alice, and Elysium has to show the status with one
-  `image` attachment, its description, and a `remote_url` on Mastodon.
+  `image` attachment, its description, and a `remote_url` on Mastodon, once it's downloaded and served from Elysium.
 - **Changing a profile:** alice changes her display name through the client API, while the other server's `lab` user
   still follows her. The other server has to accept the signed `Update` of her actor, and show the new name.
 - **Suspending and deleting accounts:** Another admin suspends alice, ends the suspension, and deletes alice's account through the

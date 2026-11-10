@@ -5,8 +5,8 @@ follow its users, and fetch their actors, statuses, outboxes, and collections. I
 whose recent posts are then fetched from their outbox, and like and boost their posts. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
 are sent to their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
 reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
-statuses are counted. Their images, video, and audio are sent and read as attachments, and other servers' are linked to
-rather than downloaded. Polls and other activities aren't supported yet.
+statuses are counted. Their images, video, and audio are sent and read as attachments, and other servers' are
+downloaded and served from here for a while. Polls and other activities aren't supported yet.
 
 ## Supported federation protocols and standards
 
@@ -575,8 +575,14 @@ that isn't for anyone here is ignored, even if it's public, unless it's [boosted
   taken. One without such a URL is left out. Its `mediaType` decides whether it's shown as an image, video, or audio,
   and its type does only when there's no `mediaType`. Anything else is shown as a link. `name` is the description, as
   plain text, up to 1500 characters. `width`, `height`, `blurhash`, and a `focalPoint` of two numbers are kept when
-  they're valid. The files aren't downloaded, so clients load them from the status's server, and nothing about them is
-  checked.
+  they're valid. Each is then downloaded once, shortly afterward, with a `GET` from the same `User-Agent` as other
+  requests and no signature, over HTTPS only, following up to 3 redirects, within 2 minutes. The file's own bytes decide
+  what it is, whatever its `mediaType` says. One that's too large (16 MB for an image, 100 MB for video, and 40 MB for
+  audio by default), isn't an accepted format, or gets any other status than `200`, `5xx`, `408`, or `429` is linked to
+  instead and not fetched again. A `5xx`, `408`, or `429` is tried again later. Only one file is downloaded from a host
+  at a time. Each server's attachments can add up to only so much in an hour, 2 GB by
+  default, counted by the author's server rather than the file's host, and past that they're linked. Copies are kept for
+  30 days by default.
 - **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again. An
   [`Update`](#receiving-updates) is how it's changed.
 - **Edits:** a `Note` that has an `updated` later than its `published`, and no more than an hour ahead of this server's

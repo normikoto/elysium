@@ -168,6 +168,113 @@ class FederationHttpClientTests {
         assertThat(requests).isEmpty();
     }
 
+    // Downloads
+
+    @Test
+    void aDownloadFollowsRedirectsAndStreamsTheBody() throws Exception {
+        redirect("/first", "/second");
+        redirect("/second", url("/file").toString());
+        server.createContext("/file", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "image/png");
+            // Chunked, with no length.
+            exchange.sendResponseHeaders(200, 0);
+            try (var body = exchange.getResponseBody()) {
+                body.write(new byte[5000]);
+            }
+        });
+
+        var download = allowingLoopback().download(url("/first"), 10_000, LONG_DEADLINE, 3,
+                (contentType, body) -> contentType + " " + body.readAllBytes().length);
+
+        assertThat(download.status()).isEqualTo(200);
+        assertThat(download.body()).isEqualTo("image/png 5000");
+    }
+
+    @Test
+    void aDownloadStopsAfterTooManyRedirects() {
+        redirect("/loop", "/loop");
+
+        assertThatThrownBy(() -> allowingLoopback().download(url("/loop"), 10, LONG_DEADLINE, 3, (type, body) -> body))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("redirected more than 3 times");
+    }
+
+    @Test
+    void aDownloadChecksEachRedirect() {
+        when(blocks.isBlocked("blocked.test")).thenReturn(true);
+        redirect("/to-blocked", "http://blocked.test:" + port() + "/file");
+        redirect("/to-private", "http://10.11.12.13:" + port() + "/file");
+        var loopbackOnly = client(new PublicAddressDnsResolver(
+                SystemDefaultDnsResolver.INSTANCE, InetAddress::isLoopbackAddress), HTTP, LONG_DEADLINE);
+
+        assertThatThrownBy(() -> allowingLoopback().download(url("/to-blocked"), 10, LONG_DEADLINE, 3, (type, body) -> body))
+                .isInstanceOf(BlockedTargetException.class);
+        assertThatThrownBy(() -> loopbackOnly.download(url("/to-private"), 10, LONG_DEADLINE, 3, (type, body) -> body))
+                .isInstanceOf(BlockedTargetException.class);
+        assertThatThrownBy(() -> allowingLoopback().download(URI.create("ftp://example.test/a"), 10, LONG_DEADLINE, 3,
+                (type, body) -> body)).isInstanceOf(BlockedTargetException.class);
+    }
+
+    @Test
+    void aDownloadStopsAtItsLimitWithOrWithoutALength() {
+        server.createContext("/sized", exchange -> {
+            exchange.sendResponseHeaders(200, 2048);
+            try (var body = exchange.getResponseBody()) {
+                body.write(new byte[2048]);
+            }
+        });
+        server.createContext("/chunked", exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            try (var body = exchange.getResponseBody()) {
+                body.write(new byte[2048]);
+            } catch (IOException ignored) {
+                // The client stops reading.
+            }
+        });
+
+        assertThatThrownBy(() -> allowingLoopback().download(url("/sized"), 1024, LONG_DEADLINE, 0,
+                (type, body) -> body.readAllBytes())).isInstanceOf(ResponseTooLargeException.class);
+        assertThatThrownBy(() -> allowingLoopback().download(url("/chunked"), 1024, LONG_DEADLINE, 0,
+                (type, body) -> body.readAllBytes())).isInstanceOf(ResponseTooLargeException.class);
+    }
+
+    @Test
+    void aDownloadGivesUpAtItsDeadline() {
+        server.createContext("/slow", exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            try (var body = exchange.getResponseBody()) {
+                for (var i = 0; i < 50; i++) {
+                    body.write(1);
+                    body.flush();
+                    Thread.sleep(100);
+                }
+            } catch (IOException | InterruptedException ignored) {
+                // The client hung up.
+            }
+        });
+
+        assertThatThrownBy(() -> allowingLoopback().download(url("/slow"), 1024, Duration.ofMillis(500), 0,
+                (type, body) -> body.readAllBytes())).isInstanceOf(IOException.class);
+    }
+
+    @Test
+    void aDownloadGivesTheStatusOfAFailure() throws Exception {
+        server.createContext("/gone", exchange -> respond(exchange, 410, "{}"));
+
+        var download = allowingLoopback().download(url("/gone"), 1024, LONG_DEADLINE, 0, (type, body) -> "read");
+
+        assertThat(download.status()).isEqualTo(410);
+        assertThat(download.body()).isNull();
+    }
+
+    private void redirect(String from, String to) {
+        server.createContext(from, exchange -> {
+            exchange.getResponseHeaders().set("Location", to);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+    }
+
     @Test
     void sendsTheAcceptHeaderUserAgentAndExtraHeaders() throws Exception {
         var received = new ArrayList<String>();

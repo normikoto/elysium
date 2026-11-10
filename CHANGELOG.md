@@ -166,12 +166,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pages. Images are re-encoded without their metadata, and video and audio are kept as uploaded, metadata included. Each
   kind has its own size limit, and uploads that aren't posted are removed after a day. A deleted post's media can be
   posted again for an hour, unless the client asks for it to be deleted at once. `only_media` now filters timelines and
-  account statuses. Attachments are sent to other servers, and posts from other servers show theirs, linked from their
-  server rather than kept here. See `docs/api.md`, `docs/configuration.md`, and `FEDERATION.md`.
+  account statuses. Attachments are sent to other servers, and other servers' attachments are downloaded and served
+  from here for 30 days by default, after which they're linked to their server again. See `docs/api.md`, `docs/configuration.md`, and `FEDERATION.md`.
   - **Upgrading:** `spring.servlet.multipart.max-file-size` and `max-request-size` (`SPRING_SERVLET_MULTIPART_*`) are no
     longer used, since they now follow the largest upload limit, so remove them. The media directory now also holds
     what's attached to posts, so plan for more disk space. Behind nginx, raise `client_max_body_size`, as
-    `docs/configuration.md` describes, or uploads over 1 MB are refused before they reach the server.
+    `docs/configuration.md` describes, or uploads over 1 MB are refused before they reach the server. Copies of other
+    servers' attachments also take disk space, and `docs/configuration.md` describes how to limit them.
 
 ### Changed
 

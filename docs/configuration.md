@@ -22,6 +22,9 @@ Set these in your `application.properties`:
 | `elysium.attachments.max-unattached-uploads` | Optional. How many uploads each account can have that aren't in a post yet. Defaults to `20`. |
 | `elysium.attachments.unattached-retention` | Optional. How long an upload is kept for a post, such as `12h`. Defaults to `1d`. |
 | `elysium.attachments.redraft-retention` | Optional. How long a deleted post's attachments are kept, so that it can be posted again, such as `30m`. Defaults to `1h`. |
+| `elysium.attachments.remote-cache-enabled` | Optional. Set to `false` to link to other servers' attachments rather than keep copies of them. Defaults to `true`. See [Media](#media). |
+| `elysium.attachments.remote-cache-retention` | Optional. How long a copy of another server's attachment is kept, such as `7d`. Defaults to `30d`. |
+| `elysium.attachments.remote-download-budget` | Optional. How much each other server's attachments can add up to in an hour, such as `500MB`. Defaults to `2GB`. |
 | `elysium.media.directory`          | Optional. Where uploaded images, video, and audio are kept. Defaults to `media` in the working directory. The server has to be able to write to it, and you should back it up along with the database, which refers to the files in it. `compose.yaml` and `elysium.service` already set this. |
 | `server.servlet.session.timeout`   | Optional. How long a login session lasts without a request. Defaults to `30m`. See [Login sessions](accounts.md#login-sessions). |
 | `elysium.federation.inbox-limits.activities-per-minute` | Optional. How many activities each other server can deliver a minute. Defaults to `120`. See [Inbox limits](#inbox-limits). |
@@ -43,6 +46,14 @@ Uploads are served from `/media` on your server's own domain, with headers that 
 pages. Every file attached to a post counts toward your disk space until the post is deleted, so set the size limits with
 your storage in mind. The limits on Spring's uploads follow the largest of these settings, so you don't set them
 yourself.
+
+The server also keeps copies of the attachments on other servers' posts that it stores, so that your users' browsers
+load them from you rather than from those servers, which would see their addresses. Copies are checked and re-encoded
+like uploads, and ones over the same size limits, or that aren't an accepted format, are linked instead. A copy is
+removed after `remote-cache-retention`, and the attachment is linked to its server again. Each other server can only
+have `remote-download-budget` downloaded in an hour, and past that its attachments are linked. These copies can take a
+lot of space on a server that follows many accounts, so lower the retention, or turn copies off, if you're short of
+disk.
 
 ## Inbox limits
 Each other server can only deliver so many activities, and so much data, before it gets a `429` and has to try again

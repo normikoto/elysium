@@ -25,7 +25,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.stereotype.Component;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -35,8 +38,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Makes requests to other servers, which aren't trusted to behave. It won't reach private addresses, doesn't follow
- * redirects, and limits how long a request can take and how much it can read.
+ * Makes requests to other servers, which aren't trusted to behave. It won't reach private addresses, only follows
+ * redirects for files, checking each one, and limits how long a request can take and how much it can read.
  *
  * <p>This is built from the plain client builder on purpose. Spring Boot's builder also reads the JVM's proxy settings,
  * and going through a proxy would mean that {@link PublicAddressDnsResolver} checks the proxy instead of the target.
@@ -147,6 +150,166 @@ public class FederationHttpClient implements AutoCloseable {
     }
 
     /**
+     * Reads the body of a response as it arrives, for a file that's too large to hold in memory.
+     */
+    @FunctionalInterface
+    public interface BodyReader<T> {
+
+        /**
+         * @param contentType the {@code Content-Type} header, or null if it was missing
+         * @param body        stops with a {@link ResponseTooLargeException} at the limit
+         */
+        T read(String contentType, InputStream body) throws IOException;
+    }
+
+    /**
+     * @param body what the reader made of it, or null if the status wasn't 200
+     */
+    public record Download<T>(int status, T body) {
+    }
+
+    /**
+     * Fetches a file, such as an attachment, following redirects, since files are often served from elsewhere. Each URL it's
+     * sent to is checked as {@link #get} checks the first. Blocks until it's finished, so this mustn't be called inside a
+     * database transaction.
+     *
+     * @param maxBytes     the largest body that's read
+     * @param deadline     how long the whole fetch can take, redirects included, which is longer than for a document,
+     *                     since a file can be large
+     * @param maxRedirects how many redirects are followed
+     * @throws BlockedTargetException    if a URL isn't one this client will fetch
+     * @throws ResponseTooLargeException if the body is over the limit
+     * @throws IOException               if the request fails, takes too long, or redirects too often
+     */
+    public <T> Download<T> download(URI uri, long maxBytes, Duration deadline, int maxRedirects, BodyReader<T> reader)
+            throws IOException {
+        var started = System.nanoTime();
+        var current = uri;
+        for (var redirects = 0; ; redirects++) {
+            var left = deadline.minusNanos(System.nanoTime() - started);
+            if (left.isNegative() || left.isZero()) {
+                throw new IOException("Fetching " + uri + " took longer than " + deadline);
+            }
+            var request = new HttpGet(checked(current));
+            request.setAuthority(canonicalAuthority(request.getScheme(), request.getAuthority()));
+            var result = withDeadline(request, left, () -> client.execute(request, response -> {
+                var location = response.getFirstHeader(HttpHeaders.LOCATION);
+                if (isRedirect(response.getCode()) && location != null) {
+                    discardBody(response);
+                    return new Step<T>(response.getCode(), location.getValue(), null);
+                }
+                if (response.getCode() != 200 || response.getEntity() == null) {
+                    discardBody(response);
+                    return new Step<T>(response.getCode(), null, null);
+                }
+                var entity = response.getEntity();
+                if (entity.getContentLength() > maxBytes) {
+                    throw new ResponseTooLargeException("Response is " + entity.getContentLength() + " bytes");
+                }
+                var contentType = response.getFirstHeader(HttpHeaders.CONTENT_TYPE);
+                try (var body = new LimitedInputStream(entity.getContent(), maxBytes)) {
+                    return new Step<>(200, null, reader.read(contentType == null ? null : contentType.getValue(), body));
+                }
+            }));
+            if (result.location() == null) {
+                return new Download<>(result.status(), result.body());
+            }
+            if (redirects == maxRedirects) {
+                throw new IOException("Fetching " + uri + " was redirected more than " + maxRedirects + " times");
+            }
+            try {
+                current = current.resolve(result.location());
+            } catch (IllegalArgumentException e) {
+                throw new IOException("Fetching " + uri + " was redirected to a URL that can't be read", e);
+            }
+        }
+    }
+
+    private record Step<T>(int status, String location, T body) {
+    }
+
+    /**
+     * The client reads whatever's left of a body once a handler returns, with no limit, so a redirect or an error with an
+     * endless body would otherwise be read until the deadline.
+     */
+    private static void discardBody(ClassicHttpResponse response) throws IOException {
+        var entity = response.getEntity();
+        if (entity == null) {
+            return;
+        }
+        if (entity.getContentLength() > MAX_RESPONSE_BYTES) {
+            throw new ResponseTooLargeException("Response is " + entity.getContentLength() + " bytes");
+        }
+        try (var body = new LimitedInputStream(entity.getContent(), MAX_RESPONSE_BYTES)) {
+            body.transferTo(OutputStream.nullOutputStream());
+        }
+    }
+
+    private static boolean isRedirect(int status) {
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    private interface Request<T> {
+        T run() throws IOException;
+    }
+
+    /**
+     * Cancels the request once the time is up. Finishing this removes its timer, which cancelling a task on a
+     * delayedExecutor wouldn't, so that a request that finishes quickly isn't kept in memory until the deadline.
+     */
+    private static <T> T withDeadline(HttpUriRequestBase request, Duration deadline, Request<T> run) throws IOException {
+        var timer = new CompletableFuture<Void>().orTimeout(deadline.toMillis(), TimeUnit.MILLISECONDS);
+        timer.exceptionallyAsync(timedOut -> {
+            request.cancel();
+            return null;
+        });
+        try {
+            return run.run();
+        } finally {
+            timer.complete(null);
+        }
+    }
+
+    /**
+     * Counts what's read, since a server needn't send a {@code Content-Length}, or can send more than it says.
+     */
+    private static final class LimitedInputStream extends FilterInputStream {
+
+        private final long limit;
+        private long read;
+
+        LimitedInputStream(InputStream in, long limit) {
+            super(in);
+            this.limit = limit;
+        }
+
+        @Override
+        public int read() throws IOException {
+            var value = super.read();
+            if (value != -1) {
+                count(1);
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            var count = super.read(buffer, offset, length);
+            if (count > 0) {
+                count(count);
+            }
+            return count;
+        }
+
+        private void count(long bytes) throws ResponseTooLargeException {
+            read += bytes;
+            if (read > limit) {
+                throw new ResponseTooLargeException("Response is over " + limit + " bytes");
+            }
+        }
+    }
+
+    /**
      * @return the URL in ASCII because that's what's signed. The client would otherwise write other characters as single
      * bytes.
      */
@@ -168,18 +331,7 @@ public class FederationHttpClient implements AutoCloseable {
     private Response execute(HttpUriRequestBase request, org.springframework.http.HttpHeaders extra) throws IOException {
         request.setAuthority(canonicalAuthority(request.getScheme(), request.getAuthority()));
         extra.forEach((name, values) -> values.forEach(value -> request.addHeader(name, value)));
-        // Finishing this removes its timer. Cancelling a task on a delayedExecutor wouldn't, so that would keep the request and
-        // its body in memory until the deadline, however quickly the request finished.
-        var timer = new CompletableFuture<Void>().orTimeout(deadline.toMillis(), TimeUnit.MILLISECONDS);
-        timer.exceptionallyAsync(timedOut -> {
-            request.cancel();
-            return null;
-        });
-        try {
-            return client.execute(request, FederationHttpClient::read);
-        } finally {
-            timer.complete(null);
-        }
+        return withDeadline(request, deadline, () -> client.execute(request, FederationHttpClient::read));
     }
 
     @Override

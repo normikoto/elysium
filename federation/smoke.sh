@@ -541,17 +541,19 @@ media_from_mastodon() {
     for _ in $(seq 1 60); do
         statuses=$(driver curl -fsS -G https://elysium.test/api/v1/timelines/public --data-urlencode remote=true)
         status=$(jq -c 'map(select(.content | contains("Media from the lab"))) | first // empty' <<<"$statuses")
-        if [[ -n $status ]]; then
+        # Its attachment is downloaded after the status is stored, so this waits for that too.
+        if [[ -n $status ]] && jq -e '.media_attachments[0].url | startswith("https://elysium.test/media/")' \
+            <<<"$status" >/dev/null; then
             jq -e '(.media_attachments | length == 1) and .media_attachments[0].type == "image"
                     and (.media_attachments[0].remote_url | startswith("https://mastodon.test/"))
                     and .media_attachments[0].description == "A gradient from Mastodon"' <<<"$status" >/dev/null \
                 || fail "Elysium shows lab@mastodon.test's status without its attachment: $status"
-            echo "Elysium shows lab@mastodon.test's attachment"
+            echo "Elysium shows lab@mastodon.test's attachment, served from Elysium"
             return
         fi
         sleep 2
     done
-    fail "Elysium didn't store lab@mastodon.test's status with media. Check its logs at debug level"
+    fail "Elysium didn't store and download lab@mastodon.test's status with media: $status. Check /admin/db-scheduler"
 }
 
 mastodon_expect_edited() {
