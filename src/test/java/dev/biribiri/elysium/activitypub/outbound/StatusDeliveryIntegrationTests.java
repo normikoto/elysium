@@ -473,6 +473,20 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
+    void sendsADeleteForAStatusAnAdminRemoved() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+
+        statuses.remove(status.id(), author.id());
+
+        var body = awaitDelete(host, status).body();
+        assertThat(body.path("actor").stringValue()).isEqualTo(author.uri().toString());
+        assertThat(body.path("object").path("id").stringValue()).isEqualTo(status.uri().toString());
+    }
+
+    @Test
     void addressesTheDeleteOfAnUnlistedStatus() {
         var host = newHost();
         follow(host, "bob", false);

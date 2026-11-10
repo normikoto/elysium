@@ -1,0 +1,25 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Remove a status', ~{::content})}">
+<th:block th:fragment="content">
+    <p th:if="${status.local()}">
+        This permanently deletes the <span th:text="${status.visibility()}"></span> status by
+        <strong th:text="${status.handle()}"></strong> from
+        <time th:datetime="${status.publishedAt()}" th:text="${status.publishedAt()}"></time>, attachments included, and
+        asks the servers it was sent to to delete it too. It can't be undone.
+    </p>
+    <p th:if="${!status.local()}">
+        This removes the <span th:text="${status.visibility()}"></span> status by
+        <strong th:text="${status.handle()}"></strong> from
+        <time th:datetime="${status.publishedAt()}" th:text="${status.publishedAt()}"></time> from this server, and it
+        won't be accepted again. Its server isn't asked to delete it. It can't be undone.
+    </p>
+    <div class="status" th:if="${status.shown()}">
+        <p th:if="${!status.spoilerText().isEmpty()}"><strong th:text="${status.spoilerText()}"></strong></p>
+        <div class="status-content" th:utext="${status.content()}"></div>
+    </div>
+    <form method="post" th:action="@{/admin/statuses/{id}/remove(id=${status.id()})}">
+        <button type="submit">Remove permanently</button>
+    </form>
+    <p><a href="/admin/statuses">Back to statuses</a></p>
+</th:block>
+</html>

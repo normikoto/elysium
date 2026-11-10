@@ -56,6 +56,10 @@ public class StatusRepository {
     private static final String SELECT = "SELECT " + COLUMNS + ", (" + COUNT_REPLIES.formatted("s.id")
             + ") AS replies_count " + FROM_ACTIVE;
 
+    private static final String MODERATION_SELECT = "SELECT " + COLUMNS + ", (" + COUNT_REPLIES.formatted("s.id")
+            + ") AS replies_count FROM status s JOIN actor a ON a.id = s.actor_id AND a.deleted_at IS NULL "
+            + "WHERE s.reblog_of_id IS NULL AND ";
+
     private static final int REMOVAL_BATCH_SIZE = 1000;
 
     /**
@@ -158,6 +162,24 @@ public class StatusRepository {
                 .single();
     }
 
+    /**
+     * Remembers that an admin removed a status, which for a remote one also keeps it from being stored again: see
+     * {@link #isRemoteDeleted}.
+     */
+    public void insertRemoval(URI uri, UUID authorId, URI authorUri, boolean local, UUID removedBy) {
+        jdbc.sql("""
+                        INSERT INTO status_removal (status_uri, author_id, author_uri, local, removed_by)
+                        VALUES (:uri, :authorId, :authorUri, :local, :removedBy)
+                        ON CONFLICT (md5(status_uri), md5(author_uri)) DO NOTHING
+                        """)
+                .param("uri", uri.toString())
+                .param("authorId", authorId)
+                .param("authorUri", authorUri.toString())
+                .param("local", local)
+                .param("removedBy", removedBy)
+                .update();
+    }
+
     public void markRemoteDeleted(URI uri, URI actorUri) {
         jdbc.sql("""
                         INSERT INTO deleted_remote_status (uri, actor_uri) VALUES (:uri, :actorUri)
@@ -174,6 +196,10 @@ public class StatusRepository {
                             SELECT 1 FROM deleted_remote_status
                             WHERE md5(uri) = md5(:uri) AND md5(actor_uri) = md5(:actorUri)
                               AND uri = :uri AND actor_uri = :actorUri
+                        ) OR EXISTS (
+                            SELECT 1 FROM status_removal
+                            WHERE md5(status_uri) = md5(:uri) AND md5(author_uri) = md5(:actorUri)
+                              AND status_uri = :uri AND author_uri = :actorUri AND NOT local
                         )
                         """)
                 .param("uri", uri.toString())
@@ -399,6 +425,25 @@ public class StatusRepository {
     }
 
     /**
+     * Finds a status for an admin. Unlike other lookups, this includes the statuses of suspended authors, since those can
+     * come back. Boosts aren't found, since removing one would remove nothing of its own.
+     */
+    public Optional<Status> findForModeration(UUID id) {
+        return jdbc.sql(MODERATION_SELECT + "s.id = :id").param("id", id).query(STATUS_MAPPER).optional();
+    }
+
+    /**
+     * Like {@link #findForModeration(UUID)}, by a status's URI, or else by the page its server gave.
+     */
+    public Optional<Status> findForModeration(String uriOrUrl) {
+        return jdbc.sql(MODERATION_SELECT + "s.uri = :uri").param("uri", uriOrUrl).query(STATUS_MAPPER).optional()
+                .or(() -> jdbc.sql(MODERATION_SELECT + "md5(s.url) = md5(:url) AND s.url = :url ORDER BY s.id LIMIT 1")
+                        .param("url", uriOrUrl)
+                        .query(STATUS_MAPPER)
+                        .optional());
+    }
+
+    /**
      * Lists the statuses that a status replies to, oldest first. Replies are linked when their parent arrives, so other
      * servers can make a loop of replies, and the depth limit is also what ends one.
      *
@@ -465,8 +510,8 @@ public class StatusRepository {
     }
 
     /**
-     * Removes all of an actor's statuses and tombstones, and the deletions remembered for it. Each batch commits by itself,
-     * so that removing a lot of them doesn't hold one long transaction.
+     * Removes all of an actor's statuses and tombstones, and the deletions and removals remembered for it. Each batch commits
+     * by itself, so that removing a lot of them doesn't hold one long transaction.
      */
     public void removeAllBy(UUID actorId) {
         int removed;
@@ -481,6 +526,7 @@ public class StatusRepository {
         } while (removed == REMOVAL_BATCH_SIZE);
         jdbc.sql("DELETE FROM status_tombstone WHERE actor_id = :actorId").param("actorId", actorId).update();
         jdbc.sql("DELETE FROM status_mention WHERE actor_id = :actorId").param("actorId", actorId).update();
+        jdbc.sql("DELETE FROM status_removal WHERE author_id = :actorId").param("actorId", actorId).update();
         jdbc.sql("""
                         DELETE FROM deleted_remote_status d USING actor a
                         WHERE a.id = :actorId AND NOT a.is_local AND d.actor_uri = a.uri
@@ -490,8 +536,9 @@ public class StatusRepository {
     }
 
     /**
-     * Removes the statuses of every remote actor on a domain, in batches like {@link #removeAllBy}, and the deletions remembered for
-     * them. Remote statuses have no tombstones.
+     * Removes the statuses of every remote actor on a domain, in batches like {@link #removeAllBy}, and the deletions
+     * remembered for them. Remote statuses have no tombstones. Admins' removals are kept, unlike other remote data, since a
+     * block can be lifted, and what an admin removed shouldn't come back with the server.
      *
      * @param domain a domain as {@code actor.domain} has it
      */

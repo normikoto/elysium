@@ -1,0 +1,43 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Statuses', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>
+            Removing a status from this server deletes it for good. One posted here is also deleted from the servers it was
+            sent to, as if its author had deleted it. One from another server is only removed here, and isn't accepted again
+            if it's sent again. A followers-only or direct status's content isn't shown.
+        </p>
+        <p class="notice" role="status" th:if="${removed}">The status was removed.</p>
+        <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+        <form method="get" th:action="@{/admin/statuses}">
+            <label for="q">Status URL or ID</label>
+            <input type="text" id="q" name="q" th:value="${q}" placeholder="https://example.com/@alice/123" required
+                   autofocus>
+            <button type="submit">Find</button>
+        </form>
+
+        <div class="status" th:if="${status != null}">
+            <p class="status-meta">
+                <strong th:text="${status.handle()}"></strong>
+                <span th:text="${status.local()} ? 'Local' : 'Remote'"></span>
+                <span th:if="${status.authorSuspended()}">Suspended</span>
+                <span th:text="${status.visibility()}"></span>
+                <time th:datetime="${status.publishedAt()}" th:text="${status.publishedAt()}"></time>
+            </p>
+            <th:block th:if="${status.shown()}">
+                <p th:if="${!status.spoilerText().isEmpty()}"><strong th:text="${status.spoilerText()}"></strong></p>
+                <div class="status-content" th:utext="${status.content()}"></div>
+                <ul th:if="${!status.descriptions().isEmpty()}">
+                    <li th:each="description : ${status.descriptions()}"
+                        th:text="${description.isEmpty()} ? 'Attachment with no description' : |Attachment: ${description}|">
+                    </li>
+                </ul>
+            </th:block>
+            <p th:if="${!status.shown()}">This status isn't public, so its content isn't shown.</p>
+            <p><a th:href="${status.link()}" rel="nofollow noopener noreferrer">Open the original</a></p>
+            <a th:href="@{/admin/statuses/{id}/remove(id=${status.id()})}">Remove</a>
+        </div>
+        <p><a href="/admin/accounts">Accounts</a> · <a href="/admin/domain-blocks">Domain blocks</a></p>
+    </div>
+</th:block>
+</html>

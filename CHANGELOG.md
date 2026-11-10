@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Removing posts as an admin, at `/admin/statuses`. A post from this server is deleted everywhere, as if its author had
+  deleted it, and a post from another server is only removed here, for good. See `docs/accounts.md`.
 - RFC 9421 HTTP Message Signatures, alongside the older draft-cavage ones. Requests from other servers can be signed
   with either. Requests to other servers are still signed with draft-cavage first, and are sent again with RFC 9421 if
   the other server refuses them, including with a `400`, which didn't trigger a retry before. See `FEDERATION.md`.

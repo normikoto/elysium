@@ -167,6 +167,18 @@ lookups a minute, so that nobody can use this server to flood another one with r
 Nobody can suspend or delete the server's last admin, so [choose another](#admins) first. Admins also can't suspend or delete
 themselves from the admin page or the API.
 
+## Removing posts
+An admin can remove a post that breaks the rules at `/admin/statuses`, by finding it with its URL or its ID. Removing a post
+can't be undone.
+
+- **A post from this server** is deleted as if its author had deleted it, attachments included, and other servers are
+  asked to delete it too, which they may not do.
+- **A post from another server** is only removed here, and its server isn't asked to delete it, though boosts of it by
+  your users are undone. It isn't accepted again, even if its server sends it again.
+
+The page only shows the content of public and unlisted posts, so admins don't get to read followers-only and direct posts
+by looking them up.
+
 ## Domain blocks
 Admins can cut off or limit another server at `/admin/domain-blocks`, or through the [API](api.md). A block covers the
 domain's subdomains too, and applies straight away. There are two kinds:

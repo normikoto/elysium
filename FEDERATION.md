@@ -506,7 +506,7 @@ is newer. A repeat, or an `Update` sent after a later edit, can carry a newer `N
 that hasn't been sent to a server yet carries the latest edit, and an `Update` doesn't overtake a `Create` that's being
 sent to the same server.
 
-When a local user deletes a status, any delivery of its `Create` or `Update`s that hasn't started is cancelled, and a
+When a local user deletes a status, or an admin removes it, any delivery of its `Create` or `Update`s that hasn't started is cancelled, and a
 `Delete` is sent to their followers on other servers and the actors it mentioned, the same way as a `Create`. It's addressed like the `Create`,
 except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. The `Delete` of
 a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
@@ -628,6 +628,8 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
 - **Statuses:** a stored status is removed if its author is the `Delete`'s `actor`. A `Delete` of a status by someone else
   is ignored. Activities are processed in no order, so the `id` is remembered for 34 days, and a `Create` of it from the same
   actor that's processed later is ignored.
+- **Removed by an admin:** a status that an admin removes here is never stored again, whatever later sends it. No `Delete`
+  is sent for it, but local accounts that boosted it send an `Undo` of their `Announce`, as when its author deletes it.
 - **Actors:** a `Delete` whose `object` is its own `actor` deletes that actor, if it's stored, and removes its statuses and
   its follows in both directions and likes. Nothing is sent back. This is for good: the actor's URI is refused from then on, with a
   `403` for deliveries signed with its key, even if its server later gives the URI to a new actor. A `Delete` of an actor
