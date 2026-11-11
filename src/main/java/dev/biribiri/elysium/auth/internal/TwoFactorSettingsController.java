@@ -19,6 +19,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.Serial;
+import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -78,6 +83,7 @@ class TwoFactorSettingsController {
         if (!twoFactor.startSetup(account.id(), secret)) {
             return failed(HttpStatus.CONFLICT, "Two-factor login is already on.", account, model, response);
         }
+        PendingSetup.start(request, account.id(), secret);
         return setupPage(account, secret, model, response);
     }
 
@@ -89,9 +95,12 @@ class TwoFactorSettingsController {
             HttpServletRequest request,
             HttpServletResponse response) {
         var account = account(authentication);
-        var secret = twoFactor.pendingSecret(account.id());
-        if (secret.isEmpty()) {
-            // Such as when it was turned on in another tab, or the form was sent twice.
+        // Only for the session that typed the password, since this page shows the secret again after a wrong code, and
+        // finishing setup gives out recovery codes.
+        var secret = twoFactor.pendingSecret(account.id()).filter(found -> PendingSetup.isFor(request, account.id(), found));
+        var generation = generationOf(request);
+        if (secret.isEmpty() || generation.isEmpty()) {
+            // Such as when it was turned on or set up again in another tab, or the form was sent twice.
             return "redirect:" + SecurityConfig.TWO_FACTOR_SETTINGS_PATH;
         }
         var wait = limits.beginCodeCheck(request, account.id());
@@ -109,9 +118,10 @@ class TwoFactorSettingsController {
                 response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
                 return setupPage(account, secret.get(), model, response);
             }
-            var confirmed = twoFactor.confirm(account.id(), secret.get(), step.getAsLong());
+            var confirmed = twoFactor.confirm(account.id(), secret.get(), step.getAsLong(), generation.get());
             limits.loginSucceeded(request);
             if (confirmed.isEmpty()) {
+                // If the session's generation ended, ActiveAccountFilter logs it out there.
                 return "redirect:" + SecurityConfig.TWO_FACTOR_SETTINGS_PATH;
             }
             startNewSession(authentication, confirmed.get().loginGeneration(), request, response);
@@ -155,6 +165,13 @@ class TwoFactorSettingsController {
             return failed(HttpStatus.CONFLICT, "Two-factor login is off.", account, model, response);
         }
         return recoveryCodesPage(codes.get(), false, model, response);
+    }
+
+    private static Optional<Long> generationOf(HttpServletRequest request) {
+        var session = request.getSession(false);
+        return session != null && LoginGenerationFilter.generationOf(session) instanceof Long generation
+                ? Optional.of(generation)
+                : Optional.empty();
     }
 
     private Actor account(Authentication authentication) {
@@ -224,6 +241,38 @@ class TwoFactorSettingsController {
 
     private static void noStore(HttpServletResponse response) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());
+    }
+
+    /**
+     * Notes in the session that it typed the password to start setting up this secret. Only a hash of the secret is noted,
+     * since sessions are stored in the database. Turning two-factor login on ends the session, so this goes with it.
+     */
+    record PendingSetup(UUID actorId, String secretHash, Instant expiresAt) implements Serializable {
+
+        @Serial
+        private static final long serialVersionUID = 1L;
+
+        private static final String SESSION_ATTRIBUTE = "elysium.twoFactorSetup";
+        private static final Duration EXPIRY = Duration.ofMinutes(15);
+
+        static void start(HttpServletRequest request, UUID actorId, byte[] secret) {
+            request.getSession().setAttribute(
+                    SESSION_ATTRIBUTE, new PendingSetup(actorId, hash(secret), Instant.now().plus(EXPIRY)));
+        }
+
+        static boolean isFor(HttpServletRequest request, UUID actorId, byte[] secret) {
+            var session = request.getSession(false);
+            return session != null
+                    && session.getAttribute(SESSION_ATTRIBUTE) instanceof PendingSetup setup
+                    && setup.actorId().equals(actorId)
+                    && MessageDigest.isEqual(
+                    setup.secretHash().getBytes(StandardCharsets.US_ASCII), hash(secret).getBytes(StandardCharsets.US_ASCII))
+                    && Instant.now().isBefore(setup.expiresAt());
+        }
+
+        private static String hash(byte[] secret) {
+            return SecretCodes.hash(Base32.encode(secret));
+        }
     }
 
     /**

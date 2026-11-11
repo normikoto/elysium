@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,6 +21,22 @@ class TotpCodesTests {
         assertThat(TotpCodes.code(RFC_SECRET, TotpCodes.step(Instant.ofEpochSecond(59)))).isEqualTo("287082");
         assertThat(TotpCodes.code(RFC_SECRET, TotpCodes.step(Instant.ofEpochSecond(1111111109)))).isEqualTo("081804");
         assertThat(TotpCodes.code(RFC_SECRET, TotpCodes.step(Instant.ofEpochSecond(2000000000)))).isEqualTo("279037");
+    }
+
+    @Test
+    void usesAsciiDigitsWhateverTheDefaultLocale() {
+        var before = Locale.getDefault(Locale.Category.FORMAT);
+        try {
+            // Formats numbers with Arabic-Indic digits.
+            Locale.setDefault(Locale.Category.FORMAT, Locale.forLanguageTag("ar-EG"));
+            var now = Instant.ofEpochSecond(59);
+
+            assertThat(TotpCodes.code(RFC_SECRET, TotpCodes.step(now))).isEqualTo("287082");
+            assertThat(TotpCodes.matchingStep(RFC_SECRET, "287082", now)).hasValue(TotpCodes.step(now));
+            assertThat(QrSvg.of("text")).containsPattern("viewBox=\"0 0 [0-9]+ [0-9]+\"");
+        } finally {
+            Locale.setDefault(Locale.Category.FORMAT, before);
+        }
     }
 
     @Test

@@ -10,6 +10,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.OptionalLong;
 
 /**
@@ -79,7 +80,8 @@ final class TotpCodes {
         try {
             var value = GENERATOR.generateOneTimePassword(
                     new SecretKeySpec(secret, GENERATOR.getAlgorithm()), Instant.ofEpochSecond(step * TIME_STEP.toSeconds()));
-            return String.format("%0" + DIGITS + "d", value);
+            // Not the default locale, whose digits may not be ASCII.
+            return String.format(Locale.ROOT, "%0" + DIGITS + "d", value);
         } catch (InvalidKeyException e) {
             throw new IllegalStateException(e);
         }

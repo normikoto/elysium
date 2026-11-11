@@ -279,6 +279,57 @@ class TwoFactorIntegrationTests {
     }
 
     @Test
+    void onlyTheSessionThatTypedThePasswordCanSeeOrFinishASetup() throws Exception {
+        var username = newUsername();
+        var actorId = account(username);
+        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
+        var other = TestOAuth.logIn(mockMvc, username, PASSWORD);
+        mockMvc.perform(post("/settings/two-factor/setup").with(csrf()).session(session).param("password", PASSWORD))
+                .andExpect(status().isOk());
+        var secret = twoFactor.pendingSecret(actorId).orElseThrow();
+
+        mockMvc.perform(post("/settings/two-factor/confirm").with(csrf()).session(other).param("code", ""))
+                .andExpect(redirectedUrl("/settings/two-factor"));
+        mockMvc.perform(post("/settings/two-factor/confirm").with(csrf()).session(other).param("code", currentCode(secret)))
+                .andExpect(redirectedUrl("/settings/two-factor"));
+
+        assertThat(twoFactor.isEnabled(actorId)).isFalse();
+        assertLoggedIn(other);
+    }
+
+    @Test
+    void settingUpAgainInAnotherTabReplacesTheFirstSetup() throws Exception {
+        var username = newUsername();
+        var actorId = account(username);
+        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
+        mockMvc.perform(post("/settings/two-factor/setup").with(csrf()).session(session).param("password", PASSWORD))
+                .andExpect(status().isOk());
+        var first = twoFactor.pendingSecret(actorId).orElseThrow();
+        var other = TestOAuth.logIn(mockMvc, username, PASSWORD);
+        mockMvc.perform(post("/settings/two-factor/setup").with(csrf()).session(other).param("password", PASSWORD))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/settings/two-factor/confirm").with(csrf()).session(session).param("code", currentCode(first)))
+                .andExpect(redirectedUrl("/settings/two-factor"));
+
+        assertThat(twoFactor.isEnabled(actorId)).isFalse();
+    }
+
+    @Test
+    void confirmingFromAnEndedGenerationChangesNothing() {
+        var actorId = account(newUsername());
+        var generation = accounts.loginGeneration(actorId).orElseThrow();
+        var secret = TotpCodes.newSecret();
+        assertThat(twoFactor.startSetup(actorId, secret)).isTrue();
+
+        accounts.resetPassword(actorId, NEW_PASSWORD);
+
+        assertThat(twoFactor.confirm(actorId, secret, TotpCodes.step(Instant.now()), generation)).isEmpty();
+        assertThat(twoFactor.isEnabled(actorId)).isFalse();
+        assertThat(twoFactor.recoveryCodesLeft(actorId)).isZero();
+    }
+
+    @Test
     void settingUpAgainIsRefusedOnceItsOn() throws Exception {
         var username = newUsername();
         var actorId = account(username);
@@ -408,7 +459,10 @@ class TwoFactorIntegrationTests {
     private List<String> enableWithRecoveryCodes(UUID actorId) {
         var secret = TotpCodes.newSecret();
         assertThat(twoFactor.startSetup(actorId, secret)).isTrue();
-        return twoFactor.confirm(actorId, secret, TotpCodes.step(Instant.now()) - 10).orElseThrow().recoveryCodes();
+        var generation = accounts.loginGeneration(actorId).orElseThrow();
+        return twoFactor.confirm(actorId, secret, TotpCodes.step(Instant.now()) - 10, generation)
+                .orElseThrow()
+                .recoveryCodes();
     }
 
     private static String currentCode(byte[] secret) {

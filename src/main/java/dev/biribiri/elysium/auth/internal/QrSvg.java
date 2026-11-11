@@ -2,6 +2,8 @@ package dev.biribiri.elysium.auth.internal;
 
 import io.nayuki.qrcodegen.QrCode;
 
+import java.util.Locale;
+
 /**
  * Draws a QR code as SVG that goes straight into a page. It's drawn here rather than by a QR code service, which would be
  * sent the secret, and rather than as an image at its own URL, which browsers and proxies could cache.
@@ -27,10 +29,11 @@ final class QrSvg {
                 }
             }
         }
-        // Always black on white, even in dark mode, because some scanners can't read a code with its colors reversed.
-        return """
+        // Always black on white, even in dark mode, because some scanners can't read a code with its colors reversed. The root
+        // locale, since the default one's digits may not be ASCII.
+        return String.format(Locale.ROOT, """
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" shape-rendering="crispEdges" role="img" \
                 aria-label="QR code for your authenticator app"><rect width="100%%" height="100%%" fill="#fff"/>\
-                <path d="%s" fill="#000"/></svg>""".formatted(size, size, path);
+                <path d="%s" fill="#000"/></svg>""", size, size, path);
     }
 }

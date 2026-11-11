@@ -90,19 +90,26 @@ class TwoFactorAccounts {
      * access without a code. The browser that turned it on has to start a new session, with {@link Confirmed#loginGeneration}.
      * Applications keep their tokens, as they do in Mastodon.
      *
-     * @param step the time step of the code that was checked, so that it can't also be used to log in
-     * @return empty if this isn't the secret being set up
+     * <p>The session asking has to belong to the account's current generation, compared in the same statement, since the new
+     * session takes over whatever generation comes next. Otherwise a password reset that commits just before this would end the
+     * session, and this would give it a new one anyway.
+     *
+     * @param step            the time step of the code that was checked, so that it can't also be used to log in
+     * @param loginGeneration the generation of the session asking: see {@link LoginGenerationFilter}
+     * @return empty if this isn't the secret being set up, or the session's generation has ended
      */
-    Optional<Confirmed> confirm(UUID actorId, byte[] secret, long step) {
+    Optional<Confirmed> confirm(UUID actorId, byte[] secret, long step, long loginGeneration) {
         return transaction.execute(status -> {
             var confirmed = jdbc.sql("""
                             UPDATE account_credential
                             SET totp_enabled_at = now(), totp_last_step = :step, updated_at = now()
                             WHERE actor_id = :actorId AND totp_enabled_at IS NULL AND totp_secret = :secret
+                              AND login_generation = :generation
                             """)
                     .param("actorId", actorId)
                     .param("secret", secret)
                     .param("step", step)
+                    .param("generation", loginGeneration)
                     .update() > 0;
             if (!confirmed) {
                 return Optional.<Confirmed>empty();
