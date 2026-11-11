@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.FollowersOnlyRecipientRepository;
 import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
+import dev.biribiri.elysium.content.internal.QuoteRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
@@ -77,6 +78,9 @@ public class StatusService {
     private final MediaAttachments attachments;
     private final AttachmentProperties attachmentProperties;
     private final FollowersOnlyRecipientRepository followersOnly;
+    private final QuoteRepository quotes;
+    private final QuoteRules quoteRules;
+    private final PostingDefaults postingDefaults;
 
     StatusService(
             StatusRepository statuses,
@@ -93,8 +97,14 @@ public class StatusService {
             MediaAttachmentRepository media,
             MediaAttachments attachments,
             AttachmentProperties attachmentProperties,
-            FollowersOnlyRecipientRepository followersOnly) {
+            FollowersOnlyRecipientRepository followersOnly,
+            QuoteRepository quotes,
+            QuoteRules quoteRules,
+            PostingDefaults postingDefaults) {
         this.followersOnly = followersOnly;
+        this.quotes = quotes;
+        this.quoteRules = quoteRules;
+        this.postingDefaults = postingDefaults;
         this.media = media;
         this.attachments = attachments;
         this.attachmentProperties = attachmentProperties;
@@ -118,6 +128,7 @@ public class StatusService {
      *
      * @throws InvalidStatusException       if the status breaks a validation rule
      * @throws ReplyParentNotFoundException if the status being replied to doesn't exist or the author can't see it
+     * @throws QuotedStatusNotFoundException if the status to quote doesn't exist or the author can't see it
      */
     public Status create(UUID authorId, NewStatus draft) {
         var text = normalize(draft.text());
@@ -137,8 +148,16 @@ public class StatusService {
         if (draft.inReplyToId() != null && findVisible(draft.inReplyToId(), Optional.of(authorId)).isEmpty()) {
             throw new ReplyParentNotFoundException();
         }
+        var quoting = draft.quotedStatusId() == null ? null : quotable(draft.quotedStatusId(), authorId);
+        // Quoting a followers-only status, which only its author can, keeps the quote among the same followers.
+        var visibility = quoting != null && quoting.status().visibility() == Visibility.PRIVATE
+                && (draft.visibility() == Visibility.PUBLIC || draft.visibility() == Visibility.UNLISTED)
+                ? Visibility.PRIVATE : draft.visibility();
+        var quotePolicy = visibility == Visibility.PRIVATE || visibility == Visibility.DIRECT ? QuotePolicy.NOBODY
+                : draft.quotePolicy() != null ? draft.quotePolicy() : postingDefaults.quotePolicy(authorId);
         var mentioned = resolveMentions(author, text);
-        var content = render(text, mentioned);
+        var content = quoting == null ? render(text, mentioned)
+                : withQuoteFallback(render(text, mentioned), text, linkTo(quoting.status()), quoting.status().uri());
 
         return transaction.execute(tx -> {
             // Before the status, so that one that can't have them isn't given an ID.
@@ -148,6 +167,10 @@ public class StatusService {
                     : Optional.of(statuses.findByIdAndLock(draft.inReplyToId())
                     .filter(candidate -> isVisible(candidate, Optional.of(authorId)))
                     .orElseThrow(ReplyParentNotFoundException::new));
+            // Held so that it can't be deleted before the quote is linked to it.
+            var quoted = quoting == null ? null : statuses.findByIdAndLock(quoting.status().id())
+                    .filter(candidate -> isVisible(candidate, Optional.of(authorId)))
+                    .orElseThrow(QuotedStatusNotFoundException::new);
 
             // PostgreSQL stores microseconds, so this matches what a later read returns.
             var publishedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
@@ -161,7 +184,7 @@ public class StatusService {
                     content,
                     spoilerText,
                     language,
-                    draft.visibility(),
+                    visibility,
                     draft.sensitive() || !spoilerText.isEmpty(),
                     parent.isPresent(),
                     parent.map(Status::id).orElse(null),
@@ -173,11 +196,20 @@ public class StatusService {
                     null,
                     0);
             statuses.insert(status);
+            quotes.setPolicy(id, quotePolicy.approval());
             media.attach(id, authorId, claimed);
-            statuses.insertMentions(id, mentionedIds(mentioned, authorId).stream()
-                    .collect(Collectors.toMap(Function.identity(), mentionedId -> false)));
+            var mentions = new HashMap<UUID, Boolean>();
+            mentionedIds(mentioned, authorId).forEach(mentionedId -> mentions.put(mentionedId, false));
+            // A silent mention lets the quoted author see a followers-only quote, and its server be sent it.
+            if (quoted != null && !quoted.actorId().equals(authorId)) {
+                mentions.putIfAbsent(quoted.actorId(), true);
+            }
+            statuses.insertMentions(id, mentions);
             statuses.insertTags(id, Hashtags.names(text));
             threads.assign(status, parent.map(Status::uri).orElse(null));
+            if (quoted != null) {
+                insertLocalQuote(status, quoted, quoting.local());
+            }
             events.publishEvent(new StatusStored(id));
             events.publishEvent(new StatusPublished(id, authorId));
             return status;
@@ -215,8 +247,12 @@ public class StatusService {
         if (statuses.findById(id).filter(found -> isEditableBy(found, authorId)).isEmpty()) {
             return Optional.empty();
         }
+        var quote = quotes.find(id).orElse(null);
+        if (draft.quotedStatusId() != null && (quote == null || !quotesSame(quote, draft.quotedStatusId(), authorId))) {
+            throw new InvalidStatusException("What a status quotes can't be changed");
+        }
         var mentioned = resolveMentions(author, text);
-        var content = render(text, mentioned);
+        var content = withQuoteFallback(render(text, mentioned), text, quote);
 
         var edited = transaction.execute(tx -> {
             var found = statuses.findByIdForEdit(id).filter(candidate -> isEditableBy(candidate, authorId));
@@ -224,6 +260,14 @@ public class StatusService {
                 return new Edited(Optional.<Status>empty(), false);
             }
             var old = found.get();
+            var oldPolicy = quotes.policies(List.of(id)).get(id);
+            var newPolicy = draft.quotePolicy() == null
+                    || old.visibility() == Visibility.PRIVATE || old.visibility() == Visibility.DIRECT
+                    ? oldPolicy : draft.quotePolicy().approval();
+            var policyChanged = !Objects.equals(oldPolicy, newPolicy);
+            if (policyChanged) {
+                quotes.setPolicy(id, newPolicy);
+            }
             var newLanguage = language == null ? old.language() : language;
             var sensitive = (draft.sensitive() == null ? old.sensitive() : draft.sensitive()) || !spoilerText.isEmpty();
             var current = media.findByStatusAndLock(id);
@@ -250,11 +294,18 @@ public class StatusService {
                     && spoilerText.equals(old.spoilerText()) && Objects.equals(newLanguage, old.language())
                     && sensitive == old.sensitive() && mediaIds.equals(currentIds) && describe.isEmpty();
             if (unchanged) {
+                if (policyChanged) {
+                    quotes.touchNote(id).ifPresent(at -> events.publishEvent(new StatusNoteChanged(id, authorId, at)));
+                }
                 return new Edited(found, false);
             }
             // In a later second than the version it replaces, even when that's in the future, since other servers are sent
-            // whole seconds and ignore an edit that isn't later than what they have.
-            var since = old.editedAt() == null ? old.publishedAt() : old.editedAt();
+            // whole seconds and ignore an edit that isn't later than what they have. That includes an Update sent for
+            // something other than an edit.
+            var since = Stream.concat(Stream.of(old.publishedAt(), old.editedAt()), quotes.findNoteUpdatedAt(id).stream())
+                    .filter(Objects::nonNull)
+                    .max(Instant::compareTo)
+                    .orElseThrow();
             var next = since.truncatedTo(ChronoUnit.SECONDS).plusSeconds(1);
             var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
             var editedAt = now.isBefore(next) ? next : now;
@@ -283,6 +334,79 @@ public class StatusService {
     }
 
     private record Edited(Optional<Status> status, boolean removedMedia) {
+    }
+
+    /**
+     * A status that the author is allowed to quote, and what would happen to the quote.
+     */
+    private record Quoting(Status status, boolean local) {
+    }
+
+    /**
+     * Quoting a boost quotes the status it boosts, as replying to one does.
+     *
+     * @throws QuotedStatusNotFoundException if it can't be found, or the author can't see it
+     * @throws InvalidStatusException        if its author doesn't allow this author to quote it
+     */
+    private Quoting quotable(UUID quotedId, UUID authorId) {
+        var quoted = findVisible(quotedId, Optional.of(authorId))
+                .flatMap(found -> found.isReblog() ? findVisible(found.reblogOfId(), Optional.of(authorId)) : Optional.of(found))
+                .orElseThrow(QuotedStatusNotFoundException::new);
+        var local = actors.findById(quoted.actorId()).map(actors::isLocal).orElse(false);
+        var policy = quotes.policies(List.of(quoted.id())).get(quoted.id());
+        var decision = quoteRules.decide(quoted, policy, local, authorId);
+        if (decision == QuoteDecision.DENIED) {
+            throw new InvalidStatusException("This status can't be quoted");
+        }
+        return new Quoting(quoted, local);
+    }
+
+    /**
+     * A quote of a local status is decided here and now. One of a remote status is approved by its author's server,
+     * unless its server can't be asked, which a status with no policy says.
+     */
+    private void insertLocalQuote(Status status, Status quoted, boolean local) {
+        var self = quoted.actorId().equals(status.actorId());
+        if (local || self) {
+            quotes.insert(status.id(), quoted.uri(), quoted.id(), quoted.actorId(), QuoteState.ACCEPTED, false, null,
+                    self ? null : Ids.timeOrdered(Instant.now()), null);
+            if (!self) {
+                events.publishEvent(new QuoteAccepted(status.id(), status.actorId(), quoted.id(), quoted.actorId()));
+            }
+            return;
+        }
+        var legacy = quotes.policies(List.of(quoted.id())).get(quoted.id()) == null;
+        quotes.insert(status.id(), quoted.uri(), quoted.id(), quoted.actorId(),
+                legacy ? QuoteState.ACCEPTED : QuoteState.PENDING, legacy, null, null,
+                URI.create(status.uri() + "#quote_request"));
+        events.publishEvent(new QuoteRequested(status.id(), status.actorId()));
+    }
+
+    /**
+     * Adds a link to the quoted status for servers and clients that don't show quotes, as Mastodon does, unless the text
+     * links to it already. Its class lets clients that do show quotes hide it.
+     */
+    private static String withQuoteFallback(String content, String text, URI link, URI uri) {
+        if (text.contains(link.toString()) || text.contains(uri.toString())) {
+            return content;
+        }
+        return PlainText.quoteInline(link) + content;
+    }
+
+    private static URI linkTo(Status status) {
+        return status.url() == null ? status.uri() : status.url();
+    }
+
+    /**
+     * The fallback for what a status quotes, which is kept through edits, as is the quote.
+     */
+    private String withQuoteFallback(String content, String text, StatusQuote quote) {
+        if (quote == null) {
+            return content;
+        }
+        var link = Optional.ofNullable(quote.quotedStatusId()).flatMap(statuses::findById).map(StatusService::linkTo)
+                .orElse(quote.quotedUri());
+        return withQuoteFallback(content, text, link, quote.quotedUri());
     }
 
     /**
@@ -336,6 +460,17 @@ public class StatusService {
         if (playable > 1 || (playable == 1 && types.size() > 1)) {
             throw new InvalidStatusException("A video or audio can't be attached with any other media");
         }
+    }
+
+    /**
+     * Whether a quote is of this status, or of the status that this one boosts.
+     */
+    private boolean quotesSame(StatusQuote quote, UUID quotedId, UUID authorId) {
+        if (quotedId.equals(quote.quotedStatusId())) {
+            return true;
+        }
+        return statuses.findById(quotedId).filter(Status::isReblog).map(Status::reblogOfId)
+                .filter(original -> original.equals(quote.quotedStatusId())).isPresent();
     }
 
     private static boolean isEditableBy(Status status, UUID authorId) {
@@ -448,7 +583,15 @@ public class StatusService {
      * @throws IllegalArgumentException if the author isn't an active remote actor
      */
     public Optional<UUID> storeRemote(RemoteStatus remote) {
-        return store(remote, false);
+        return store(remote, false, true);
+    }
+
+    /**
+     * Like {@link #storeRemote}, for a status that's only stored because a status here quotes it. What it quotes in turn
+     * isn't fetched.
+     */
+    public Optional<UUID> storeQuoted(RemoteStatus remote) {
+        return store(remote, false, false);
     }
 
     /**
@@ -464,10 +607,13 @@ public class StatusService {
      * @throws IllegalArgumentException if the author isn't an active remote actor
      */
     public Optional<UUID> storeBackfilled(RemoteStatus remote) {
-        return store(remote, true);
+        return store(remote, true, true);
     }
 
-    private Optional<UUID> store(RemoteStatus remote, boolean backfilled) {
+    /**
+     * @param fetchQuoted whether what it quotes can be fetched
+     */
+    private Optional<UUID> store(RemoteStatus remote, boolean backfilled, boolean fetchQuoted) {
         var author = actors.findById(remote.authorId())
                 .filter(found -> found.isActive() && !actors.isLocal(found))
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't an active remote actor"));
@@ -514,12 +660,32 @@ public class StatusService {
             statuses.insertMentions(id, mentions);
             statuses.insertTags(id, remoteTags(remote.tags()));
             attachments.addRemote(id, author.id(), remote.attachments());
-            // Jobs have no order, so replies can be stored before their parent.
+            if (remote.quotePolicy() != null) {
+                quotes.setPolicy(id, remote.quotePolicy());
+            }
+            if (remote.quote() != null) {
+                insertRemoteQuote(id, remote.quote(), fetchQuoted);
+            }
+            // Jobs have no order, so replies can be stored before their parent, and quotes before what they quote.
             statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
+            quotes.linkWaiting(remote.uri(), id, author.id())
+                    .forEach(quoting -> events.publishEvent(new QuoteVerificationNeeded(quoting, false)));
             threads.assign(status, remote.inReplyToUri());
             events.publishEvent(new StatusStored(id, backfilled));
             return Optional.of(id);
         });
+    }
+
+    /**
+     * Every remote quote waits to be checked, even one that needs no approval, since only checking it finds what it quotes,
+     * and whether that's its author's own, or this server's.
+     */
+    private void insertRemoteQuote(UUID statusId, RemoteQuote quote, boolean fetchQuoted) {
+        var quoted = statuses.findParentByUriAndLock(quote.quotedUri());
+        quotes.insert(statusId, quote.quotedUri(), quoted.map(StatusRepository.Parent::id).orElse(null),
+                quoted.map(StatusRepository.Parent::actorId).orElse(null), QuoteState.PENDING, quote.legacy(),
+                quote.authorizationUri(), null, null);
+        events.publishEvent(new QuoteVerificationNeeded(statusId, fetchQuoted));
     }
 
     /**
@@ -534,6 +700,12 @@ public class StatusService {
     public RemoteEdit.Outcome updateRemote(RemoteEdit edit) {
         var html = RemoteText.of(edit.content(), edit.spoilerText(), edit.language());
         var tags = remoteTags(edit.tags());
+        // Servers also send an Update when nothing an edit can change has, such as when a quote is approved, and that
+        // isn't kept as a version, so that the status doesn't show as edited.
+        var stored = statuses.findByUriForAuthor(edit.uri(), edit.authorId());
+        if (stored.isPresent() && isSameVersion(stored.get(), html, edit, tags)) {
+            return RemoteEdit.Outcome.UNCHANGED;
+        }
         // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
         // caller that stores the status after NOT_STORED has to cope with one stored in between. The tags are replaced in
         // the same transaction, while the edit's row lock keeps a concurrent edit waiting.
@@ -558,9 +730,36 @@ public class StatusService {
             attachments.processDeletions();
         }
         if (Boolean.TRUE.equals(edited)) {
+            stored.ifPresent(status -> events.publishEvent(
+                    new RemoteStatusEdited(status.id(), edit.authorId(), edit.editedAt())));
             return RemoteEdit.Outcome.EDITED;
         }
         return statuses.existsByUri(edit.uri()) ? RemoteEdit.Outcome.UNCHANGED : RemoteEdit.Outcome.NOT_STORED;
+    }
+
+    private boolean isSameVersion(Status status, RemoteText html, RemoteEdit edit, Collection<String> tags) {
+        if (!html.content().equals(status.content()) || !html.spoilerText().equals(status.spoilerText())
+                || !Objects.equals(html.language(), status.language())
+                || (edit.sensitive() || !html.spoilerText().isEmpty()) != status.sensitive()) {
+            return false;
+        }
+        if (!Set.copyOf(tags).equals(Set.copyOf(statuses.findTags(List.of(status.id())).getOrDefault(status.id(), List.of())))) {
+            return false;
+        }
+        var current = attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of());
+        if (current.size() != edit.attachments().size()) {
+            return false;
+        }
+        for (var i = 0; i < current.size(); i++) {
+            var had = current.get(i);
+            var given = edit.attachments().get(i);
+            if (!given.url().equals(had.remoteUrl())
+                    || !Objects.equals(MediaAttachments.remoteDescription(given.description()), had.description())
+                    || !Objects.equals(given.focus(), had.focus())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -626,6 +825,20 @@ public class StatusService {
      */
     public List<Status> findVisibleToAnyone(Collection<UUID> ids) {
         return statuses.findByIds(ids).stream().filter(status -> status.isVisibleTo(Optional.empty())).toList();
+    }
+
+    /**
+     * Finds a status whoever can see it, if its author is active, for what has to check who can.
+     */
+    public Optional<Status> findStored(UUID id) {
+        return statuses.findById(id);
+    }
+
+    /**
+     * Finds an author's status by its URI, whoever can see it, if the author is active.
+     */
+    public Optional<Status> findStoredByUri(URI uri, UUID authorId) {
+        return statuses.findByUriForAuthor(uri, authorId);
     }
 
     /** Finds a status if this viewer is allowed to see it. */

@@ -5,7 +5,7 @@ import java.net.URI;
 /**
  * An item of a {@code tag} array, which can mix types.
  */
-public sealed interface Tag permits Hashtag, Mention {
+public sealed interface Tag permits Hashtag, Mention, QuoteLink {
 
     String type();
 

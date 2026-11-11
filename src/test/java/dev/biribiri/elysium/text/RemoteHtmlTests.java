@@ -43,6 +43,12 @@ class RemoteHtmlTests {
     }
 
     @Test
+    void keepsTheClassThatMarksAQuotesFallback() {
+        assertThat(RemoteHtml.sanitize("<p class=\"quote-inline x\">RE: <span class=\"quote-inline\">y</span></p>"))
+                .isEqualTo("<p class=\"quote-inline\">RE: <span class=\"quote-inline\">y</span></p>");
+    }
+
+    @Test
     void keepsTheTextOfOtherElements() {
         assertThat(RemoteHtml.sanitize("<div><table><tr><td>cell</td></tr></table><marquee>moving</marquee></div>"))
                 .isEqualTo("cellmoving");

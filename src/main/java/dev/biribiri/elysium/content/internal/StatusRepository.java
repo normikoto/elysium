@@ -449,6 +449,11 @@ public class StatusRepository {
         return jdbc.sql(SELECT + "WHERE s.id = :id").param("id", id).query(STATUS_MAPPER).optional();
     }
 
+    public Optional<Status> findByUriForAuthor(URI uri, UUID actorId) {
+        return jdbc.sql(SELECT + "WHERE s.uri = :uri AND s.actor_id = :actorId AND s.reblog_of_id IS NULL")
+                .param("uri", uri.toString()).param("actorId", actorId).query(STATUS_MAPPER).optional();
+    }
+
     /**
      * Finds a status for an admin. Unlike other lookups, this includes the statuses of suspended authors, since those can
      * come back. Boosts aren't found, since removing one would remove nothing of its own.

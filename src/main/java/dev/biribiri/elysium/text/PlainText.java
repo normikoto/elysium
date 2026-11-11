@@ -46,6 +46,14 @@ public final class PlainText {
     }
 
     /**
+     * The paragraph that a quote starts with, as Mastodon writes it, for servers and clients that don't show quotes. Clients
+     * that do can hide it by its class.
+     */
+    public static String quoteInline(URI quoted) {
+        return "<p class=\"quote-inline\">RE: " + link(quoted.toString(), LINK) + "</p>";
+    }
+
+    /**
      * Renders a profile field's value, which is shown inline, so it has no paragraph. Its links say they're the author's
      * own with {@code rel="me"}, which is what lets the linked site and other servers check that they link back.
      */

@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.RemoteAttachment;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.StatusService;
@@ -15,7 +16,9 @@ import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.Set;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.List;
@@ -89,10 +92,12 @@ class NoteStorage {
         var author = remoteActors.fetchOrRefresh(actorUri);
         var visibility = visibility(note.addressing(), author);
         var forWhom = recipients.of(activity, document, read.fetched() ? note.addressing() : Addressing.NONE);
-        // Followers-only replies stay out, since only the replier's followers could see them.
-        if (forWhom.isEmpty() && !(note.inReplyTo() != null
-                && (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED)
-                && recipients.repliesToSomeoneHere(note.inReplyTo(), actorUri))) {
+        // Followers-only replies and quotes stay out, since only their author's followers could see them.
+        var everyone = visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED;
+        if (forWhom.isEmpty() && !(everyone && note.inReplyTo() != null
+                && recipients.repliesToSomeoneHere(note.inReplyTo(), actorUri))
+                && !(everyone && note.quote() != null
+                && recipients.quotesSomeoneHere(note.quote().quotedUri(), actorUri))) {
             log.debug("Ignoring {} {}, which isn't for any local account", activity.type(), activity.id());
             return Result.IGNORED;
         }
@@ -116,6 +121,40 @@ class NoteStorage {
             return Result.IGNORED;
         }
         return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), statuses::storeRemote);
+    }
+
+    /**
+     * Stores a note that a stored status quotes, fetched from its author's server, as for {@link #storeBoosted}. What it
+     * quotes in turn isn't fetched.
+     */
+    Result storeQuoted(RemoteNote note, URI author) {
+        if (blocks.isBlocked(author.getHost())) {
+            return Result.IGNORED;
+        }
+        return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), statuses::storeQuoted);
+    }
+
+    /**
+     * Stores the quote that a {@code QuoteRequest} asks about, which the quoted author has to be able to see to decide on
+     * it. Who else it's for doesn't matter, since it's kept for the quoted author. Its addressing still has to name them, if
+     * it isn't public or unlisted, so that it isn't shown to them when its author didn't send it to them.
+     *
+     * @param read         the request's {@code instrument}, already checked to be its actor's by {@link ActorNotes}
+     * @param quotedAuthor the local author of the status it quotes
+     */
+    Result storeInstrument(InboundActivity activity, ActorNotes.ActorNote read, UUID quotedAuthor) {
+        var actorUri = URI.create(activity.actorUri());
+        var note = read.note();
+        var author = remoteActors.fetchOrRefresh(actorUri);
+        var visibility = visibility(note.addressing(), author);
+        var everyone = visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED;
+        if (!everyone && !recipients.named(note.addressing()).contains(quotedAuthor)) {
+            return Result.IGNORED;
+        }
+        if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
+            return Result.IGNORED;
+        }
+        return save(note, author, visibility, activity.firstReceivedAt(), note.addressing(), statuses::storeRemote);
     }
 
     /**
@@ -172,8 +211,41 @@ class NoteStorage {
                 note.editedAt(published, Instant.now()),
                 mentions(note, addressed, visibility),
                 note.hashtags(),
-                attachments(note, author));
+                attachments(note, author),
+                note.quote(),
+                quotePolicy(note.quotePolicy(), author));
         return store.apply(remote).isPresent() ? Result.STORED : Result.TAKEN;
+    }
+
+    /**
+     * Reads who can quote a note the way Mastodon does: its author alone means nobody else, and an audience other than the
+     * public, the author's followers, or the accounts they follow is one that can't be checked here.
+     */
+    QuoteApproval quotePolicy(RemoteNote.QuotePolicy policy, Actor author) {
+        if (policy == null) {
+            return null;
+        }
+        var followers = actors.findFollowersUri(author.uri()).map(URI::toString).orElse(null);
+        var following = author.uri() + "/following";
+        return new QuoteApproval(audiences(policy.automaticApproval(), author, followers, following),
+                audiences(policy.manualApproval(), author, followers, following));
+    }
+
+    private static Set<QuoteApproval.Audience> audiences(
+            List<String> approved, Actor author, String followers, String following) {
+        var audiences = EnumSet.noneOf(QuoteApproval.Audience.class);
+        for (var id : approved) {
+            if (ActivityJson.audienceId(id).equals(ActivityStreams.PUBLIC)) {
+                audiences.add(QuoteApproval.Audience.PUBLIC);
+            } else if (id.equals(followers)) {
+                audiences.add(QuoteApproval.Audience.FOLLOWERS);
+            } else if (id.equals(following)) {
+                audiences.add(QuoteApproval.Audience.FOLLOWING);
+            } else if (!id.equals(author.uri().toString())) {
+                audiences.add(QuoteApproval.Audience.UNSUPPORTED);
+            }
+        }
+        return audiences;
     }
 
     /**

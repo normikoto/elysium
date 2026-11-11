@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.InvalidMediaAttachmentException;
 import dev.biribiri.elysium.content.InvalidStatusException;
 import dev.biribiri.elysium.inbox.MarkerConflictException;
+import dev.biribiri.elysium.content.QuotedStatusNotFoundException;
 import dev.biribiri.elysium.content.ReplyParentNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -75,7 +76,13 @@ class StatusApiErrors {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of("error", e.getMessage()));
     }
 
-    @ExceptionHandler({RecordNotFoundException.class, ReplyParentNotFoundException.class})
+    @ExceptionHandler(ForbiddenActionException.class)
+    ResponseEntity<Map<String, String>> forbidden() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This action is not allowed"));
+    }
+
+    @ExceptionHandler({RecordNotFoundException.class, ReplyParentNotFoundException.class,
+            QuotedStatusNotFoundException.class})
     ResponseEntity<Map<String, String>> notFound() {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Record not found"));
     }

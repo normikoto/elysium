@@ -9,6 +9,15 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.QuotePolicy;
+import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.content.QuoteState;
+import dev.biribiri.elysium.content.StatusQuote;
+import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
+import dev.biribiri.elysium.activitypub.vocab.Person;
+import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
+import java.net.URI;
+import java.util.UUID;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -27,8 +36,11 @@ public class Notes {
     private final ActorService actors;
     private final InstanceProperties instance;
     private final MediaAttachments attachments;
+    private final QuoteService quotes;
 
-    Notes(StatusService statuses, ActorService actors, InstanceProperties instance, MediaAttachments attachments) {
+    Notes(StatusService statuses, ActorService actors, InstanceProperties instance, MediaAttachments attachments,
+          QuoteService quotes) {
+        this.quotes = quotes;
         this.attachments = attachments;
         this.statuses = statuses;
         this.actors = actors;
@@ -67,7 +79,50 @@ public class Notes {
                 parent.flatMap(shown -> actors.findById(shown.actorId())).filter(Actor::isActive).map(Actor::uri).orElse(null),
                 mentioned.stream().map(actor -> Mention.of(actor.uri(), "@" + actor.username() + "@" + actor.domain())).toList(),
                 Hashtag.of(tags, instance),
-                media.stream().map(attachment -> Document.of(attachment, instance)).toList());
+                media.stream().map(attachment -> Document.of(attachment, instance)).toList(),
+                quotes.find(status.id()).map(quote -> quote(status, quote)).orElse(null),
+                policy(status, author));
+    }
+
+    /**
+     * Legacy properties are only sent once a quote is approved, since the servers that read only those can't tell an
+     * approved quote from one that isn't, and would show either.
+     */
+    private Note.Quote quote(Status status, StatusQuote quote) {
+        var quotedAuthor = Optional.ofNullable(quote.quotedAccountId()).flatMap(actors::findById);
+        var self = status.actorId().equals(quote.quotedAccountId());
+        var shown = quote.state() == QuoteState.ACCEPTED && !quote.isOfDeleted();
+        URI authorization = null;
+        if (shown && !self && !quote.legacy()) {
+            authorization = quote.stampId() != null
+                    ? quotedAuthor.map(actor -> QuoteAuthorization.idFor(actor.uri(), quote.stampId())).orElse(null)
+                    : quote.approvalUri();
+        }
+        return new Note.Quote(quote.quotedUri(), quotedAuthor.map(Actor::uri).orElse(null), shown, authorization);
+    }
+
+    /**
+     * Who can quote a status, as Mastodon says it: an empty list would be the same as none in JSON-LD, so a status that
+     * only its author can quote names its author.
+     */
+    private Note.InteractionPolicy policy(Status status, Actor author) {
+        var policy = status.visibility() == Visibility.PRIVATE || status.visibility() == Visibility.DIRECT
+                ? QuotePolicy.NOBODY
+                : Optional.ofNullable(quotes.policies(List.of(status.id())).get(status.id()))
+                .map(dev.biribiri.elysium.content.QuoteApproval::policy)
+                .orElse(QuotePolicy.NOBODY);
+        return Note.InteractionPolicy.automatic(List.of(switch (policy) {
+            case PUBLIC -> ActivityStreams.PUBLIC;
+            case FOLLOWERS -> Person.followersOf(author).toString();
+            case NOBODY -> author.uri().toString();
+        }));
+    }
+
+    /**
+     * The author of the parent that a status's {@code Note} shows, if it's active, who its activities are sent to.
+     */
+    UUID shownParentAuthor(Status status) {
+        return shownParent(status, mentioned(status)).map(Status::actorId).orElse(null);
     }
 
     /**

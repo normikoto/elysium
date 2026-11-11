@@ -17,6 +17,12 @@ class PlainTextTests {
     }
 
     @Test
+    void writesAQuotesFallbackAsMastodonDoes() {
+        assertThat(PlainText.quoteInline(URI.create("https://a.example/1?a=1&b=2")))
+                .isEqualTo("<p class=\"quote-inline\">RE: " + link("https://a.example/1?a=1&amp;b=2") + "</p>");
+    }
+
+    @Test
     void linksMentionsThatHaveATarget() {
         var html = PlainText.render("hi @bob@Example.com, @nobody & https://a.example/@bob", mention ->
                 mention.username().equals("bob")

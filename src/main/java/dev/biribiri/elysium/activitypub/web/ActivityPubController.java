@@ -16,6 +16,8 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.activitypub.vocab.Announce;
 import dev.biribiri.elysium.content.BoostService;
+import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusService;
@@ -85,6 +87,7 @@ public class ActivityPubController {
     private final ProfileService profiles;
     private final FetchSigners signers;
     private final MediaAttachments attachments;
+    private final QuoteService quotes;
 
     ActivityPubController(
             ActorService actors,
@@ -96,8 +99,10 @@ public class ActivityPubController {
             InstanceProperties instance,
             ProfileService profiles,
             FetchSigners signers,
-            MediaAttachments attachments) {
+            MediaAttachments attachments,
+            QuoteService quotes) {
         this.attachments = attachments;
+        this.quotes = quotes;
         this.signers = signers;
         this.instance = instance;
         this.profiles = profiles;
@@ -476,6 +481,82 @@ public class ActivityPubController {
             }))
     Application instanceActor() {
         return Application.from(actors.instanceActor(), instance.sharedInboxUri());
+    }
+
+    @GetMapping(path = "/users/{username}/quote_authorizations/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getQuoteAuthorization",
+            summary = "Fetch a quote's approval",
+            description = """
+                    A FEP-044f `QuoteAuthorization`, which shows that the user approved a quote of their status. It \
+                    names the quote as `interactingObject` and the quoted status as `interactionTarget`, and embeds \
+                    neither. It's served for as long as the approval stands, and then gets a 404. One for a public or \
+                    unlisted quote is served to anyone, and one for a followers-only or direct quote only to a signer \
+                    who can see the quote. Answers have `Vary: Signature`.\s""" + FederationDocs.DOCUMENT,
+            parameters = {
+                    @Parameter(name = "username", description = "The quoted author's username, matched case-insensitively."),
+                    @Parameter(name = "id", description = "The approval's ID.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The `QuoteAuthorization`.", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = QuoteAuthorization.class))
+                    }),
+                    @ApiResponse(responseCode = "403", description = "The user is suspended."),
+                    @ApiResponse(responseCode = "404", description = """
+                            There's no such approval by this user, it's been revoked, or the signer can't see the \
+                            quote."""),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header allows neither type."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
+    ResponseEntity<?> quoteAuthorization(
+            @PathVariable String username,
+            @PathVariable String id,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        response.addHeader(HttpHeaders.VARY, FetchSigners.SIGNATURE);
+        var signer = signers.signer(request).map(Actor::id);
+        var author = actors.findAnyLocalByUsername(username);
+        var stampId = Ids.parse(id);
+        if (author.isEmpty() || stampId.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        if (author.get().isDeleted()) {
+            return ResponseEntity.status(HttpStatus.GONE).build();
+        }
+        if (author.get().isSuspended()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        var stamp = quotes.findStamp(stampId.get())
+                .filter(found -> author.get().id().equals(found.quotedAccountId()) && found.quotedStatusId() != null);
+        var quoting = stamp.flatMap(found -> statuses.findStored(found.statusId()))
+                .filter(found -> canSeeQuote(found, signer));
+        var quoted = stamp.flatMap(found -> statuses.findStored(found.quotedStatusId()));
+        if (quoting.isEmpty() || quoted.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        var ok = ResponseEntity.ok();
+        if (!quoting.get().isVisibleTo(ANONYMOUS)) {
+            ok.cacheControl(CacheControl.noStore().cachePrivate());
+        }
+        return ok.body(QuoteAuthorization.of(QuoteAuthorization.idFor(author.get().uri(), stampId.get()),
+                author.get().uri(), quoting.get().uri(), quoted.get().uri()));
+    }
+
+    /**
+     * FEP-044f has a stamp served to whoever can see the quote, so that it tells nobody else the quote exists. A local
+     * quote is checked as its {@code Note} is. A remote one can only be seen by its author and those it mentions.
+     */
+    private boolean canSeeQuote(Status quoting, Optional<UUID> signer) {
+        if (quoting.isVisibleTo(ANONYMOUS)) {
+            return true;
+        }
+        if (signer.isEmpty()) {
+            return false;
+        }
+        if (actors.findById(quoting.actorId()).map(actors::isLocal).orElse(false)) {
+            return statuses.findFetchable(quoting.id(), signer).isPresent();
+        }
+        return signer.get().equals(quoting.actorId()) || statuses.findAllMentioned(quoting.id()).contains(signer.get());
     }
 
     @GetMapping(path = "/users/{username}/statuses/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})

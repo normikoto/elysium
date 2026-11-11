@@ -99,6 +99,21 @@ public class NotificationRepository {
     }
 
     /**
+     * @param status the quote
+     */
+    public void insertQuote(UUID recipient, UUID sender, UUID status) {
+        insert(recipient, sender, "quote", status, status, null, null, null);
+    }
+
+    /**
+     * @param source what identifies this edit of the quoted status, so that a repeat adds nothing
+     * @param status the recipient's quote
+     */
+    public void insertQuotedUpdate(UUID recipient, UUID sender, UUID source, UUID status) {
+        insert(recipient, sender, "quoted_update", source, status, null, null, null);
+    }
+
+    /**
      * Nothing is added from a sender the recipient hides notifications from, as on Mastodon, so ending a mute doesn't bring
      * back what was sent during it.
      */

@@ -142,6 +142,12 @@ This was the largest step, and the first where other servers' content is stored 
 
 - **Issues:** #9, #63, and the `Question` item on #1. #5, #40 and #104, RFC 9421, the outbox and backfill, are done.
 - **Delivers:** polls, pinned posts and quote posts. #58 is done. None of these block ordinary federation, so they can be picked up in any order.
+- **Quote posts (#9):** FEP-044f in both directions, as Mastodon 4.5 does it, with the older `_misskey_quote`, `quoteUrl`, `quoteUri` and FEP-e232 `Link` read and, once a quote is approved, sent. A quote with only the older properties is shown, and a status that doesn't advertise an `interactionPolicy` can be quoted, since its server can't ask for consent. Local quotes are approved at once by the quoted status's policy, and a `QuoteRequest` of a local status is answered the same way, with a `QuoteAuthorization` served at `/users/{username}/quote_authorizations/{id}`. Remote quotes are checked in a `quote-verification` job, which fetches the quoted status and the approval, each taking a `TargetFetchTurns` turn, and doesn't fetch what a fetched status quotes in turn. An approval or revocation changes a local quote with an `Update` whose `updated` is a second later than anything sent before, and a remote `Update` that changes nothing an edit can isn't kept as a version any more. `/api/v2/instance` reports API version 7, so clients offer quoting.
+  - `federation/smoke.sh` has Elysium and Mastodon quote each other, with approvals on both sides and a revocation, and has Misskey and Elysium quote each other with the older properties. GoToSocial's posts only let their author quote them, so there it only checks that Elysium refuses.
+  - Left open: approval by hand, and checking approvals again later, which FEP-044f suggests. A revocation that isn't sent here isn't seen.
+  - Left open: a remote revocation of a local quote is sent on as an `Update` rather than by forwarding the `Delete`, since forwarding needs a Linked Data signature.
+  - Left open: blocking someone doesn't revoke their quotes, a quote can't be changed or removed by an edit, and a rejected quote can't ask again.
+  - Left open: web pages only show a quote's fallback link.
 
 ## Work across milestones
 

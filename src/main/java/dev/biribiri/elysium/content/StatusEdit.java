@@ -13,9 +13,11 @@ import java.util.UUID;
  * @param mediaIds     every attachment it's to have, in order, which can include new uploads, or null to keep the ones it
  *                     has
  * @param mediaChanges changes to the descriptions and focus of its attachments
+ * @param quotedStatusId the status it quotes, or null to keep what it quotes. A quote can't be changed, as on Mastodon
+ * @param quotePolicy    who can quote it, or null to keep that
  */
 public record StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
-                         List<MediaChange> mediaChanges) {
+                         List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy) {
 
     public StatusEdit {
         mediaIds = mediaIds == null ? null : List.copyOf(mediaIds);
@@ -24,5 +26,10 @@ public record StatusEdit(String text, String spoilerText, String language, Boole
 
     public StatusEdit(String text, String spoilerText, String language, Boolean sensitive) {
         this(text, spoilerText, language, sensitive, null, List.of());
+    }
+
+    public StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
+                      List<MediaChange> mediaChanges) {
+        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, null, null);
     }
 }

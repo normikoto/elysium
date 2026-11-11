@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.Focus;
 import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.content.RemoteQuote;
 import dev.biribiri.elysium.content.StatusService;
 import tools.jackson.databind.JsonNode;
 
@@ -34,6 +35,8 @@ import java.util.regex.Pattern;
  * @param mentions     the {@code href} of each {@code Mention} in its {@code tag}, up to {@value #MAX_MENTIONS}
  * @param hashtags     the {@code name} of each {@code Hashtag} in its {@code tag}, which {@link StatusService} checks
  * @param attachments  what's in its {@code attachment} that has an HTTP or HTTPS URL, up to {@value #MAX_ATTACHMENTS}
+ * @param quote        what it quotes, or null if it doesn't say
+ * @param quotePolicy  its {@code interactionPolicy.canQuote}, or null if it has none
  */
 record RemoteNote(
         URI id,
@@ -49,7 +52,30 @@ record RemoteNote(
         Addressing addressing,
         List<URI> mentions,
         List<String> hashtags,
-        List<RemoteAttachment> attachments) {
+        List<RemoteAttachment> attachments,
+        RemoteQuote quote,
+        QuotePolicy quotePolicy) {
+
+    /**
+     * The properties that say what a note quotes, in the order Mastodon reads them. Only FEP-044f's comes with a way to ask
+     * for consent, so a note with only the others is from a server that can't ask.
+     */
+    private static final List<String> QUOTE_PROPERTIES = List.of("quote", "_misskey_quote", "quoteUrl", "quoteUri");
+
+    /**
+     * FEP-e232's {@code rel} for a quote, under both of the spellings that Misskey's namespace has been given.
+     */
+    private static final Set<String> QUOTE_RELS =
+            Set.of("https://misskey-hub.net/ns#_misskey_quote", "https://misskey-hub.net/ns/#_misskey_quote");
+
+    /**
+     * FEP-044f's {@code canQuote}, as its server gave it.
+     *
+     * @param automaticApproval the IDs whose quotes are approved automatically
+     * @param manualApproval    the IDs whose quotes its author decides on
+     */
+    record QuotePolicy(List<String> automaticApproval, List<String> manualApproval) {
+    }
 
     /**
      * Each mention is looked up, so a note can't make this server look up any number of them. Mastodon has no limit, but
@@ -120,7 +146,68 @@ record RemoteNote(
                 Addressing.of(node),
                 mentions(node.path("tag")),
                 hashtags(node.path("tag")),
-                attachments(node.path("attachment"))));
+                attachments(node.path("attachment")),
+                quote(node),
+                quotePolicy(node.path("interactionPolicy").path("canQuote"))));
+    }
+
+    private static RemoteQuote quote(JsonNode node) {
+        URI quoted = null;
+        for (var property : QUOTE_PROPERTIES) {
+            quoted = firstId(node.path(property));
+            if (quoted != null) {
+                break;
+            }
+        }
+        if (quoted == null) {
+            quoted = ActivityJson.tags(node.path("tag")).stream()
+                    .filter(tag -> "Link".equals(tag.type()) && tag.href() != null)
+                    .filter(tag -> linkRels(node.path("tag"), tag.href()).stream().anyMatch(QUOTE_RELS::contains))
+                    .flatMap(tag -> ActivityObject.parseUri(tag.href()).stream())
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (quoted == null || !InboundActivity.isStorableId(quoted.toString()) || !isWebPage(quoted)) {
+            return null;
+        }
+        var authorization = firstId(node.path("quoteAuthorization"));
+        return new RemoteQuote(quoted, !node.has("quote"), authorization);
+    }
+
+    /**
+     * The first value of a property that can be an ID, an object with one, or an array of them, as Mastodon reads it.
+     */
+    private static URI firstId(JsonNode node) {
+        var first = node.isArray() ? node.path(0) : node;
+        return Optional.ofNullable(ActivityJson.idOf(first)).flatMap(ActivityObject::parseUri).orElse(null);
+    }
+
+    /**
+     * The {@code rel} of the {@code Link} tags with this {@code href}, which can be a string or an array.
+     */
+    private static List<String> linkRels(JsonNode tag, String href) {
+        var rels = new ArrayList<String>();
+        for (var candidate : tag.isArray() ? tag.valueStream().toList() : List.of(tag)) {
+            if (candidate.isObject() && href.equals(ActivityJson.idOf(candidate.path("href")))) {
+                var rel = candidate.path("rel");
+                for (var value : rel.isArray() ? rel.valueStream().toList() : List.of(rel)) {
+                    Optional.ofNullable(ActivityJson.text(value)).ifPresent(rels::add);
+                }
+            }
+        }
+        return rels;
+    }
+
+    /**
+     * An empty array is the same as none in JSON-LD, which FEP-044f points out, so a policy with neither is none.
+     */
+    private static QuotePolicy quotePolicy(JsonNode canQuote) {
+        if (!canQuote.isObject()) {
+            return null;
+        }
+        var automatic = ActivityJson.ids(canQuote.path("automaticApproval"));
+        var manual = ActivityJson.ids(canQuote.path("manualApproval"));
+        return automatic.isEmpty() && manual.isEmpty() ? null : new QuotePolicy(automatic, manual);
     }
 
     /**

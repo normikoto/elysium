@@ -22,6 +22,8 @@ import java.util.UUID;
  * @param tags         the names of its hashtags as its server gave them, which are checked and normalized
  *                     when it's stored
  * @param attachments  its attachments, in order
+ * @param quote        what it quotes, or null if it doesn't
+ * @param quotePolicy  who its server says can quote it, or null if it doesn't say
  */
 public record RemoteStatus(
         URI uri,
@@ -37,13 +39,26 @@ public record RemoteStatus(
         Instant editedAt,
         Map<UUID, Boolean> mentions,
         Collection<String> tags,
-        List<RemoteAttachment> attachments
+        List<RemoteAttachment> attachments,
+        RemoteQuote quote,
+        QuoteApproval quotePolicy
 ) {
 
     public RemoteStatus {
         mentions = Map.copyOf(mentions);
         tags = List.copyOf(tags);
         attachments = List.copyOf(attachments);
+    }
+
+    /**
+     * A status that quotes nothing.
+     */
+    public RemoteStatus(
+            URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
+            boolean sensitive, URI inReplyToUri, Instant publishedAt, Instant editedAt, Map<UUID, Boolean> mentions,
+            Collection<String> tags, List<RemoteAttachment> attachments) {
+        this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, editedAt,
+                mentions, tags, attachments, null, null);
     }
 
     /**

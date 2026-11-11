@@ -17,9 +17,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/instance")
+@RequestMapping("/api")
 @Tag(name = "Instance", description = "Information about the server.",
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/"))
 public class InstanceController {
@@ -61,7 +62,7 @@ public class InstanceController {
         this.registration = registration;
     }
 
-    @GetMapping
+    @GetMapping("/v1/instance")
     @Operation(
             operationId = "getInstanceV1",
             summary = "View information about the server",
@@ -69,8 +70,7 @@ public class InstanceController {
                     Differences from Mastodon: the status length limit is in `max_toot_chars` and \
                     `configuration.statuses.max_characters`, and defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS
                     + """
-                     rather than 500. `/api/v2/instance` isn't implemented, so clients that don't read the limit \
-                    from this may apply their own limit of 500. `version` is a Mastodon version followed by `(compatible; Elysium)`, for \
+                     rather than 500. `version` is a Mastodon version followed by `(compatible; Elysium)`, for \
                     clients that check it to decide what to use. The streaming API isn't implemented, though \
                     `urls.streaming_api` is set. `configuration.accounts.max_profile_fields` says how many fields a \
                     profile can have, which Mastodon doesn't send.""",
@@ -102,6 +102,53 @@ public class InstanceController {
                         mediaAttachments(),
                         new InstanceResponse.Polls(0, 0, 0, 0)),
                 null,
+                List.of());
+    }
+
+    /**
+     * Mastodon's API version 7 is the one with quotes, which clients only offer once this says so.
+     */
+    static final int MASTODON_API_VERSION = 7;
+
+    @GetMapping("/v2/instance")
+    @Operation(
+            operationId = "getInstanceV2",
+            summary = "View information about the server",
+            description = """
+                    Differences from Mastodon: the status length limit is in `configuration.statuses.max_characters`, \
+                    and defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS + """
+                     rather than 500. `api_versions.mastodon` is\s""" + MASTODON_API_VERSION + """
+                    , which is when Mastodon added quotes, though some of what Mastodon added in the versions before it \
+                    isn't here, as `docs/api.md` lists. There's no thumbnail, icon, contact account, or rules, and \
+                    `usage.users.active_month` counts every local account. The streaming API and push notifications \
+                    aren't implemented, though `configuration.urls.streaming` is set.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v2"),
+            responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
+    public InstanceV2Response instanceV2() {
+        var maxCharacters = statusProperties.maxCharacters();
+        var domain = instance.domain();
+        return new InstanceV2Response(
+                domain,
+                domain,
+                VERSION,
+                "https://github.com/normikoto/elysium",
+                "",
+                new InstanceV2Response.Usage(new InstanceV2Response.Users(actors.countLocal())),
+                null,
+                List.of(),
+                List.of(),
+                new InstanceV2Response.Configuration(
+                        Map.of("streaming", instance.baseUrl().toString().replaceFirst("^http", "ws")),
+                        new InstanceResponse.Accounts(0, profiles.maxFields()),
+                        new InstanceResponse.Statuses(
+                                maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl()),
+                        mediaAttachments(),
+                        new InstanceResponse.Polls(0, 0, 0, 0),
+                        Map.of("enabled", false)),
+                new InstanceV2Response.Registrations(
+                        registration.acceptsUninvited(), registration.approvalRequired(), null),
+                Map.of("mastodon", MASTODON_API_VERSION),
+                new InstanceV2Response.Contact("", null),
                 List.of());
     }
 

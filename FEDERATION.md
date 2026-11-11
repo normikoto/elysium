@@ -6,20 +6,24 @@ whose recent posts are then fetched from their outbox, and like, boost, and bloc
 are sent to their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
 reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
 statuses are counted. Their images, video, and audio are sent and read as attachments, and other servers' are
-downloaded and served from here for a while. Polls and other activities aren't supported yet.
+downloaded and served from here for a while. Its users can quote statuses, and quotes from other servers are shown once
+the quoted author has approved them, as FEP-044f has it. Polls and other activities aren't supported yet.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `Announce`, and `Block`
-  and their `Undo`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and
-  `Delete`, and sending `Follow`, `Like`, `Announce`, and `Block` and their `Undo`, `Accept` and `Reject` of a `Follow`,
-  `Create`, `Update`, and `Delete`
+  and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note`,
+  `Update` of an actor or a `Note`, and `Delete`, and sending `Follow`, `Like`, `Announce`, and `Block` and their `Undo`,
+  `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
 ## Supported FEPs
 
+- [FEP-044f: Consent-respecting quote posts](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as
+  [Quotes](#quotes) describes
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
+- [FEP-e232: Object Links](https://codeberg.org/fediverse/fep/src/branch/main/fep/e232/fep-e232.md), only for quotes
 - [FEP-f1d5: NodeInfo in Fediverse Software](https://codeberg.org/fediverse/fep/src/branch/main/fep/f1d5/fep-f1d5.md)
 
 ## ActivityPub
@@ -152,6 +156,13 @@ namespace, as Mastodon's does. It can also have:
   only), and `focalPoint`. Images are always `image/webp`. Video and audio are the files as they were uploaded, so their
   `mediaType` is one of `video/mp4`, `video/quicktime`, `video/webm`, `audio/mp4`, `audio/mpeg`, `audio/ogg`,
   `audio/flac`, or `audio/wav`. There's no `blurhash`. A status can have attachments and empty `content`.
+- `quote`, and once it's approved, `quoteUri`, `quoteUrl`, `_misskey_quote`, a `Link` tag, and `quoteAuthorization`: what
+  it [quotes](#quoting-a-status).
+- `interactionPolicy`: who can [quote](#quote-policies) it, which every `Note` has.
+
+The `@context` also defines `quote` and `quoteAuthorization` in FEP-044f's namespace, `quoteUri` in Fedibird's,
+`quoteUrl` as `as:quoteUrl`, `_misskey_quote` in Misskey's, and `interactionPolicy`, `canQuote`, `automaticApproval`,
+and `manualApproval` in GoToSocial's, as Mastodon's does.
 
 Statuses are addressed like this, where `followers` is the author's followers collection and `mentioned` the actors in its
 `Mention` tags:
@@ -164,7 +175,8 @@ Statuses are addressed like this, where `followers` is the author's followers co
 | Direct         | mentioned |                      |
 
 A reply that isn't direct also has the parent's author in `cc`, if its `inReplyTo` is shown and that's someone else. A
-direct reply only addresses its parent's author if it mentions them, as on Mastodon.
+direct reply only addresses its parent's author if it mentions them, as on Mastodon. A quote also addresses the quoted
+status's author, as [quotes](#quoting-a-status) describes.
 
 In the `content`, a mention is a link to the actor's ID, in Mastodon's markup:
 `<span class="h-card" translate="no"><a href="…" class="u-url mention" title="@bob@example.com">@<span>bob</span></a></span>`.
@@ -616,7 +628,9 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   changed. Other object types, such as `Question`, are ignored.
 - **Order:** the `Note` needs an `updated`, and is only applied if that's later than its `published` and the edit stored
   last. Activities are processed in no order, so one that's older is ignored, and one without `updated` is ignored too, as
-  is one more than an hour ahead of this server's clock, which would keep later edits from being applied.
+  is one more than an hour ahead of this server's clock, which would keep later edits from being applied. One that changes
+  none of what's replaced isn't kept as a version, so the status doesn't show as edited. What it
+  [quotes](#receiving-quotes), and who can quote it, are applied whatever its `updated` says.
 - **Before its `Create`:** an `Update` of a `Note` that isn't stored is treated as its `Create`, with the same checks,
   including who it's for, if its `published` is less than 3 days before the `Update` arrived. The `Create` is then ignored
   when it's processed. A `Note` that's older, or has no `published`, is ignored, so that editing an old post doesn't make
@@ -632,6 +646,9 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
 - **Statuses:** a stored status is removed if its author is the `Delete`'s `actor`. A `Delete` of a status by someone else
   is ignored. Activities are processed in no order, so the `id` is remembered for 34 days, and a `Create` of it from the same
   actor that's processed later is ignored.
+- **Quote approvals:** a `QuoteAuthorization` that approved a quote stored here
+  [revokes it](#receiving-quotes). One that the check below finds gone is acted on with a `404` or `410` too, since the
+  quote's `Note` names it.
 - **Removed by an admin:** a status that an admin removes here is never stored again, whatever later sends it. No `Delete`
   is sent for it, but local accounts that boosted it send an `Undo` of their `Announce`, as when its author deletes it.
 - **Actors:** a `Delete` whose `object` is its own `actor` deletes that actor, if it's stored, and removes its statuses and
@@ -727,6 +744,182 @@ A `Note`'s `shares` collection is served like its `likes`, and counts and lists 
 `Announce`s whose only addressing is the public collection, in `to` for a public boost and in `cc` for an unlisted one.
 Boosts from suspended actors, and of a suspended author's statuses, aren't counted or listed, and come back if the suspension
 ends.
+
+### Quotes
+
+Quotes follow [FEP-044f](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as on Mastodon: someone
+else's status is only shown in a quote once its author's server has approved the quote with a `QuoteAuthorization`. A
+status quotes at most one other, and a local user can't change what a status quotes by editing it.
+
+#### Quoting a status
+
+A local quote's `Note` has the quoted status's ID in `quote`, and, once the quote is approved or needs no approval, in
+`quoteUri`, `quoteUrl`, and `_misskey_quote` too, along with a FEP-e232 `Link` tag:
+
+```json
+{
+  "type": "Link",
+  "mediaType": "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+  "rel": "https://misskey-hub.net/ns#_misskey_quote",
+  "href": "https://example.com/users/bob/statuses/1",
+  "name": "RE: https://example.com/users/bob/statuses/1"
+}
+```
+
+Servers that only read those can't tell an approved quote from one that isn't, so they're left out until it's approved.
+An approved quote of someone else's status also has the approval in `quoteAuthorization`. The `content` starts with
+Mastodon's fallback, `<p class="quote-inline">RE: <a href="…">…</a></p>`, unless the text already links to the quoted
+status. The quoted status's author is addressed in `cc`, or in `to` for a direct status, without a `Mention` tag, so that
+their server can see a followers-only quote.
+
+A quote of another server's status is pending until its author's server answers a `QuoteRequest`, signed as the quoting
+user and sent to the quoted author's own `inbox`, with the quote embedded as its `instrument`:
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams", {"QuoteRequest": "https://w3id.org/fep/044f#QuoteRequest"}],
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000002#quote_request",
+  "type": "QuoteRequest",
+  "actor": "https://elysium.example/users/alice",
+  "to": ["https://example.com/users/bob"],
+  "object": "https://example.com/users/bob/statuses/1",
+  "instrument": {"id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000002", "type": "Note", "quote": "https://example.com/users/bob/statuses/1"}
+}
+```
+
+The real `@context` and `instrument` have every term and property that a `Note` has. The `Create` is sent straight away, as
+on Mastodon, rather than after the answer. An `Accept` has to be signed by the quoted author, name the request by its `id`,
+alone or embedded, and have a `QuoteAuthorization` on the quoted author's host and port as its `result`, which isn't
+fetched. A `Reject` from the quoted author rejects the quote. Either way, an `Update` of the quote follows, as below, unless
+a rejection only changes a quote that was never shown. A request whose status is deleted first isn't sent.
+
+A status on a server that doesn't say who can quote it, with an `interactionPolicy`, is taken to be from a server that
+can't approve quotes, so a quote of it is shown, and sent with all of the properties above, straight away. Its
+`QuoteRequest` is still sent, and a `Reject` still rejects it. A status that does say who can quote it can't be quoted by
+anyone it leaves out, and is pending otherwise. A local user's quote of their own status needs no approval.
+
+When a local quote is approved, rejected, or has its approval withdrawn, or a local user changes who can quote a status,
+an `Update` of the `Note` goes to everyone its `Create` went to. Its ID is `{status-uri}#updates/{milliseconds}`, like an
+edit's, and its `updated` is when that happened, a second later than any version sent before, so a server that applies
+edits by `updated` takes it as the newest. A fetched `Note`'s `updated` is still only when it was last edited.
+
+#### Quote policies
+
+Each local `Note` says who can quote it in an `interactionPolicy`, with only `automaticApproval`, as Mastodon sends it:
+
+```json
+"interactionPolicy": {"canQuote": {"automaticApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}
+```
+
+It holds the public collection, the author's `followers` collection, or, when only the author can quote it, the author.
+A followers-only or direct status, or one posted before this server supported quotes, can only be quoted by its author.
+Approval is always automatic, so the policy is what decides, at the time of the request. Changing it doesn't change what's
+been approved.
+
+A remote `Note`'s `interactionPolicy.canQuote` is read as Mastodon reads it: `automaticApproval` and `manualApproval` can
+each name the public collection, written in any of its three forms, the author's `followers`, or `{actor-uri}/following`,
+and the author alone means nobody else. Anything else is shown to clients as an audience that can't be checked. One with
+neither, or empty arrays, counts as none.
+
+#### Answering a `QuoteRequest`
+
+A `QuoteRequest` of a local status is answered by its author's policy. It has to have an `object` that's a public or
+unlisted local status, and an `instrument` that's the `actor`'s own `Note`, attributed to the `actor` alone, with an `id`
+on the same host and port, whose quote is that `object`. One sent as an ID is fetched. Anything else is ignored. A
+followers-only or direct status is only quoted by its author, so a request for one is ignored, as on Mastodon.
+
+A request that the policy refuses, including from an actor the author has blocked, gets a `Reject` that embeds it, and
+nothing is stored. One that it allows stores the `instrument` as the actor's status, if it isn't stored already, as long as
+it's public or unlisted, or names the quoted author in `to` or `cc`. Then it gets an `Accept`, signed as the quoted author
+and sent to the actor's own `inbox`:
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams", {"QuoteRequest": "https://w3id.org/fep/044f#QuoteRequest"}],
+  "id": "https://elysium.example/users/bob#accepts/quote_requests/{sha256-of-request-id}",
+  "type": "Accept",
+  "actor": "https://elysium.example/users/bob",
+  "to": ["https://example.com/users/alice"],
+  "object": {
+    "id": "https://example.com/users/alice/statuses/1/quote",
+    "type": "QuoteRequest",
+    "actor": "https://example.com/users/alice",
+    "object": "https://elysium.example/users/bob/statuses/019a0000-0000-7000-8000-000000000001",
+    "instrument": "https://example.com/users/alice/statuses/1"
+  },
+  "result": "https://elysium.example/users/bob/quote_authorizations/019a0000-0000-7000-8000-000000000003"
+}
+```
+
+A `Reject` has the same shape, with `#rejects/` in its `id` and no `result`. A repeated request gets the same answer, with
+the same `id`. A quote that was rejected or revoked isn't approved by asking again.
+
+#### Approvals
+
+A local user's `QuoteAuthorization` is at `{actor-uri}/quote_authorizations/{id}`. It's served as `application/activity+json`
+or `application/ld+json` with any profile, and has `Vary: Signature`. It names both statuses by ID and embeds neither:
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams", {"QuoteAuthorization": "https://w3id.org/fep/044f#QuoteAuthorization", "gts": "https://gotosocial.org/ns#", "interactingObject": {"@id": "gts:interactingObject", "@type": "@id"}, "interactionTarget": {"@id": "gts:interactionTarget", "@type": "@id"}}],
+  "id": "https://elysium.example/users/bob/quote_authorizations/019a0000-0000-7000-8000-000000000003",
+  "type": "QuoteAuthorization",
+  "attributedTo": "https://elysium.example/users/bob",
+  "interactingObject": "https://example.com/users/alice/statuses/1",
+  "interactionTarget": "https://elysium.example/users/bob/statuses/019a0000-0000-7000-8000-000000000001"
+}
+```
+
+One for a public or unlisted quote is served to anyone. One for a followers-only or direct quote is only served to a signer
+who can see the quote: its author, or an actor it mentions or was addressed to, and for a local quote, whoever its `Note`
+is served to. Everyone else gets a `404`, as does an approval that's been revoked, or whose statuses are gone. A suspended
+user's approvals get a `403`, and a deleted user's a `410`. Each approval has its own `id`, which is never served again
+once it's revoked.
+
+When a local user revokes an approval, a `Delete` of it, signed as the user, goes to the quote's author and to the user's
+followers, with the `QuoteAuthorization`'s `id` and `type` embedded and neither status. A local quote also gets an `Update`.
+A quote from a server that can't ask for approval has no `QuoteAuthorization`, so revoking it only hides it here.
+
+#### Receiving quotes
+
+A remote `Note` quotes the first status named by `quote`, `_misskey_quote`, `quoteUrl`, or `quoteUri`, in that order, or
+else by a `Link` tag whose `rel` is `https://misskey-hub.net/ns#_misskey_quote`, or Misskey's other spelling of it,
+`https://misskey-hub.net/ns/#_misskey_quote`. Each can be an ID, an object with one, or an array, whose first item is
+read. A `Note` that quotes something is stored if it would be anyway, or if it's public or unlisted and quotes a local
+user's status, unless that user blocks its author. It's shown as a quote once it's been checked:
+
+- **Its author's own:** a quote of a status by the same actor is approved.
+- **A local status:** the quote is approved through a `QuoteRequest`, above. A quote with only the older properties, from a
+  server that can't ask, is approved if the status's policy would allow it, and rejected otherwise.
+- **Older properties:** a quote of another server's status with none of FEP-044f's properties, only the older ones, is
+  approved, since its server can't ask.
+- **`quoteAuthorization`:** otherwise, it's fetched, signed as the [instance actor](#instance-actor), if it's on the quoted
+  author's host and port. It's an approval if it's a `QuoteAuthorization` with that `id`, attributed to the quoted
+  author alone, whose `interactingObject` is the quote and whose `interactionTarget` is the quoted status. Anything else
+  leaves the quote pending, and it isn't shown. A server error or timeout is tried again later.
+
+The quoted status is fetched if it isn't stored, signed as the instance actor, and stored if it's public or unlisted and
+attributed to one actor on its own host and port. A status that's only stored because something quotes it doesn't have
+what it quotes fetched in turn. Both fetches take [turns](#forwarded-activities) with the other fetches made on another
+server's word. A quote that arrives before what it quotes is linked when that's stored.
+
+An `Update` of a stored `Note` applies what it quotes, its `quoteAuthorization`, and its `interactionPolicy`, whatever its
+`updated` says, since an approval is checked with the server that gave it. A changed approval is checked again, and a quote
+that's gone from the `Note` is removed. An `Update` can't change whether a quote of a local status is approved.
+
+A `Delete` of a `QuoteAuthorization` revokes the quotes it approved, if its `actor` is the quoted author. One that
+arrives first is remembered for 34 days, like a status's, and a quote that names it then isn't approved.
+
+#### Differences from FEP-044f and Mastodon
+
+- The older properties are only sent once a quote is approved. Mastodon sends `_misskey_quote` and `quoteUri` while it's
+  pending too, and doesn't send `quoteUrl` or the `Link` tag.
+- A quote with only the older properties is shown, where FEP-044f has it treated as unapproved, and a status that doesn't
+  say who can quote it can be quoted.
+- When the quoted author's server revokes the approval of a local quote, the quote's `Update` goes to its audience, rather
+  than a forwarded `Delete`, which FEP-044f asks for.
+- Approvals aren't checked again later, so a revocation that isn't sent here isn't seen.
+- Quotes are never approved by hand, and a remote status's `manualApproval` is only shown to clients.
 
 ### Blocks
 

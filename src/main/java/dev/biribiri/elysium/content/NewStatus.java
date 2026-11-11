@@ -10,6 +10,8 @@ import java.util.UUID;
  * @param language    the language code, or null if not set
  * @param inReplyToId the status being replied to, or null if this isn't a reply
  * @param mediaIds    the author's uploads to attach, in order
+ * @param quotedStatusId the status to quote, or null for none
+ * @param quotePolicy who can quote this status, or null for the author's default
  */
 public record NewStatus(
         String text,
@@ -18,7 +20,9 @@ public record NewStatus(
         Visibility visibility,
         boolean sensitive,
         UUID inReplyToId,
-        List<UUID> mediaIds
+        List<UUID> mediaIds,
+        UUID quotedStatusId,
+        QuotePolicy quotePolicy
 ) {
 
     public NewStatus {
@@ -28,5 +32,10 @@ public record NewStatus(
     public NewStatus(String text, String spoilerText, String language, Visibility visibility, boolean sensitive,
                      UUID inReplyToId) {
         this(text, spoilerText, language, visibility, sensitive, inReplyToId, List.of());
+    }
+
+    public NewStatus(String text, String spoilerText, String language, Visibility visibility, boolean sensitive,
+                     UUID inReplyToId, List<UUID> mediaIds) {
+        this(text, spoilerText, language, visibility, sensitive, inReplyToId, mediaIds, null, null);
     }
 }

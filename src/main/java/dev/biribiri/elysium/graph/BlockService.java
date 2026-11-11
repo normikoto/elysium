@@ -14,6 +14,8 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.UUID;
 
@@ -136,6 +138,26 @@ public class BlockService {
      */
     public Set<UUID> hiddenFrom(UUID viewerId, Collection<UUID> accountIds) {
         return blocks.hiddenAmong(viewerId, accountIds);
+    }
+
+    /**
+     * Why the viewer has hidden each of these accounts, which Mastodon's API shows on a quote of one's status.
+     *
+     * @return an entry for each account the viewer has blocked, blocked the server of, or muted
+     */
+    public Map<UUID, Hiding> hidingReasons(UUID viewerId, Collection<UUID> accountIds) {
+        var reasons = new HashMap<UUID, Hiding>();
+        blocks.hidingReasons(viewerId, accountIds, HiddenAccounts.hidingReason("a")).forEach((id, reason) ->
+                reasons.put(id, switch (reason) {
+                    case "blocked" -> Hiding.BLOCKED;
+                    case "domain_blocked" -> Hiding.DOMAIN_BLOCKED;
+                    default -> Hiding.MUTED;
+                }));
+        return reasons;
+    }
+
+    public enum Hiding {
+        BLOCKED, DOMAIN_BLOCKED, MUTED
     }
 
     /**

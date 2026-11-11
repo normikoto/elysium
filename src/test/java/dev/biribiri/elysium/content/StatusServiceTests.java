@@ -7,6 +7,7 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.FollowersOnlyRecipientRepository;
 import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
+import dev.biribiri.elysium.content.internal.QuoteRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
 import dev.biribiri.elysium.graph.BlockService;
@@ -44,11 +45,13 @@ class StatusServiceTests {
     private final StatusRepository repository = mock();
     private final ActorService actors = mock();
     private final RemoteActorResolver resolver = mock();
+    private final PostingDefaults postingDefaults = mock();
 
     private StatusService service;
 
     @BeforeEach
     void setUp() {
+        when(postingDefaults.quotePolicy(any())).thenReturn(QuotePolicy.PUBLIC);
         when(actors.findLocalById(AUTHOR)).thenReturn(Optional.of(new Actor(
                 AUTHOR, BASE_URL.resolve("/users/alice"), "alice", "elysium.example", BASE_URL.resolve("/users/alice/inbox"),
                 BASE_URL.resolve("/users/alice/outbox"), null, "key", Instant.now(), Instant.now())));
@@ -68,7 +71,10 @@ class StatusServiceTests {
                 mock(MediaAttachments.class),
                 new AttachmentProperties(DataSize.ofMegabytes(16), DataSize.ofMegabytes(100), DataSize.ofMegabytes(40),
                         Duration.ofDays(1), Duration.ofHours(1), 20),
-                mock(FollowersOnlyRecipientRepository.class));
+                mock(FollowersOnlyRecipientRepository.class),
+                mock(QuoteRepository.class),
+                mock(QuoteRules.class),
+                postingDefaults);
     }
 
     private static Actor actor(String username, String domain) {

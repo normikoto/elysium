@@ -95,7 +95,8 @@ public class StatusDeliveries {
                 status.get().visibility(),
                 status.get().publishedAt(),
                 note.inReplyTo() == null ? null : status.get().inReplyToAccountId(),
-                mentioned,
+                // Silent mentions too, which a quote gives the quoted author.
+                actors.findByIds(statuses.findAllMentioned(status.get().id())),
                 true);
         if (inboxes.isEmpty()) {
             return;
@@ -120,6 +121,7 @@ public class StatusDeliveries {
         var updates = Update.idPrefixFor(event.statusUri());
         deliveries.cancel(create);
         deliveries.cancelStartingWith(updates);
+        deliveries.cancel(QuoteDeliveries.requestIdFor(event.statusUri()));
         var author = actors.findAnyLocalById(event.authorId()).filter(found -> !found.isDeleted());
         if (author.isEmpty()) {
             followersOnly.forget(event.statusId());
@@ -183,6 +185,21 @@ public class StatusDeliveries {
                         update.id().toString(), author.get().id(), json.writeValueAsString(update), WhileSuspended.DROP),
                 inboxes,
                 create.id().toString());
+    }
+
+    /**
+     * Everyone that a status's {@code Update}s go to, as for an edit.
+     */
+    List<URI> everyoneSent(dev.biribiri.elysium.content.Status status, boolean withoutBlocked) {
+        return everyoneSent(
+                status.id(),
+                status.actorId(),
+                status.visibility(),
+                status.publishedAt(),
+                notes.shownParentAuthor(status),
+                actors.findByIds(statuses.findAllMentioned(status.id())),
+                statuses.findLocalBoosters(status.id()),
+                withoutBlocked);
     }
 
     /**

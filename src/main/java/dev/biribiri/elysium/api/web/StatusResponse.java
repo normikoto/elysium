@@ -19,7 +19,7 @@ import java.util.UUID;
 @Schema(name = "Status", description = """
         Mastodon's Status entity. Polls and cards don't exist yet, so those fields \
         are always null. A boost has the boosted status in `reblog`, and no content of its own. \
-        `reblogs_count` and `favourites_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
+        `reblogs_count`, `favourites_count` and `quotes_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
         edited, or null if it never was.""")
 record StatusResponse(
@@ -54,15 +54,48 @@ record StatusResponse(
         boolean reblogged,
         boolean muted,
         boolean bookmarked,
-        boolean pinned
+        boolean pinned,
+        @Schema(implementation = Object.class, nullable = true, description = """
+                What the status quotes, as a Quote, with the quoted status in `quoted_status`, or as a ShallowQuote, with \
+                only its ID in `quoted_status_id`, for a status that's itself quoted. Null if it doesn't quote one.""")
+        Object quote,
+        @JsonProperty("quote_approval") QuoteApprovalResponse quoteApproval,
+        @JsonProperty("quotes_count") long quotesCount
 ) {
+
+    /**
+     * Mastodon's Quote entity.
+     *
+     * @param quotedStatus the quoted status, only when it can be shown
+     */
+    @Schema(name = "Quote")
+    record QuoteResponse(String state, @JsonProperty("quoted_status") StatusResponse quotedStatus) {
+    }
+
+    /**
+     * Mastodon's ShallowQuote entity, for a quote inside a quote.
+     */
+    @Schema(name = "ShallowQuote")
+    record ShallowQuoteResponse(String state, @JsonProperty("quoted_status_id") String quotedStatusId) {
+    }
+
+    /**
+     * Mastodon's QuoteApproval entity.
+     *
+     * @param currentUser what would happen to the viewer's quote of the status
+     */
+    @Schema(name = "QuoteApproval")
+    record QuoteApprovalResponse(List<String> automatic, List<String> manual,
+                                 @JsonProperty("current_user") String currentUser) {
+    }
 
     /**
      * @param reblog the boosted status, for a boost, or null
      */
     static StatusResponse from(
             Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
-            List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog) {
+            List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
+            Object quote, QuoteApprovalResponse quoteApproval, long quotesCount) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -93,7 +126,10 @@ record StatusResponse(
                 boosts.reblogged(),
                 false,
                 false,
-                false);
+                false,
+                quote,
+                quoteApproval,
+                quotesCount);
     }
 
     /**

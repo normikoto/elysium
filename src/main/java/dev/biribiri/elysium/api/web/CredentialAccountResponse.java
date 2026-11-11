@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import dev.biribiri.elysium.actor.Profile;
+import dev.biribiri.elysium.content.QuotePolicy;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
@@ -13,16 +14,18 @@ import java.util.List;
  */
 @Schema(name = "CredentialAccount", description = """
         Mastodon's CredentialAccount entity: an Account, plus `source`, which has the note and fields as they were \
-        written. The settings in `source` don't exist yet, so they have the values a new account would have.""")
+        written. The settings in `source` other than `quote_policy` don't exist yet, so they have the values a new \
+        account would have.""")
 record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source source) {
 
     /**
      * @param followRequests how many requests to follow the account are waiting for it
      */
-    static CredentialAccountResponse from(AccountResponse account, Profile profile, long followRequests) {
+    static CredentialAccountResponse from(
+            AccountResponse account, Profile profile, long followRequests, QuotePolicy quotePolicy) {
         var fields = profile.fields().stream().map(field -> AccountResponse.Field.of(field, field.value())).toList();
         return new CredentialAccountResponse(
-                account, new Source("public", false, "", profile.note(), fields, followRequests));
+                account, new Source("public", false, "", profile.note(), fields, followRequests, quotePolicy.value()));
     }
 
     /**
@@ -35,7 +38,10 @@ record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source 
             String language,
             String note,
             List<AccountResponse.Field> fields,
-            @JsonProperty("follow_requests_count") long followRequestsCount
+            @JsonProperty("follow_requests_count") long followRequestsCount,
+            @Schema(allowableValues = {"public", "followers", "nobody"},
+                    description = "Who can quote the account's new statuses when the client doesn't say.")
+            @JsonProperty("quote_policy") String quotePolicy
     ) {
     }
 }

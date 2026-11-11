@@ -42,8 +42,16 @@ class ActorNotes {
      * @throws IllegalStateException if the actor's server couldn't be reached, which is worth trying again
      */
     Optional<ActorNote> read(InboundActivity activity, JsonNode document) {
+        return read(activity, document, "object");
+    }
+
+    /**
+     * Like {@link #read(InboundActivity, JsonNode)}, for the note in another property, such as a {@code QuoteRequest}'s
+     * {@code instrument}.
+     */
+    Optional<ActorNote> read(InboundActivity activity, JsonNode document, String property) {
         var actorUri = URI.create(activity.actorUri());
-        var object = object(document);
+        var object = object(document, property);
         if (object.isEmpty()) {
             log.debug("Ignoring {} {}, which doesn't have one object", activity.type(), activity.id());
             return Optional.empty();
@@ -78,8 +86,8 @@ class ActorNotes {
     /**
      * The object, as an embedded object or a string that should be its ID, or empty if there isn't one.
      */
-    private static Optional<JsonNode> object(JsonNode activity) {
-        var node = activity.path("object");
+    private static Optional<JsonNode> object(JsonNode activity, String property) {
+        var node = activity.path(property);
         if (node.isArray()) {
             node = node.size() == 1 ? node.path(0) : null;
         }
