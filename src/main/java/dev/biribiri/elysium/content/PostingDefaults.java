@@ -28,9 +28,6 @@ public class PostingDefaults {
         repository.setQuotePolicy(actorId, policy.value());
     }
 
-    /**
-     * For when the account is being deleted.
-     */
     public void removeFor(UUID actorId) {
         repository.removeFor(actorId);
     }

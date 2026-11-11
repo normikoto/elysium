@@ -1,7 +1,6 @@
 package dev.biribiri.elysium.content;
 
 import java.net.URI;
-import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -27,9 +26,16 @@ public record StatusQuote(
         boolean legacy,
         URI approvalUri,
         UUID stampId,
-        URI requestUri,
-        Instant changedAt
+        URI requestUri
 ) {
+
+    /**
+     * The ID of a quote's {@code QuoteRequest}. It's derived from the status, so that deleting the status can cancel the
+     * request without reading a row that's already gone. A status's quote can't change, so it never needs another.
+     */
+    public static URI requestUriFor(URI statusUri) {
+        return URI.create(statusUri + "#quote_request");
+    }
 
     /**
      * Whether the quoted status was accepted and has been deleted since, which Mastodon's API shows as {@code deleted}.

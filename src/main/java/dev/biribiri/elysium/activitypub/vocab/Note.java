@@ -59,15 +59,12 @@ public record Note(
         InteractionPolicy interactionPolicy
 ) {
 
-    /**
-     * Declared before {@link #CONTEXT}, which reads it.
-     */
-    static final Map<String, Object> QUOTE_TERMS = quoteTerms();
+    static final Map<String, Object> TERMS = terms();
 
     /**
      * Adds Mastodon's terms for attachments, and the terms for quotes, which aren't in the ActivityStreams vocabulary.
      */
-    static final List<Object> CONTEXT = List.of(ActivityStreams.CONTEXT, terms());
+    static final List<Object> CONTEXT = List.of(ActivityStreams.CONTEXT, TERMS);
 
     /**
      * Mastodon's terms, and those for quotes: FEP-044f's, the older ones that other servers read, and GoToSocial's for
@@ -80,22 +77,16 @@ public record Note(
         terms.put("toot", "http://joinmastodon.org/ns#");
         terms.put("blurhash", "toot:blurhash");
         terms.put("focalPoint", Map.of("@container", "@list", "@id", "toot:focalPoint"));
-        terms.putAll(QUOTE_TERMS);
-        terms.put("gts", "https://gotosocial.org/ns#");
-        terms.put("interactionPolicy", Map.of("@id", "gts:interactionPolicy", "@type", "@id"));
-        terms.put("canQuote", Map.of("@id", "gts:canQuote", "@type", "@id"));
-        terms.put("automaticApproval", Map.of("@id", "gts:automaticApproval", "@type", "@id"));
-        terms.put("manualApproval", Map.of("@id", "gts:manualApproval", "@type", "@id"));
-        return Collections.unmodifiableMap(terms);
-    }
-
-    private static Map<String, Object> quoteTerms() {
-        var terms = new LinkedHashMap<String, Object>();
         terms.put("quote", Map.of("@id", "https://w3id.org/fep/044f#quote", "@type", "@id"));
         terms.put("quoteUri", "http://fedibird.com/ns#quoteUri");
         terms.put("quoteUrl", "as:quoteUrl");
         terms.put("_misskey_quote", "https://misskey-hub.net/ns#_misskey_quote");
         terms.put("quoteAuthorization", Map.of("@id", "https://w3id.org/fep/044f#quoteAuthorization", "@type", "@id"));
+        terms.put("gts", "https://gotosocial.org/ns#");
+        terms.put("interactionPolicy", Map.of("@id", "gts:interactionPolicy", "@type", "@id"));
+        terms.put("canQuote", Map.of("@id", "gts:canQuote", "@type", "@id"));
+        terms.put("automaticApproval", Map.of("@id", "gts:automaticApproval", "@type", "@id"));
+        terms.put("manualApproval", Map.of("@id", "gts:manualApproval", "@type", "@id"));
         return Collections.unmodifiableMap(terms);
     }
 
@@ -135,17 +126,8 @@ public record Note(
      * @param mentions     the accounts the status mentions
      * @param hashtags     the status's hashtags
      * @param attachments  the status's attachments, in order
-     */
-    public static Note from(
-            Status status, Actor author, URI inReplyTo, URI parentAuthor, List<Mention> mentions, List<Hashtag> hashtags,
-            List<Document> attachments) {
-        return from(status, author, inReplyTo, parentAuthor, mentions, hashtags, attachments, null,
-                InteractionPolicy.automatic(List.of(author.uri().toString())));
-    }
-
-    /**
-     * @param quote  what it quotes, or null if it doesn't
-     * @param policy who can quote it
+     * @param quote        what it quotes, or null if it doesn't
+     * @param policy       who can quote it
      */
     public static Note from(
             Status status, Actor author, URI inReplyTo, URI parentAuthor, List<Mention> mentions, List<Hashtag> hashtags,

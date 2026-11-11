@@ -11,11 +11,12 @@ import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.core.SimplePropertyRowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.net.URI;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -37,7 +38,8 @@ public class StatusRepository {
 
     private static final String COLUMNS = """
             s.id, s.uri, s.actor_id, s.text, s.content, s.spoiler_text, s.language, s.visibility, s.sensitive, s.reply,
-            s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at, s.edited_at, s.reblog_of_id""";
+            s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at, s.edited_at, s.reblog_of_id,
+            s.quote_automatic, s.quote_manual, s.note_updated_at""";
 
     private static final String COUNT_REPLIES = """
             SELECT count(*) FROM status r
@@ -108,12 +110,39 @@ public class StatusRepository {
      */
     private static final long ID_ASSIGNMENT_LOCK = 0x656C79_7374617475L;
 
-    private static final RowMapper<Status> STATUS_MAPPER = new SimplePropertyRowMapper<>(Status.class, ContentRows.CONVERSIONS);
+    private static final RowMapper<Status> STATUS_MAPPER = StatusRepository::mapStatus;
 
     private final JdbcClient jdbc;
 
     StatusRepository(JdbcClient jdbc) {
         this.jdbc = jdbc;
+    }
+
+    /**
+     * Written out because a status's quote policy is one component read from two columns, which a property mapper can't do.
+     */
+    private static Status mapStatus(ResultSet rs, int row) throws SQLException {
+        return new Status(
+                rs.getObject("id", UUID.class),
+                URI.create(rs.getString("uri")),
+                rs.getObject("actor_id", UUID.class),
+                rs.getString("text"),
+                rs.getString("content"),
+                rs.getString("spoiler_text"),
+                rs.getString("language"),
+                Visibility.fromValue(rs.getString("visibility")),
+                rs.getBoolean("sensitive"),
+                rs.getBoolean("reply"),
+                rs.getObject("in_reply_to_id", UUID.class),
+                rs.getObject("in_reply_to_account_id", UUID.class),
+                ContentRows.uriOrNull(rs.getString("in_reply_to_uri")),
+                ContentRows.uriOrNull(rs.getString("url")),
+                rs.getObject("published_at", OffsetDateTime.class).toInstant(),
+                ContentRows.instantOrNull(rs.getObject("edited_at", OffsetDateTime.class)),
+                rs.getObject("reblog_of_id", UUID.class),
+                rs.getLong("replies_count"),
+                ContentRows.quoteApproval(rs),
+                ContentRows.instantOrNull(rs.getObject("note_updated_at", OffsetDateTime.class)));
     }
 
     /**
@@ -147,13 +176,18 @@ public class StatusRepository {
         return jdbc.sql("""
                         INSERT INTO status (id, uri, actor_id, text, content, spoiler_text, language, visibility, sensitive,
                                             reply, in_reply_to_id, in_reply_to_account_id, in_reply_to_uri, url,
-                                            published_at, edited_at, reblog_of_id, activity_at)
+                                            published_at, edited_at, reblog_of_id, activity_at, quote_automatic,
+                                            quote_manual)
                         VALUES (:id, :uri, :actorId, :text, :content, :spoilerText, :language, :visibility, :sensitive,
                                 :reply, :inReplyToId, :inReplyToAccountId, :inReplyToUri, :url, :publishedAt, :editedAt,
-                                :reblogOfId, :activityAt)
+                                :reblogOfId, :activityAt, CAST(:quoteAutomatic AS text[]), CAST(:quoteManual AS text[]))
                         ON CONFLICT DO NOTHING
                         """)
                 .param("reblogOfId", status.reblogOfId(), Types.OTHER)
+                .param("quoteAutomatic", status.quoteApproval() == null ? null
+                        : ContentRows.array(status.quoteApproval().automatic()), Types.VARCHAR)
+                .param("quoteManual", status.quoteApproval() == null ? null
+                        : ContentRows.array(status.quoteApproval().manual()), Types.VARCHAR)
                 .param("activityAt", activityAt == null ? null : activityAt.atOffset(ZoneOffset.UTC),
                         Types.TIMESTAMP_WITH_TIMEZONE)
                 .param("id", status.id())

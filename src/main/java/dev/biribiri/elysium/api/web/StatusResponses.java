@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -171,16 +170,14 @@ class StatusResponses {
         media.putAll(knownMedia);
         var likeStats = likes.stats(ids, viewer);
         var boostStats = boosts.stats(ids, viewer);
-        var policies = quotes.policies(ids);
         var quoteCounts = quotes.acceptedCounts(ids);
         var localAuthors = authors.values().stream().filter(actors::isLocal).map(Actor::id).collect(Collectors.toSet());
-        var decisions = quotes.decide(all.stream().filter(status -> !status.isReblog()).distinct().toList(), policies,
-                localAuthors, viewer);
+        var decisions = quotes.decide(all.stream().filter(status -> !status.isReblog()).distinct().toList(), localAuthors, viewer);
         Map<UUID, BlockService.Hiding> hiding = viewer.isEmpty() ? Map.of() : blocks.hidingReasons(viewer.get(),
                 quoted.values().stream().map(Status::actorId).collect(Collectors.toSet()));
         Function<Status, StatusResponse.QuoteApprovalResponse> approval = status -> approval(
-                status, policies.get(status.id()), localAuthors.contains(status.actorId()), decisions.get(status.id()));
-        BiFunction<Status, Object, StatusResponse> basic = (status, quote) -> StatusResponse.from(
+                status, status.quoteApproval(), localAuthors.contains(status.actorId()), decisions.get(status.id()));
+        StatusBuilder basic = (status, reblog, quote) -> StatusResponse.from(
                 status,
                 accountResponses.get(status.actorId()),
                 mentions.getOrDefault(status.id(), List.of()).stream()
@@ -195,14 +192,14 @@ class StatusResponses {
                 includeText,
                 status.isReblog() ? LikeStats.EMPTY : likeStats.getOrDefault(status.id(), LikeStats.EMPTY),
                 status.isReblog() ? BoostStats.EMPTY : boostStats.getOrDefault(status.id(), BoostStats.EMPTY),
-                null,
+                reblog,
                 quote,
                 approval.apply(status),
                 status.isReblog() ? 0 : quoteCounts.getOrDefault(status.id(), 0L));
         // A status that's quoted only shows what it quotes in turn by ID, as on Mastodon, so that quotes don't nest.
-        Function<Status, StatusResponse> nested = status -> basic.apply(status,
+        Function<Status, StatusResponse> nested = status -> basic.apply(status, null,
                 Optional.ofNullable(quoteRows.get(status.id())).map(StatusResponses::shallow).orElse(null));
-        Function<Status, StatusResponse> full = status -> basic.apply(status,
+        Function<Status, StatusResponse> full = status -> basic.apply(status, null,
                 Optional.ofNullable(quoteRows.get(status.id())).map(row -> {
                     var target = Optional.ofNullable(row.quotedStatusId()).map(quoted::get)
                             .filter(candidate -> authors.containsKey(candidate.actorId()));
@@ -220,10 +217,14 @@ class StatusResponses {
                     if (original == null || !authors.containsKey(original.actorId())) {
                         return Stream.empty();
                     }
-                    var boost = basic.apply(status, null);
-                    return Stream.of(withReblog(boost, full.apply(original)));
+                    return Stream.of(basic.apply(status, full.apply(original), null));
                 })
                 .toList();
+    }
+
+    @FunctionalInterface
+    private interface StatusBuilder {
+        StatusResponse apply(Status status, StatusResponse reblog, Object quote);
     }
 
     private List<Status> visible(List<UUID> ids, Optional<UUID> viewer) {
@@ -260,11 +261,9 @@ class StatusResponses {
     }
 
     private static StatusResponse.ShallowQuoteResponse shallow(StatusQuote quote) {
-        var accepted = quote.state() == QuoteState.ACCEPTED && !quote.isOfDeleted() && quote.quotedStatusId() != null;
-        return new StatusResponse.ShallowQuoteResponse(
-                quote.isOfDeleted() ? "deleted" : accepted ? "accepted" : quote.state() == QuoteState.ACCEPTED
-                        ? "pending" : quote.state().value(),
-                accepted ? quote.quotedStatusId().toString() : null);
+        var state = state(quote, true, Optional.empty());
+        return new StatusResponse.ShallowQuoteResponse(state,
+                state.equals("accepted") ? quote.quotedStatusId().toString() : null);
     }
 
     /**
@@ -273,16 +272,15 @@ class StatusResponses {
      */
     private static StatusResponse.QuoteApprovalResponse approval(
             Status status, QuoteApproval policy, boolean local, QuoteDecision decision) {
-        var current = decision == null ? QuoteDecision.DENIED : decision;
         if (status.isReblog()) {
             return new StatusResponse.QuoteApprovalResponse(List.of(), List.of(), QuoteDecision.DENIED.value());
         }
         if (policy == null) {
             return new StatusResponse.QuoteApprovalResponse(local ? List.of() : List.of("unsupported_policy"), List.of(),
-                    current.value());
+                    decision.value());
         }
         return new StatusResponse.QuoteApprovalResponse(audiences(policy.automatic()), audiences(policy.manual()),
-                current.value());
+                decision.value());
     }
 
     private static List<String> audiences(Set<QuoteApproval.Audience> audiences) {
@@ -290,15 +288,5 @@ class StatusResponses {
                 .map(audience -> audience == QuoteApproval.Audience.UNSUPPORTED ? "unsupported_policy" : audience.value())
                 .sorted()
                 .toList();
-    }
-
-    private static StatusResponse withReblog(StatusResponse boost, StatusResponse reblog) {
-        return new StatusResponse(boost.id(), boost.createdAt(), boost.editedAt(), boost.inReplyToId(),
-                boost.inReplyToAccountId(), boost.sensitive(), boost.spoilerText(), boost.visibility(), boost.language(),
-                boost.uri(), boost.url(), boost.repliesCount(), boost.reblogsCount(), boost.favouritesCount(),
-                boost.content(), boost.text(), reblog, boost.application(), boost.account(), boost.mediaAttachments(),
-                boost.mentions(), boost.tags(), boost.emojis(), boost.card(), boost.poll(), boost.favourited(),
-                boost.reblogged(), boost.muted(), boost.bookmarked(), boost.pinned(), boost.quote(), boost.quoteApproval(),
-                boost.quotesCount());
     }
 }

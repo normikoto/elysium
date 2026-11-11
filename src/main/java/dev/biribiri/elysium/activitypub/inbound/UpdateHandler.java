@@ -16,9 +16,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * Applies a change that another server made to one of its actors, or to a status stored here.
@@ -109,27 +107,31 @@ class UpdateHandler implements InboundActivityHandler {
         if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
             return;
         }
+        applyEdit(activity, actorUri, document, read.get());
+        // Whatever its updated says, since servers send an Update when a quote is approved, and the approval is checked
+        // with whoever gave it rather than ordered by time. Found again, since storing a late note can store its author.
+        storedAuthor(actorUri).ifPresent(author -> quotes.reconcileRemote(
+                note.id(), author.id(), note.quote(), storage.quotePolicy(note.quotePolicy(), author)));
+    }
+
+    private void applyEdit(InboundActivity activity, URI actorUri, JsonNode document, ActorNotes.ActorNote read) {
+        var note = read.note();
         if (note.editedAt(note.published(), Instant.now()) == null) {
             log.debug("Not editing for Update {}, whose Note doesn't say when it was edited, or says a time that can't be",
                     activity.id());
-        } else {
-            // An author who isn't stored can't have a stored status, but can still have one to store, if its Create is
-            // late.
-            var outcome = storedAuthor(actorUri)
-                    .map(author -> edit(note, author))
-                    .orElse(RemoteEdit.Outcome.NOT_STORED);
-            switch (outcome) {
-                case EDITED -> {
-                }
-                case UNCHANGED -> log.debug("Not editing for Update {}, whose Note has a newer version, is the same, or is "
-                        + "someone else's", activity.id());
-                case NOT_STORED -> storeLate(activity, document, read.get());
-            }
+            return;
         }
-        // Whatever its updated says, since servers send an Update when a quote is approved, and the approval is checked
-        // with whoever gave it rather than ordered by time.
-        storedAuthor(actorUri).flatMap(actors::findById).ifPresent(author -> quotes.reconcileRemote(
-                note.id(), author.id(), note.quote(), storage.quotePolicy(note.quotePolicy(), author)));
+        // An author who isn't stored can't have a stored status, but can still have one to store, if its Create is late.
+        var outcome = storedAuthor(actorUri)
+                .map(author -> edit(note, author))
+                .orElse(RemoteEdit.Outcome.NOT_STORED);
+        switch (outcome) {
+            case EDITED -> {
+            }
+            case UNCHANGED -> log.debug("Not editing for Update {}, whose Note has a newer version, is the same, or is "
+                    + "someone else's", activity.id());
+            case NOT_STORED -> storeLate(activity, document, read);
+        }
     }
 
     /**
@@ -152,24 +154,22 @@ class UpdateHandler implements InboundActivityHandler {
     }
 
     /**
-     * @return the ID of the actor, if it's stored here, active, and remote, as an author of remote statuses has to be
+     * @return the actor, if it's stored here, active, and remote, as an author of remote statuses has to be
      */
-    private Optional<UUID> storedAuthor(URI actorUri) {
-        return actors.findByUri(actorUri)
-                .filter(found -> found.isActive() && !actors.isLocal(found))
-                .map(Actor::id);
+    private Optional<Actor> storedAuthor(URI actorUri) {
+        return actors.findByUri(actorUri).filter(found -> found.isActive() && !actors.isLocal(found));
     }
 
-    private RemoteEdit.Outcome edit(RemoteNote note, UUID authorId) {
+    private RemoteEdit.Outcome edit(RemoteNote note, Actor author) {
         return statuses.updateRemote(new RemoteEdit(
                 note.id(),
-                authorId,
+                author.id(),
                 note.content() == null ? "" : note.content(),
                 note.summary(),
                 note.language(),
                 note.sensitive(),
                 note.editedAt(note.published(), Instant.now()),
                 note.hashtags(),
-                actors.findById(authorId).map(author -> storage.attachments(note, author)).orElse(List.of())));
+                storage.attachments(note, author)));
     }
 }

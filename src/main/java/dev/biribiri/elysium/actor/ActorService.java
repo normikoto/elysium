@@ -158,6 +158,10 @@ public class ActorService {
         return actor.domain().equals(instance.domain());
     }
 
+    public boolean isLocal(UUID actorId) {
+        return findById(actorId).map(this::isLocal).orElse(false);
+    }
+
     /**
      * Whether this URI is the URI of a suspended or deleted actor. An actor that isn't stored can't be either.
      */

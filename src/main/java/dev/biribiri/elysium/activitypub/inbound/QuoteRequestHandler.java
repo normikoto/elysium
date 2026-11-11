@@ -11,7 +11,6 @@ import dev.biribiri.elysium.content.QuoteDecision;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
-import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Answers another server's request to approve a quote of a local status, as FEP-044f has it. The status's policy decides,
@@ -83,9 +83,9 @@ class QuoteRequestHandler implements InboundActivityHandler {
     @Override
     public void handle(InboundActivity activity) {
         var document = json.readTree(activity.body());
-        var quotedUri = Optional.ofNullable(ActivityJson.idOf(document.path("object"))).flatMap(ActivityObject::parseUri);
+        var quotedUri = ActivityObject.of(document).map(ActivityObject::id).flatMap(ActivityObject::parseUri);
         var quoted = quotedUri.flatMap(boosts::localTarget)
-                .filter(status -> status.visibility() == Visibility.PUBLIC || status.visibility() == Visibility.UNLISTED);
+                .filter(status -> status.isVisibleTo(Optional.empty()));
         var quotedAuthor = quoted.flatMap(status -> actors.findLocalById(status.actorId()));
         if (quoted.isEmpty() || quotedAuthor.isEmpty()) {
             log.debug("Ignoring QuoteRequest {}, which isn't of a local status that can be quoted", activity.id());
@@ -99,31 +99,34 @@ class QuoteRequestHandler implements InboundActivityHandler {
         }
         var requester = remoteActors.fetchOrRefresh(URI.create(activity.actorUri()));
         var quote = read.get().note().id();
-        if (quotes.decide(quoted.get(), requester.id()) != QuoteDecision.AUTOMATIC) {
-            reject(activity, quotedAuthor.get(), requester, quoted.get(), quote);
-            return;
-        }
-        var quoting = statuses.findStoredByUri(quote, requester.id());
-        if (quoting.isEmpty() && storage.storeInstrument(activity, read.get(), quotedAuthor.get().id())
-                == NoteStorage.Result.IGNORED) {
-            reject(activity, quotedAuthor.get(), requester, quoted.get(), quote);
-            return;
-        }
-        var stamp = statuses.findStoredByUri(quote, requester.id())
-                .flatMap(status -> quotes.approveRequest(status.id(), quoted.get().id(), URI.create(activity.id())));
-        if (stamp.isEmpty()) {
-            reject(activity, quotedAuthor.get(), requester, quoted.get(), quote);
-            return;
-        }
-        var accept = QuoteRequestAnswer.accept(quotedAuthor.get().uri(), activity.id(), requester.uri(),
-                quoted.get().uri(), quote, QuoteAuthorization.idFor(quotedAuthor.get().uri(), stamp.get()));
-        send(activity, quotedAuthor.get(), requester, accept);
+        var authorUri = quotedAuthor.get().uri();
+        var answer = approve(activity, read.get(), quoted.get(), quotedAuthor.get().id(), requester)
+                .map(stamp -> QuoteRequestAnswer.accept(authorUri, activity.id(), requester.uri(), quoted.get().uri(), quote,
+                        QuoteAuthorization.idFor(authorUri, stamp)))
+                .orElseGet(() -> {
+                    log.debug("Rejecting QuoteRequest {}", activity.id());
+                    return QuoteRequestAnswer.reject(authorUri, activity.id(), requester.uri(), quoted.get().uri(), quote);
+                });
+        send(activity, quotedAuthor.get(), requester, answer);
     }
 
-    private void reject(InboundActivity activity, Actor quotedAuthor, Actor requester, Status quoted, URI quote) {
-        log.debug("Rejecting QuoteRequest {}", activity.id());
-        send(activity, quotedAuthor, requester,
-                QuoteRequestAnswer.reject(quotedAuthor.uri(), activity.id(), requester.uri(), quoted.uri(), quote));
+    /**
+     * A quote that's already stored isn't stored again, so that a repeat of the request is answered the same way even if
+     * it couldn't be stored now.
+     *
+     * @return the ID of the approval, or empty if the request is refused
+     */
+    private Optional<UUID> approve(
+            InboundActivity activity, ActorNotes.ActorNote read, Status quoted, UUID quotedAuthor, Actor requester) {
+        if (quotes.decide(quoted, requester.id()) != QuoteDecision.AUTOMATIC) {
+            return Optional.empty();
+        }
+        var quote = read.note().id();
+        return statuses.findStoredByUri(quote, requester.id())
+                .or(() -> storage.storeInstrument(activity, read, quotedAuthor) == NoteStorage.Result.IGNORED
+                        ? Optional.empty()
+                        : statuses.findStoredByUri(quote, requester.id()))
+                .flatMap(status -> quotes.approveRequest(status.id(), quoted.id(), URI.create(activity.id())));
     }
 
     /**

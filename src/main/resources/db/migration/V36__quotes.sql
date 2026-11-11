@@ -7,23 +7,24 @@ ALTER TABLE status
     -- When this server last sent an Update of a local status for something other than an edit, such as a quote being
     -- approved, which has to be later than any version sent before it.
     ADD COLUMN note_updated_at TIMESTAMPTZ;
+-- NOT VALID, so that adding these doesn't scan every status for columns that are all null. New rows are still checked.
 ALTER TABLE status ADD CONSTRAINT status_quote_automatic_check
-    CHECK (quote_automatic <@ ARRAY ['public', 'followers', 'following', 'unsupported']);
+    CHECK (quote_automatic <@ ARRAY ['public', 'followers', 'following', 'unsupported']) NOT VALID;
 ALTER TABLE status ADD CONSTRAINT status_quote_manual_check
-    CHECK (quote_manual <@ ARRAY ['public', 'followers', 'following', 'unsupported']);
+    CHECK (quote_manual <@ ARRAY ['public', 'followers', 'following', 'unsupported']) NOT VALID;
 
 -- The status that a status quotes. quoted_uri is kept when the quoted status isn't stored, or has gone, and linked tells
 -- the two apart: a quote that was linked and has no quoted status any more was of one that's been deleted.
 CREATE TABLE status_quote
 (
     status_id         UUID PRIMARY KEY REFERENCES status (id) ON DELETE CASCADE,
-    quoted_uri        TEXT        NOT NULL,
+    quoted_uri        TEXT    NOT NULL,
     quoted_status_id  UUID REFERENCES status (id) ON DELETE SET NULL,
     quoted_account_id UUID REFERENCES actor (id) ON DELETE SET NULL,
-    linked            BOOLEAN     NOT NULL DEFAULT FALSE,
-    state             TEXT        NOT NULL CHECK (state IN ('pending', 'accepted', 'rejected', 'revoked')),
+    linked            BOOLEAN NOT NULL,
+    state             TEXT    NOT NULL CHECK (state IN ('pending', 'accepted', 'rejected', 'revoked')),
     -- A quote from a server that can't ask for consent, or of a status on one that can't give it.
-    legacy            BOOLEAN     NOT NULL DEFAULT FALSE,
+    legacy            BOOLEAN NOT NULL,
     -- The QuoteAuthorization another server gave, when the quoted status is remote.
     approval_uri      TEXT,
     -- This server's QuoteAuthorization, when the quoted status is local. A new one for each approval, so that a stamp
@@ -31,14 +32,12 @@ CREATE TABLE status_quote
     stamp_id          UUID UNIQUE,
     -- The QuoteRequest that asked for approval, this server's or another's.
     request_uri       TEXT,
-    changed_at        TIMESTAMPTZ NOT NULL,
     CHECK (approval_uri IS NULL OR stamp_id IS NULL)
 );
 CREATE INDEX status_quote_quoted_idx ON status_quote (quoted_status_id, status_id DESC);
 CREATE INDEX status_quote_waiting_idx ON status_quote (md5(quoted_uri)) WHERE NOT linked;
 CREATE INDEX status_quote_approval_idx ON status_quote (md5(approval_uri)) WHERE approval_uri IS NOT NULL;
 CREATE INDEX status_quote_request_idx ON status_quote (md5(request_uri)) WHERE request_uri IS NOT NULL;
-CREATE INDEX status_quote_account_idx ON status_quote (quoted_account_id);
 
 -- What a local account's new statuses get when the client doesn't say.
 CREATE TABLE posting_default

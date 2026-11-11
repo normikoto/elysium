@@ -18,7 +18,7 @@ public enum QuoteState {
         return name().toLowerCase(Locale.ROOT);
     }
 
-    static QuoteState fromValue(String value) {
+    public static QuoteState fromValue(String value) {
         return Arrays.stream(values()).filter(state -> state.value().equals(value)).findFirst().orElseThrow();
     }
 }

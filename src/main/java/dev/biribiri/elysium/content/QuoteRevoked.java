@@ -8,5 +8,5 @@ import java.util.UUID;
  * @param statusId the quoting status
  * @param stampId  the {@code QuoteAuthorization} that was withdrawn, or null if none was given
  */
-public record QuoteRevoked(UUID statusId, UUID authorId, UUID quotedStatusId, UUID quotedAuthorId, UUID stampId) {
+public record QuoteRevoked(UUID statusId, UUID authorId, UUID quotedAuthorId, UUID stampId) {
 }

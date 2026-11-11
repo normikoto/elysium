@@ -9,7 +9,6 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.content.QuoteDecision;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
 import dev.biribiri.elysium.content.QuoteVerificationNeeded;
@@ -30,7 +29,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Function;
 
 /**
  * Checks whether another server's quote is approved, as FEP-044f says to, before it shows what it quotes: it's the
@@ -149,47 +147,26 @@ class QuoteVerifications {
         if (turn.get().isAfter(Instant.now())) {
             return Optional.of(Jobs.rescheduleAt(turn.get(), job.withNoteTurn(turn.get())));
         }
-        var note = fetch(quotedUri).flatMap(RemoteNote::read).filter(found -> found.id().equals(quotedUri));
-        if (note.isEmpty()) {
+        var fetched = AttributedNote.fetch(quotedUri, documents);
+        if (fetched.isEmpty()) {
             return Optional.of(Jobs.done());
         }
-        var author = note.get().attributedTo().size() == 1
-                ? ActivityObject.parseUri(note.get().attributedTo().getFirst())
-                : Optional.<URI>empty();
-        // Only the status's own server can say who wrote it.
-        if (author.isEmpty() || !Inbox.isOnActorsServer(quotedUri, author.get())) {
-            log.debug("Not checking a quote of {}, which isn't attributed to one actor on its server", quotedUri);
-            return Optional.of(Jobs.done());
-        }
-        storage.storeQuoted(note.get(), author.get());
+        storage.storeQuoted(fetched.get().note(), fetched.get().author());
         return Optional.empty();
     }
 
     private CompletionHandler<QuoteVerificationJob> check(
             QuoteVerificationJob job, StatusQuote quote, Status quoting, Status quoted, URI approvalUri) {
-        if (quoted.actorId().equals(quoting.actorId())) {
-            quotes.verified(quote.statusId(), quote.quotedUri(), approvalUri, QuoteService.Verification.ACCEPTED);
-            return Jobs.done();
-        }
-        var quotedAuthor = actors.findById(quoted.actorId()).filter(Actor::isActive);
-        if (quotedAuthor.isEmpty()) {
-            return Jobs.done();
-        }
-        if (actors.isLocal(quotedAuthor.get())) {
-            // Approval is given here, in answer to a QuoteRequest, so only a server that can't ask is decided now.
-            if (quote.legacy()) {
-                var decision = quotes.decide(quoted, quoting.actorId());
-                quotes.verified(quote.statusId(), quote.quotedUri(), approvalUri, decision == QuoteDecision.AUTOMATIC
-                        ? QuoteService.Verification.ACCEPTED : QuoteService.Verification.REJECTED);
+        var settlement = quotes.settleWithoutProof(quote, quoting, quoted);
+        if (settlement != QuoteService.Settlement.NEEDS_PROOF) {
+            if (settlement != QuoteService.Settlement.LEFT_PENDING) {
+                finish(quote, approvalUri, settlement == QuoteService.Settlement.ACCEPTED);
             }
             return Jobs.done();
         }
-        if (quote.legacy()) {
-            quotes.verified(quote.statusId(), quote.quotedUri(), approvalUri, QuoteService.Verification.ACCEPTED);
-            return Jobs.done();
-        }
-        if (approvalUri == null || quotes.wasApprovalDeleted(approvalUri, quotedAuthor.get().uri())
-                || !Inbox.isOnActorsServer(approvalUri, quotedAuthor.get().uri()) || blocks.isBlocked(approvalUri.getHost())) {
+        var quotedAuthor = actors.findById(quoted.actorId()).map(Actor::uri);
+        if (quotedAuthor.isEmpty() || approvalUri == null || quotes.wasApprovalDeleted(approvalUri, quotedAuthor.get())
+                || !Inbox.isOnActorsServer(approvalUri, quotedAuthor.get()) || blocks.isBlocked(approvalUri.getHost())) {
             return Jobs.done();
         }
         var turn = take(approvalUri, job.stampTurn());
@@ -200,26 +177,27 @@ class QuoteVerifications {
             return Jobs.rescheduleAt(turn.get(), job.withStampTurn(turn.get()));
         }
         var stamp = fetch(approvalUri);
-        if (stamp.isPresent() && isAuthorization(stamp.get(), approvalUri, quotedAuthor.get().uri(), quoting.uri(),
-                quoted.uri())) {
-            quotes.verified(quote.statusId(), quote.quotedUri(), approvalUri, QuoteService.Verification.ACCEPTED);
+        if (stamp.isPresent() && isAuthorization(stamp.get(), approvalUri, quotedAuthor.get(), quoting.uri(), quoted.uri())) {
+            finish(quote, approvalUri, true);
         } else {
             log.debug("Not approving the quote {}, whose QuoteAuthorization doesn't match", quoting.uri());
         }
         return Jobs.done();
     }
 
+    private void finish(StatusQuote quote, URI approvalUri, boolean accepted) {
+        quotes.verified(quote.statusId(), quote.quotedUri(), approvalUri, accepted);
+    }
+
     /**
      * FEP-044f's checks: it's what it says it is, from the quoted author, about these two statuses.
      */
     static boolean isAuthorization(JsonNode stamp, URI id, URI quotedAuthor, URI quote, URI quoted) {
-        Function<String, Optional<URI>> idOf = property ->
-                Optional.ofNullable(ActivityJson.idOf(stamp.path(property))).flatMap(ActivityObject::parseUri);
         return ActivityJson.types(stamp.path("type")).contains("QuoteAuthorization")
-                && idOf.apply("id").equals(Optional.of(id))
+                && ActivityObject.uriOf(stamp.path("id")).equals(Optional.of(id))
                 && ActivityJson.ids(stamp.path("attributedTo")).equals(List.of(quotedAuthor.toString()))
-                && idOf.apply("interactingObject").equals(Optional.of(quote))
-                && idOf.apply("interactionTarget").equals(Optional.of(quoted));
+                && ActivityObject.uriOf(stamp.path("interactingObject")).equals(Optional.of(quote))
+                && ActivityObject.uriOf(stamp.path("interactionTarget")).equals(Optional.of(quoted));
     }
 
     private Optional<Instant> take(URI target, Instant held) {

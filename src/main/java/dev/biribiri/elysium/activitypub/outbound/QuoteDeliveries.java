@@ -3,7 +3,6 @@ package dev.biribiri.elysium.activitypub.outbound;
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
-import dev.biribiri.elysium.activitypub.vocab.Create;
 import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.activitypub.vocab.QuoteRequest;
 import dev.biribiri.elysium.activitypub.vocab.Update;
@@ -60,14 +59,6 @@ public class QuoteDeliveries {
     }
 
     /**
-     * The ID of a quote's {@code QuoteRequest}, which is the one that {@code content} stores for it. A status's quote can't
-     * change, so it never needs another.
-     */
-    public static String requestIdFor(URI statusUri) {
-        return statusUri + "#quote_request";
-    }
-
-    /**
      * Held until this commits, so that deleting the status either happens first, or finds the request to cancel.
      */
     @ApplicationModuleListener
@@ -107,18 +98,8 @@ public class QuoteDeliveries {
             return;
         }
         var note = notes.of(status.get(), author.get());
-        var create = Create.of(note);
-        deliveries.replaceBody(create.id().toString(), json.writeValueAsString(create));
-        var inboxes = statusDeliveries.everyoneSent(status.get(), true);
-        if (inboxes.isEmpty()) {
-            return;
-        }
-        var update = Update.of(note.withUpdated(event.updatedAt()), event.updatedAt());
-        deliveries.enqueueAfter(
-                new OutboundActivity(
-                        update.id().toString(), author.get().id(), json.writeValueAsString(update), WhileSuspended.DROP),
-                inboxes,
-                create.id().toString());
+        statusDeliveries.sendUpdate(
+                status.get(), author.get(), note, Update.of(note.withUpdated(event.updatedAt()), event.updatedAt()));
     }
 
     /**

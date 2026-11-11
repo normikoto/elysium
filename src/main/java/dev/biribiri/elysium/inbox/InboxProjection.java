@@ -72,8 +72,8 @@ public class InboxProjection {
         quoting.values().removeIf(editorId::equals);
         if (quoting.isEmpty()) return;
         notifications.lock();
+        conversations.holdActors(people(List.copyOf(quoting.values()), editorId));
         quoting.forEach((quoteId, authorId) -> {
-            conversations.holdActors(List.of(authorId, editorId));
             conversations.holdSource(quoteId).filter(source -> source.authorId().equals(authorId))
                     .ifPresent(source -> notifications.insertQuotedUpdate(authorId, editorId,
                             UUID.nameUUIDFromBytes((quoteId + "\n" + editedAt.toEpochMilli())

@@ -3,8 +3,6 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.StatusService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -15,8 +13,6 @@ import java.net.URI;
  */
 @Component
 class Deletions {
-
-    private static final Logger log = LoggerFactory.getLogger(Deletions.class);
 
     private final ActorService actors;
     private final StatusService statuses;
@@ -42,9 +38,7 @@ class Deletions {
             actors.findByUri(actor).filter(found -> !actors.isLocal(found)).ifPresent(found -> actors.markRemoteDeleted(found.id()));
             return;
         }
-        if (quotes.revokeApproval(object, actor)) {
-            log.debug("Revoked the quotes approved by {}", object);
-        }
+        quotes.revokeApproval(object, actor);
         statuses.deleteRemote(object, actor);
     }
 }

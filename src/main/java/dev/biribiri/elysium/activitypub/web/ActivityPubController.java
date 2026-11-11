@@ -25,6 +25,7 @@ import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.activitypub.vocab.Like;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
@@ -54,6 +55,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -308,14 +310,21 @@ public class ActivityPubController {
         var mentions = statuses.findMentions(noteIds);
         var tags = statuses.findTags(noteIds);
         var media = attachments.findByStatuses(noteIds);
+        var quoteRows = quotes.findAll(noteIds);
+        // Not activeActors, since a Note keeps naming the author it quotes after they're suspended or deleted.
+        var quotedAuthors = actors.findByIds(quoteRows.values().stream().map(StatusQuote::quotedAccountId)
+                        .filter(Objects::nonNull).distinct().toList())
+                .stream().collect(Collectors.toMap(Actor::id, Function.identity()));
         var boosted = statuses.findVisibleToAnyone(entries.stream().filter(Status::isReblog).map(Status::reblogOfId).toList())
                 .stream().collect(Collectors.toMap(Status::id, Function.identity()));
         var boostedAuthors = activeActors(boosted.values().stream().map(Status::actorId).distinct().toList());
         var items = new ArrayList<Object>();
         for (var status : entries) {
             if (!status.isReblog()) {
+                var quote = Optional.ofNullable(quoteRows.get(status.id()));
                 var note = notes.of(status, author, mentions.getOrDefault(status.id(), List.of()),
-                        tags.getOrDefault(status.id(), List.of()), media.getOrDefault(status.id(), List.of()));
+                        tags.getOrDefault(status.id(), List.of()), media.getOrDefault(status.id(), List.of()),
+                        quote, quote.map(StatusQuote::quotedAccountId).map(quotedAuthors::get));
                 items.add(Create.of(note).withoutContext());
                 continue;
             }
@@ -346,7 +355,7 @@ public class ActivityPubController {
     }
 
     /**
-     * The answer for a user's collection when the user can't be served, as for followers, following, and the outbox.
+     * The answer for a user's collection or quote approval when the user can't be served.
      *
      * @return empty if the user exists and is active
      */
@@ -516,47 +525,24 @@ public class ActivityPubController {
         response.addHeader(HttpHeaders.VARY, FetchSigners.SIGNATURE);
         var signer = signers.signer(request).map(Actor::id);
         var author = actors.findAnyLocalByUsername(username);
+        var unavailable = unavailable(author);
+        if (unavailable.isPresent()) {
+            return unavailable.get();
+        }
         var stampId = Ids.parse(id);
-        if (author.isEmpty() || stampId.isEmpty()) {
+        if (stampId.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        if (author.get().isDeleted()) {
-            return ResponseEntity.status(HttpStatus.GONE).build();
-        }
-        if (author.get().isSuspended()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
-        var stamp = quotes.findStamp(stampId.get())
-                .filter(found -> author.get().id().equals(found.quotedAccountId()) && found.quotedStatusId() != null);
-        var quoting = stamp.flatMap(found -> statuses.findStored(found.statusId()))
-                .filter(found -> canSeeQuote(found, signer));
-        var quoted = stamp.flatMap(found -> statuses.findStored(found.quotedStatusId()));
-        if (quoting.isEmpty() || quoted.isEmpty()) {
+        var stamp = quotes.findStampFor(stampId.get(), author.get().id(), signer);
+        if (stamp.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
         var ok = ResponseEntity.ok();
-        if (!quoting.get().isVisibleTo(ANONYMOUS)) {
+        if (!stamp.get().quoting().isVisibleTo(ANONYMOUS)) {
             ok.cacheControl(CacheControl.noStore().cachePrivate());
         }
         return ok.body(QuoteAuthorization.of(QuoteAuthorization.idFor(author.get().uri(), stampId.get()),
-                author.get().uri(), quoting.get().uri(), quoted.get().uri()));
-    }
-
-    /**
-     * FEP-044f has a stamp served to whoever can see the quote, so that it tells nobody else the quote exists. A local
-     * quote is checked as its {@code Note} is. A remote one can only be seen by its author and those it mentions.
-     */
-    private boolean canSeeQuote(Status quoting, Optional<UUID> signer) {
-        if (quoting.isVisibleTo(ANONYMOUS)) {
-            return true;
-        }
-        if (signer.isEmpty()) {
-            return false;
-        }
-        if (actors.findById(quoting.actorId()).map(actors::isLocal).orElse(false)) {
-            return statuses.findFetchable(quoting.id(), signer).isPresent();
-        }
-        return signer.get().equals(quoting.actorId()) || statuses.findAllMentioned(quoting.id()).contains(signer.get());
+                author.get().uri(), stamp.get().quoting().uri(), stamp.get().quoted().uri()));
     }
 
     @GetMapping(path = "/users/{username}/statuses/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})

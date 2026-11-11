@@ -80,8 +80,6 @@ record StatusResponse(
     }
 
     /**
-     * Mastodon's QuoteApproval entity.
-     *
      * @param currentUser what would happen to the viewer's quote of the status
      */
     @Schema(name = "QuoteApproval")

@@ -150,10 +150,9 @@ public class StatusService {
         }
         var quoting = draft.quotedStatusId() == null ? null : quotable(draft.quotedStatusId(), authorId);
         // Quoting a followers-only status, which only its author can, keeps the quote among the same followers.
-        var visibility = quoting != null && quoting.status().visibility() == Visibility.PRIVATE
-                && (draft.visibility() == Visibility.PUBLIC || draft.visibility() == Visibility.UNLISTED)
+        var visibility = quoting != null && quoting.status().visibility() == Visibility.PRIVATE && draft.visibility().isOpen()
                 ? Visibility.PRIVATE : draft.visibility();
-        var quotePolicy = visibility == Visibility.PRIVATE || visibility == Visibility.DIRECT ? QuotePolicy.NOBODY
+        var quotePolicy = !visibility.isOpen() ? QuotePolicy.NOBODY
                 : draft.quotePolicy() != null ? draft.quotePolicy() : postingDefaults.quotePolicy(authorId);
         var mentioned = resolveMentions(author, text);
         var content = quoting == null ? render(text, mentioned)
@@ -194,9 +193,10 @@ public class StatusService {
                     publishedAt,
                     null,
                     null,
-                    0);
+                    0,
+                    quotePolicy.approval(),
+                    null);
             statuses.insert(status);
-            quotes.setPolicy(id, quotePolicy.approval());
             media.attach(id, authorId, claimed);
             var mentions = new HashMap<UUID, Boolean>();
             mentionedIds(mentioned, authorId).forEach(mentionedId -> mentions.put(mentionedId, false));
@@ -248,7 +248,7 @@ public class StatusService {
             return Optional.empty();
         }
         var quote = quotes.find(id).orElse(null);
-        if (draft.quotedStatusId() != null && (quote == null || !quotesSame(quote, draft.quotedStatusId(), authorId))) {
+        if (draft.quotedStatusId() != null && (quote == null || !draft.quotedStatusId().equals(quote.quotedStatusId()))) {
             throw new InvalidStatusException("What a status quotes can't be changed");
         }
         var mentioned = resolveMentions(author, text);
@@ -260,9 +260,8 @@ public class StatusService {
                 return new Edited(Optional.<Status>empty(), false);
             }
             var old = found.get();
-            var oldPolicy = quotes.policies(List.of(id)).get(id);
-            var newPolicy = draft.quotePolicy() == null
-                    || old.visibility() == Visibility.PRIVATE || old.visibility() == Visibility.DIRECT
+            var oldPolicy = old.quoteApproval();
+            var newPolicy = draft.quotePolicy() == null || !old.visibility().isOpen()
                     ? oldPolicy : draft.quotePolicy().approval();
             var policyChanged = !Objects.equals(oldPolicy, newPolicy);
             if (policyChanged) {
@@ -294,15 +293,16 @@ public class StatusService {
                     && spoilerText.equals(old.spoilerText()) && Objects.equals(newLanguage, old.language())
                     && sensitive == old.sensitive() && mediaIds.equals(currentIds) && describe.isEmpty();
             if (unchanged) {
-                if (policyChanged) {
-                    quotes.touchNote(id).ifPresent(at -> events.publishEvent(new StatusNoteChanged(id, authorId, at)));
+                if (!policyChanged) {
+                    return new Edited(found, false);
                 }
-                return new Edited(found, false);
+                touchNote(id, authorId);
+                return new Edited(statuses.findById(id), false);
             }
             // In a later second than the version it replaces, even when that's in the future, since other servers are sent
             // whole seconds and ignore an edit that isn't later than what they have. That includes an Update sent for
             // something other than an edit.
-            var since = Stream.concat(Stream.of(old.publishedAt(), old.editedAt()), quotes.findNoteUpdatedAt(id).stream())
+            var since = Stream.of(old.publishedAt(), old.editedAt(), old.noteUpdatedAt())
                     .filter(Objects::nonNull)
                     .max(Instant::compareTo)
                     .orElseThrow();
@@ -337,24 +337,21 @@ public class StatusService {
     }
 
     /**
-     * A status that the author is allowed to quote, and what would happen to the quote.
+     * A status that the author is allowed to quote.
+     *
+     * @param local whether its author is this server's
      */
     private record Quoting(Status status, boolean local) {
     }
 
     /**
-     * Quoting a boost quotes the status it boosts, as replying to one does.
-     *
      * @throws QuotedStatusNotFoundException if it can't be found, or the author can't see it
      * @throws InvalidStatusException        if its author doesn't allow this author to quote it
      */
     private Quoting quotable(UUID quotedId, UUID authorId) {
-        var quoted = findVisible(quotedId, Optional.of(authorId))
-                .flatMap(found -> found.isReblog() ? findVisible(found.reblogOfId(), Optional.of(authorId)) : Optional.of(found))
-                .orElseThrow(QuotedStatusNotFoundException::new);
-        var local = actors.findById(quoted.actorId()).map(actors::isLocal).orElse(false);
-        var policy = quotes.policies(List.of(quoted.id())).get(quoted.id());
-        var decision = quoteRules.decide(quoted, policy, local, authorId);
+        var quoted = findVisible(quotedId, Optional.of(authorId)).orElseThrow(QuotedStatusNotFoundException::new);
+        var local = actors.isLocal(quoted.actorId());
+        var decision = quoteRules.decide(quoted, quoted.quoteApproval(), local, authorId);
         if (decision == QuoteDecision.DENIED) {
             throw new InvalidStatusException("This status can't be quoted");
         }
@@ -367,19 +364,30 @@ public class StatusService {
      */
     private void insertLocalQuote(Status status, Status quoted, boolean local) {
         var self = quoted.actorId().equals(status.actorId());
+        var target = Optional.of(new StatusRepository.Parent(quoted.id(), quoted.actorId()));
         if (local || self) {
-            quotes.insert(status.id(), quoted.uri(), quoted.id(), quoted.actorId(), QuoteState.ACCEPTED, false, null,
+            quotes.insert(status.id(), quoted.uri(), target, QuoteState.ACCEPTED, false, null,
                     self ? null : Ids.timeOrdered(Instant.now()), null);
-            if (!self) {
-                events.publishEvent(new QuoteAccepted(status.id(), status.actorId(), quoted.id(), quoted.actorId()));
-            }
+            publishQuoteAccepted(status, quoted.actorId());
             return;
         }
-        var legacy = quotes.policies(List.of(quoted.id())).get(quoted.id()) == null;
-        quotes.insert(status.id(), quoted.uri(), quoted.id(), quoted.actorId(),
-                legacy ? QuoteState.ACCEPTED : QuoteState.PENDING, legacy, null, null,
-                URI.create(status.uri() + "#quote_request"));
+        var legacy = quoted.quoteApproval() == null;
+        quotes.insert(status.id(), quoted.uri(), target, legacy ? QuoteState.ACCEPTED : QuoteState.PENDING, legacy, null,
+                null, StatusQuote.requestUriFor(status.uri()));
         events.publishEvent(new QuoteRequested(status.id(), status.actorId()));
+    }
+
+    /**
+     * Quoting oneself tells nobody anything.
+     */
+    void publishQuoteAccepted(Status quoting, UUID quotedAuthorId) {
+        if (!quoting.actorId().equals(quotedAuthorId)) {
+            events.publishEvent(new QuoteAccepted(quoting.id(), quoting.actorId(), quotedAuthorId));
+        }
+    }
+
+    void touchNote(UUID statusId, UUID authorId) {
+        quotes.touchNote(statusId).ifPresent(at -> events.publishEvent(new StatusNoteChanged(statusId, authorId, at)));
     }
 
     /**
@@ -460,17 +468,6 @@ public class StatusService {
         if (playable > 1 || (playable == 1 && types.size() > 1)) {
             throw new InvalidStatusException("A video or audio can't be attached with any other media");
         }
-    }
-
-    /**
-     * Whether a quote is of this status, or of the status that this one boosts.
-     */
-    private boolean quotesSame(StatusQuote quote, UUID quotedId, UUID authorId) {
-        if (quotedId.equals(quote.quotedStatusId())) {
-            return true;
-        }
-        return statuses.findById(quotedId).filter(Status::isReblog).map(Status::reblogOfId)
-                .filter(original -> original.equals(quote.quotedStatusId())).isPresent();
     }
 
     private static boolean isEditableBy(Status status, UUID authorId) {
@@ -651,7 +648,9 @@ public class StatusService {
                     remote.publishedAt().truncatedTo(ChronoUnit.MICROS),
                     remote.editedAt() == null ? null : remote.editedAt().truncatedTo(ChronoUnit.MICROS),
                     null,
-                    0);
+                    0,
+                    remote.quotePolicy(),
+                    null);
             if (!statuses.insert(status)) {
                 return Optional.<UUID>empty();
             }
@@ -660,9 +659,6 @@ public class StatusService {
             statuses.insertMentions(id, mentions);
             statuses.insertTags(id, remoteTags(remote.tags()));
             attachments.addRemote(id, author.id(), remote.attachments());
-            if (remote.quotePolicy() != null) {
-                quotes.setPolicy(id, remote.quotePolicy());
-            }
             if (remote.quote() != null) {
                 insertRemoteQuote(id, remote.quote(), fetchQuoted);
             }
@@ -680,11 +676,10 @@ public class StatusService {
      * Every remote quote waits to be checked, even one that needs no approval, since only checking it finds what it quotes,
      * and whether that's its author's own, or this server's.
      */
-    private void insertRemoteQuote(UUID statusId, RemoteQuote quote, boolean fetchQuoted) {
+    void insertRemoteQuote(UUID statusId, RemoteQuote quote, boolean fetchQuoted) {
         var quoted = statuses.findParentByUriAndLock(quote.quotedUri());
-        quotes.insert(statusId, quote.quotedUri(), quoted.map(StatusRepository.Parent::id).orElse(null),
-                quoted.map(StatusRepository.Parent::actorId).orElse(null), QuoteState.PENDING, quote.legacy(),
-                quote.authorizationUri(), null, null);
+        quotes.insert(statusId, quote.quotedUri(), quoted, QuoteState.PENDING, quote.legacy(), quote.authorizationUri(),
+                null, null);
         events.publishEvent(new QuoteVerificationNeeded(statusId, fetchQuoted));
     }
 

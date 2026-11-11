@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
+import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.QuoteApproval;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 /**
  * Stores a {@code Note} from another server as a status, when it's for a local account, through a follow or by addressing
@@ -93,7 +95,7 @@ class NoteStorage {
         var visibility = visibility(note.addressing(), author);
         var forWhom = recipients.of(activity, document, read.fetched() ? note.addressing() : Addressing.NONE);
         // Followers-only replies and quotes stay out, since only their author's followers could see them.
-        var everyone = visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED;
+        var everyone = visibility.isOpen();
         if (forWhom.isEmpty() && !(everyone && note.inReplyTo() != null
                 && recipients.repliesToSomeoneHere(note.inReplyTo(), actorUri))
                 && !(everyone && note.quote() != null
@@ -117,10 +119,7 @@ class NoteStorage {
      * @param author the note's only {@code attributedTo}, already checked to be on the note's server
      */
     Result storeBoosted(RemoteNote note, URI author) {
-        if (blocks.isBlocked(author.getHost())) {
-            return Result.IGNORED;
-        }
-        return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), statuses::storeRemote);
+        return storeByAuthorUri(note, author, statuses::storeRemote);
     }
 
     /**
@@ -128,10 +127,14 @@ class NoteStorage {
      * quotes in turn isn't fetched.
      */
     Result storeQuoted(RemoteNote note, URI author) {
+        return storeByAuthorUri(note, author, statuses::storeQuoted);
+    }
+
+    private Result storeByAuthorUri(RemoteNote note, URI author, Function<RemoteStatus, Optional<UUID>> store) {
         if (blocks.isBlocked(author.getHost())) {
             return Result.IGNORED;
         }
-        return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), statuses::storeQuoted);
+        return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), store);
     }
 
     /**
@@ -147,8 +150,7 @@ class NoteStorage {
         var note = read.note();
         var author = remoteActors.fetchOrRefresh(actorUri);
         var visibility = visibility(note.addressing(), author);
-        var everyone = visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED;
-        if (!everyone && !recipients.named(note.addressing()).contains(quotedAuthor)) {
+        if (!visibility.isOpen() && !recipients.named(note.addressing()).contains(quotedAuthor)) {
             return Result.IGNORED;
         }
         if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
@@ -225,8 +227,12 @@ class NoteStorage {
         if (policy == null) {
             return null;
         }
-        var followers = actors.findFollowersUri(author.uri()).map(URI::toString).orElse(null);
-        var following = author.uri() + "/following";
+        // Most policies name only the public or the author, which don't need the author's followers collection.
+        var followers = Stream.concat(policy.automaticApproval().stream(), policy.manualApproval().stream())
+                .anyMatch(id -> !isPublic(id) && !id.equals(author.uri().toString()))
+                ? actors.findFollowersUri(author.uri()).map(URI::toString).orElse(null)
+                : null;
+        var following = Person.followingOf(author).toString();
         return new QuoteApproval(audiences(policy.automaticApproval(), author, followers, following),
                 audiences(policy.manualApproval(), author, followers, following));
     }
@@ -235,7 +241,7 @@ class NoteStorage {
             List<String> approved, Actor author, String followers, String following) {
         var audiences = EnumSet.noneOf(QuoteApproval.Audience.class);
         for (var id : approved) {
-            if (ActivityJson.audienceId(id).equals(ActivityStreams.PUBLIC)) {
+            if (isPublic(id)) {
                 audiences.add(QuoteApproval.Audience.PUBLIC);
             } else if (id.equals(followers)) {
                 audiences.add(QuoteApproval.Audience.FOLLOWERS);
@@ -246,6 +252,10 @@ class NoteStorage {
             }
         }
         return audiences;
+    }
+
+    private static boolean isPublic(String id) {
+        return ActivityJson.audienceId(id).equals(ActivityStreams.PUBLIC);
     }
 
     /**

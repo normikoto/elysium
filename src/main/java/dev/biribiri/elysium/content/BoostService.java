@@ -228,7 +228,7 @@ public class BoostService {
 
     private static Status boost(UUID id, URI uri, UUID actorId, Status status, Visibility visibility, Instant publishedAt) {
         return new Status(id, uri, actorId, "", "", "", null, visibility, false, false, null, null, null, null,
-                publishedAt, null, status.id(), 0);
+                publishedAt, null, status.id(), 0, null, null);
     }
 
     /**

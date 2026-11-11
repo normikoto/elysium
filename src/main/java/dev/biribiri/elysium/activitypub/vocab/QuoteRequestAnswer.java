@@ -41,14 +41,17 @@ public record QuoteRequestAnswer(
      */
     public static QuoteRequestAnswer accept(
             URI quotedAuthor, String requestId, URI requester, URI quoted, URI quote, URI authorization) {
-        return new QuoteRequestAnswer(CONTEXT, URI.create(quotedAuthor + "#accepts/quote_requests/"
-                + Digests.sha256Hex(requestId)), "Accept", quotedAuthor, List.of(requester.toString()),
-                new Request(requestId, "QuoteRequest", requester, quoted, quote), authorization);
+        return answer("Accept", "accepts", quotedAuthor, requestId, requester, quoted, quote, authorization);
     }
 
     public static QuoteRequestAnswer reject(URI quotedAuthor, String requestId, URI requester, URI quoted, URI quote) {
-        return new QuoteRequestAnswer(CONTEXT, URI.create(quotedAuthor + "#rejects/quote_requests/"
-                + Digests.sha256Hex(requestId)), "Reject", quotedAuthor, List.of(requester.toString()),
-                new Request(requestId, "QuoteRequest", requester, quoted, quote), null);
+        return answer("Reject", "rejects", quotedAuthor, requestId, requester, quoted, quote, null);
+    }
+
+    private static QuoteRequestAnswer answer(
+            String type, String segment, URI quotedAuthor, String requestId, URI requester, URI quoted, URI quote, URI result) {
+        return new QuoteRequestAnswer(CONTEXT, URI.create(quotedAuthor + "#" + segment + "/quote_requests/"
+                + Digests.sha256Hex(requestId)), type, quotedAuthor, List.of(requester.toString()),
+                new Request(requestId, "QuoteRequest", requester, quoted, quote), result);
     }
 }

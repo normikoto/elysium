@@ -334,7 +334,7 @@ class QuoteIntegrationTests {
         creates.handle(activity(quoter, "Create", note));
 
         var id = statusId(noteUri).orElseThrow();
-        assertThat(quotes.policies(List.of(id)).get(id)).isEqualTo(new QuoteApproval(
+        assertThat(statuses.findStored(id).orElseThrow().quoteApproval()).isEqualTo(new QuoteApproval(
                 Set.of(QuoteApproval.Audience.FOLLOWERS),
                 Set.of(QuoteApproval.Audience.PUBLIC, QuoteApproval.Audience.UNSUPPORTED)));
     }

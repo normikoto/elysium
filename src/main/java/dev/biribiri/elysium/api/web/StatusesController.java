@@ -483,7 +483,7 @@ public class StatusesController {
                 .orElseThrow(RecordNotFoundException::new);
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         return responses.page("/api/v1/statuses/" + status.id() + "/quotes", Map.of(), page,
-                quotes.findAccepted(status.id(), Optional.of(viewer), page), Optional.of(viewer));
+                quotes.findAccepted(status.id(), viewer, page), Optional.of(viewer));
     }
 
     @PostMapping("/{id}/quotes/{quotingId}/revoke")

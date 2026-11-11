@@ -28,8 +28,7 @@ public record QuoteRequest(
     static final List<Object> CONTEXT = List.of(ActivityStreams.CONTEXT, terms());
 
     private static Map<String, Object> terms() {
-        var terms = new LinkedHashMap<String, Object>(((Map<?, ?>) Note.CONTEXT.get(1)).size() + 1);
-        ((Map<?, ?>) Note.CONTEXT.get(1)).forEach((key, value) -> terms.put((String) key, value));
+        var terms = new LinkedHashMap<>(Note.TERMS);
         terms.put("QuoteRequest", "https://w3id.org/fep/044f#QuoteRequest");
         return terms;
     }

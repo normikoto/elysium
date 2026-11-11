@@ -7,5 +7,5 @@ import java.util.UUID;
  *
  * @param statusId the quoting status
  */
-public record QuoteAccepted(UUID statusId, UUID authorId, UUID quotedStatusId, UUID quotedAuthorId) {
+public record QuoteAccepted(UUID statusId, UUID authorId, UUID quotedAuthorId) {
 }

@@ -138,9 +138,7 @@ record RemoteNote(
                 ActivityJson.naturalText(node, "summary"),
                 language(node.path("contentMap")),
                 ActivityJson.flag(node.path("sensitive")),
-                Optional.ofNullable(ActivityJson.idOf(node.path("inReplyTo")))
-                        .flatMap(ActivityObject::parseUri)
-                        .orElse(null),
+                ActivityObject.uriOf(node.path("inReplyTo")).orElse(null),
                 timestamp(node.path("published")),
                 timestamp(node.path("updated")),
                 Addressing.of(node),
@@ -161,8 +159,8 @@ record RemoteNote(
         }
         if (quoted == null) {
             quoted = ActivityJson.tags(node.path("tag")).stream()
-                    .filter(tag -> "Link".equals(tag.type()) && tag.href() != null)
-                    .filter(tag -> linkRels(node.path("tag"), tag.href()).stream().anyMatch(QUOTE_RELS::contains))
+                    .filter(tag -> "Link".equals(tag.type()) && tag.href() != null
+                            && tag.rels().stream().anyMatch(QUOTE_RELS::contains))
                     .flatMap(tag -> ActivityObject.parseUri(tag.href()).stream())
                     .findFirst()
                     .orElse(null);
@@ -179,23 +177,7 @@ record RemoteNote(
      */
     private static URI firstId(JsonNode node) {
         var first = node.isArray() ? node.path(0) : node;
-        return Optional.ofNullable(ActivityJson.idOf(first)).flatMap(ActivityObject::parseUri).orElse(null);
-    }
-
-    /**
-     * The {@code rel} of the {@code Link} tags with this {@code href}, which can be a string or an array.
-     */
-    private static List<String> linkRels(JsonNode tag, String href) {
-        var rels = new ArrayList<String>();
-        for (var candidate : tag.isArray() ? tag.valueStream().toList() : List.of(tag)) {
-            if (candidate.isObject() && href.equals(ActivityJson.idOf(candidate.path("href")))) {
-                var rel = candidate.path("rel");
-                for (var value : rel.isArray() ? rel.valueStream().toList() : List.of(rel)) {
-                    Optional.ofNullable(ActivityJson.text(value)).ifPresent(rels::add);
-                }
-            }
-        }
-        return rels;
+        return ActivityObject.uriOf(first).orElse(null);
     }
 
     /**

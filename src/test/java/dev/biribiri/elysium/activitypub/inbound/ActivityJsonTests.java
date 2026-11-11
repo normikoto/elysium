@@ -6,6 +6,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ActivityJsonTests {
@@ -88,12 +90,12 @@ class ActivityJsonTests {
 
     @Test
     void readsTagsFromOneOrAnArray() {
-        var mention = new ActivityJson.Tag("Mention", "https://b.test/v", "@v@b.test");
+        var mention = new ActivityJson.Tag("Mention", "https://b.test/v", "@v@b.test", List.of());
         var single = "{\"type\":\"Mention\",\"href\":\"https://b.test/v\",\"name\":\"@v@b.test\"}";
 
         assertThat(ActivityJson.tags(node(single))).containsExactly(mention);
         assertThat(ActivityJson.tags(node("[" + single + ",\"https://c.test/t\",{\"type\":[\"Hashtag\"],\"name\":\"#x\"}]")))
-                .containsExactly(mention, new ActivityJson.Tag("Hashtag", null, "#x"));
+                .containsExactly(mention, new ActivityJson.Tag("Hashtag", null, "#x", List.of()));
         assertThat(ActivityJson.tags(JSON.readTree("{}").path("tag"))).isEmpty();
     }
 

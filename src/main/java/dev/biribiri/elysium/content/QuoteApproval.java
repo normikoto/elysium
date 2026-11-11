@@ -1,8 +1,6 @@
 package dev.biribiri.elysium.content;
 
-import java.util.Arrays;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -30,10 +28,6 @@ public record QuoteApproval(Set<Audience> automatic, Set<Audience> manual) {
 
         public String value() {
             return name().toLowerCase(Locale.ROOT);
-        }
-
-        static Optional<Audience> fromValue(String value) {
-            return Arrays.stream(values()).filter(audience -> audience.value().equals(value)).findFirst();
         }
     }
 

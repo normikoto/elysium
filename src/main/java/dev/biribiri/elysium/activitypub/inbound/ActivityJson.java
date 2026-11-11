@@ -129,7 +129,8 @@ final class ActivityJson {
         var tags = new ArrayList<Tag>();
         for (var tag : node.isArray() ? node.valueStream().toList() : List.of(node)) {
             if (tag.isObject()) {
-                tags.add(new Tag(firstText(tag.path("type")), idOf(tag.path("href")), text(tag.path("name"))));
+                tags.add(new Tag(firstText(tag.path("type")), idOf(tag.path("href")), text(tag.path("name")),
+                        types(tag.path("rel"))));
             }
         }
         return List.copyOf(tags);
@@ -141,7 +142,8 @@ final class ActivityJson {
      * @param type its first {@code type}
      * @param href what it links to, such as the mentioned actor
      * @param name what it says, such as {@code @alice@example.com} or {@code #tag}
+     * @param rels every {@code rel} of a {@code Link}, from one value or an array
      */
-    record Tag(String type, String href, String name) {
+    record Tag(String type, String href, String name, List<String> rels) {
     }
 }

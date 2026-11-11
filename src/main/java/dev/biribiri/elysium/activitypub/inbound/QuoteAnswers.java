@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
-import java.util.Optional;
 
 /**
  * Reads an {@code Accept} or {@code Reject} of a {@code QuoteRequest} that this server sent, as FEP-044f has it. The
@@ -37,12 +36,11 @@ class QuoteAnswers {
      */
     boolean answer(InboundActivity activity, boolean accepted) {
         var document = json.readTree(activity.body());
-        var object = document.path("object");
-        if (object.isObject() && !ActivityJson.types(object.path("type")).isEmpty()
-                && !ActivityJson.types(object.path("type")).contains("QuoteRequest")) {
+        var object = ActivityObject.of(document);
+        if (object.map(ActivityObject::type).filter(type -> !type.equals("QuoteRequest")).isPresent()) {
             return false;
         }
-        var request = Optional.ofNullable(ActivityJson.idOf(object)).flatMap(ActivityObject::parseUri)
+        var request = object.map(ActivityObject::id).flatMap(ActivityObject::parseUri)
                 .filter(uri -> uri.toString().startsWith(instance.baseUrl() + "/"));
         if (request.isEmpty()) {
             return false;
@@ -50,7 +48,7 @@ class QuoteAnswers {
         var actor = URI.create(activity.actorUri());
         URI approval = null;
         if (accepted) {
-            approval = Optional.ofNullable(ActivityJson.idOf(document.path("result"))).flatMap(ActivityObject::parseUri)
+            approval = ActivityObject.uriOf(document.path("result"))
                     .filter(uri -> InboundActivity.isStorableId(uri.toString()) && Inbox.isOnActorsServer(uri, actor))
                     .orElse(null);
             if (approval == null) {

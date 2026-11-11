@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.QuotePolicy;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
@@ -62,15 +63,22 @@ public class Notes {
      * @param tags the names {@link StatusService#findTags} gives, for a caller that has looked them up already
      */
     public Note of(Status status, Actor author, List<Actor> mentioned, List<String> tags) {
+        var quote = quotes.find(status.id());
         return of(status, author, mentioned, tags,
-                attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of()));
+                attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of()),
+                quote, quote.map(StatusQuote::quotedAccountId).flatMap(actors::findById));
     }
 
     /**
-     * @param media the attachments {@link MediaAttachments#findByStatuses} gives, for a caller that has looked them up
-     *              already
+     * For a caller that has looked all of these up already.
+     *
+     * @param media        the attachments {@link MediaAttachments#findByStatuses} gives
+     * @param quote        what {@link QuoteService#findAll} gives for this status
+     * @param quotedAuthor the account {@code quote} names, whatever its state, since a {@code Note} keeps naming an author
+     *                     who's since been suspended or deleted
      */
-    public Note of(Status status, Actor author, List<Actor> mentioned, List<String> tags, List<MediaAttachment> media) {
+    public Note of(Status status, Actor author, List<Actor> mentioned, List<String> tags, List<MediaAttachment> media,
+                   Optional<StatusQuote> quote, Optional<Actor> quotedAuthor) {
         var parent = shownParent(status, mentioned);
         return Note.from(
                 status,
@@ -80,7 +88,7 @@ public class Notes {
                 mentioned.stream().map(actor -> Mention.of(actor.uri(), "@" + actor.username() + "@" + actor.domain())).toList(),
                 Hashtag.of(tags, instance),
                 media.stream().map(attachment -> Document.of(attachment, instance)).toList(),
-                quotes.find(status.id()).map(quote -> quote(status, quote)).orElse(null),
+                quote.map(found -> quote(status, found, quotedAuthor)).orElse(null),
                 policy(status, author));
     }
 
@@ -88,8 +96,7 @@ public class Notes {
      * Legacy properties are only sent once a quote is approved, since the servers that read only those can't tell an
      * approved quote from one that isn't, and would show either.
      */
-    private Note.Quote quote(Status status, StatusQuote quote) {
-        var quotedAuthor = Optional.ofNullable(quote.quotedAccountId()).flatMap(actors::findById);
+    private Note.Quote quote(Status status, StatusQuote quote, Optional<Actor> quotedAuthor) {
         var self = status.actorId().equals(quote.quotedAccountId());
         var shown = quote.state() == QuoteState.ACCEPTED && !quote.isOfDeleted();
         URI authorization = null;
@@ -106,11 +113,7 @@ public class Notes {
      * only its author can quote names its author.
      */
     private Note.InteractionPolicy policy(Status status, Actor author) {
-        var policy = status.visibility() == Visibility.PRIVATE || status.visibility() == Visibility.DIRECT
-                ? QuotePolicy.NOBODY
-                : Optional.ofNullable(quotes.policies(List.of(status.id())).get(status.id()))
-                .map(dev.biribiri.elysium.content.QuoteApproval::policy)
-                .orElse(QuotePolicy.NOBODY);
+        var policy = Optional.ofNullable(status.quoteApproval()).map(QuoteApproval::policy).orElse(QuotePolicy.NOBODY);
         return Note.InteractionPolicy.automatic(List.of(switch (policy) {
             case PUBLIC -> ActivityStreams.PUBLIC;
             case FOLLOWERS -> Person.followersOf(author).toString();
