@@ -11,6 +11,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusPublished;
+import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.BlockService;

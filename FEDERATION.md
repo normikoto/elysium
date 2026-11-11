@@ -102,8 +102,10 @@ and any origin can read both through CORS. Public and unlisted statuses are serv
 A fetch of a `Note` doesn't need a signature, but one is checked if it's sent, and the request is answered as the actor
 that owns the signing key:
 
-- A followers-only status is served to an actor that was already following its author when it was posted, which is who
-  its `Create` went to, and to the actors in its `Mention` tags, or in them before an edit.
+- A followers-only status is served to an actor that follows its author and was sent its `Create`, including one that
+  has unfollowed and followed again since, and to the actors in its `Mention` tags, or in them before an edit. A former
+  follower isn't served it. For a status posted before this server version recorded who its `Create` went to, it's
+  served to followers who have been following since before it was posted.
 - A direct status is served to the actors in its `Mention` tags, or in them before an edit.
 - Only the signer counts. An instance actor, or any other actor, isn't served a status because other actors on its
   server can see it. This matches Mastodon. Misskey's lookups, and Mastodon's searches, are signed as their instance
@@ -775,8 +777,8 @@ signature.
 - An `Update` from another server doesn't change who its status mentions, so an edit can't show a followers-only or
   direct status to more local users.
 - A reply's `inReplyTo` is left out if its parent can't be shown, so it doesn't look like a reply.
-- A followers-only status can't be fetched by an actor that started following after it was posted, though Mastodon would
-  serve it to any current follower.
+- A followers-only status can't be fetched by an actor that started following after it was posted and wasn't sent it,
+  though Mastodon would serve it to any current follower.
 - A local user's boost of a status that's removed with its author's account, or with a blocked domain's statuses, goes
   without an `Undo`.
 - Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.

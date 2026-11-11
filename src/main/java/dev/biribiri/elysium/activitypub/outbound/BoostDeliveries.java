@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.StatusReblogged;
+import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusUnreblogged;
 import dev.biribiri.elysium.content.Visibility;

@@ -35,6 +35,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -97,6 +98,35 @@ class NoteFetchIntegrationTests {
                 .andExpect(header().stringValues(HttpHeaders.VARY, hasItem(containsString("Accept"))));
         fetch(status, late).andExpect(status().isNotFound());
         send(unsigned(status)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void servesAFollowersOnlyStatusToSomeoneWhoWasSentItAndFollowedAgainButNotToAFormerFollower() throws Exception {
+        var again = remote("again");
+        var former = remote("former");
+        var late = remote("late");
+        followAlice(again, Duration.ofHours(-1));
+        followAlice(former, Duration.ofHours(-1));
+        var status = post("only followers", Visibility.PRIVATE);
+        for (var recipient : List.of(again, former)) {
+            jdbc.sql("""
+                            INSERT INTO followers_only_recipient (status_id, author_id, actor_id)
+                            VALUES (:status, :author, :actor)
+                            ON CONFLICT DO NOTHING
+                            """)
+                    .param("status", status.id())
+                    .param("author", alice().id())
+                    .param("actor", recipient.actor().id())
+                    .update();
+        }
+        // Following again makes the follow newer than the status.
+        followAlice(again, Duration.ofHours(1));
+        follows.removeForActor(former.actor().id());
+        followAlice(late, Duration.ofHours(1));
+
+        fetch(status, again).andExpect(status().isOk());
+        fetch(status, former).andExpect(status().isNotFound());
+        fetch(status, late).andExpect(status().isNotFound());
     }
 
     @Test

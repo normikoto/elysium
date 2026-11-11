@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.outbound;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.graph.BlockService;

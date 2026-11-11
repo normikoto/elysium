@@ -484,8 +484,8 @@ public class ActivityPubController {
             summary = "Fetch a status as a Note",
             description = """
                     Public and unlisted statuses are `Note` objects. A signature is read if there is one, but never \
-                    required. A private status is only served to a signer who was already following its author when \
-                    it was posted, or that it mentions, and a direct one to a signer it mentions. A signature that \
+                    required. A private status is only served to a signer who follows its author and was sent it, \
+                    or that it mentions, and a direct one to a signer it mentions. A signature that \
                     can't be accepted is answered as if there were none. A deleted public or unlisted status gets a \
                     410 with a `Tombstone`, and a deleted private or direct one a 404. Answers have \
                     `Vary: Signature`, and a private or direct `Note` has `Cache-Control: no-store, private`. A \

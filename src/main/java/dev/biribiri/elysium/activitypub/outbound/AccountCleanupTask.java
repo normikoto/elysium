@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;

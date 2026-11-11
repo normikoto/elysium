@@ -1,32 +1,23 @@
-package dev.biribiri.elysium.activitypub.outbound;
+package dev.biribiri.elysium.content.internal;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
 
 import java.net.URI;
 import java.util.Collection;
-import java.util.UUID;
 import java.util.List;
+import java.util.UUID;
 
-/**
- * Which remote followers each local followers-only status or boost was sent to. Follows can't say this once someone has
- * unfollowed, or followed again since, which makes their follow look newer than the status. Without this, those servers
- * would never be sent its {@code Delete} or {@code Undo}, and would keep a private status that's gone. A boost is recorded
- * under its own status ID, and its booster as the author.
- */
-@Component
-class FollowersOnlyRecipients {
+@Repository
+public class FollowersOnlyRecipientRepository {
 
     private final JdbcClient jdbc;
 
-    FollowersOnlyRecipients(JdbcClient jdbc) {
+    FollowersOnlyRecipientRepository(JdbcClient jdbc) {
         this.jdbc = jdbc;
     }
 
-    /**
-     * Adds to who a status was sent to. This can run again for the same status.
-     */
-    void record(UUID statusId, UUID authorId, Collection<UUID> actorIds) {
+    public void record(UUID statusId, UUID authorId, Collection<UUID> actorIds) {
         if (actorIds.isEmpty()) {
             return;
         }
@@ -41,14 +32,7 @@ class FollowersOnlyRecipients {
                 .update();
     }
 
-    /**
-     * The inboxes of the active actors that a status was sent to, together with {@code others}, with one inbox for those
-     * that share one.
-     *
-     * @param others   actors to include whether or not they're recorded
-     * @param onlyThese if not null, leaves out every actor not among these
-     */
-    List<URI> inboxes(UUID statusId, Collection<UUID> others, Collection<UUID> onlyThese) {
+    public List<URI> inboxes(UUID statusId, Collection<UUID> others, Collection<UUID> onlyThese) {
         var sql = """
                 SELECT DISTINCT COALESCE(a.shared_inbox_uri, a.inbox_uri)
                 FROM actor a
@@ -71,28 +55,29 @@ class FollowersOnlyRecipients {
                 .list();
     }
 
-    /**
-     * For once a status's {@code Delete}, or a boost's {@code Undo}, has been queued, when nothing more is sent for it.
-     */
-    void forget(UUID statusId) {
+    public boolean wasSent(UUID statusId, UUID actorId) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM followers_only_recipient WHERE status_id = :statusId AND actor_id = :actorId
+                        )
+                        """)
+                .param("statusId", statusId)
+                .param("actorId", actorId)
+                .query(Boolean.class)
+                .single();
+    }
+
+    public void forget(UUID statusId) {
         jdbc.sql("DELETE FROM followers_only_recipient WHERE status_id = :statusId").param("statusId", statusId).update();
     }
 
-    /**
-     * Removes the statuses an actor wrote or boosted, and what it was sent.
-     */
-    void removeForActor(UUID actorId) {
+    public void removeForActor(UUID actorId) {
         jdbc.sql("DELETE FROM followers_only_recipient WHERE author_id = :actorId OR actor_id = :actorId")
                 .param("actorId", actorId)
                 .update();
     }
 
-    /**
-     * Removes what a domain's actors were sent.
-     *
-     * @param domain a domain as {@code actor.domain} has it
-     */
-    void removeForDomain(String domain) {
+    public void removeForDomain(String domain) {
         jdbc.sql("""
                         DELETE FROM followers_only_recipient
                         WHERE actor_id IN (SELECT id FROM actor WHERE domain = :domain AND NOT is_local)
