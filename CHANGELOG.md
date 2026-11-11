@@ -242,3 +242,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Writing outside the private `/tmp` and `/var/tmp`, such as to a log file. Follow the comments in the file.
   - Files in the home directory, such as PostgreSQL's `~/.postgresql/root.crt`. The home directory is now `/opt/elysium`,
     so move them there or set their paths in your config.
+### Fixed
+
+- Deleting a followers-only post now tells every server it was sent to, including those whose followers have unfollowed, or
+  unfollowed and followed again, since. Before, those servers kept a copy of the deleted post. This only applies to posts
+  made after upgrading. Edits of a followers-only post now also reach followers who followed again since it was posted.

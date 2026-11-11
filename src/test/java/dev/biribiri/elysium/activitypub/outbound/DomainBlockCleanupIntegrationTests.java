@@ -140,6 +140,30 @@ class DomainBlockCleanupIntegrationTests {
     }
 
     @Test
+    void forgetsWhichFollowersOnlyStatusesItsActorsWereSent() {
+        var follower = remote(domain);
+        var other = remote("not" + domain);
+        var status = UUID.randomUUID();
+        for (var recipient : List.of(follower, other)) {
+            jdbc.sql("""
+                            INSERT INTO followers_only_recipient (status_id, author_id, actor_id)
+                            VALUES (:status, :author, :actor)
+                            """)
+                    .param("status", status)
+                    .param("author", local.id())
+                    .param("actor", recipient.id())
+                    .update();
+        }
+        follow(follower, local);
+
+        blocks.create(domain, null);
+
+        await().atMost(WAIT).until(() -> follows(follower) == 0);
+        assertThat(jdbc.sql("SELECT actor_id FROM followers_only_recipient WHERE status_id = :status")
+                .param("status", status).query(UUID.class).list()).containsExactly(other.id());
+    }
+
+    @Test
     void removesStatusesOfTheBlockedServersActors() {
         var blocked = remote("social." + domain);
         var other = remote("not" + domain);

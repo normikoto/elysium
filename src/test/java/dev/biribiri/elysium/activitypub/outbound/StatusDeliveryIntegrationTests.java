@@ -542,6 +542,56 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
+    void someoneWhoFollowedAgainIsToldAboutADeletedFollowersOnlyStatusTheyWereSent() {
+        var host = newHost();
+        var follower = follow(host, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        awaitCreate(host, status);
+        awaitNothingLeftFor(status);
+        unfollow(follower);
+        follow(host, "bob", false, author, "#follow-again");
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(host, status);
+        awaitNothingLeftFor(status);
+        assertThat(recordedRecipients(status)).isZero();
+    }
+
+    @Test
+    void aFormerFollowerIsToldAboutADeletedFollowersOnlyStatusTheyWereSent() {
+        var host = newHost();
+        var follower = follow(host, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        awaitCreate(host, status);
+        awaitNothingLeftFor(status);
+        unfollow(follower);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(host, status);
+    }
+
+    @Test
+    void aFollowersOnlyStatusWithNothingRecordedIsDeletedForThoseFollowingWhenItWasPosted() {
+        var earlier = newHost();
+        follow(earlier, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        // Like a status posted before recipients were recorded.
+        awaitNothingLeftFor(status);
+        jdbc.sql("DELETE FROM followers_only_recipient WHERE status_id = :id").param("id", status.id()).update();
+        var later = newHost();
+        follow(later, "carol", false);
+
+        statuses.delete(status.id(), author.id());
+
+        awaitDelete(earlier, status);
+        awaitNothingLeftFor(status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT)
+                .until(() -> deletesFor(later, status).isEmpty());
+    }
+
+    @Test
     void aLaterFollowerIsToldAboutADeletedPublicStatus() {
         var status = post(Visibility.PUBLIC, null);
         awaitNothingLeftFor(status);
@@ -562,7 +612,7 @@ class StatusDeliveryIntegrationTests {
         doAnswer(call -> {
             follow(later, "carol", false);
             return call.callRealMethod();
-        }).doCallRealMethod().when(follows).followerInboxesAsOf(eq(author.id()), any());
+        }).doCallRealMethod().when(follows).remoteFollowerIdsAsOf(eq(author.id()), any());
 
         var status = post(Visibility.PRIVATE, null);
 
@@ -882,6 +932,28 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
+    void sendsTheEditOfAFollowersOnlyStatusToSomeoneWhoFollowedAgainButNotToAFormerFollower() {
+        var again = newHost();
+        var refollower = follow(again, "bob", false);
+        var gone = newHost();
+        var former = follow(gone, "carol", false);
+        var status = post(Visibility.PRIVATE, null);
+        awaitCreate(again, status);
+        awaitCreate(gone, status);
+        awaitNothingLeftFor(status);
+        unfollow(refollower);
+        follow(again, "bob", false, author, "#follow-again");
+        unfollow(former);
+
+        edit(status, "Hello again");
+
+        awaitUpdate(again, status);
+        awaitNothingLeftFor(status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT)
+                .until(() -> receivedBy(gone).stream().noneMatch(request -> request.body().contains("#updates/")));
+    }
+
+    @Test
     void aQueuedCreateCarriesTheEdit() {
         var status = post(Visibility.PUBLIC, null);
         awaitNothingLeftFor(status);
@@ -1024,6 +1096,10 @@ class StatusDeliveryIntegrationTests {
     }
 
     private URI follow(String host, String username, boolean sharedInbox, Actor followed) {
+        return follow(host, username, sharedInbox, followed, "#follow");
+    }
+
+    private URI follow(String host, String username, boolean sharedInbox, Actor followed, String activity) {
         var domain = host + ":" + server.getAddress().getPort();
         var uri = URI.create("http://" + domain + "/users/" + username);
         var follower = actors.upsertRemote(new RemoteActorProfile(
@@ -1036,8 +1112,19 @@ class StatusDeliveryIntegrationTests {
                 null));
         var now = Instant.now();
         transactions.executeWithoutResult(transaction -> follows.receive(
-                follower.id(), uri, followed.id(), uri + "#follow", new FollowService.Arrival(now, now)));
+                follower.id(), uri, followed.id(), uri + activity, new FollowService.Arrival(now, now)));
         return uri;
+    }
+
+    private void unfollow(URI follower) {
+        follows.removeForActor(actors.findByUri(follower).orElseThrow().id());
+    }
+
+    private long recordedRecipients(Status status) {
+        return jdbc.sql("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id")
+                .param("id", status.id())
+                .query(Long.class)
+                .single();
     }
 
     /**

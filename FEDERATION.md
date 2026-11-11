@@ -471,7 +471,8 @@ same `id`.
 
 When a local user edits a status, an `Update` of it is sent, signed as the user, to everyone its `Delete` would be sent
 to, as described below. That includes the actors it mentioned before the edit, who can still fetch it, and those it now
-mentions, who haven't been sent its `Create`. Its `id` is `{note-uri}#updates/{milliseconds}`, it's addressed like the
+mentions, who haven't been sent its `Create`. For a followers-only status, it only goes to the followers who still follow
+the author. Its `id` is `{note-uri}#updates/{milliseconds}`, it's addressed like the
 `Note`, and its `object` is the `Note` as it is when the `Update` is sent, with `updated` set. Each edit's `updated` is at
 least a second later than the version before, and an edit that changes nothing sends nothing. A user can change the
 text, content warning, sensitivity, and language, but not the visibility or `inReplyTo`, as on Mastodon.
@@ -509,9 +510,9 @@ sent to the same server.
 When a local user deletes a status, or an admin removes it, any delivery of its `Create` or `Update`s that hasn't started is cancelled, and a
 `Delete` is sent to their followers on other servers and the actors it mentioned, the same way as a `Create`. It's addressed like the `Create`,
 except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. The `Delete` of
-a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
-that the status existed. Since it goes to who follows the author when it's deleted, a server whose followers have all left
-since keeps its copy.
+a followers-only status goes to the followers its `Create` was sent to, including any who have unfollowed since, or
+unfollowed and followed again, so that it can't tell anyone else that the status existed. For a followers-only status posted
+before this server version recorded that, it only goes to followers who are still following since before it was posted.
 
 A `Delete` doesn't overtake a `Create` or `Update` that's already being sent: it waits until that request to the same
 server has ended, which takes at most 30 seconds. This server can only control when each is sent, so a server that handles activities out of order
@@ -843,8 +844,8 @@ host is. An admin can also reject the media of one account on another server. A 
 - **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, and boosts of
   their statuses. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
-  blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
-  status posted before then, and it keeps any copy it has.
+  blocked isn't delivered. Following again counts as a new follow, and that server isn't sent a `Delete` for a followers-only
+  status it was sent before the block, so it keeps any copy it has.
 
 These are an admin's blocks. A user's own block of a server [isn't federated](#blocks), apart from the `Reject`s it sends.
 

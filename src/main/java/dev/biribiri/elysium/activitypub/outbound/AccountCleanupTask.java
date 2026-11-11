@@ -17,7 +17,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses, attachments, follows, blocks, mutes, and profile, and a suspended remote actor's follows, which would otherwise give it a
+ * Removes a deleted account's statuses, attachments, follows, blocks, mutes, and profile, and who its followers-only
+ * statuses were sent to, and a suspended remote actor's follows, which would otherwise give it a
  * way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that they come back
  * if the suspension is undone. A suspended local account keeps everything, for the same reason. This
  * looks at the actor's state now, so it's safe to run again, and does nothing for a suspension that's since ended.
@@ -35,10 +36,12 @@ class AccountCleanupTask {
     private final AccountDomainBlockService domainBlocks;
     private final ProfileService profiles;
     private final MediaAttachments attachments;
+    private final FollowersOnlyRecipients followersOnly;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
-                       LikeService likes, MediaAttachments attachments) {
+                       LikeService likes, MediaAttachments attachments, FollowersOnlyRecipients followersOnly) {
+        this.followersOnly = followersOnly;
         this.blocks = blocks;
         this.mutes = mutes;
         this.domainBlocks = domainBlocks;
@@ -64,6 +67,7 @@ class AccountCleanupTask {
                 // Uploads it hadn't posted too, which removing its statuses doesn't reach.
                 attachments.removeAllBy(actor.id());
                 follows.removeForActor(actor.id());
+                followersOnly.removeForActor(actor.id());
                 blocks.removeForActor(actor.id());
                 mutes.removeForActor(actor.id());
                 domainBlocks.removeForAccount(actor.id());

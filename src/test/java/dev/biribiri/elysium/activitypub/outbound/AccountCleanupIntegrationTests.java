@@ -277,6 +277,25 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAccountForgetsWhoItsFollowersOnlyStatusesWentToAndWhatItWasSent() {
+        var other = newLocal();
+        var deletedRemote = remote();
+        var keptRemote = remote();
+        var mine = UUID.randomUUID();
+        var theirs = UUID.randomUUID();
+        recordRecipient(mine, local, keptRemote);
+        recordRecipient(theirs, other, deletedRemote);
+        recordRecipient(theirs, other, keptRemote);
+
+        actors.markDeleted(local.id());
+        assertThat(actors.markRemoteDeleted(deletedRemote.id())).isTrue();
+
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id", mine) == 0
+                && count("SELECT count(*) FROM followers_only_recipient WHERE actor_id = :id", deletedRemote.id()) == 0);
+        assertThat(count("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id", theirs)).isOne();
+    }
+
+    @Test
     void deletingARemoteActorRemovesItsDataAndSendsNothing() {
         var deleted = remote();
         follow(deleted, local);
@@ -459,6 +478,17 @@ class AccountCleanupIntegrationTests {
                 .param("activity", activity)
                 .update();
         return activity;
+    }
+
+    private void recordRecipient(UUID statusId, Actor author, Actor recipient) {
+        jdbc.sql("""
+                        INSERT INTO followers_only_recipient (status_id, author_id, actor_id)
+                        VALUES (:status, :author, :actor)
+                        """)
+                .param("status", statusId)
+                .param("author", author.id())
+                .param("actor", recipient.id())
+                .update();
     }
 
     private long follows(Actor actor) {
