@@ -52,6 +52,8 @@ class SecurityConfig {
     static final String TOKEN_PATH = "/oauth/token";
     static final String REVOKE_PATH = "/oauth/revoke";
     static final String CONSENT_PATH = "/oauth/consent";
+    static final String AUTHORIZED_APPS_PATH = "/oauth/authorized_applications";
+    static final String REVOKE_AUTHORIZED_APP_PATH = AUTHORIZED_APPS_PATH + "/{id}/revoke";
     static final String LOGIN_PATH = "/login";
     static final String SIGNUP_PATH = "/signup";
     static final String SIGNUP_VERIFY_PATH = SIGNUP_PATH + "/verify";
@@ -215,7 +217,8 @@ class SecurityConfig {
                 adminPageRequests(),
                 pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH),
                 pathPattern(HttpMethod.GET, SETTINGS_PATH),
-                pathPattern(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH));
+                pathPattern(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH),
+                pathPattern(HttpMethod.GET, AUTHORIZED_APPS_PATH));
 
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
         // can't lose a pending authorization. It only saves a page if nothing is waiting, so that logging in can return to
@@ -263,6 +266,8 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, TWO_FACTOR_SETUP_PATH, TWO_FACTOR_CONFIRM_PATH,
                                 TWO_FACTOR_DISABLE_PATH, RECOVERY_CODES_PATH).authenticated()
+                        .requestMatchers(HttpMethod.GET, AUTHORIZED_APPS_PATH).authenticated()
+                        .requestMatchers(HttpMethod.POST, REVOKE_AUTHORIZED_APP_PATH).authenticated()
                         // Not hasRole: see AdminAccess.
                         .requestMatchers(ADMIN_PATHS).access(adminAccess)
                         .anyRequest().denyAll())

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A page at `/oauth/authorized_applications`, linked from settings, where people can see the apps they've authorized and
+  revoke one, which logs it out and makes it ask for approval again. See `docs/accounts.md`.
 - Quote posts, as Mastodon 4.5 has them. `quoted_status_id` quotes a status, and `quote_approval_policy`, or the
   account's `source[quote_policy]`, says who can quote one: anyone, followers, or nobody else. A quote of someone else's
   status only shows it once its author approves, which is automatic, and they can revoke it with

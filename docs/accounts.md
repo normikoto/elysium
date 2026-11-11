@@ -244,6 +244,14 @@ The server's clock has to be right, within about 30 seconds, or codes won't matc
 Two-factor secrets are stored in the database as they are, because the server needs them to check codes. Anyone with a copy
 of the database or a backup could work out codes, so keep them as private as you keep passwords.
 
+## Authorized apps
+Anyone can see the apps they've authorized at `/oauth/authorized_applications`, linked from their settings, with each app's
+name, website, access, and when it was authorized. Names and websites are whatever the app registered with, so they don't
+prove who made it.
+
+Revoking an app logs it out of that person's account straight away, and it has to ask for approval again. Other people's use
+of the same app isn't affected.
+
 ## Rate limits
 Logins and sign-ups are limited, and requests over a limit get a `429` response:
 
