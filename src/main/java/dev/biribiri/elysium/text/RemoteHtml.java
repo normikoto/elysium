@@ -20,15 +20,18 @@ public final class RemoteHtml {
     private static final String LINK = "nofollow noopener noreferrer";
 
     /**
-     * Mastodon's own classes, which its web client and others use to shorten links and show mentions and hashtags.
+     * Mastodon's own classes, which its web client and others use to shorten links and show mentions and hashtags, and to
+     * hide the link that a quote carries for servers that don't show quotes.
      */
-    private static final Set<String> CLASSES = Set.of("h-card", "mention", "hashtag", "u-url", "invisible", "ellipsis");
+    private static final Set<String> CLASSES =
+            Set.of("h-card", "mention", "hashtag", "u-url", "invisible", "ellipsis", "quote-inline");
 
     private static final Safelist SAFELIST = new Safelist()
             .addTags("p", "br", "span", "a", "del", "s", "pre", "code", "em", "strong", "b", "i", "u", "ul", "ol", "li",
                     "blockquote")
             .addAttributes("a", "href", "class")
             .addAttributes("span", "class")
+            .addAttributes("p", "class")
             .addProtocols("a", "href", "http", "https")
             .addEnforcedAttribute("a", "rel", LINK)
             .addEnforcedAttribute("a", "target", "_blank");

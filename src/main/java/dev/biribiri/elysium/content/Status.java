@@ -25,6 +25,10 @@ import java.util.UUID;
  * @param reblogOfId         the status this boosts, or null if it isn't a boost. A boost has no text of its own, and its
  *                           URI is its {@code Announce}'s ID
  * @param repliesCount       the number of public and unlisted replies
+ * @param quoteApproval      who can quote it, or null if that isn't known, for a status from before quotes or a remote one
+ *                           whose server didn't say
+ * @param noteUpdatedAt      when its {@code Note} last changed other than by an edit, or null if it hasn't. Only for a local
+ *                           status
  */
 public record Status(
         UUID id,
@@ -44,7 +48,9 @@ public record Status(
         Instant publishedAt,
         Instant editedAt,
         UUID reblogOfId,
-        long repliesCount
+        long repliesCount,
+        QuoteApproval quoteApproval,
+        Instant noteUpdatedAt
 ) {
 
     public boolean isReblog() {
@@ -56,8 +62,7 @@ public record Status(
      * lets followers see followers-only statuses, unless the viewer is anonymous or is the author.
      */
     public boolean isVisibleTo(Optional<UUID> viewer) {
-        return visibility == Visibility.PUBLIC
-                || visibility == Visibility.UNLISTED
+        return visibility.isOpen()
                 || viewer.filter(actorId::equals).isPresent();
     }
 }

@@ -49,11 +49,14 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   `visibility[]`.
 - `GET /api/v1/instance` reports the length limit in `max_toot_chars` and `configuration.statuses.max_characters`, and
   the media limits in `configuration.media_attachments`, where `video_size_limit` is the larger of the video and audio
-  limits. `video_frame_rate_limit` and `video_matrix_limit` aren't enforced, since video isn't decoded. But
-  `/api/v2/instance` isn't implemented. Clients that don't read the limit from v1 may apply their own limit of 500. Its
+  limits. `video_frame_rate_limit` and `video_matrix_limit` aren't enforced, since video isn't decoded. Its
   `version` is a Mastodon version followed by `(compatible; Elysium)`. The streaming API isn't implemented, though
   `urls.streaming_api` is set. `invites_enabled` is always `false`, since only admins can make invites, from the command
   line. People sign up on the server's `/signup` page, since `POST /api/v1/accounts` isn't implemented.
+- `GET /api/v2/instance` has the same limits in `configuration`, and `api_versions.mastodon` is 7, which is what clients
+  look for before they offer quotes. Not everything Mastodon added up to that version is here, as this page lists, and
+  what's missing gets a 404. It has no thumbnail, icon, contact account, or rules, `usage.users.active_month` counts every
+  local account, and `configuration.translation.enabled` is false.
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
 - Statuses from other servers are only stored when they're sent here, which is when a local account follows their author or
   is addressed by them, or when they're a public or unlisted reply to a stored status of a local account or one that's
@@ -98,6 +101,29 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   a remote account's other boosts aren't listed with its statuses. A boosted status that isn't stored yet is fetched first,
   so the boost can show up a little later than on Mastodon. `reblogs_count` only counts the boosts this server knows of.
   The home timeline lists every boost from the accounts the user follows, even of a status that's already there.
+- `quoted_status_id` quotes a status the user can see, and a boost's ID quotes the status it boosts. One that can't be
+  found gets a 404, and one the user isn't allowed to quote a 422. A direct status can't be quoted, and a followers-only
+  one only by its author, which makes the quote followers-only too. A status from before this server supported quotes can
+  only be quoted by its author. A status from another server that doesn't say who can quote it can be quoted by anyone,
+  and the quote is accepted straight away, since that server can't be asked. The text starts with a
+  `<p class="quote-inline">RE: …</p>` link to the quoted status unless it links to it already, as on Mastodon.
+- `quote_approval_policy` can be `public`, `followers`, or `nobody`, on a new status, in `PUT /api/v1/statuses/:id`, and in
+  `PUT /api/v1/statuses/:id/interaction_policy`. Missing means the account's `source[quote_policy]`, which is `public`
+  until it's changed, and a followers-only or direct status is always `nobody`. Approval is always automatic.
+  `PUT /api/v1/statuses/:id` can't change what a status quotes, and a `quoted_status_id` other than the one it has gets a
+  422.
+- A quote of a status on another server is `pending` until that server approves it, and it's `rejected` if that server
+  refuses. A quote from another server is `pending` until this server has checked its approval, which can take a moment.
+  A quote from a server that can't ask for approval is `accepted`, unless it quotes a local status whose policy wouldn't
+  allow it. `quote` is a Quote at the top level, including in `reblog`, and a ShallowQuote inside `quoted_status`.
+  `quoted_status` is null when the user can't see the quoted status, with the state `unauthorized`, and it's `deleted`
+  once the quoted status is. `quote_approval.automatic` and `manual` can have `unsupported_policy` for a status from
+  another server, and `current_user` is `unknown` without a token. `quotes_count` only counts the accepted quotes this
+  server knows of that anyone can see.
+- `GET /api/v1/statuses/:id/quotes` lists the accepted quotes that the user can see, of any status they can see, not only
+  their own. `POST /api/v1/statuses/:id/quotes/:quoting_status_id/revoke` revokes any quote of the user's status, accepted
+  or not, and gets a 404 for a status that doesn't quote it. Revoking a quote from a server that can't ask for approval
+  only hides it here.
 
 Uploads follow [Mastodon's media API](https://docs.joinmastodon.org/methods/media/), with the `write:media` scope, and
 with these differences:
@@ -133,7 +159,9 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
 - V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Only `mention`, `follow`, `follow_request`, `favourite`, and `reblog` notifications are generated. Subscribed-account
+- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, and `quoted_update` notifications are
+  generated. A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user
+  quoted. Subscribed-account
   posts, edits, and admin notifications await their respective features. As on Mastodon, a `follow_request` notification
   is removed once the request is approved, refused, or withdrawn, and approving it doesn't add a `follow` notification.
 - Notifications start with new activity after upgrading; historical mentions and follows do not generate notifications.
@@ -187,9 +215,9 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   and `fields`, and placeholder images. For an account on another server, `followers_count` and `following_count` only
   count accounts on this server, `hide_collections` is null, and `locked` is false, even when that server approves its
   followers by hand.
-- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`, and
-  `hide_collections`. `bot`, `discoverable`, `indexable`, and `source` are accepted only with the values the account
-  already has: false, and `public` for `source[privacy]`. Any other value for them, or any other field with a value, gets a 422 naming
+- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`,
+  `hide_collections`, and `source[quote_policy]`. `bot`, `discoverable`, `indexable`, and the rest of `source` are
+  accepted only with the values the account already has: false, and `public` for `source[privacy]`. Any other value for them, or any other field with a value, gets a 422 naming
   it, and then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it, as
   on Mastodon.
 - `fields_attributes` replaces all of the fields. It can be a list or an object keyed by position, in JSON or in a form

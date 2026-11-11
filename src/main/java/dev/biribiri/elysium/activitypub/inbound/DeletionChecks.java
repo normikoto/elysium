@@ -6,6 +6,7 @@ import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
+import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
@@ -35,6 +36,7 @@ class DeletionChecks {
     private final Deletions deletions;
     private final StatusService statuses;
     private final TargetFetchTurns turns;
+    private final QuoteService quotes;
 
     DeletionChecks(
             SchedulerClient scheduler,
@@ -42,7 +44,9 @@ class DeletionChecks {
             DomainBlocks blocks,
             Deletions deletions,
             StatusService statuses,
-            TargetFetchTurns turns) {
+            TargetFetchTurns turns,
+            QuoteService quotes) {
+        this.quotes = quotes;
         this.scheduler = scheduler;
         this.documents = documents;
         this.blocks = blocks;
@@ -125,7 +129,8 @@ class DeletionChecks {
             }
             // Servers such as Mastodon answer the instance actor with a 404 for a followers-only status too, so that only
             // shows a status is gone if anyone could have fetched it. Otherwise anyone could forward a Delete of one.
-            if (!object.equals(actor) && !statuses.isPublicRemote(object, actor)) {
+            // A QuoteAuthorization is named in its quote, so saying it's gone tells nobody anything.
+            if (!object.equals(actor) && !statuses.isPublicRemote(object, actor) && !quotes.isKnownApproval(object)) {
                 log.debug("Ignoring a Delete of {}, which its server might only be hiding", object);
                 return;
             }

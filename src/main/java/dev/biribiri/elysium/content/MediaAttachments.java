@@ -244,7 +244,7 @@ public class MediaAttachments {
                 remote.blurhash(), remote.url(), remote.rejected(), now);
     }
 
-    private static String remoteDescription(String value) {
+    static String remoteDescription(String value) {
         if (value == null) {
             return null;
         }

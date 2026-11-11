@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Quote posts, as Mastodon 4.5 has them. `quoted_status_id` quotes a status, and `quote_approval_policy`, or the
+  account's `source[quote_policy]`, says who can quote one: anyone, followers, or nobody else. A quote of someone else's
+  status only shows it once its author approves, which is automatic, and they can revoke it with
+  `POST /api/v1/statuses/:id/quotes/:quoting_status_id/revoke`. `GET /api/v1/statuses/:id/quotes` lists a status's quotes,
+  and its author gets `quote` notifications, and `quoted_update` ones when a status they quoted is edited. Quotes are
+  federated with FEP-044f, as Mastodon does, and quotes from servers that don't support it, such as Misskey, are read and
+  sent too. Statuses posted before upgrading can only be quoted by their authors. See `docs/api.md` and `FEDERATION.md`.
+- `GET /api/v2/instance`, which says the server supports Mastodon's API version 7, so that clients offer quoting.
 - Blocks, mutes, and blocking whole servers, for each user, through `POST /api/v1/accounts/:id/block`, `/unblock`,
   `/mute`, and `/unmute`, `GET /api/v1/blocks` and `/api/v1/mutes`, and `/api/v1/domain_blocks`. Blocking someone ends the
   follows between them and hides each from the other, and muting hides someone's posts and, if asked, their

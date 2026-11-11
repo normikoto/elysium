@@ -12,8 +12,10 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -260,6 +262,28 @@ public class BlockRepository {
                 .param("accounts", accountIds)
                 .query(UUID.class)
                 .list());
+    }
+
+    /**
+     * @param reason the SQL for why an actor joined as {@code a} is hidden
+     * @return each account that's hidden, and why
+     */
+    public Map<UUID, String> hidingReasons(UUID viewerId, Collection<UUID> accountIds, String reason) {
+        if (accountIds.isEmpty()) {
+            return Map.of();
+        }
+        var reasons = new HashMap<UUID, String>();
+        jdbc.sql("SELECT a.id, " + reason + " AS reason FROM actor a WHERE a.id IN (:accounts)")
+                .param("viewer", viewerId)
+                .param("accounts", accountIds)
+                .query((rs, row) -> {
+                    if (rs.getString("reason") != null) {
+                        reasons.put(rs.getObject("id", UUID.class), rs.getString("reason"));
+                    }
+                    return true;
+                })
+                .list();
+        return reasons;
     }
 
     /**

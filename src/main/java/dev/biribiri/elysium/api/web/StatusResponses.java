@@ -13,6 +13,14 @@ import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusVersion;
+import dev.biribiri.elysium.content.QuoteApproval;
+import dev.biribiri.elysium.content.QuoteDecision;
+import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.content.QuoteState;
+import dev.biribiri.elysium.content.StatusQuote;
+import dev.biribiri.elysium.graph.BlockService;
+import java.util.Objects;
+import java.util.Set;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -40,10 +47,15 @@ class StatusResponses {
     private final LikeService likes;
     private final BoostService boosts;
     private final MediaAttachments attachments;
+    private final QuoteService quotes;
+    private final BlockService blocks;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
-            StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments) {
+            StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments,
+            QuoteService quotes, BlockService blocks) {
+        this.quotes = quotes;
+        this.blocks = blocks;
         this.attachments = attachments;
         this.likes = likes;
         this.boosts = boosts;
@@ -135,11 +147,17 @@ class StatusResponses {
     private List<StatusResponse> build(
             List<Status> found, boolean includeText, Optional<UUID> viewer, Map<UUID, List<MediaAttachment>> knownMedia) {
         var originalIds = found.stream().filter(Status::isReblog).map(Status::reblogOfId).distinct().toList();
-        var originals = (viewer.isPresent()
-                ? statuses.findVisible(originalIds, viewer.get())
-                : statuses.findVisibleToAnyone(originalIds)).stream()
+        var originals = visible(originalIds, viewer).stream()
                 .collect(Collectors.toMap(Status::id, Function.identity()));
-        var all = Stream.concat(found.stream(), originals.values().stream()).toList();
+        var shown = Stream.concat(found.stream(), originals.values().stream()).filter(status -> !status.isReblog())
+                .map(Status::id).distinct().toList();
+        var quoteRows = new HashMap<>(quotes.findAll(shown));
+        var quotedIds = quoteRows.values().stream().map(StatusQuote::quotedStatusId).filter(Objects::nonNull)
+                .distinct().toList();
+        var quoted = visible(quotedIds, viewer).stream().collect(Collectors.toMap(Status::id, Function.identity()));
+        quoteRows.putAll(quotes.findAll(quoted.keySet()));
+        var all = Stream.of(found.stream(), originals.values().stream(), quoted.values().stream()).flatMap(Function.identity())
+                .toList();
 
         var authors = actors.findByIds(all.stream().map(Status::actorId).collect(Collectors.toSet())).stream()
                 .filter(Actor::isActive)
@@ -152,7 +170,14 @@ class StatusResponses {
         media.putAll(knownMedia);
         var likeStats = likes.stats(ids, viewer);
         var boostStats = boosts.stats(ids, viewer);
-        BiFunction<Status, StatusResponse, StatusResponse> response = (status, reblog) -> StatusResponse.from(
+        var quoteCounts = quotes.acceptedCounts(ids);
+        var localAuthors = authors.values().stream().filter(actors::isLocal).map(Actor::id).collect(Collectors.toSet());
+        var decisions = quotes.decide(all.stream().filter(status -> !status.isReblog()).distinct().toList(), localAuthors, viewer);
+        Map<UUID, BlockService.Hiding> hiding = viewer.isEmpty() ? Map.of() : blocks.hidingReasons(viewer.get(),
+                quoted.values().stream().map(Status::actorId).collect(Collectors.toSet()));
+        Function<Status, StatusResponse.QuoteApprovalResponse> approval = status -> approval(
+                status, status.quoteApproval(), localAuthors.contains(status.actorId()), decisions.get(status.id()));
+        StatusBuilder basic = (status, reblog, quote) -> StatusResponse.from(
                 status,
                 accountResponses.get(status.actorId()),
                 mentions.getOrDefault(status.id(), List.of()).stream()
@@ -167,19 +192,101 @@ class StatusResponses {
                 includeText,
                 status.isReblog() ? LikeStats.EMPTY : likeStats.getOrDefault(status.id(), LikeStats.EMPTY),
                 status.isReblog() ? BoostStats.EMPTY : boostStats.getOrDefault(status.id(), BoostStats.EMPTY),
-                reblog);
+                reblog,
+                quote,
+                approval.apply(status),
+                status.isReblog() ? 0 : quoteCounts.getOrDefault(status.id(), 0L));
+        // A status that's quoted only shows what it quotes in turn by ID, as on Mastodon, so that quotes don't nest.
+        Function<Status, StatusResponse> nested = status -> basic.apply(status, null,
+                Optional.ofNullable(quoteRows.get(status.id())).map(StatusResponses::shallow).orElse(null));
+        Function<Status, StatusResponse> full = status -> basic.apply(status, null,
+                Optional.ofNullable(quoteRows.get(status.id())).map(row -> {
+                    var target = Optional.ofNullable(row.quotedStatusId()).map(quoted::get)
+                            .filter(candidate -> authors.containsKey(candidate.actorId()));
+                    var state = state(row, target.isPresent(), target.map(Status::actorId).map(hiding::get));
+                    return new StatusResponse.QuoteResponse(state,
+                            SHOWS_QUOTED.contains(state) ? target.map(nested).orElse(null) : null);
+                }).orElse(null));
         return found.stream()
                 .filter(status -> authors.containsKey(status.actorId()))
                 .flatMap(status -> {
                     if (!status.isReblog()) {
-                        return Stream.of(response.apply(status, null));
+                        return Stream.of(full.apply(status));
                     }
                     var original = originals.get(status.reblogOfId());
                     if (original == null || !authors.containsKey(original.actorId())) {
                         return Stream.empty();
                     }
-                    return Stream.of(response.apply(status, response.apply(original, null)));
+                    return Stream.of(basic.apply(status, full.apply(original), null));
                 })
+                .toList();
+    }
+
+    @FunctionalInterface
+    private interface StatusBuilder {
+        StatusResponse apply(Status status, StatusResponse reblog, Object quote);
+    }
+
+    private List<Status> visible(List<UUID> ids, Optional<UUID> viewer) {
+        return viewer.isPresent() ? statuses.findVisible(ids, viewer.get()) : statuses.findVisibleToAnyone(ids);
+    }
+
+    /**
+     * The states in which Mastodon includes the quoted status, which a client hides behind a warning for the last three.
+     */
+    private static final Set<String> SHOWS_QUOTED = Set.of("accepted", "blocked_account", "blocked_domain", "muted_account");
+
+    /**
+     * @param visible whether the viewer can see the quoted status
+     * @param hiding  why the viewer has hidden its author, if they have
+     */
+    private static String state(StatusQuote quote, boolean visible, Optional<BlockService.Hiding> hiding) {
+        if (quote.state() != QuoteState.ACCEPTED) {
+            return quote.state().value();
+        }
+        if (quote.isOfDeleted()) {
+            return "deleted";
+        }
+        if (quote.quotedStatusId() == null) {
+            return "pending";
+        }
+        if (!visible) {
+            return "unauthorized";
+        }
+        return hiding.map(reason -> switch (reason) {
+            case BLOCKED -> "blocked_account";
+            case DOMAIN_BLOCKED -> "blocked_domain";
+            case MUTED -> "muted_account";
+        }).orElse("accepted");
+    }
+
+    private static StatusResponse.ShallowQuoteResponse shallow(StatusQuote quote) {
+        var state = state(quote, true, Optional.empty());
+        return new StatusResponse.ShallowQuoteResponse(state,
+                state.equals("accepted") ? quote.quotedStatusId().toString() : null);
+    }
+
+    /**
+     * Mastodon's QuoteApproval. A status from another server that has no policy is from one that can't be asked, which
+     * anyone here can quote, so the audience is one that Mastodon's clients don't know.
+     */
+    private static StatusResponse.QuoteApprovalResponse approval(
+            Status status, QuoteApproval policy, boolean local, QuoteDecision decision) {
+        if (status.isReblog()) {
+            return new StatusResponse.QuoteApprovalResponse(List.of(), List.of(), QuoteDecision.DENIED.value());
+        }
+        if (policy == null) {
+            return new StatusResponse.QuoteApprovalResponse(local ? List.of() : List.of("unsupported_policy"), List.of(),
+                    decision.value());
+        }
+        return new StatusResponse.QuoteApprovalResponse(audiences(policy.automatic()), audiences(policy.manual()),
+                decision.value());
+    }
+
+    private static List<String> audiences(Set<QuoteApproval.Audience> audiences) {
+        return audiences.stream()
+                .map(audience -> audience == QuoteApproval.Audience.UNSUPPORTED ? "unsupported_policy" : audience.value())
+                .sorted()
                 .toList();
     }
 }

@@ -5,12 +5,15 @@ import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.activitypub.vocab.Create;
 import dev.biribiri.elysium.activitypub.vocab.Delete;
+import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusPublished;
+import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -95,7 +98,8 @@ public class StatusDeliveries {
                 status.get().visibility(),
                 status.get().publishedAt(),
                 note.inReplyTo() == null ? null : status.get().inReplyToAccountId(),
-                mentioned,
+                // Silent mentions too, which a quote gives the quoted author.
+                actors.findByIds(statuses.findAllMentioned(status.get().id())),
                 true);
         if (inboxes.isEmpty()) {
             return;
@@ -120,6 +124,7 @@ public class StatusDeliveries {
         var updates = Update.idPrefixFor(event.statusUri());
         deliveries.cancel(create);
         deliveries.cancelStartingWith(updates);
+        deliveries.cancel(StatusQuote.requestUriFor(event.statusUri()).toString());
         var author = actors.findAnyLocalById(event.authorId()).filter(found -> !found.isDeleted());
         if (author.isEmpty()) {
             followersOnly.forget(event.statusId());
@@ -163,26 +168,41 @@ public class StatusDeliveries {
             return;
         }
         var note = notes.of(status.get(), author.get());
+        sendUpdate(status.get(), author.get(), note, Update.of(note, event.editedAt()));
+    }
+
+    /**
+     * @param note   the status as it is now, for a {@code Create} that's still queued
+     * @param update what to send. The caller builds it because its {@code Note} can say it changed later than {@code note}
+     *               does, and the {@code Create} shouldn't say that of a status that hasn't been edited.
+     */
+    void sendUpdate(Status status, Actor author, Note note, Update update) {
         var create = Create.of(note);
         deliveries.replaceBody(create.id().toString(), json.writeValueAsString(create));
-        var inboxes = everyoneSent(
-                status.get().id(),
-                author.get().id(),
-                status.get().visibility(),
-                status.get().publishedAt(),
-                note.inReplyTo() == null ? null : status.get().inReplyToAccountId(),
-                actors.findByIds(statuses.findAllMentioned(status.get().id())),
-                statuses.findLocalBoosters(status.get().id()),
-                true);
+        var inboxes = everyoneSent(status, true);
         if (inboxes.isEmpty()) {
             return;
         }
-        var update = Update.of(note, event.editedAt());
         deliveries.enqueueAfter(
                 new OutboundActivity(
-                        update.id().toString(), author.get().id(), json.writeValueAsString(update), WhileSuspended.DROP),
+                        update.id().toString(), author.id(), json.writeValueAsString(update), WhileSuspended.DROP),
                 inboxes,
                 create.id().toString());
+    }
+
+    /**
+     * Everyone that a status's {@code Update}s go to, as for an edit.
+     */
+    List<URI> everyoneSent(Status status, boolean withoutBlocked) {
+        return everyoneSent(
+                status.id(),
+                status.actorId(),
+                status.visibility(),
+                status.publishedAt(),
+                notes.shownParentAuthor(status),
+                actors.findByIds(statuses.findAllMentioned(status.id())),
+                statuses.findLocalBoosters(status.id()),
+                withoutBlocked);
     }
 
     /**

@@ -16,6 +16,8 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.activitypub.vocab.Announce;
 import dev.biribiri.elysium.content.BoostService;
+import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusService;
@@ -23,6 +25,7 @@ import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.activitypub.vocab.Like;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
@@ -52,6 +55,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -85,6 +89,7 @@ public class ActivityPubController {
     private final ProfileService profiles;
     private final FetchSigners signers;
     private final MediaAttachments attachments;
+    private final QuoteService quotes;
 
     ActivityPubController(
             ActorService actors,
@@ -96,8 +101,10 @@ public class ActivityPubController {
             InstanceProperties instance,
             ProfileService profiles,
             FetchSigners signers,
-            MediaAttachments attachments) {
+            MediaAttachments attachments,
+            QuoteService quotes) {
         this.attachments = attachments;
+        this.quotes = quotes;
         this.signers = signers;
         this.instance = instance;
         this.profiles = profiles;
@@ -303,14 +310,21 @@ public class ActivityPubController {
         var mentions = statuses.findMentions(noteIds);
         var tags = statuses.findTags(noteIds);
         var media = attachments.findByStatuses(noteIds);
+        var quoteRows = quotes.findAll(noteIds);
+        // Not activeActors, since a Note keeps naming the author it quotes after they're suspended or deleted.
+        var quotedAuthors = actors.findByIds(quoteRows.values().stream().map(StatusQuote::quotedAccountId)
+                        .filter(Objects::nonNull).distinct().toList())
+                .stream().collect(Collectors.toMap(Actor::id, Function.identity()));
         var boosted = statuses.findVisibleToAnyone(entries.stream().filter(Status::isReblog).map(Status::reblogOfId).toList())
                 .stream().collect(Collectors.toMap(Status::id, Function.identity()));
         var boostedAuthors = activeActors(boosted.values().stream().map(Status::actorId).distinct().toList());
         var items = new ArrayList<Object>();
         for (var status : entries) {
             if (!status.isReblog()) {
+                var quote = Optional.ofNullable(quoteRows.get(status.id()));
                 var note = notes.of(status, author, mentions.getOrDefault(status.id(), List.of()),
-                        tags.getOrDefault(status.id(), List.of()), media.getOrDefault(status.id(), List.of()));
+                        tags.getOrDefault(status.id(), List.of()), media.getOrDefault(status.id(), List.of()),
+                        quote, quote.map(StatusQuote::quotedAccountId).map(quotedAuthors::get));
                 items.add(Create.of(note).withoutContext());
                 continue;
             }
@@ -341,7 +355,7 @@ public class ActivityPubController {
     }
 
     /**
-     * The answer for a user's collection when the user can't be served, as for followers, following, and the outbox.
+     * The answer for a user's collection or quote approval when the user can't be served.
      *
      * @return empty if the user exists and is active
      */
@@ -476,6 +490,59 @@ public class ActivityPubController {
             }))
     Application instanceActor() {
         return Application.from(actors.instanceActor(), instance.sharedInboxUri());
+    }
+
+    @GetMapping(path = "/users/{username}/quote_authorizations/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getQuoteAuthorization",
+            summary = "Fetch a quote's approval",
+            description = """
+                    A FEP-044f `QuoteAuthorization`, which shows that the user approved a quote of their status. It \
+                    names the quote as `interactingObject` and the quoted status as `interactionTarget`, and embeds \
+                    neither. It's served for as long as the approval stands, and then gets a 404. One for a public or \
+                    unlisted quote is served to anyone, and one for a followers-only or direct quote only to a signer \
+                    who can see the quote. Answers have `Vary: Signature`.\s""" + FederationDocs.DOCUMENT,
+            parameters = {
+                    @Parameter(name = "username", description = "The quoted author's username, matched case-insensitively."),
+                    @Parameter(name = "id", description = "The approval's ID.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The `QuoteAuthorization`.", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = QuoteAuthorization.class))
+                    }),
+                    @ApiResponse(responseCode = "403", description = "The user is suspended."),
+                    @ApiResponse(responseCode = "404", description = """
+                            There's no such approval by this user, it's been revoked, or the signer can't see the \
+                            quote."""),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header allows neither type."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
+    ResponseEntity<?> quoteAuthorization(
+            @PathVariable String username,
+            @PathVariable String id,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        response.addHeader(HttpHeaders.VARY, FetchSigners.SIGNATURE);
+        var signer = signers.signer(request).map(Actor::id);
+        var author = actors.findAnyLocalByUsername(username);
+        var unavailable = unavailable(author);
+        if (unavailable.isPresent()) {
+            return unavailable.get();
+        }
+        var stampId = Ids.parse(id);
+        if (stampId.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        var stamp = quotes.findStampFor(stampId.get(), author.get().id(), signer);
+        if (stamp.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        var ok = ResponseEntity.ok();
+        if (!stamp.get().quoting().isVisibleTo(ANONYMOUS)) {
+            ok.cacheControl(CacheControl.noStore().cachePrivate());
+        }
+        return ok.body(QuoteAuthorization.of(QuoteAuthorization.idFor(author.get().uri(), stampId.get()),
+                author.get().uri(), stamp.get().quoting().uri(), stamp.get().quoted().uri()));
     }
 
     @GetMapping(path = "/users/{username}/statuses/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})

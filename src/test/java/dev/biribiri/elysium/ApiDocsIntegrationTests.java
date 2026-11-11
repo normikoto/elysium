@@ -151,7 +151,7 @@ class ApiDocsIntegrationTests {
      */
     @Test
     void everyApiEndpointThatNeedsATokenSaysSo() throws Exception {
-        var noToken = Set.of("post /api/v1/apps", "get /api/v1/instance");
+        var noToken = Set.of("post /api/v1/apps", "get /api/v1/instance", "get /api/v2/instance");
         var undocumented = new ArrayList<String>();
         for (var path : document().get("paths").properties()) {
             if (!path.getKey().startsWith("/api/")) {

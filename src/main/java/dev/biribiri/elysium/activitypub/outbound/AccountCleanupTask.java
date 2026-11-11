@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
@@ -38,11 +39,14 @@ class AccountCleanupTask {
     private final ProfileService profiles;
     private final MediaAttachments attachments;
     private final FollowersOnlyRecipients followersOnly;
+    private final PostingDefaults postingDefaults;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
-                       LikeService likes, MediaAttachments attachments, FollowersOnlyRecipients followersOnly) {
+                       LikeService likes, MediaAttachments attachments, FollowersOnlyRecipients followersOnly,
+                       PostingDefaults postingDefaults) {
         this.followersOnly = followersOnly;
+        this.postingDefaults = postingDefaults;
         this.blocks = blocks;
         this.mutes = mutes;
         this.domainBlocks = domainBlocks;
@@ -73,6 +77,7 @@ class AccountCleanupTask {
                 mutes.removeForActor(actor.id());
                 domainBlocks.removeForAccount(actor.id());
                 profiles.removeAll(actor.id());
+                postingDefaults.removeFor(actor.id());
                 inbox.removeForActor(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {
                 follows.removeForActor(actor.id());

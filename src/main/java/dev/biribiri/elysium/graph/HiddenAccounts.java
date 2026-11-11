@@ -37,6 +37,19 @@ public final class HiddenAccounts {
                 + " AND NOT " + visible("ha.id", "ha", "") + "))";
     }
 
+    /**
+     * Why the actor joined as {@code actor} is hidden from the viewer by the viewer's own choice, as {@code 'blocked'},
+     * {@code 'domain_blocked'} or {@code 'muted'}, or null if it isn't. An actor that blocks the viewer isn't covered,
+     * since what it posts can't be seen at all.
+     */
+    static String hidingReason(String actor) {
+        var id = actor + ".id";
+        return "CASE WHEN EXISTS (SELECT 1 FROM account_block hb WHERE hb.account_id = :viewer AND hb.target_id = " + id
+                + ") THEN 'blocked' WHEN " + GraphSql.domainBlocked(":viewer", actor) + " THEN 'domain_blocked'"
+                + " WHEN EXISTS (SELECT 1 FROM account_mute hm WHERE hm.account_id = :viewer AND hm.target_id = " + id
+                + " AND (hm.expires_at IS NULL OR hm.expires_at > now())) THEN 'muted' END";
+    }
+
     private static String visible(String id, String actor, String muteCondition) {
         return "(NOT EXISTS (SELECT 1 FROM account_block hb WHERE hb.account_id = :viewer AND hb.target_id = " + id + ")"
                 + " AND NOT EXISTS (SELECT 1 FROM account_block hb WHERE hb.account_id = " + id + " AND hb.target_id = :viewer)"

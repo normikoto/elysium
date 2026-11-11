@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
@@ -91,6 +92,7 @@ public class AccountsController {
     private final JsonBodies json;
     private final InstanceProperties instance;
     private final ProfileService profiles;
+    private final PostingDefaults postingDefaults;
 
     AccountsController(
             ActorService actors,
@@ -104,8 +106,10 @@ public class AccountsController {
             AccountLookup lookup,
             JsonBodies json,
             InstanceProperties instance,
-            ProfileService profiles) {
+            ProfileService profiles,
+            PostingDefaults postingDefaults) {
         this.profiles = profiles;
+        this.postingDefaults = postingDefaults;
         this.actors = actors;
         this.statuses = statuses;
         this.responses = responses;
@@ -167,9 +171,9 @@ public class AccountsController {
             summary = "Change the user's profile and account settings",
             description = """
                     Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, \
-                    `locked`, and `hide_collections` can be changed. `bot`, `discoverable`, `indexable`, and `source` \
-                    are accepted only with the values the account already has (false, and `public` for `source[privacy]`), \
-                    and any other value for them, or any other field with a value, gets a 422 naming it. Then nothing \
+                    `locked`, `hide_collections`, and `source[quote_policy]` can be changed. `bot`, `discoverable`, \
+                    `indexable`, and the rest of `source` are accepted only with the values the account already has \
+                    (false, and `public` for `source[privacy]`), and any other value for them, or any other field with a value, gets a 422 naming it. Then nothing \
                     is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it.
 
                     `fields_attributes` can be a list, or an object keyed by position, as can a form's \
@@ -211,6 +215,9 @@ public class AccountsController {
         }
         if (request.hideCollections() != null) {
             actors.setHidesCollections(actorId, request.hideCollections());
+        }
+        if (request.quotePolicy() != null) {
+            postingDefaults.setQuotePolicy(actorId, request.quotePolicy());
         }
         return actors.findLocalById(actorId)
                 .map(accounts::credential)
@@ -718,7 +725,16 @@ public class AccountsController {
             @Schema(description = """
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")
-            Boolean hide_collections) {
+            Boolean hide_collections,
+            @Schema(description = "Posting settings. Only `quote_policy` can be changed.")
+            SourceBody source) {
+    }
+
+    @Schema(name = "AccountCredentialsSource")
+    private record SourceBody(
+            @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
+                    Who can quote the user's new statuses when the client doesn't say.""")
+            String quote_policy) {
     }
 
     @Schema(name = "AccountMute")

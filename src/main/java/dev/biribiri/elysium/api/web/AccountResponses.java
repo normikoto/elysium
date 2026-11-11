@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.Profile;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Component;
@@ -26,13 +27,16 @@ class AccountResponses {
     private final FollowService follows;
     private final InstanceProperties instance;
     private final ProfileService profiles;
+    private final PostingDefaults postingDefaults;
 
     AccountResponses(
             ActorService actors,
             StatusService statuses,
             FollowService follows,
             InstanceProperties instance,
-            ProfileService profiles) {
+            ProfileService profiles,
+            PostingDefaults postingDefaults) {
+        this.postingDefaults = postingDefaults;
         this.actors = actors;
         this.profiles = profiles;
         this.statuses = statuses;
@@ -50,7 +54,8 @@ class AccountResponses {
     CredentialAccountResponse credential(Actor actor) {
         var profile = profiles.find(actor.id());
         var account = byId(List.of(actor), Map.of(actor.id(), profile)).get(actor.id());
-        return CredentialAccountResponse.from(account, profile, follows.countRequests(actor.id()));
+        return CredentialAccountResponse.from(account, profile, follows.countRequests(actor.id()),
+                postingDefaults.quotePolicy(actor.id()));
     }
 
     /**

@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteEdit;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -15,9 +16,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * Applies a change that another server made to one of its actors, or to a status stored here.
@@ -28,7 +27,8 @@ import java.util.UUID;
  * that isn't stored is ignored, as for a {@code Delete}: Mastodon sends these to every server it knows.
  *
  * <p>A {@code Note} has to be the actor's, as {@link ActorNotes} checks. Its {@code updated} orders edits, since jobs have
- * no order, and one without it is ignored, because nothing says that it's newer than what's stored. One that isn't stored
+ * no order, and one without it isn't applied as an edit, because nothing says that it's newer than what's stored. What it
+ * quotes, and who can quote it, are applied either way, as {@link QuoteService#reconcileRemote} explains. One that isn't stored
  * yet is stored as a {@code Create} would store it, if it was published recently, since its {@code Create} can run later.
  */
 @Component
@@ -48,6 +48,7 @@ class UpdateHandler implements InboundActivityHandler {
     private final ActorNotes notes;
     private final NoteStorage storage;
     private final DomainBlocks blocks;
+    private final QuoteService quotes;
     private final JsonMapper json;
 
     UpdateHandler(
@@ -57,7 +58,9 @@ class UpdateHandler implements InboundActivityHandler {
             ActorNotes notes,
             NoteStorage storage,
             DomainBlocks blocks,
+            QuoteService quotes,
             JsonMapper json) {
+        this.quotes = quotes;
         this.actors = actors;
         this.remoteActors = remoteActors;
         this.statuses = statuses;
@@ -100,13 +103,22 @@ class UpdateHandler implements InboundActivityHandler {
             return;
         }
         var note = read.get().note();
-        if (note.editedAt(note.published(), Instant.now()) == null) {
-            log.debug("Ignoring Update {}, whose Note doesn't say when it was edited, or says a time that can't be",
-                    activity.id());
-            return;
-        }
         // Fetching can take a while, and a block or suspension can have landed since the job started.
         if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
+            return;
+        }
+        applyEdit(activity, actorUri, document, read.get());
+        // Whatever its updated says, since servers send an Update when a quote is approved, and the approval is checked
+        // with whoever gave it rather than ordered by time. Found again, since storing a late note can store its author.
+        storedAuthor(actorUri).ifPresent(author -> quotes.reconcileRemote(
+                note.id(), author.id(), note.quote(), storage.quotePolicy(note.quotePolicy(), author)));
+    }
+
+    private void applyEdit(InboundActivity activity, URI actorUri, JsonNode document, ActorNotes.ActorNote read) {
+        var note = read.note();
+        if (note.editedAt(note.published(), Instant.now()) == null) {
+            log.debug("Not editing for Update {}, whose Note doesn't say when it was edited, or says a time that can't be",
+                    activity.id());
             return;
         }
         // An author who isn't stored can't have a stored status, but can still have one to store, if its Create is late.
@@ -116,8 +128,9 @@ class UpdateHandler implements InboundActivityHandler {
         switch (outcome) {
             case EDITED -> {
             }
-            case UNCHANGED -> log.debug("Ignoring Update {}, whose Note has a newer version, or is someone else's", activity.id());
-            case NOT_STORED -> storeLate(activity, document, read.get());
+            case UNCHANGED -> log.debug("Not editing for Update {}, whose Note has a newer version, is the same, or is "
+                    + "someone else's", activity.id());
+            case NOT_STORED -> storeLate(activity, document, read);
         }
     }
 
@@ -141,24 +154,22 @@ class UpdateHandler implements InboundActivityHandler {
     }
 
     /**
-     * @return the ID of the actor, if it's stored here, active, and remote, as an author of remote statuses has to be
+     * @return the actor, if it's stored here, active, and remote, as an author of remote statuses has to be
      */
-    private Optional<UUID> storedAuthor(URI actorUri) {
-        return actors.findByUri(actorUri)
-                .filter(found -> found.isActive() && !actors.isLocal(found))
-                .map(Actor::id);
+    private Optional<Actor> storedAuthor(URI actorUri) {
+        return actors.findByUri(actorUri).filter(found -> found.isActive() && !actors.isLocal(found));
     }
 
-    private RemoteEdit.Outcome edit(RemoteNote note, UUID authorId) {
+    private RemoteEdit.Outcome edit(RemoteNote note, Actor author) {
         return statuses.updateRemote(new RemoteEdit(
                 note.id(),
-                authorId,
+                author.id(),
                 note.content() == null ? "" : note.content(),
                 note.summary(),
                 note.language(),
                 note.sensitive(),
                 note.editedAt(note.published(), Instant.now()),
                 note.hashtags(),
-                actors.findById(authorId).map(author -> storage.attachments(note, author)).orElse(List.of())));
+                storage.attachments(note, author)));
     }
 }

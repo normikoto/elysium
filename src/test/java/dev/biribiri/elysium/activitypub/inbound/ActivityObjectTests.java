@@ -5,6 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,7 +68,7 @@ class ActivityObjectTests {
         assertThat(object.content()).isEqualTo("<p>Hi</p>");
         assertThat(object.summary()).isEqualTo("cw");
         assertThat(object.sensitive()).isTrue();
-        assertThat(object.tags()).containsExactly(new ActivityJson.Tag("Mention", "https://b.test/v", "@v@b.test"));
+        assertThat(object.tags()).containsExactly(new ActivityJson.Tag("Mention", "https://b.test/v", "@v@b.test", List.of()));
         assertThat(object.addressing().to()).containsExactly("https://www.w3.org/ns/activitystreams#Public");
         assertThat(object.addressing().cc()).containsExactly("https://a.test/u/followers");
     }

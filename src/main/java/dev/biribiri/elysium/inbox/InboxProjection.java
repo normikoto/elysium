@@ -1,5 +1,8 @@
 package dev.biribiri.elysium.inbox;
 
+import dev.biribiri.elysium.content.QuoteAccepted;
+import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.content.RemoteStatusEdited;
 import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.content.StatusLiked;
@@ -14,7 +17,10 @@ import dev.biribiri.elysium.inbox.internal.NotificationRepository;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -24,10 +30,12 @@ import java.util.function.Predicate;
 public class InboxProjection {
     private final ConversationRepository conversations;
     private final NotificationRepository notifications;
+    private final QuoteService quotes;
 
-    InboxProjection(ConversationRepository conversations, NotificationRepository notifications) {
+    InboxProjection(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes) {
         this.conversations = conversations;
         this.notifications = notifications;
+        this.quotes = quotes;
     }
 
     /**
@@ -45,8 +53,45 @@ public class InboxProjection {
      */
     @ApplicationModuleListener
     public void on(StatusEdited event) {
+        quotedUpdate(event.statusId(), event.authorId(), event.editedAt());
         if (event.addedMentions().isEmpty()) return;
         project(event.statusId(), Set.copyOf(event.addedMentions())::contains);
+    }
+
+    @ApplicationModuleListener
+    public void on(RemoteStatusEdited event) {
+        quotedUpdate(event.statusId(), event.authorId(), event.editedAt());
+    }
+
+    /**
+     * Tells the local authors of accepted quotes of a status that it's been edited, as Mastodon does, since what they
+     * quoted has changed. Each edit is told once, however often this runs.
+     */
+    private void quotedUpdate(UUID statusId, UUID editorId, Instant editedAt) {
+        var quoting = new HashMap<>(quotes.findLocalQuotes(statusId));
+        quoting.values().removeIf(editorId::equals);
+        if (quoting.isEmpty()) return;
+        notifications.lock();
+        conversations.holdActors(people(List.copyOf(quoting.values()), editorId));
+        quoting.forEach((quoteId, authorId) -> {
+            conversations.holdSource(quoteId).filter(source -> source.authorId().equals(authorId))
+                    .ifPresent(source -> notifications.insertQuotedUpdate(authorId, editorId,
+                            UUID.nameUUIDFromBytes((quoteId + "\n" + editedAt.toEpochMilli())
+                                    .getBytes(StandardCharsets.UTF_8)), quoteId));
+        });
+    }
+
+    /**
+     * Tells a local author that their status was quoted, once the quote is approved, or needed no approval.
+     */
+    @ApplicationModuleListener
+    public void on(QuoteAccepted event) {
+        if (event.authorId().equals(event.quotedAuthorId())
+                || conversations.localRecipients(List.of(event.quotedAuthorId())).isEmpty()) return;
+        notifications.lock();
+        conversations.holdActors(List.of(event.authorId(), event.quotedAuthorId()));
+        conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
+                .ifPresent(source -> notifications.insertQuote(event.quotedAuthorId(), event.authorId(), source.id()));
     }
 
     /**

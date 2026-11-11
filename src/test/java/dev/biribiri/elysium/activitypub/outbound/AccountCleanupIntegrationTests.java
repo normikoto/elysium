@@ -104,6 +104,14 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAccountRemovesItsPostingDefaults() {
+        jdbc.sql("INSERT INTO posting_default (actor_id, quote_policy) VALUES (:id, 'nobody')")
+                .param("id", local.id()).update();
+        actors.markDeleted(local.id());
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM posting_default WHERE actor_id = :id", local.id()) == 0);
+    }
+
+    @Test
     void deletingALikerRemovesItsLikesAndFavouriteNotifications() {
         var author = newLocal();
         var status = statuses.create(author.id(), draft());

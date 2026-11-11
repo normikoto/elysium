@@ -6,7 +6,6 @@ import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
-import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -143,41 +142,17 @@ class Boosts {
             if (turn.get().isAfter(now)) {
                 return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
             }
-            var note = fetch(noteUri.get());
-            if (note.isEmpty()) {
+            var fetched = AttributedNote.fetch(noteUri.get(), documents);
+            if (fetched.isEmpty()) {
                 return Jobs.done();
             }
-            var author = note.get().attributedTo().size() == 1
-                    ? ActivityObject.parseUri(note.get().attributedTo().getFirst())
-                    : Optional.<URI>empty();
-            // Only the status's own server can say who wrote it.
-            if (author.isEmpty() || !Inbox.isOnActorsServer(noteUri.get(), author.get())) {
-                log.debug("Ignoring a boost of {}, which isn't attributed to one actor on its server", noteUri.get());
-                return Jobs.done();
-            }
-            storage.storeBoosted(note.get(), author.get());
+            storage.storeBoosted(fetched.get().note(), fetched.get().author());
             // The note's own ID, which is stored, can be spelled differently from the Announce's, in case or in its host.
-            boosts.storedTarget(note.get().id()).ifPresent(status -> store(activity.get(), document, status.id()));
+            boosts.storedTarget(fetched.get().note().id()).ifPresent(status -> store(activity.get(), document, status.id()));
         } catch (PermanentJobFailure e) {
             // Such as an author or booster that's been suspended here, which isn't worth parking the job for.
             log.debug("Ignoring a boost of {}: {}", noteUri.get(), e.getMessage());
         }
         return Jobs.done();
-    }
-
-    /**
-     * @return the note, or empty if what's served there isn't a {@code Note} with this ID
-     * @throws IllegalStateException if the status's server couldn't be reached, which is worth trying again
-     */
-    private Optional<RemoteNote> fetch(URI id) {
-        try {
-            return RemoteNote.read(documents.fetch(id)).filter(note -> note.id().equals(id));
-        } catch (DocumentFetchException e) {
-            if (e.isTemporary()) {
-                throw new IllegalStateException(e.getMessage(), e);
-            }
-            log.debug("Ignoring a boost of {}, which couldn't be fetched: {}", id, e.getMessage());
-            return Optional.empty();
-        }
     }
 }

@@ -3,6 +3,8 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.QuotePolicy;
+import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusEdit;
@@ -19,6 +21,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.MultiValueMap;
@@ -66,9 +69,11 @@ public class StatusesController {
     private final BoostService boosts;
     private final StatusResponses responses;
     private final JsonBodies json;
+    private final QuoteService quotes;
 
     StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes,
-                       BoostService boosts) {
+                       BoostService boosts, QuoteService quotes) {
+        this.quotes = quotes;
         this.statuses = statuses;
         this.likes = likes;
         this.boosts = boosts;
@@ -127,12 +132,17 @@ public class StatusesController {
                     repeated value and `visibility[]`.
                     - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a \
                     duplicate status.
+                    - `quoted_status_id` can be a status on a server that doesn't say who can quote its statuses, \
+                    which is quoted as such servers quote each other, without asking. A status from before this \
+                    server supported quotes can only be quoted by its author. A status that can't be quoted gets a \
+                    422.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The new status."),
-                    @ApiResponse(responseCode = "404", description = "`in_reply_to_id` isn't a status the user can see."),
+                    @ApiResponse(responseCode = "404", description = """
+                            `in_reply_to_id` or `quoted_status_id` isn't a status the user can see."""),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
                             The status is empty or too long, media can't be attached, a value is unsupported or of the \
@@ -201,6 +211,8 @@ public class StatusesController {
                     - Earlier versions in the status's history don't keep their attachments.
                     - A missing `sensitive` or `language` keeps what the status has, as Mastodon does, and so does an \
                     empty `language`, so a language can't be removed. `visibility` and `in_reply_to_id` are ignored.
+                    - `quoted_status_id` can only name the status it quotes already, and anything else gets a 422, \
+                    since what a status quotes can't be changed.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#edit"),
@@ -444,6 +456,139 @@ public class StatusesController {
                 .orElseThrow(RecordNotFoundException::new);
     }
 
+    @GetMapping("/{id}/quotes")
+    @PreAuthorize("hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getStatusQuotes",
+            summary = "View a status's quotes",
+            description = """
+                    Lists the accepted quotes of a status that the user can see, newest first. Only quotes stored here \
+                    are listed. A boost's ID lists the quotes of the status it boosts. \
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#quotes"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The quotes."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user, or a cursor is invalid.")
+            })
+    public ResponseEntity<List<StatusResponse>> quotes(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            @RequestParam(required = false) String limit,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            @RequestParam(name = "since_id", required = false) String sinceId,
+            @RequestParam(name = "min_id", required = false) String minId) {
+        var viewer = requireUser(token);
+        var status = RequestParameters.uuid(id).flatMap(boosts::original)
+                .flatMap(statusId -> statuses.findVisible(statusId, Optional.of(viewer)))
+                .orElseThrow(RecordNotFoundException::new);
+        var page = RequestParameters.page(limit, maxId, sinceId, minId);
+        return responses.page("/api/v1/statuses/" + status.id() + "/quotes", Map.of(), page,
+                quotes.findAccepted(status.id(), viewer, page), Optional.of(viewer));
+    }
+
+    @PostMapping("/{id}/quotes/{quotingId}/revoke")
+    @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
+    @Operation(
+            operationId = "revokeQuote",
+            summary = "Revoke a quote of a status",
+            description = """
+                    Withdraws the user's approval of a quote of their status, which stops the quote showing it. The \
+                    quote's server, and the user's followers' servers, are sent a `Delete` of the approval. A quote \
+                    from a server that can't ask for approval is only hidden here. Repeats have no additional effect. \
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#revoke_quote"),
+            parameters = @Parameter(name = "quotingId", description = "The quote's ID."),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The quote, whose `quote.state` is `revoked`."),
+                    @ApiResponse(responseCode = "403", description = "The status isn't the user's."),
+                    @ApiResponse(responseCode = "404", description = """
+                            Not found, or the other status doesn't quote it."""),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse revokeQuote(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            @PathVariable String quotingId) {
+        var viewer = requireUser(token);
+        var statusId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
+        var quoting = RequestParameters.uuid(quotingId).orElseThrow(RecordNotFoundException::new);
+        return switch (quotes.revoke(statusId, quoting, viewer)) {
+            case NOT_FOUND -> throw new RecordNotFoundException();
+            case NOT_OWNED -> throw new ForbiddenActionException();
+            case REVOKED -> statuses.findStored(quoting)
+                    .map(found -> responses.one(found, Optional.of(viewer)))
+                    .orElseThrow(RecordNotFoundException::new);
+        };
+    }
+
+    @PutMapping(value = "/{id}/interaction_policy",
+            consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
+    @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
+    public StatusResponse interactionPolicyFromForm(
+            @AuthenticationPrincipal TokenPrincipal token, @PathVariable String id,
+            @RequestParam MultiValueMap<String, String> form) {
+        return interactionPolicy(token, id, form.toSingleValueMap());
+    }
+
+    @PutMapping(value = "/{id}/interaction_policy", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
+    // The API docs combine both mappings into one operation, and this replaces what the other one documents.
+    @Operation(
+            operationId = "setStatusInteractionPolicy",
+            summary = "Change who can quote a status",
+            description = """
+                    Sets `quote_approval_policy` on one of the user's own statuses, which other servers that were sent \
+                    it are sent in an `Update`. It doesn't change the quotes approved already. A followers-only or \
+                    direct status can only be quoted by its author, whatever this says. \
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#interaction_policy"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status, with its `quote_approval`."),
+                    @ApiResponse(responseCode = "404", description = "Not found, the status isn't the user's, or it's a boost."),
+                    @ApiResponse(responseCode = "422", description = """
+                            `quote_approval_policy` is missing or isn't one of `public`, `followers`, or `nobody`, or the \
+                            token has no user.""")
+            })
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = InteractionPolicyBody.class)))
+    public StatusResponse interactionPolicyFromJson(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            HttpServletRequest request) throws IOException {
+        return interactionPolicy(token, id, json.read(request, OTHER_FIELDS_BYTES));
+    }
+
+    private StatusResponse interactionPolicy(TokenPrincipal token, String id, Map<String, ?> parameters) {
+        var author = requireUser(token);
+        var statusId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
+        var policy = quotePolicy(parameters);
+        if (policy == null) {
+            throw new InvalidRequestException("Validation failed: quote_approval_policy is required");
+        }
+        return quotes.setPolicy(statusId, author, policy)
+                .map(found -> responses.one(found, Optional.of(author)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    /**
+     * @return the policy, or null if none was given
+     */
+    private static QuotePolicy quotePolicy(Map<String, ?> parameters) {
+        return switch (parameters.get("quote_approval_policy")) {
+            case null -> null;
+            case String value when value.isEmpty() -> null;
+            case String value -> QuotePolicy.fromValue(value).orElseThrow(() -> new InvalidRequestException(
+                    "Validation failed: quote_approval_policy must be public, followers, or nobody"));
+            default -> throw new InvalidRequestException("Validation failed: quote_approval_policy must be a string");
+        };
+    }
+
+    /**
+     * Quoting a boost quotes the status it boosts, as on Mastodon.
+     */
+    private UUID quoted(String id) {
+        return id == null || id.isEmpty() ? null : RequestParameters.uuid(id).flatMap(boosts::original)
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
     private StatusResponse create(TokenPrincipal token, Map<String, ?> parameters) {
         var author = requireUser(token);
         var draft = new NewStatus(
@@ -453,7 +598,9 @@ public class StatusesController {
                 visibility(parameters),
                 RequestParameters.flag(parameters, "sensitive"),
                 replyParent(RequestParameters.string(parameters, "in_reply_to_id")),
-                mediaIds(parameters.get("media_ids")));
+                mediaIds(parameters.get("media_ids")),
+                quoted(RequestParameters.string(parameters, "quoted_status_id")),
+                quotePolicy(parameters));
         return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
     }
 
@@ -466,7 +613,9 @@ public class StatusesController {
                 RequestParameters.string(parameters, "language"),
                 isPresent(parameters.get("sensitive")) ? RequestParameters.flag(parameters, "sensitive") : null,
                 parameters.containsKey("media_ids") ? mediaIds(parameters.get("media_ids")) : null,
-                MediaAttributes.read(parameters.get("media_attributes")));
+                MediaAttributes.read(parameters.get("media_attributes")),
+                quoted(RequestParameters.string(parameters, "quoted_status_id")),
+                quotePolicy(parameters));
         return statuses.edit(statusId, author, draft)
                 .map(found -> responses.one(found, Optional.of(author)))
                 .orElseThrow(RecordNotFoundException::new);
@@ -595,7 +744,22 @@ public class StatusesController {
             @Schema(description = "Changes to the description and focus of the status's attachments.")
             List<MediaAttributes.Body> media_attributes,
             @Schema(description = "Not supported, and only accepted when empty.")
-            Map<String, Object> poll) {
+            Map<String, Object> poll,
+            @Schema(description = "The status it quotes, which can't be changed. Missing keeps it.")
+            String quoted_status_id,
+            @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
+                    Who can quote it. Missing keeps who can. Ignored for a followers-only or direct status.""")
+            String quote_approval_policy) {
+    }
+
+    /**
+     * Only documents the body, which is read by hand.
+     */
+    @Schema(name = "InteractionPolicy")
+    private record InteractionPolicyBody(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"public", "followers", "nobody"},
+                    description = "Who can quote the status.")
+            String quote_approval_policy) {
     }
 
     /**
@@ -628,6 +792,14 @@ public class StatusesController {
             @Schema(description = "Not supported, and only accepted when empty.")
             Map<String, Object> poll,
             @Schema(description = "Not supported, and only accepted when empty.")
-            String scheduled_at) {
+            String scheduled_at,
+            @Schema(description = """
+                    The status to quote, which the user has to be able to see, and be allowed to quote. Quoting a \
+                    followers-only status, which only its author can, makes this one followers-only.""")
+            String quoted_status_id,
+            @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
+                    Who can quote this status. Missing means the user's default. A followers-only or direct status can \
+                    only be quoted by its author.""")
+            String quote_approval_policy) {
     }
 }

@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.ProfileChange;
+import dev.biribiri.elysium.content.QuotePolicy;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,8 +25,9 @@ import java.util.regex.Pattern;
  * as on Mastodon.
  *
  * @param hideCollections null to leave it as it is
+ * @param quotePolicy     the default for new statuses, or null to leave it as it is
  */
-record CredentialsRequest(ProfileChange profile, Boolean hideCollections) {
+record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuotePolicy quotePolicy) {
 
     /**
      * Settings that don't exist here, with the value that's reported for them.
@@ -91,6 +93,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections) {
     private static CredentialsRequest read(Map<String, ?> values, Map<String, MultipartFile> files) {
         var change = ProfileChange.NONE;
         Boolean hide = null;
+        QuotePolicy quotePolicy = null;
         for (var entry : values.entrySet()) {
             var key = entry.getKey();
             var value = entry.getValue();
@@ -113,12 +116,12 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections) {
                         throw new InvalidRequestException("Validation failed: " + key + " has to be a file in a multipart form");
                     }
                 }
-                case "source" -> checkSource(value);
+                case "source" -> quotePolicy = source(value);
                 default -> checkFixed(key, value, FIXED, key);
             }
         }
         change = change.withAvatar(image(files.get("avatar"))).withHeader(image(files.get("header")));
-        return new CredentialsRequest(change, hide);
+        return new CredentialsRequest(change, hide, quotePolicy);
     }
 
     private static String text(String key, Object value) {
@@ -168,14 +171,32 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections) {
         }
     }
 
-    private static void checkSource(Object value) {
+    /**
+     * @return the default quote policy, or null if it isn't given
+     */
+    private static QuotePolicy source(Object value) {
         if (isEmpty(value)) {
-            return;
+            return null;
         }
         if (!(value instanceof Map<?, ?> source)) {
             throw new InvalidRequestException("Validation failed: source must be an object");
         }
-        source.forEach((key, setting) -> checkFixed(String.valueOf(key), setting, FIXED_SOURCE, "source[" + key + "]"));
+        QuotePolicy quotePolicy = null;
+        for (var entry : source.entrySet()) {
+            var key = String.valueOf(entry.getKey());
+            if (key.equals("quote_policy")) {
+                if (!isEmpty(entry.getValue())) {
+                    quotePolicy = entry.getValue() instanceof String policy ? QuotePolicy.fromValue(policy).orElse(null) : null;
+                    if (quotePolicy == null) {
+                        throw new InvalidRequestException(
+                                "Validation failed: source[quote_policy] must be public, followers, or nobody");
+                    }
+                }
+            } else {
+                checkFixed(key, entry.getValue(), FIXED_SOURCE, "source[" + key + "]");
+            }
+        }
+        return quotePolicy;
     }
 
     /**

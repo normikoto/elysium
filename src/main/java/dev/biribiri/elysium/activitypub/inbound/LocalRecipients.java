@@ -13,6 +13,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -125,6 +126,18 @@ class LocalRecipients {
     boolean repliesToSomeoneHere(URI parentUri, URI senderUri) {
         return statuses.findAuthorOf(parentUri)
                 .filter(author -> blocks.isAcceptedThrough(author, senderUri))
+                .isPresent();
+    }
+
+    /**
+     * Whether a quote concerns someone here, whether or not it addresses them: the status it quotes is stored, and its
+     * author is local, and doesn't block the sender or its server, as Mastodon keeps quotes of its users' statuses.
+     */
+    boolean quotesSomeoneHere(URI quotedUri, URI senderUri) {
+        return statuses.findAuthorOf(quotedUri)
+                .filter(author -> RemoteActorDocument.isOnDomain(author, instance.domain()))
+                .flatMap(actors::findLocalByUri)
+                .filter(author -> blocks.refusingSender(List.of(author.id()), senderUri).isEmpty())
                 .isPresent();
     }
 

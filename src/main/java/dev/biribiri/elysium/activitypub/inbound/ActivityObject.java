@@ -105,6 +105,13 @@ record ActivityObject(
     }
 
     /**
+     * @return the URI of a node that's an ID or an object with one, or empty if it's neither
+     */
+    static Optional<URI> uriOf(JsonNode node) {
+        return Optional.ofNullable(ActivityJson.idOf(node)).flatMap(ActivityObject::parseUri);
+    }
+
+    /**
      * @return whether this could have come from the actor. An object that doesn't say who it's from can't be told apart.
      */
     boolean couldBeFrom(String actorUri) {
