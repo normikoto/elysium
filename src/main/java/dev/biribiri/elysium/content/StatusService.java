@@ -10,6 +10,7 @@ import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.text.Hashtags;
 import dev.biribiri.elysium.text.Mentions;
@@ -68,6 +69,7 @@ public class StatusService {
     private final TransactionTemplate transaction;
     private final ApplicationEventPublisher events;
     private final FollowService follows;
+    private final BlockService blocks;
     private final RemoteActorResolver resolver;
     private final BoostRepository boosts;
     private final MediaAttachmentRepository media;
@@ -83,6 +85,7 @@ public class StatusService {
             PlatformTransactionManager transactionManager,
             ApplicationEventPublisher events,
             FollowService follows,
+            BlockService blocks,
             RemoteActorResolver resolver,
             BoostRepository boosts,
             MediaAttachmentRepository media,
@@ -97,6 +100,7 @@ public class StatusService {
         this.threads = threads;
         this.actors = actors;
         this.follows = follows;
+        this.blocks = blocks;
         this.instance = instance;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -606,7 +610,11 @@ public class StatusService {
         var found = statuses.findByIds(ids);
         var followed = Set.copyOf(follows.followedIds(viewer));
         var mentioned = statuses.mentioning(ids, viewer);
-        return found.stream().filter(status -> isVisible(status, Optional.of(viewer), followed::contains, mentioned::contains)).toList();
+        var refusing = blocks.refusing(viewer, found.stream().map(Status::actorId).collect(Collectors.toSet()));
+        return found.stream()
+                .filter(status -> isVisible(status, Optional.of(viewer), followed::contains, mentioned::contains,
+                        refusing::contains))
+                .toList();
     }
 
     /**
@@ -624,14 +632,16 @@ public class StatusService {
     /**
      * Whether this viewer is allowed to see a status. Besides what {@link Status#isVisibleTo} allows, a followers-only status
      * can be seen by an account that follows its author, and a followers-only or direct status by the accounts it mentions,
-     * as on Mastodon.
+     * as on Mastodon. Nothing by an author who blocks the viewer, or the viewer's server, can be seen, so that they can't
+     * favourite, boost or reply to it either.
      */
     public boolean isVisible(Status status, Optional<UUID> viewer) {
         return isVisible(
                 status,
                 viewer,
                 author -> viewer.filter(id -> follows.isFollowing(id, author)).isPresent(),
-                statusId -> viewer.filter(id -> !statuses.mentioning(List.of(statusId), id).isEmpty()).isPresent());
+                statusId -> viewer.filter(id -> !statuses.mentioning(List.of(statusId), id).isEmpty()).isPresent(),
+                author -> viewer.filter(id -> !blocks.refusing(id, List.of(author)).isEmpty()).isPresent());
     }
 
     /**
@@ -640,10 +650,15 @@ public class StatusService {
      * mentions, or mentioned before an edit. Those are who its {@code Create}, {@code Update}s and {@code Delete} are sent
      * to, so a fetch tells nobody else that it exists, and nobody can have it without being sent its deletion.
      *
+     * <p>An author who blocks the fetcher, or the fetcher's server, doesn't show it anything.
+     *
      * @param fetcher an active actor, or empty for a fetch that nobody is known to be behind
      */
     public Optional<Status> findFetchable(UUID id, Optional<UUID> fetcher) {
         return statuses.findById(id).filter(status -> {
+            if (fetcher.isPresent() && !blocks.refusing(fetcher.get(), List.of(status.actorId())).isEmpty()) {
+                return false;
+            }
             if (status.isVisibleTo(fetcher)) {
                 return true;
             }
@@ -660,9 +675,15 @@ public class StatusService {
     /**
      * @param followsAuthor  whether the viewer follows an author, for a caller that has looked that up already
      * @param mentionsViewer whether a status mentions the viewer, for a caller that has looked that up already
+     * @param refusesViewer  whether an author blocks the viewer or the viewer's server, for a caller that has looked that up
+     *                       already
      */
     private static boolean isVisible(
-            Status status, Optional<UUID> viewer, Predicate<UUID> followsAuthor, Predicate<UUID> mentionsViewer) {
+            Status status, Optional<UUID> viewer, Predicate<UUID> followsAuthor, Predicate<UUID> mentionsViewer,
+            Predicate<UUID> refusesViewer) {
+        if (viewer.isPresent() && refusesViewer.test(status.actorId())) {
+            return false;
+        }
         if (status.isVisibleTo(viewer)) {
             return true;
         }
@@ -675,7 +696,9 @@ public class StatusService {
 
     /**
      * Finds the statuses around one in its thread that this viewer is allowed to see, as Mastodon's context does, with the
-     * same limits as Mastodon has for a viewer who isn't signed in. Only what's stored here is listed.
+     * same limits as Mastodon has for a viewer who isn't signed in. Only what's stored here is listed. Statuses by accounts
+     * the viewer has blocked, muted, or blocked the server of, or that block the viewer, are left out, but the status itself
+     * is shown, since the viewer asked for it.
      *
      * @return empty if the viewer can't see the status itself
      */
@@ -692,7 +715,11 @@ public class StatusService {
             Set<UUID> mentioning = hidden.isEmpty()
                     ? Set.of()
                     : statuses.mentioning(hidden.stream().map(Status::id).toList(), viewer.get());
-            Predicate<Status> visible = found -> isVisible(found, viewer, followed::contains, mentioning::contains);
+            var authors = Stream.concat(ancestors.stream(), descendants.stream()).map(Status::actorId)
+                    .collect(Collectors.toSet());
+            Set<UUID> hiddenAuthors = viewer.isEmpty() ? Set.of() : blocks.hiddenFrom(viewer.get(), authors);
+            Predicate<Status> visible = found -> !hiddenAuthors.contains(found.actorId())
+                    && isVisible(found, viewer, followed::contains, mentioning::contains, hiddenAuthors::contains);
             return new StatusContext(
                     ancestors.stream().filter(visible).toList(), descendants.stream().filter(visible).toList());
         });
@@ -939,7 +966,15 @@ public class StatusService {
      * @param onlyMedia whether to only list statuses with attachments
      */
     public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia) {
-        return statuses.findPublic(origin, page, onlyMedia);
+        return statuses.findPublic(origin, page, onlyMedia, null);
+    }
+
+    /**
+     * Like {@link #findPublic(StatusOrigin, StatusPage, boolean)}, leaving out what's hidden from a viewer: statuses by
+     * accounts they've blocked, muted, or blocked the server of, or that block them.
+     */
+    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
+        return statuses.findPublic(origin, page, onlyMedia, viewer.orElse(null));
     }
 
     /**
@@ -953,7 +988,16 @@ public class StatusService {
      * @param onlyMedia whether to only list statuses with attachments
      */
     public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia) {
-        return statuses.findTagged(tags, origin, page, onlyMedia);
+        return statuses.findTagged(tags, origin, page, onlyMedia, null);
+    }
+
+    /**
+     * Like {@link #findTagged(TagFilter, StatusOrigin, StatusPage, boolean)}, leaving out what's hidden from a viewer, as
+     * {@link #findPublic(StatusOrigin, StatusPage, boolean, Optional)} does.
+     */
+    public List<Status> findTagged(
+            TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
+        return statuses.findTagged(tags, origin, page, onlyMedia, viewer.orElse(null));
     }
 
     /**
@@ -1022,11 +1066,17 @@ public class StatusService {
     }
 
     /**
+     * <p>An account that blocks the viewer, or the viewer's server, shows them nothing, and boosts of statuses hidden from
+     * the viewer are left out, as on Mastodon.
+     *
      * @param onlyMedia whether to only list statuses with attachments, which leaves out boosts
      */
     public List<Status> findByAccount(
             UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, boolean onlyMedia,
             StatusPage page) {
+        if (viewer.isPresent() && !blocks.refusing(viewer.get(), List.of(actorId)).isEmpty()) {
+            return List.of();
+        }
         var visibilities = viewer.filter(actorId::equals).isPresent()
                 ? Set.of(Visibility.values())
                 : viewer.filter(id -> follows.isFollowing(id, actorId)).isPresent()

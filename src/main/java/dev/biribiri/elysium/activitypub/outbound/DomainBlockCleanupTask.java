@@ -5,6 +5,7 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.inbox.InboxService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -12,7 +13,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes the follows and statuses of actors on blocked servers. Actors themselves are kept, because other things can refer
+ * Removes the follows, blocks of local accounts, and statuses of actors on blocked servers. Local accounts' blocks and mutes
+ * of them are kept, since they're the accounts' own choices, and the domain block can be lifted. Actors themselves are kept, because other things can refer
  * to them, and nothing is sent to them. This has to be safe to run again, and it's fine for it to find nothing.
  */
 @Configuration(proxyBeanMethods = false)
@@ -22,9 +24,12 @@ class DomainBlockCleanupTask {
     private final LikeService likes;
     private final DomainBlocks blocks;
     private final FollowService follows;
+    private final BlockService accountBlocks;
     private final StatusService statuses;
 
-    DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, StatusService statuses, InboxService inbox, LikeService likes) {
+    DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, BlockService accountBlocks, StatusService statuses,
+                           InboxService inbox, LikeService likes) {
+        this.accountBlocks = accountBlocks;
         this.inbox = inbox;
         this.likes = likes;
         this.blocks = blocks;
@@ -48,6 +53,7 @@ class DomainBlockCleanupTask {
         blocks.blockedHosts(follows.remoteDomains()).forEach(domain -> {
             likes.removeForDomain(domain);
             follows.removeForDomain(domain);
+            accountBlocks.removeForDomain(domain);
             statuses.removeForDomain(domain);
             inbox.removeForDomain(domain);
         });

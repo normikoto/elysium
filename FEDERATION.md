@@ -2,7 +2,7 @@
 
 Elysium is an early work in progress, and this file only describes what's implemented today. Other servers can find and
 follow its users, and fetch their actors, statuses, outboxes, and collections. Its users can follow accounts on other servers,
-whose recent posts are then fetched from their outbox, and like and boost their posts. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
+whose recent posts are then fetched from their outbox, and like, boost, and block them. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
 are sent to their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
 reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
 statuses are counted. Their images, video, and audio are sent and read as attachments, and other servers' are
@@ -10,10 +10,10 @@ downloaded and served from here for a while. Polls and other activities aren't s
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, and `Announce` and their
-  `Undo`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete`, and
-  sending `Follow`, `Like`, and `Announce` and their `Undo`, `Accept` and `Reject` of a `Follow`, `Create`, `Update`, and
-  `Delete`
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `Announce`, and `Block`
+  and their `Undo`, `Accept` and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and
+  `Delete`, and sending `Follow`, `Like`, `Announce`, and `Block` and their `Undo`, `Accept` and `Reject` of a `Follow`,
+  `Create`, `Update`, and `Delete`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -210,9 +210,9 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 ### Activities
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
-one worked. Activities are processed in no particular order. `Follow`, `Like`, `Announce`, their `Undo`s, `Accept` and
-`Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types are
-ignored.
+one worked. Activities are processed in no particular order. `Follow`, `Like`, `Announce`, `Block`, their `Undo`s, `Accept`
+and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types
+are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -540,7 +540,8 @@ again with the same `id`.
 
 A `Create` whose `object` is a `Note` is stored as a status, if the `Note` is for a local user: one who follows its author,
 with the author's `followers` collection addressed, or one it addresses. A public or unlisted `Note` is also stored if its
-`inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does. That covers a
+`inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does, unless that
+user, or every such follower, [blocks](#blocks) the `Note`'s author or its server. That covers a
 reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
 followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
 that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts) or [backfilled](#backfill). Other object types, such as `Article`, `Page`, and `Question`, are ignored.
@@ -724,6 +725,46 @@ A `Note`'s `shares` collection is served like its `likes`, and counts and lists 
 Boosts from suspended actors, and of a suspended author's statuses, aren't counted or listed, and come back if the suspension
 ends.
 
+### Blocks
+
+When a local user blocks an actor on another server, a `Block` signed as the user is sent to that actor's own `inbox`, never
+a shared one, and addressed only to them. Its `id` is `{actor-uri}#blocks/{uuid}`, which is new each time. Admins can
+[turn this off](docs/configuration.md) with `elysium.federation.send-blocks`.
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice#blocks/5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+  "type": "Block",
+  "actor": "https://elysium.example/users/alice",
+  "object": "https://remote.example/users/bob",
+  "to": ["https://remote.example/users/bob"]
+}
+```
+
+Whether or not the `Block` is sent, the follows between them end, as on Mastodon: the user's follow of the actor, or request
+to follow, is withdrawn with an `Undo` of the `Follow`, the same as [unfollowing](#following-other-actors), and the actor's
+follow of the user gets a `Reject` of its `Follow`, accepted or not, shaped like the one in [follows](#follows). A `Follow`
+from a blocked actor is answered with a `Reject` and not stored, so it can be sent again once the block is lifted. A user
+can also block a whole server for themselves. That isn't sent anywhere, but each of their followers on that server gets a
+`Reject`, and that server's `Follow`s of them are refused the same way.
+
+Unblocking cancels the `Block` if it hasn't been sent, and sends an `Undo` either way, with the `id` `{block-id}/undo` and the
+`Block` embedded, after any request with the `Block` to the same server has ended. Follows don't come back.
+
+A `Block` from another server is stored if its `object` is a local user, and its actor's follow of the user is removed
+without an answer. The user's follow of the actor, or request to follow, is withdrawn with an `Undo`. While it stands, the
+user can't follow the actor. An `Undo` lifts it if its `object` names the `Block` by `id`, embeds it, or embeds a `Block` with
+no `id` whose `object` is the user. Only the actor that sent the `Block` can undo it, and activities are ordered by when they
+arrived here, as for [likes](#likes).
+
+While either blocks the other, nothing new by the user goes straight to the actor's inbox: a status's `Create` and `Update`s
+leave out a blocked actor it mentions or replies to, though its `Delete` doesn't, since the actor can have it from before. A
+user who blocks an actor or its server isn't a recipient of anything that actor sends, and a signed fetch of the user's `Note`
+by that actor, or by any actor on that server, gets a `404`. A blocked actor's server can still get the user's public
+statuses through a shared inbox, for its other users who follow them, and anyone can fetch public statuses without a
+signature.
+
 ### Differences from Mastodon
 
 - An actor's `manuallyApprovesFollowers` isn't read, so local users see every account on another server as unlocked.
@@ -739,6 +780,8 @@ ends.
   without an `Undo`.
 - Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.
 - Backfill only reads the first page of an outbox, and only its `Create`s.
+- Once `elysium.federation.send-blocks` is turned off, lifting a block that was sent before then sends no `Undo`, so the
+  other server keeps it.
 
 ### Suspended and deleted accounts
 
@@ -802,6 +845,8 @@ host is. An admin can also reject the media of one account on another server. A 
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
   status posted before then, and it keeps any copy it has.
+
+These are an admin's blocks. A user's own block of a server [isn't federated](#blocks), apart from the `Reject`s it sends.
 
 A block doesn't stop a server's users from reading this server's public pages and documents, which need no signature, or
 recall a delivery that's already being sent. It only covers names, so it doesn't apply to a server that moves to an unrelated

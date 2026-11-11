@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.SimplePropertyRowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -72,6 +73,21 @@ public class StatusRepository {
 
     private static final String MENTIONS_VIEWER =
             " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = :viewer)";
+
+    /**
+     * Leaves out what's hidden from the viewer: statuses by accounts it has blocked, muted, or blocked the server of, or that
+     * block it, and boosts of their statuses.
+     */
+    private static final String NOT_HIDDEN = " AND " + HiddenAccounts.visibleInTimelines("author")
+            + " AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status ho JOIN actor hoa ON hoa.id = ho.actor_id"
+            + " WHERE ho.id = s.reblog_of_id AND " + HiddenAccounts.visibleInTimelines("hoa") + "))";
+
+    /**
+     * Leaves out boosts of statuses hidden from the viewer, as {@link #NOT_HIDDEN} does.
+     */
+    private static final String NO_HIDDEN_BOOSTS = " AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status ho"
+            + " JOIN actor hoa ON hoa.id = ho.actor_id WHERE ho.id = s.reblog_of_id AND "
+            + HiddenAccounts.visibleInTimelines("hoa") + "))";
 
     /**
      * Excludes replies to other accounts, but keeps an account's replies to itself.
@@ -593,16 +609,19 @@ public class StatusRepository {
                 .optional();
     }
 
-    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia) {
+    /**
+     * @param viewer who's looking, from whom what they've hidden is left out, or null
+     */
+    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia, UUID viewer) {
         var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + origin(origin)
-                + (onlyMedia ? HAS_MEDIA : "");
-        return findPage(filter, Map.of(), page);
+                + (onlyMedia ? HAS_MEDIA : "") + (viewer == null ? "" : NOT_HIDDEN);
+        return findPage(filter, viewer == null ? Map.of() : Map.of("viewer", viewer), page);
     }
 
     /**
      * Replies are listed too, as on Mastodon, since someone following a tag wants every status that uses it.
      */
-    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia) {
+    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, UUID viewer) {
         var filter = new StringBuilder("""
                 s.visibility = 'public' AND s.reblog_of_id IS NULL
                 AND EXISTS (SELECT 1 FROM status_tag t WHERE t.status_id = s.id AND t.name = ANY (CAST(:any AS text[])))""");
@@ -625,6 +644,10 @@ public class StatusRepository {
         if (onlyMedia) {
             filter.append(HAS_MEDIA);
         }
+        if (viewer != null) {
+            filter.append(NOT_HIDDEN);
+            parameters.put("viewer", viewer);
+        }
         return findPage(filter.toString(), parameters, page);
     }
 
@@ -637,6 +660,8 @@ public class StatusRepository {
     }
 
     /**
+     * Replies to accounts the viewer has hidden are left out as well as their own statuses, as on Mastodon.
+     *
      * @param followedIds the accounts the viewer follows, which can be empty
      */
     public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
@@ -646,7 +671,8 @@ public class StatusRepository {
                      AND ((s.visibility IN ('public', 'unlisted', 'private')
                            AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = :viewer
                                 OR s.in_reply_to_account_id = ANY (CAST(:followed AS uuid[]))))
-                          OR (s.visibility = 'direct' AND""" + MENTIONS_VIEWER + "))))";
+                          OR (s.visibility = 'direct' AND""" + MENTIONS_VIEWER + "))))" + NOT_HIDDEN
+                + " AND " + HiddenAccounts.visibleInTimelinesById("s.in_reply_to_account_id");
         // One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
         var followed = followedIds.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
         return findPage(filter, Map.of("viewer", viewerId, "followed", followed), page);
@@ -668,6 +694,9 @@ public class StatusRepository {
             parameters.put("viewer", viewer);
         }
         filter.append(")");
+        if (viewer != null) {
+            filter.append(NO_HIDDEN_BOOSTS);
+        }
         if (excludeReplies) {
             filter.append(" AND ").append(NOT_A_REPLY_TO_OTHERS);
         }

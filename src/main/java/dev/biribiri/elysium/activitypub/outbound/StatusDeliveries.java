@@ -13,15 +13,18 @@ import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusPublished;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.BlockService;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -36,6 +39,7 @@ public class StatusDeliveries {
     private final ActorService actors;
     private final Recipients recipients;
     private final Notes notes;
+    private final BlockService blocks;
     private final ActivityDeliveries deliveries;
     private final JsonMapper json;
 
@@ -44,12 +48,14 @@ public class StatusDeliveries {
             ActorService actors,
             Recipients recipients,
             Notes notes,
+            BlockService blocks,
             ActivityDeliveries deliveries,
             JsonMapper json) {
         this.statuses = statuses;
         this.actors = actors;
         this.recipients = recipients;
         this.notes = notes;
+        this.blocks = blocks;
         this.deliveries = deliveries;
         this.json = json;
     }
@@ -74,7 +80,8 @@ public class StatusDeliveries {
                 status.get().visibility(),
                 status.get().publishedAt(),
                 note.inReplyTo() == null ? null : status.get().inReplyToAccountId(),
-                mentioned);
+                mentioned,
+                true);
         if (inboxes.isEmpty()) {
             return;
         }
@@ -106,7 +113,7 @@ public class StatusDeliveries {
         var mentioned = actors.findByIds(event.mentioned());
         var inboxes = everyoneSent(
                 author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned,
-                event.boosters());
+                event.boosters(), false);
         if (inboxes.isEmpty()) {
             return;
         }
@@ -148,7 +155,8 @@ public class StatusDeliveries {
                 status.get().publishedAt(),
                 note.inReplyTo() == null ? null : status.get().inReplyToAccountId(),
                 actors.findByIds(statuses.findAllMentioned(status.get().id())),
-                statuses.findLocalBoosters(status.get().id()));
+                statuses.findLocalBoosters(status.get().id()),
+                true);
         if (inboxes.isEmpty()) {
             return;
         }
@@ -168,8 +176,9 @@ public class StatusDeliveries {
      */
     private List<URI> everyoneSent(
             UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId, Collection<Actor> mentioned,
-            List<UUID> boosters) {
-        var inboxes = new LinkedHashSet<>(inboxes(authorId, visibility, publishedAt, parentAuthorId, mentioned));
+            List<UUID> boosters, boolean withoutBlocked) {
+        var inboxes = new LinkedHashSet<>(
+                inboxes(authorId, visibility, publishedAt, parentAuthorId, mentioned, withoutBlocked));
         boosters.forEach(booster -> recipients.addFollowers(booster, visibility, publishedAt, inboxes));
         return List.copyOf(inboxes);
     }
@@ -188,17 +197,32 @@ public class StatusDeliveries {
      * can add mentions, but those it removes are kept as silent ones, so its {@code Delete} reaches every account that was
      * sent its {@code Create} or an {@code Update}.
      *
+     * <p>A {@code Create} or {@code Update} isn't sent to a parent's author or a mentioned account when either blocks the
+     * other, since a server that gets an {@code Update} can store the status. A {@code Delete} still goes to them, because
+     * they can have had the status from before the block.
+     *
      * @param parentAuthorId the parent's author, or null if the status doesn't address them
      * @param mentioned      the accounts the status mentions
+     * @param withoutBlocked whether to leave out the parent's author and mentioned accounts in a block with the author
      */
     private List<URI> inboxes(
-            UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId, Collection<Actor> mentioned) {
+            UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId, Collection<Actor> mentioned,
+            boolean withoutBlocked) {
         var inboxes = new LinkedHashSet<URI>();
         recipients.addFollowers(authorId, visibility, publishedAt, inboxes);
+        var addressed = new ArrayList<Actor>();
         if (parentAuthorId != null && (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED)) {
-            actors.findById(parentAuthorId).ifPresent(parent -> recipients.add(parent, inboxes));
+            actors.findById(parentAuthorId).ifPresent(addressed::add);
         }
-        mentioned.forEach(actor -> recipients.add(actor, inboxes));
+        addressed.addAll(mentioned);
+        Set<UUID> blocked = withoutBlocked
+                ? blocks.inBlockWith(authorId, addressed.stream().map(Actor::id).toList())
+                : Set.of();
+        for (var actor : addressed) {
+            if (!blocked.contains(actor.id())) {
+                recipients.add(actor, inboxes);
+            }
+        }
         return List.copyOf(inboxes);
     }
 }

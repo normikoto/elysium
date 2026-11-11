@@ -23,7 +23,7 @@ public class ConversationRepository {
                 SELECT s.id, s.actor_id FROM inbox_conversation_status cs
                 JOIN status s ON s.id = cs.status_id JOIN actor a ON a.id = s.actor_id
                 WHERE cs.conversation_id = c.id AND
-            """ + InboxSql.active("a") + " AND " + InboxSql.visible("s") + """
+            """ + InboxSql.active("a") + " AND " + InboxSql.notHidden("a") + " AND " + InboxSql.visible("s") + """
                  ORDER BY s.id DESC LIMIT 1
             ) latest
             WHERE c.owner_id = :viewer AND (c.hidden_through_id IS NULL OR latest.id > c.hidden_through_id)

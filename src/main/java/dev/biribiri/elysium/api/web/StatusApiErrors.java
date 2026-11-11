@@ -20,7 +20,10 @@ import java.util.Map;
  */
 @RestControllerAdvice(assignableTypes = {
         AccountsController.class,
+        BlocksController.class,
         FollowRequestsController.class,
+        MutesController.class,
+        UserDomainBlocksController.class,
         NotificationsController.class,
         GroupedNotificationsController.class,
         ConversationsController.class,

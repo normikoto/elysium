@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -22,7 +23,8 @@ import java.util.UUID;
  *
  * <p>A local account is a recipient if it's addressed directly, in any of {@code to}, {@code cc}, {@code bto}, {@code bcc},
  * or {@code audience}, of the activity or of the object embedded in a {@code Create} or {@code Update}, if it follows the activity's actor and that actor's followers
- * collection is addressed, or if it's the {@code object} of a {@code Follow}. Suspended and deleted accounts are left out.
+ * collection is addressed, or if it's the {@code object} of a {@code Follow}. Suspended and deleted accounts are left out,
+ * as are those that block the activity's actor or its server, for whom nothing it sends is stored.
  * This only reads what's stored, so it never makes a request, and it can't see collections of any other actor, such as the
  * followers of someone being replied to. {@link #repliesToSomeoneHere} covers replies, for a caller that keeps them.
  */
@@ -31,14 +33,17 @@ class LocalRecipients {
 
     private final ActorService actors;
     private final FollowService follows;
+    private final BlockService blocks;
     private final StatusService statuses;
     private final InstanceProperties instance;
     private final JsonMapper json;
 
     LocalRecipients(
-            ActorService actors, FollowService follows, StatusService statuses, InstanceProperties instance, JsonMapper json) {
+            ActorService actors, FollowService follows, BlockService blocks, StatusService statuses,
+            InstanceProperties instance, JsonMapper json) {
         this.actors = actors;
         this.follows = follows;
+        this.blocks = blocks;
         this.statuses = statuses;
         this.instance = instance;
         this.json = json;
@@ -76,6 +81,7 @@ class LocalRecipients {
         var recipients = new HashSet<UUID>();
         actors.findLocalByUris(local).stream().map(Actor::id).forEach(recipients::add);
         recipients.addAll(followersOf(activity, addressed));
+        recipients.removeAll(blocks.refusingSender(recipients, URI.create(activity.actorUri())));
         return recipients;
     }
 
@@ -110,11 +116,15 @@ class LocalRecipients {
     /**
      * Whether a reply concerns someone here, whether or not it addresses them: the status it replies to is stored, and its
      * author is local or followed by a local account. This is Mastodon's rule for replies, and it's what lets a reply
-     * forwarded by the parent's server be kept, since the reply only addresses its own author's followers.
+     * forwarded by the parent's server be kept, since the reply only addresses its own author's followers. As for
+     * {@link #of}, nobody counts who blocks the sender or its server, so a reply to someone who blocks its author isn't
+     * kept.
+     *
+     * @param senderUri the activity's actor, which has to be stored already
      */
-    boolean repliesToSomeoneHere(URI parentUri) {
+    boolean repliesToSomeoneHere(URI parentUri, URI senderUri) {
         return statuses.findAuthorOf(parentUri)
-                .filter(author -> RemoteActorDocument.isOnDomain(author, instance.domain()) || follows.hasLocalFollowers(author))
+                .filter(author -> blocks.isAcceptedThrough(author, senderUri))
                 .isPresent();
     }
 

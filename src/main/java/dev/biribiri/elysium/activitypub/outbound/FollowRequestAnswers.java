@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.vocab.Accept;
 import dev.biribiri.elysium.activitypub.vocab.Reject;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.FollowRequestAuthorized;
+import dev.biribiri.elysium.graph.FollowerRemoved;
 import dev.biribiri.elysium.graph.FollowRequestRejected;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -15,8 +16,8 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.List;
 
 /**
- * Answers a request to follow a local account from another server, once the account has decided. Both are safe to run
- * again, and send nothing once either actor is gone. An {@code Accept} is only sent while the follow it answers stands, so
+ * Answers a request to follow a local account from another server, once the account has decided, and tells a follower's
+ * server when a block removes it. These are safe to run again, and send nothing once either actor is gone. An {@code Accept} is only sent while the follow it answers stands, so
  * one handled after an {@code Undo} isn't sent, and it has the ID an inbound {@code Follow} would get, so a later
  * {@code Undo} can cancel it in the same way.
  */
@@ -68,5 +69,29 @@ public class FollowRequestAnswers {
         deliveries.enqueue(
                 new OutboundActivity(reject.id().toString(), followed.get().id(), json.writeValueAsString(reject)),
                 List.of(follower.get().inboxUri()));
+    }
+
+    /**
+     * A {@code Reject} also ends a follow that was accepted, which is how Mastodon removes a follower. An {@code Accept}
+     * that's still waiting to be sent is cancelled, and the {@code Reject} goes after it in case it's being sent right now.
+     */
+    @ApplicationModuleListener
+    public void on(FollowerRemoved event) {
+        if (event.activityUri() == null) {
+            return;
+        }
+        var followed = actors.findAnyLocalById(event.followedId());
+        var follower = actors.findById(event.followerId());
+        if (followed.isEmpty() || followed.get().isDeleted() || follower.isEmpty() || !follower.get().isActive()
+                || actors.isLocal(follower.get())) {
+            return;
+        }
+        var accept = Accept.idFor(followed.get().uri(), event.activityUri());
+        var reject = Reject.of(followed.get().uri(), event.activityUri(), follower.get().uri());
+        deliveries.cancel(accept);
+        deliveries.enqueueAfter(
+                new OutboundActivity(reject.id().toString(), followed.get().id(), json.writeValueAsString(reject)),
+                List.of(follower.get().inboxUri()),
+                accept);
     }
 }

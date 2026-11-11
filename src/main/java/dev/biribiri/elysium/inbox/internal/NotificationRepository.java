@@ -26,8 +26,8 @@ public class NotificationRepository {
              FROM inbox_notification n JOIN actor a ON a.id = n.sender_id
              LEFT JOIN status s ON s.id = n.status_id
              WHERE n.recipient_id = :viewer AND NOT n.dismissed AND
-            """ + InboxSql.active("a") + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND "
-            + InboxSql.visible("s") + "))";
+            """ + InboxSql.active("a") + " AND " + InboxSql.notHidden("a")
+            + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + InboxSql.visible("s") + "))";
     private static final String GROUP = """
             CASE WHEN n.type = ANY(CAST(:groupedTypes AS text[])) AND n.group_key IS NOT NULL
                  THEN n.group_key ELSE 'ungrouped-' || n.id END
@@ -53,6 +53,31 @@ public class NotificationRepository {
     }
 
     /**
+     * Whether the recipient hides what the sender does, as {@link InboxSql#notHidden} decides.
+     */
+    public boolean isHidden(UUID recipient, UUID sender) {
+        return jdbc.sql("SELECT NOT " + InboxSql.notHidden("a") + " FROM actor a WHERE a.id = :sender")
+                .param("viewer", recipient)
+                .param("sender", sender)
+                .query(Boolean.class)
+                .optional()
+                .orElse(false);
+    }
+
+    /**
+     * Removes the notifications between two accounts, either way, once one has blocked the other, as on Mastodon.
+     */
+    public void deleteBetween(UUID one, UUID other) {
+        jdbc.sql("""
+                        DELETE FROM inbox_notification
+                        WHERE (recipient_id = :one AND sender_id = :other) OR (recipient_id = :other AND sender_id = :one)
+                        """)
+                .param("one", one)
+                .param("other", other)
+                .update();
+    }
+
+    /**
      * Removes the notification of a request to follow, once it's been answered.
      */
     public void deleteFollowRequest(UUID followId) {
@@ -73,13 +98,17 @@ public class NotificationRepository {
         insert(recipient, sender, "reblog", reblog, status, null, null, reblog);
     }
 
+    /**
+     * Nothing is added from a sender the recipient hides notifications from, as on Mastodon, so ending a mute doesn't bring
+     * back what was sent during it.
+     */
     private void insert(
             UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog) {
         if (jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM inbox_notification
                         WHERE recipient_id = :recipient AND type = :type AND source_id = :source)
                         """).param("recipient", recipient).param("type", type).param("source", source)
-                .query(Boolean.class).single()) {
+                .query(Boolean.class).single() || isHidden(recipient, sender)) {
             return;
         }
         var previous = jdbc.sql("SELECT last_id FROM inbox_sequence WHERE singleton").query(UUID.class).single();

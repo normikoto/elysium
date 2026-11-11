@@ -8,6 +8,7 @@ import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,6 +60,7 @@ class StatusServiceTests {
                 mock(PlatformTransactionManager.class),
                 mock(ApplicationEventPublisher.class),
                 mock(FollowService.class),
+                mock(BlockService.class),
                 resolver,
                 mock(BoostRepository.class),
                 mock(MediaAttachmentRepository.class),

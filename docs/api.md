@@ -145,7 +145,10 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
   of 1000. V2 groups follow events within a span of up to twelve hours, and favourites and reblogs by status, while mentions
   remain individual groups.
   `types[]`, `exclude_types[]`, and `account_id` filter both lists and counts; exclusions win over inclusions.
-- Suspended, deleted, or domain-blocked senders are omitted, as are notifications about deleted statuses.
+- Suspended, deleted, or domain-blocked senders are omitted, as are notifications about deleted statuses. So are senders the
+  user blocks, mutes with notifications, or has blocked the server of, and senders that block the user. Blocking removes
+  the notifications between the two accounts, and nothing new is added from a muted sender, so unmuting brings back only
+  what came before the mute.
   Reads do not mark notifications as read, and dismissing a conversation does not dismiss its notifications.
 
 Conversations follow [Mastodon's conversations API](https://docs.joinmastodon.org/methods/conversations/):
@@ -160,7 +163,8 @@ Conversations follow [Mastodon's conversations API](https://docs.joinmastodon.or
   unread; sending a message or marking it read clears that flag. Deletion hides the conversation only for the user,
   until a newer message arrives, and does not delete statuses. Notification read markers are independent.
 - As in Mastodon, silent mentions do not create recipient conversations. Suspended, deleted, and domain-blocked
-  accounts are omitted from conversation accounts and message summaries.
+  accounts are omitted from conversation accounts and message summaries. A conversation's latest status leaves out
+  accounts hidden from the user's notifications, and a direct status from one of them doesn't start a conversation.
 
 Timeline positions follow [Mastodon's markers API](https://docs.joinmastodon.org/methods/markers/):
 
@@ -175,9 +179,10 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
 [search API](https://docs.joinmastodon.org/methods/search/), with these differences:
 
 - Only `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `:id/statuses`, `:id/followers`,
-  `:id/following`, `POST /:id/follow` and `/:id/unfollow`, `PATCH update_credentials`, `DELETE /api/v1/profile/avatar`
-  and `/api/v1/profile/header`, `GET /api/v1/follow_requests`, `POST /api/v1/follow_requests/:account_id/authorize` and
-  `/reject`, and `GET /api/v2/search` exist.
+  `:id/following`, `POST /:id/follow`, `/:id/unfollow`, `/:id/block`, `/:id/unblock`, `/:id/mute`, and `/:id/unmute`,
+  `PATCH update_credentials`, `DELETE /api/v1/profile/avatar` and `/api/v1/profile/header`, `GET /api/v1/follow_requests`,
+  `POST /api/v1/follow_requests/:account_id/authorize` and `/reject`, `GET /api/v1/blocks` and `/api/v1/mutes`,
+  `GET`, `POST`, and `DELETE /api/v1/domain_blocks`, and `GET /api/v2/search` exist.
 - Profiles of accounts on other servers aren't stored yet, so theirs have the username as `display_name`, an empty `note`
   and `fields`, and placeholder images. For an account on another server, `followers_count` and `following_count` only
   count accounts on this server, `hide_collections` is null, and `locked` is false, even when that server approves its
@@ -199,13 +204,31 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   `rel="me"`. This server checks when the field is saved, and only follows 3 redirects. A field keeps its `verified_at`
   while its value stays the same.
 - Following an account on another server returns `requested: true` until that server accepts, even if it doesn't approve
-  followers by hand. Following yourself, or an account on a blocked server, gets a 422.
+  followers by hand. Following yourself, or an account on a server the admin has blocked, gets a 422. Following an account
+  when either blocks the other, or on a server the user has blocked, gets a 403, as on Mastodon.
 - Turning `locked` off approves the requests that are waiting, as on Mastodon, but in the background, so they can still be
   listed just after the response. Turning it on keeps the account's followers.
 - `GET /api/v1/follow_requests` pages by the request, like `:id/followers`, and leaves out suspended and deleted accounts.
   `authorize` and `reject` get a 404 when that account has no request waiting.
 - `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true whenever
-  `following` or `requested` is. Blocks, mutes, notes, and endorsements don't exist, so those fields are always false or empty.
+  `following` or `requested` is. Notes, endorsements, and notifications of new statuses don't exist, so `note`, `endorsed`,
+  and `notifying` are always empty or false.
+- Blocking or muting yourself gets a 422, and so does a mute `duration` that's negative or not a whole number of seconds.
+  `duration` can be up to about 100 years. Muting an account already muted replaces the mute's `notifications` and
+  `duration`.
+- `GET /api/v1/blocks` and `/api/v1/mutes` page by when each block or mute was made, like `:id/followers`, and leave out
+  suspended and deleted accounts. A mute that's changed counts as made then. Expired mutes are left out of the list, and
+  stop hiding anything as soon as they expire.
+- `/api/v1/domain_blocks` blocks a server's subdomains too, where Mastodon blocks only the domain given. A domain is read as
+  an admin's domain block is, below, so one with a wildcard, a port, or other parts of a URL gets a 422, as do IP
+  addresses, a domain with only one label, and this server's own domain. `domain` can be in the query, a form, or JSON,
+  for `DELETE` too. The list pages by when each block was made, defaulting to 100 and at most 200, with cursors in the
+  `Link` header.
+- What's hidden by blocks, mutes, and server blocks follows Mastodon: the home, public, and hashtag timelines leave out
+  statuses by those accounts and boosts of them, and the home timeline also leaves out replies to them. Threads leave them
+  out, apart from the status asked for. An account that blocks the user, or the user's server, shows them no statuses, and
+  its statuses get a 404. Unlike on Mastodon, the home timeline still shows statuses that only mention those accounts, and
+  search isn't filtered.
 - A suspended account gets a 404 from `GET /api/v1/accounts/:id` and the lists, and is left out of `relationships`, even
   with `with_suspended`, and of followers and following. An account can still be unfollowed while it's suspended.
 - `:id/followers` and `:id/following` page by the follow, so a cursor from a follow that's since been removed gives an empty

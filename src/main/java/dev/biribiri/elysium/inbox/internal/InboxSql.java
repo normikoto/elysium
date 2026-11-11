@@ -1,10 +1,11 @@
 package dev.biribiri.elysium.inbox.internal;
 
+import dev.biribiri.elysium.graph.HiddenAccounts;
 import dev.biribiri.elysium.inbox.InboxPage;
 
 import java.util.Map;
 
-/** Apply eligibility before paging or counting; future per-account blocks and mutes belong in these predicates too. */
+/** Apply eligibility before paging or counting, including the viewer's blocks and mutes. */
 final class InboxSql {
     private InboxSql() {
     }
@@ -21,6 +22,14 @@ final class InboxSql {
         return alias + ".deleted_at IS NULL AND (" + alias
                 + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE b.severity = 'suspend' AND (" + host
                 + " = b.domain OR right(" + host + ", length(b.domain) + 1) = '.' || b.domain)))";
+    }
+
+    /**
+     * Leaves out actors the viewer has blocked, muted with their notifications, or blocked the server of, and those that
+     * block the viewer. This is read each time, so that what was stored before a mute comes back once it ends.
+     */
+    static String notHidden(String alias) {
+        return HiddenAccounts.visibleInNotifications(alias);
     }
 
     static String visible(String status) {

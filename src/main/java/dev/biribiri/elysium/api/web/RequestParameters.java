@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.graph.DomainBlockListPage;
 import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.moderation.DomainBlockPage;
 
@@ -94,6 +95,14 @@ final class RequestParameters {
     static FollowPage followPage(String limit, String maxId, String sinceId, String minId) {
         return new FollowPage(
                 limit(limit, FollowPage.DEFAULT_LIMIT),
+                cursor("max_id", maxId),
+                cursor("since_id", sinceId),
+                cursor("min_id", minId));
+    }
+
+    static DomainBlockListPage domainBlockListPage(String limit, String maxId, String sinceId, String minId) {
+        return new DomainBlockListPage(
+                limit(limit, DomainBlockListPage.DEFAULT_LIMIT),
                 cursor("max_id", maxId),
                 cursor("since_id", sinceId),
                 cursor("min_id", minId));

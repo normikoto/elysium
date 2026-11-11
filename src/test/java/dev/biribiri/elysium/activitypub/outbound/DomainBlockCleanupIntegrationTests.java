@@ -96,6 +96,36 @@ class DomainBlockCleanupIntegrationTests {
     }
 
     @Test
+    void removesItsActorsBlocksAndKeepsLocalAccountsBlocksOfThem() {
+        var blocker = remote(domain);
+        var blocked = remote(domain);
+        block(blocker, local);
+        block(local, blocked);
+        follow(blocker, local);
+
+        blocks.create(domain, null);
+
+        await().atMost(WAIT).until(() -> follows(blocker) == 0 && blockCount("account_id", blocker) == 0);
+        assertThat(blockCount("target_id", blocked)).isOne();
+    }
+
+    private void block(Actor account, Actor target) {
+        jdbc.sql("""
+                        INSERT INTO account_block (id, account_id, target_id, activity_uri)
+                        VALUES (gen_random_uuid(), :account, :target, :activity)
+                        """)
+                .param("account", account.id())
+                .param("target", target.id())
+                .param("activity", "https://example.test/activities/" + UUID.randomUUID())
+                .update();
+    }
+
+    private long blockCount(String column, Actor actor) {
+        return jdbc.sql("SELECT count(*) FROM account_block WHERE " + column + " = :id").param("id", actor.id())
+                .query(Long.class).single();
+    }
+
+    @Test
     void removesFollowsInBothDirectionsAndKeepsTheActors() {
         var follower = remote(domain);
         var followed = remote(domain);

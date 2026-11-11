@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the federation lab from nothing, and checks that a real server can discover a user on Elysium, deliver to it, follow
-# and unfollow it, including while it approves followers by hand, be followed and unfollowed by it, and receive its statuses, their attachments, edits and deletion, and profile changes,
+# and unfollow it, including while it approves followers by hand, take its blocks and their Undos, be followed and unfollowed by it, and receive its statuses, their attachments, edits and deletion, and profile changes,
 # apart from edits on Misskey, which doesn't apply them, and that Elysium takes the other server's profile changes and status
 # edits, apart from on Misskey, which can't edit, shows Mastodon's attachments, and removes a status and an account that the other server deletes. Both
 # servers also like and unlike, and boost and unboost, each other's posts, Elysium fetches a post that a followed account
@@ -1451,6 +1451,69 @@ check_locked() {
     "${target}_expect_alice_locked" false
 }
 
+# Passing means that the other server took alice's Block of the lab user, along with the Reject that ends the lab user's
+# follow of her, and her Undo of the Block. The lab user follows alice again at the end, for the steps after this.
+check_blocks() {
+    local domain=$1 read_token write_token lab_id body
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write)
+    [[ -n $read_token && -n $write_token ]] || fail "Couldn't get Elysium access tokens"
+    lab_id=$(driver curl -fsS -G https://elysium.test/api/v1/accounts/lookup \
+        -H "Authorization: Bearer $read_token" --data-urlencode "acct=lab@$domain" | jq -r .id)
+
+    body=$(driver curl -fsS -X POST "https://elysium.test/api/v1/accounts/$lab_id/block" \
+        -H "Authorization: Bearer $write_token")
+    jq -e '.blocking and (.followed_by | not)' <<<"$body" >/dev/null || fail "Block failed: $body"
+    expect_followers "$domain" 0
+    expect_delivered "$expected_actor#blocks/%"
+    "${target}_expect_relation" none
+    "${target}_expect_blocked" true
+    echo "$target took alice's Block, and ended the lab user's follow of her"
+
+    body=$(driver curl -fsS -X POST "https://elysium.test/api/v1/accounts/$lab_id/unblock" \
+        -H "Authorization: Bearer $write_token")
+    jq -e '.blocking | not' <<<"$body" >/dev/null || fail "Unblock failed: $body"
+    expect_delivered "$expected_actor#blocks/%/undo"
+    "${target}_expect_blocked" false
+    echo "$target took alice's Undo of her Block"
+
+    "${target}_request_follow"
+    "${target}_expect_relation" following
+    expect_followers "$domain" 1
+}
+
+# Inside one process, as in mastodon_follow.
+mastodon_expect_blocked() {
+    local output
+    output=$(docker compose exec -T -e EXPECTED="$1" mastodon-web bin/rails runner '
+        lab = Account.find_local("lab")
+        alice = Account.find_by!(username: "alice", domain: "elysium.test")
+        blocked = -> { Block.uncached { Block.exists?(account: alice, target_account: lab).to_s } }
+        60.times do
+            break if blocked.call == ENV["EXPECTED"]
+            sleep 2
+        end
+        puts "BLOCKED #{blocked.call}"')
+    grep -qxF "BLOCKED $1" <<<"$output" || fail "Mastodon shows alice blocking lab as: $output, not $1"
+}
+
+gotosocial_blocked() {
+    driver curl -fsS -G https://gts.test/api/v1/accounts/relationships \
+        -H "Authorization: Bearer $token" --data-urlencode "id[]=$alice_id" | jq -r '.[0].blocked_by'
+}
+
+gotosocial_expect_blocked() {
+    expect_peer "whether alice blocks lab" "$1" gotosocial_blocked
+}
+
+misskey_blocked() {
+    misskey_api users/relation "$(misskey_user_body)" | jq -r '.[0].isBlocked'
+}
+
+misskey_expect_blocked() {
+    expect_peer "whether alice blocks lab" "$1" misskey_blocked
+}
+
 set_locked() {
     local locked=$1 write_token=$2 actor
     driver curl -fsS -o /dev/null -X PATCH https://elysium.test/api/v1/accounts/update_credentials \
@@ -1657,6 +1720,7 @@ case "$target" in
         deliver_from_gotosocial
         follow_from_gotosocial
         check_locked gts.test
+        check_blocks gts.test
         follow_from_elysium gts.test post_from_gotosocial gotosocial_approve
         edit_from_gotosocial
         delete_account_from_gotosocial
@@ -1677,6 +1741,7 @@ case "$target" in
         deliver_from_mastodon
         follow_from_mastodon
         check_locked mastodon.test
+        check_blocks mastodon.test
         follow_from_elysium mastodon.test post_from_mastodon
         edit_from_mastodon
         media_from_mastodon
@@ -1698,6 +1763,7 @@ case "$target" in
         deliver_from_misskey
         follow_from_misskey
         check_locked misskey.test
+        check_blocks misskey.test
         follow_from_elysium misskey.test post_from_misskey
         delete_account_from_misskey
         post_from_elysium
@@ -1714,4 +1780,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, and boosts and unboosts, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

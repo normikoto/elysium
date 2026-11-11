@@ -33,6 +33,9 @@ The script checks:
   the request, list it in alice's follow requests, and send no `Accept`, and the other server has to show it as requested.
   alice refuses it, and the other server has to take the `Reject` and drop it. `lab` asks once more, alice approves it, and
   the other server has to show `lab` following. alice then turns the setting off again, for the checks after this.
+- **Blocks:** while `lab` follows alice, alice blocks it. Elysium has to remove the follow, and deliver the `Block`, and
+  the other server has to drop `lab`'s follow and show alice blocking `lab`. alice then unblocks it, the `Undo` has to be
+  delivered, and the other server has to stop showing the block. `lab` follows alice again, for the checks after this.
 - **Following out:** alice looks up `lab` on the other server through Elysium's client API, which makes Elysium use
   WebFinger, and follows it. The other server has to accept the signed `Follow`, which Elysium shows as `following`. On
   GoToSocial, whose users approve followers by hand by default, the request waits until `lab` approves it, which tests the
