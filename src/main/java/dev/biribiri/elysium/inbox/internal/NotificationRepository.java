@@ -22,11 +22,15 @@ import java.util.UUID;
 
 @Repository
 public class NotificationRepository {
+    /**
+     * A report is for admins to act on whoever sent it, so a block or mute of the reporter doesn't hide it.
+     */
+    private static final String ADMIN_REPORT = "admin.report";
     private static final String FROM = """
              FROM inbox_notification n JOIN actor a ON a.id = n.sender_id
              LEFT JOIN status s ON s.id = n.status_id
              WHERE n.recipient_id = :viewer AND NOT n.dismissed AND
-            """ + InboxSql.active("a") + " AND " + InboxSql.notHidden("a")
+            """ + InboxSql.active("a") + " AND (n.type = '" + ADMIN_REPORT + "' OR " + InboxSql.notHidden("a") + ")"
             + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + InboxSql.visible("s") + "))";
     private static final String GROUP = """
             CASE WHEN n.type = ANY(CAST(:groupedTypes AS text[])) AND n.group_key IS NOT NULL
@@ -35,7 +39,7 @@ public class NotificationRepository {
     private static final RowMapper<Notification> MAPPER = (rs, row) -> new Notification(
             rs.getObject("id", UUID.class), rs.getString("type"),
             rs.getObject("created_at", OffsetDateTime.class).toInstant(), rs.getObject("sender_id", UUID.class),
-            rs.getObject("status_id", UUID.class), rs.getString("group_key"));
+            rs.getObject("status_id", UUID.class), rs.getString("group_key"), rs.getObject("report_id", UUID.class));
 
     private final JdbcClient jdbc;
 
@@ -49,7 +53,7 @@ public class NotificationRepository {
     }
 
     public void insert(UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow) {
-        insert(recipient, sender, type, source, status, follow, null, null);
+        insert(recipient, sender, type, source, status, follow, null, null, null);
     }
 
     /**
@@ -86,8 +90,15 @@ public class NotificationRepository {
                 .update();
     }
 
+    /**
+     * @param sender the reporter, which for a report from another server is whoever sent it there
+     */
+    public void insertReport(UUID recipient, UUID sender, UUID report) {
+        insert(recipient, sender, ADMIN_REPORT, report, null, null, null, null, report);
+    }
+
     public void insertFavourite(UUID recipient, UUID sender, UUID like, UUID status) {
-        insert(recipient, sender, "favourite", like, status, null, like, null);
+        insert(recipient, sender, "favourite", like, status, null, like, null, null);
     }
 
     /**
@@ -95,14 +106,14 @@ public class NotificationRepository {
      * @param status the status it boosts
      */
     public void insertReblog(UUID recipient, UUID sender, UUID reblog, UUID status) {
-        insert(recipient, sender, "reblog", reblog, status, null, null, reblog);
+        insert(recipient, sender, "reblog", reblog, status, null, null, reblog, null);
     }
 
     /**
      * @param status the quote
      */
     public void insertQuote(UUID recipient, UUID sender, UUID status) {
-        insert(recipient, sender, "quote", status, status, null, null, null);
+        insert(recipient, sender, "quote", status, status, null, null, null, null);
     }
 
     /**
@@ -110,7 +121,7 @@ public class NotificationRepository {
      * @param status the recipient's quote
      */
     public void insertQuotedUpdate(UUID recipient, UUID sender, UUID source, UUID status) {
-        insert(recipient, sender, "quoted_update", source, status, null, null, null);
+        insert(recipient, sender, "quoted_update", source, status, null, null, null, null);
     }
 
     /**
@@ -118,12 +129,13 @@ public class NotificationRepository {
      * back what was sent during it.
      */
     private void insert(
-            UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog) {
+            UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog,
+            UUID report) {
         if (jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM inbox_notification
                         WHERE recipient_id = :recipient AND type = :type AND source_id = :source)
                         """).param("recipient", recipient).param("type", type).param("source", source)
-                .query(Boolean.class).single() || isHidden(recipient, sender)) {
+                .query(Boolean.class).single() || (!type.equals(ADMIN_REPORT) && isHidden(recipient, sender))) {
             return;
         }
         var previous = jdbc.sql("SELECT last_id FROM inbox_sequence WHERE singleton").query(UUID.class).single();
@@ -144,13 +156,13 @@ public class NotificationRepository {
         jdbc.sql("""
                         INSERT INTO inbox_notification
                         (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, reblog_id,
-                         created_at, group_key)
-                        VALUES (:id, :recipient, :sender, :type, :source, :status, :follow, :like, :reblog, :created,
-                                :group)
+                         report_id, created_at, group_key)
+                        VALUES (:id, :recipient, :sender, :type, :source, :status, :follow, :like, :reblog, :report,
+                                :created, :group)
                         ON CONFLICT (recipient_id, type, source_id) DO NOTHING
                         """).param("id", id).param("recipient", recipient).param("sender", sender).param("type", type)
                 .param("source", source).param("status", status, Types.OTHER).param("follow", follow, Types.OTHER)
-                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
+                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("report", report, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
         jdbc.sql("UPDATE inbox_sequence SET last_id = :id WHERE singleton").param("id", id).update();
     }
 
@@ -213,7 +225,7 @@ public class NotificationRepository {
                         ORDER BY e.id %s LIMIT 1
                     ) next WHERE cardinality(chosen.visited) < :limit
                 )
-                SELECT n.id, n.type, n.created_at, n.sender_id, n.status_id, chosen.effective_key AS group_key
+                SELECT n.id, n.type, n.created_at, n.sender_id, n.status_id, n.report_id, chosen.effective_key AS group_key
                 FROM chosen JOIN inbox_notification n ON n.id = chosen.id ORDER BY n.id %s
                 """.formatted(eligible, direction, comparison, direction, direction);
         var found = jdbc.sql(sql).params(parameters).query(MAPPER).list();
@@ -254,7 +266,8 @@ public class NotificationRepository {
         return found.stream().map(notification -> {
             var detail = details.get(notification.groupKey());
             return new NotificationGroup(notification.groupKey(), detail.count(), notification.type(), detail.latest(),
-                    detail.min(), detail.latest(), detail.at(), detail.sample(), notification.statusId(), notification.id());
+                    detail.min(), detail.latest(), detail.at(), detail.sample(), notification.statusId(), notification.id(),
+                    notification.reportId());
         }).toList();
     }
 
@@ -266,7 +279,7 @@ public class NotificationRepository {
                 .query(Long.class).single();
         var first = members.getFirst();
         return Optional.of(new NotificationGroup(key, count, first.type(), first.id(), null, null, null,
-                members.stream().map(Notification::accountId).toList(), first.statusId(), first.id()));
+                members.stream().map(Notification::accountId).toList(), first.statusId(), first.id(), first.reportId()));
     }
 
     public List<UUID> groupAccounts(UUID viewer, String key) {

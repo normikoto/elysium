@@ -1,9 +1,8 @@
 package dev.biribiri.elysium.content.internal;
 
-import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
-import dev.biribiri.elysium.content.MediaAttachment;
-import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.ModeratedStatus;
+import dev.biribiri.elysium.content.ModeratedStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -17,8 +16,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.net.URI;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -33,13 +30,11 @@ class StatusRemovalPagesController {
     private static final String PATH = "/admin/statuses";
 
     private final StatusService statuses;
-    private final ActorService actors;
-    private final MediaAttachments attachments;
+    private final ModeratedStatuses rows;
 
-    StatusRemovalPagesController(StatusService statuses, ActorService actors, MediaAttachments attachments) {
+    StatusRemovalPagesController(StatusService statuses, ModeratedStatuses rows) {
         this.statuses = statuses;
-        this.actors = actors;
-        this.attachments = attachments;
+        this.rows = rows;
     }
 
     @GetMapping(PATH)
@@ -80,28 +75,11 @@ class StatusRemovalPagesController {
         return Ids.parse(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
     }
 
-    private Optional<Row> row(Status status) {
-        return actors.findById(status.actorId()).map(author -> {
-            var local = actors.isLocal(author);
-            // Admins see only what anyone could, so that removing statuses doesn't mean reading followers-only or direct ones.
-            var shown = status.isVisibleTo(Optional.empty());
-            var media = shown
-                    ? attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of())
-                    : List.<MediaAttachment>of();
-            return new Row(
-                    status.id(),
-                    local ? author.username() : author.username() + "@" + author.domain(),
-                    local,
-                    author.isSuspended(),
-                    status.visibility().value(),
-                    status.publishedAt().truncatedTo(ChronoUnit.SECONDS).toString(),
-                    status.url() != null ? status.url() : status.uri(),
-                    shown,
-                    shown ? status.spoilerText() : "",
-                    shown ? status.content() : "",
-                    media.stream().map(attachment -> attachment.description() == null ? "" : attachment.description())
-                            .toList());
-        });
+    /**
+     * Admins see only what anyone could, so that removing statuses doesn't mean reading followers-only or direct ones.
+     */
+    private Optional<ModeratedStatus> row(Status status) {
+        return rows.rows(List.of(status), false).stream().findFirst();
     }
 
     /**
@@ -109,14 +87,5 @@ class StatusRemovalPagesController {
      */
     private static UUID self(Authentication authentication) {
         return UUID.fromString(authentication.getName());
-    }
-
-    /**
-     * @param shown        whether anyone can see it, which is when its content is shown here
-     * @param content      sanitized HTML, as it's shown on its public page
-     * @param descriptions one for each attachment, empty for one without
-     */
-    record Row(UUID id, String handle, boolean local, boolean authorSuspended, String visibility, String publishedAt,
-               URI link, boolean shown, String spoilerText, String content, List<String> descriptions) {
     }
 }

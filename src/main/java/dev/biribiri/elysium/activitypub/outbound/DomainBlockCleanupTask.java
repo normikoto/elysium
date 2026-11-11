@@ -10,12 +10,13 @@ import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.inbox.InboxService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
+import dev.biribiri.elysium.moderation.Reports;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes the follows, blocks of local accounts, and statuses of actors on blocked servers, and which followers-only statuses
- * they were sent. Local accounts' blocks and mutes
+ * Removes the follows, blocks of local accounts, statuses, and reports of and by actors on blocked servers, and which
+ * followers-only statuses they were sent. Local accounts' blocks and mutes
  * of them are kept, since they're the accounts' own choices, and the domain block can be lifted. Actors themselves are kept, because other things can refer
  * to them, and nothing is sent to them. This has to be safe to run again, and it's fine for it to find nothing.
  */
@@ -29,10 +30,13 @@ class DomainBlockCleanupTask {
     private final BlockService accountBlocks;
     private final StatusService statuses;
     private final FollowersOnlyRecipients followersOnly;
+    private final Reports reports;
 
     DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, BlockService accountBlocks, StatusService statuses,
-                           InboxService inbox, LikeService likes, FollowersOnlyRecipients followersOnly) {
+                           InboxService inbox, LikeService likes, FollowersOnlyRecipients followersOnly,
+                           Reports reports) {
         this.followersOnly = followersOnly;
+        this.reports = reports;
         this.accountBlocks = accountBlocks;
         this.inbox = inbox;
         this.likes = likes;
@@ -61,6 +65,7 @@ class DomainBlockCleanupTask {
             accountBlocks.removeForDomain(domain);
             statuses.removeForDomain(domain);
             inbox.removeForDomain(domain);
+            reports.removeForDomain(domain);
         });
         return Jobs.done();
     }

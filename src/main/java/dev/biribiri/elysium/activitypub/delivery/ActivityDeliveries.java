@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
+import java.sql.Types;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -131,7 +132,7 @@ public class ActivityDeliveries {
                         ON CONFLICT (activity_id) DO UPDATE SET created_at = now()
                         """)
                 .param("id", activity.id())
-                .param("actorId", activity.actorId())
+                .param("actorId", activity.actorId(), Types.OTHER)
                 .param("body", activity.body())
                 .param("whileSuspended", activity.whileSuspended().name())
                 .update();

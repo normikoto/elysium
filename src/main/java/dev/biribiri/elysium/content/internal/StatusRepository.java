@@ -497,6 +497,14 @@ public class StatusRepository {
     }
 
     /**
+     * Like {@link #findForModeration(UUID)}, for several at once.
+     */
+    public List<Status> findForModeration(Collection<UUID> ids) {
+        return ids.isEmpty() ? List.of() : jdbc.sql(MODERATION_SELECT + "s.id IN (:ids) ORDER BY s.id")
+                .param("ids", ids).query(STATUS_MAPPER).list();
+    }
+
+    /**
      * Like {@link #findForModeration(UUID)}, by a status's URI, or else by the page its server gave.
      */
     public Optional<Status> findForModeration(String uriOrUrl) {

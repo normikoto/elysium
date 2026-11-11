@@ -15,11 +15,12 @@ import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.MuteService;
 import dev.biribiri.elysium.inbox.InboxService;
+import dev.biribiri.elysium.moderation.Reports;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses, attachments, follows, blocks, mutes, and profile, and who its followers-only
+ * Removes a deleted account's statuses, attachments, follows, blocks, mutes, profile, and the reports by and about it, and who its followers-only
  * statuses were sent to, and a suspended remote actor's follows, which would otherwise give it a
  * way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that they come back
  * if the suspension is undone. A suspended local account keeps everything, for the same reason. This
@@ -40,11 +41,13 @@ class AccountCleanupTask {
     private final MediaAttachments attachments;
     private final FollowersOnlyRecipients followersOnly;
     private final PostingDefaults postingDefaults;
+    private final Reports reports;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
                        LikeService likes, MediaAttachments attachments, FollowersOnlyRecipients followersOnly,
-                       PostingDefaults postingDefaults) {
+                       PostingDefaults postingDefaults, Reports reports) {
+        this.reports = reports;
         this.followersOnly = followersOnly;
         this.postingDefaults = postingDefaults;
         this.blocks = blocks;
@@ -79,6 +82,7 @@ class AccountCleanupTask {
                 profiles.removeAll(actor.id());
                 postingDefaults.removeFor(actor.id());
                 inbox.removeForActor(actor.id());
+                reports.removeForActor(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {
                 follows.removeForActor(actor.id());
             }

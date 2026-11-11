@@ -15,8 +15,8 @@ import java.util.HexFormat;
  */
 @Schema(name = "AdminDomainBlock", description = """
         Mastodon's Admin::DomainBlock entity. `severity` is `suspend` or `noop`. A suspension always has `reject_media` \
-        and `reject_reports` true, since it rejects everything. Reports aren't supported, so a `noop` block's \
-        `reject_reports` is false. `obfuscate` is always false, and `public_comment` is always null.""")
+        and `reject_reports` true, since it rejects everything. A `noop` block's `reject_reports` is false, since a \
+        limited server's reports are accepted. `obfuscate` is always false, and `public_comment` is always null.""")
 record DomainBlockResponse(
         String id,
         String domain,

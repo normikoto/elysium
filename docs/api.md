@@ -159,10 +159,13 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
 - V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, and `quoted_update` notifications are
-  generated. A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user
-  quoted. Subscribed-account
-  posts, edits, and admin notifications await their respective features. As on Mastodon, a `follow_request` notification
+- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`, and `admin.report`
+  notifications are generated. A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a
+  status that a user quoted. `admin.report` goes to each admin, except one who filed the report, and only admins see
+  them: an account that stops being an admin stops seeing them, in lists and counts, until it's an admin again. Its
+  `account` is the reporter, which for a report from another server is whoever sent it there, usually that server's
+  instance actor, and it isn't hidden by blocking or muting them. Subscribed-account posts, edits, and `admin.sign_up`
+  await their respective features. As on Mastodon, a `follow_request` notification
   is removed once the request is approved, refused, or withdrawn, and approving it doesn't add a `follow` notification.
 - Notifications start with new activity after upgrading; historical mentions and follows do not generate notifications.
   Inbox updates may appear shortly after their source activity is stored. Silent mentions and self-mentions do not notify.
@@ -273,6 +276,32 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   as on Mastodon. Only the first 200 can be paged through with `offset`.
 - `GET /api/v1/accounts/:id/statuses` for an account on another server only lists its statuses stored here.
 
+Reports follow [Mastodon's reports API](https://docs.joinmastodon.org/methods/reports/), with the `write:reports` scope,
+with these differences:
+
+- There are no server rules, so a `category` of `violation`, or any `rule_ids`, gets a 422. `rule_ids` in a report is
+  always null.
+- A status in `status_ids` that isn't the account's, or that the user can't see, gets a 404 rather than being left out.
+  A report can include up to 100 statuses, and more get a 422.
+- `comment` can be up to 1000 characters, as on Mastodon. Reporting your own account gets a 422.
+- `forward` only sends the report to the reported account's server, and `forward_to_domains` is ignored. `forwarded` is
+  only `true` when the account is on another server.
+- A status that's deleted after it's reported goes from the report, and from its `status_ids`.
+
+Reports for admins follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/reports/), under
+`/api/v1/admin/reports`, with the `admin:read:reports` and `admin:write:reports` scopes, with these differences:
+
+- `GET /api/v1/admin/reports` only filters by `resolved`, `account_id`, and `target_account_id`, and pages with `max_id`,
+  `since_id`, `min_id`, and `limit`, which defaults to 100 and is at most 200.
+- `statuses` has every reported status, even followers-only and direct ones, since whoever reported them shared them with
+  admins. `rules` is always empty.
+- `PUT /api/v1/admin/reports/:id` only changes `category`, which has to be `spam`, `legal`, or `other`. `violation` and
+  `rule_ids` get a 422.
+- Resolving a report doesn't do anything to the account: suspending it is done through the accounts API. Resolving one
+  that's resolved already keeps who resolved it first.
+- A report from another server has the server's actor, usually its instance actor, as `account`. A report about an account
+  that's deleted since, or by or about an account on a server that's been blocked, is removed.
+
 Domain blocks follow [Mastodon's admin API](https://docs.joinmastodon.org/methods/admin/domain_blocks/), under
 `/api/v1/admin/domain_blocks`, with the `admin:read:domain_blocks` and `admin:write:domain_blocks` scopes, with these
 differences from Mastodon:
@@ -280,7 +309,8 @@ differences from Mastodon:
 - `severity` is required when creating a block, and has to be `suspend` or `noop`. Mastodon's default is `silence`, which
   isn't supported, and gets a 422 here rather than a block that does more or less than an admin meant.
 - `reject_media` works on a `noop` block. A `suspend` block always rejects media, and is returned with `reject_media` and
-  `reject_reports` as `true`. Reports aren't supported, so a `noop` block's `reject_reports` is `false`. `obfuscate` is
+  `reject_reports` as `true`. A `noop` block's `reject_reports` is always `false`, since a limited server's reports are
+  accepted. `obfuscate` is
   always `false`, and `public_comment` null, and any values sent for `reject_reports`, `obfuscate`, and `public_comment`
   are ignored.
 - `PUT` changes only what it's sent, as on Mastodon, and an empty `private_comment` removes it. Changing a block to

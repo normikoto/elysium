@@ -294,6 +294,19 @@ class ActivityDeliveryIntegrationTests {
     }
 
     @Test
+    void anActivityWithNoActorIsSignedAsTheInstanceActor() {
+        var id = "https://elysium.example/reports/" + UUID.randomUUID();
+        var activity = OutboundActivity.asInstance(id, "{\"id\":\"" + id + "\",\"type\":\"Flag\"}");
+        var host = newHost();
+
+        enqueue(activity, inboxOn(host));
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && jobs(activity) == 0);
+        assertThat(receivedBy(host).getFirst().header("Signature")).contains("/actor#main-key\"");
+        assertThat(failures(activity)).isZero();
+    }
+
+    @Test
     void eachInboxGetsOneJob() {
         var activity = activity();
         var host = newHost();

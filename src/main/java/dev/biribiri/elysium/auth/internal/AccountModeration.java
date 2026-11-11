@@ -116,6 +116,11 @@ class AccountModeration implements AccountActions {
     }
 
     @Override
+    public Set<UUID> activeAdmins() {
+        return accounts.activeAdmins();
+    }
+
+    @Override
     public Map<UUID, String> emailsOf(Collection<UUID> accountIds) {
         return accounts.emailsOf(accountIds);
     }

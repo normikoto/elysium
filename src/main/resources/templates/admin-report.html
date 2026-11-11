@@ -1,0 +1,66 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Report', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <div class="status">
+            <p class="status-meta">
+                <strong th:text="${report.target()}"></strong>
+                <span th:text="${report.targetLocal()} ? 'Local' : 'Remote'"></span>
+                <span th:if="${report.targetSuspended()}">Suspended</span>
+                <span th:text="${report.category()}"></span>
+                <time th:datetime="${report.createdAt()}" th:text="${report.createdAt()}"></time>
+            </p>
+            <p th:if="${report.fromOtherServer()}" th:text="|Sent by the server ${report.reporter()}, which doesn't say who reported it.|"></p>
+            <p th:unless="${report.fromOtherServer()}" th:text="|Reported by ${report.reporter()}|"></p>
+            <p th:if="${report.forwarded()}">This report was also sent to the account's server.</p>
+            <p class="status-content" th:if="${!report.comment().isEmpty()}" th:text="${report.comment()}"></p>
+            <p th:if="${report.comment().isEmpty()}">There's no comment.</p>
+            <p th:if="${report.assignedTo() != null}" th:text="|Assigned to ${report.assignedTo()}|"></p>
+            <p th:if="${report.resolved()}"
+               th:text="${report.resolvedBy() != null} ? |Resolved by ${report.resolvedBy()}| : 'Resolved'"></p>
+
+            <form class="actions" method="post" th:if="${report.assignedTo() == null}"
+                  th:action="@{/admin/reports/{id}/assign(id=${report.id()})}">
+                <button type="submit">Assign to me</button>
+            </form>
+            <form class="actions" method="post" th:if="${report.assignedTo() != null}"
+                  th:action="@{/admin/reports/{id}/unassign(id=${report.id()})}">
+                <button type="submit">Unassign</button>
+            </form>
+            <form class="actions" method="post" th:unless="${report.resolved()}"
+                  th:action="@{/admin/reports/{id}/resolve(id=${report.id()})}">
+                <button type="submit">Resolve</button>
+            </form>
+            <form class="actions" method="post" th:if="${report.resolved()}"
+                  th:action="@{/admin/reports/{id}/reopen(id=${report.id()})}">
+                <button type="submit">Reopen</button>
+            </form>
+            <a th:href="@{/admin/accounts(username=${report.targetSearch()})}">Suspend or delete the account</a>
+        </div>
+
+        <h2>Reported statuses</h2>
+        <p>
+            These are shown whoever they were for, because whoever reported them shared them with you. A status that's
+            been deleted since isn't shown.
+        </p>
+        <p th:if="${statuses.isEmpty()}">There are none.</p>
+        <div class="status" th:each="status : ${statuses}">
+            <p class="status-meta">
+                <strong th:text="${status.handle()}"></strong>
+                <span th:text="${status.visibility()}"></span>
+                <time th:datetime="${status.publishedAt()}" th:text="${status.publishedAt()}"></time>
+            </p>
+            <p th:if="${!status.spoilerText().isEmpty()}"><strong th:text="${status.spoilerText()}"></strong></p>
+            <div class="status-content" th:utext="${status.content()}"></div>
+            <ul th:if="${!status.descriptions().isEmpty()}">
+                <li th:each="description : ${status.descriptions()}"
+                    th:text="${description.isEmpty()} ? 'Attachment with no description' : |Attachment: ${description}|">
+                </li>
+            </ul>
+            <p><a th:href="${status.link()}" rel="nofollow noopener noreferrer">Open the original</a></p>
+            <a th:href="@{/admin/statuses/{id}/remove(id=${status.id()})}">Remove</a>
+        </div>
+        <p><a href="/admin/reports">Back to reports</a></p>
+    </div>
+</th:block>
+</html>

@@ -1092,6 +1092,15 @@ public class StatusService {
     }
 
     /**
+     * Finds reported statuses for the admins handling a report, whoever can see them. Reports are the one place admins read
+     * followers-only and direct statuses, since whoever reported one has shared it with them on purpose. Includes the
+     * statuses of suspended authors, which can come back.
+     */
+    public List<Status> findForReport(Collection<UUID> ids) {
+        return statuses.findForModeration(ids);
+    }
+
+    /**
      * Removes a status for breaking the rules, and remembers which admin did. A local status is deleted as its author would
      * have, attachments and all, so its {@code Delete} goes to the same servers. A remote status is only removed from this
      * server, since this one can't speak for it, and is never stored again, because its server never says it's gone and

@@ -7,14 +7,15 @@ are sent to their followers. Statuses from other servers are stored, along with 
 reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
 statuses are counted. Their images, video, and audio are sent and read as attachments, and other servers' are
 downloaded and served from here for a while. Its users can quote statuses, and quotes from other servers are shown once
-the quoted author has approved them, as FEP-044f has it. Polls and other activities aren't supported yet.
+the quoted author has approved them, as FEP-044f has it. Reports of local accounts from other servers are passed to
+admins, and its users can have their reports of remote accounts sent on. Polls and other activities aren't supported yet.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `Announce`, and `Block`
   and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note`,
-  `Update` of an actor or a `Note`, and `Delete`, and sending `Follow`, `Like`, `Announce`, and `Block` and their `Undo`,
-  `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, and `Delete`
+  `Update` of an actor or a `Note`, `Delete`, and `Flag`, and sending `Follow`, `Like`, `Announce`, and `Block` and their
+  `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, `Delete`, and `Flag`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -91,7 +92,7 @@ can't be used again, because other servers can still know its URI.
 ### Instance actor
 
 The server itself is an `Application` actor at `/actor`, with the `preferredUsername` `instance.actor`. It's for signing
-requests that no user is behind, which so far means fetching keys and actor documents. Its document is served as
+requests that no user is behind, which so far means fetching keys and actor documents, and sending [reports](#reports). Its document is served as
 `application/activity+json` or `application/ld+json` with any profile, and any origin can read it through CORS. It never
 requires a signature. There's no web page at this URL, so its `url` links to the front page. Its key is identified as
 `{actor-uri}#main-key`, its `endpoints.sharedInbox` is `/inbox`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is ignored, with no
@@ -225,8 +226,8 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
 one worked. Activities are processed in no particular order. `Follow`, `Like`, `Announce`, `Block`, their `Undo`s, `Accept`
-and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, and `Delete` are acted on, and other types
-are ignored.
+and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, `Delete`, and `Flag` are acted on, and other
+types are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -961,8 +962,38 @@ by that actor, or by any actor on that server, gets a `404`. A blocked actor's s
 statuses through a shared inbox, for its other users who follow them, and anyone can fetch public statuses without a
 signature.
 
+### Reports
+
+A local user can ask for their report of an account on another server to be sent there. It's sent as a `Flag` signed as the
+[instance actor](#instance-actor), so that it doesn't say who reported it, to the account's own `inbox`. Its `object` is the
+account followed by those of its statuses that the report includes, and its `content` is the reporter's comment, as plain
+text, empty for none. Its `id` is `{base-url}/reports/{uuid}`, which can't be fetched.
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/reports/0193a4b2-7c1d-7e2f-9a3b-4c5d6e7f8091",
+  "type": "Flag",
+  "actor": "https://elysium.example/actor",
+  "content": "Spam, please look",
+  "object": ["https://remote.example/users/bob", "https://remote.example/users/bob/statuses/1"],
+  "to": ["https://remote.example/users/bob"]
+}
+```
+
+A `Flag` from another server is passed to this server's admins if its `object`, which can be one URI or an array of them, or
+of objects with an `id`, names a local account or a local status. Only the first 110 are read. A status names its author,
+so a `Flag` of statuses alone is a report of whoever wrote them, and a `Flag` naming several accounts here makes a report of
+each, with only that account's statuses. Anything else it names is ignored, and nothing is fetched for it except its
+`actor`, which can be any actor, such as an instance actor or a user. Its `content` or `contentMap` is read as plain text,
+and cut to 1000 characters. A `Flag` that's sent again with the same `id` is ignored. Nothing is sent back, and this server
+never says whether admins acted on it.
+
 ### Differences from Mastodon
 
+- A report is only sent to the reported account's server, and never to the servers of other statuses it's about, as
+  Mastodon's `forward_to_domains` does.
+- Reports from a server aren't refused unless it's suspended: there's no `reject_reports` for a limited one.
 - An actor's `manuallyApprovesFollowers` isn't read, so local users see every account on another server as unlocked.
 - Only `Note`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
   are the replies to a status.
@@ -1036,8 +1067,8 @@ host is. An admin can also reject the media of one account on another server. A 
   actors isn't stored.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
-- **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, and boosts of
-  their statuses. Its actors are kept.
+- **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, boosts of
+  their statuses, and reports by or about them. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, and that server isn't sent a `Delete` for a followers-only
   status it was sent before the block, so it keeps any copy it has.
@@ -1057,7 +1088,8 @@ GoToSocial answer the same way.
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12)
 and [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures. Inboxes require signatures, and fetches of
 `Note`s check one if it's sent. The only requests this server makes are fetches of keys, actors, outboxes, and other servers' activities
-and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`, and `Announce`.
+and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`,
+`Announce`, and `Flag`.
 
 - **Signing:** Requests are signed with draft-cavage first, as Mastodon does. If the answer is a `400`, `401`, or
   `403`, the same request is sent once more, signed with RFC 9421 instead. Which format a server accepted isn't
@@ -1081,7 +1113,7 @@ and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Ac
   - In both formats, `host` and `@authority` are always this server's own name, whatever the `Host` header says.
     Signatures last 5 minutes unless they say otherwise, and at most 12 hours, with up to 1 hour of clock difference
     allowed.
-- **Fetching keys:** Fetches are signed as the [instance actor](#instance-actor).
+- **Fetching keys:** Fetches are signed as the [instance actor](#instance-actor), and so are deliveries of `Flag`.
 
 ## WebFinger
 
