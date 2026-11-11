@@ -22,6 +22,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -81,7 +82,8 @@ class AuthorizedAppsIntegrationTests {
                 .andExpect(content().string(containsString(name)))
                 .andExpect(content().string(containsString("href=\"https://app.example/home\"")))
                 .andExpect(content().string(containsString("Can use: <span>read</span>")))
-                .andExpect(content().string(containsString("<time")))
+                .andExpect(content().string(matchesPattern(
+                        "(?s).*<time datetime=\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z\">.*")))
                 .andExpect(content().string(containsString("name=\"_csrf\"")));
     }
 

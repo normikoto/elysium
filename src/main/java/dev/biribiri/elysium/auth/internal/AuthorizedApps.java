@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -142,7 +143,7 @@ class AuthorizedApps {
 
         private void noteIssued(Instant issuedAt) {
             if (issuedAt != null && (authorizedAt == null || issuedAt.isAfter(authorizedAt))) {
-                authorizedAt = issuedAt;
+                authorizedAt = issuedAt.truncatedTo(ChronoUnit.SECONDS);
             }
         }
     }
