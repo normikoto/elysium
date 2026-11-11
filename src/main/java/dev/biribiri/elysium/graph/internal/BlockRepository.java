@@ -182,6 +182,39 @@ public class BlockRepository {
     }
 
     /**
+     * The sender has to be stored, or nobody counts.
+     *
+     * @return whether the actor is local and doesn't refuse the sender, or is remote and has an active local follower that
+     * doesn't
+     */
+    public boolean isAcceptedThrough(URI actorUri, URI senderUri) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM actor p, actor v
+                            WHERE p.uri = :actor AND v.uri = :sender
+                              AND CASE WHEN p.is_local THEN %s
+                                       ELSE EXISTS (
+                                           SELECT 1 FROM follow f JOIN actor o ON o.id = f.follower_id
+                                           WHERE f.followed_id = p.id AND f.state = 'accepted' AND o.is_local
+                                             AND o.suspended_at IS NULL AND o.deleted_at IS NULL AND %s)
+                                  END
+                        )
+                        """.formatted(accepts("p.id"), accepts("o.id")))
+                .param("actor", actorUri.toString())
+                .param("sender", senderUri.toString())
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
+     * Whether an account doesn't block the joined actor {@code v} or its server.
+     */
+    private static String accepts(String account) {
+        return "NOT EXISTS (SELECT 1 FROM account_block b WHERE b.account_id = " + account + " AND b.target_id = v.id)"
+                + " AND NOT " + GraphSql.domainBlocked(account, "v");
+    }
+
+    /**
      * @return the blocks between the viewer and any of these accounts, in either direction
      */
     public List<Row> findPairsWith(UUID viewerId, Collection<UUID> otherIds) {

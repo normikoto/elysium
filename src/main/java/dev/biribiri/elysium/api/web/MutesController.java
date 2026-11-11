@@ -6,9 +6,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
-import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.MuteService;
-import dev.biribiri.elysium.graph.Relationship;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -39,15 +37,12 @@ public class MutesController {
 
     private final ActorService actors;
     private final MuteService mutes;
-    private final FollowService follows;
     private final AccountResponses accounts;
     private final InstanceProperties instance;
 
-    MutesController(ActorService actors, MuteService mutes, FollowService follows, AccountResponses accounts,
-                    InstanceProperties instance) {
+    MutesController(ActorService actors, MuteService mutes, AccountResponses accounts, InstanceProperties instance) {
         this.actors = actors;
         this.mutes = mutes;
-        this.follows = follows;
         this.accounts = accounts;
         this.instance = instance;
     }
@@ -85,9 +80,7 @@ public class MutesController {
         var found = actors.findByIds(entries.stream().map(FollowEntry::actorId).toList()).stream()
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
         var listed = entries.stream().map(FollowEntry::actorId).filter(found::containsKey).map(found::get).toList();
-        var expiries = follows.relationships(viewer, listed.stream().map(Actor::id).toList()).stream()
-                .filter(relationship -> relationship.muteExpiresAt() != null)
-                .collect(Collectors.toMap(Relationship::otherId, Relationship::muteExpiresAt));
+        var expiries = mutes.expiries(viewer, listed.stream().map(Actor::id).toList());
         var built = accounts.build(listed);
         var body = new ArrayList<MutedAccountResponse>();
         for (var i = 0; i < listed.size(); i++) {

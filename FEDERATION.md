@@ -540,7 +540,8 @@ again with the same `id`.
 
 A `Create` whose `object` is a `Note` is stored as a status, if the `Note` is for a local user: one who follows its author,
 with the author's `followers` collection addressed, or one it addresses. A public or unlisted `Note` is also stored if its
-`inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does. That covers a
+`inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does, unless that
+user, or every such follower, [blocks](#blocks) the `Note`'s author or its server. That covers a
 reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
 followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
 that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts) or [backfilled](#backfill). Other object types, such as `Article`, `Page`, and `Question`, are ignored.

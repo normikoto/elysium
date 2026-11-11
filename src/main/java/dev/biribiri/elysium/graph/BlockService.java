@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -93,10 +94,14 @@ public class BlockService {
     }
 
     /**
-     * Whether an account blocks the other, either way.
+     * @return those of the other accounts that the account blocks, or that block it
      */
-    public boolean blocksEitherWay(UUID oneId, UUID otherId) {
-        return blocks.exists(oneId, otherId) || blocks.exists(otherId, oneId);
+    public Set<UUID> inBlockWith(UUID accountId, Collection<UUID> otherIds) {
+        var found = new HashSet<UUID>();
+        for (var block : blocks.findPairsWith(accountId, otherIds)) {
+            found.add(block.accountId().equals(accountId) ? block.targetId() : block.accountId());
+        }
+        return found;
     }
 
     /**
@@ -113,6 +118,16 @@ public class BlockService {
      */
     public Set<UUID> refusingSender(Collection<UUID> accountIds, URI senderUri) {
         return blocks.refusingSender(accountIds, senderUri);
+    }
+
+    /**
+     * Whether someone here would take what the sender sends about an actor: the actor itself, if it's local, or else one
+     * of its local followers. A local actor's block isn't overruled by its followers, since what's sent concerns it.
+     *
+     * @param senderUri has to be stored, or this is {@code false}
+     */
+    public boolean isAcceptedThrough(URI actorUri, URI senderUri) {
+        return blocks.isAcceptedThrough(actorUri, senderUri);
     }
 
     /**

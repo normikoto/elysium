@@ -116,11 +116,15 @@ class LocalRecipients {
     /**
      * Whether a reply concerns someone here, whether or not it addresses them: the status it replies to is stored, and its
      * author is local or followed by a local account. This is Mastodon's rule for replies, and it's what lets a reply
-     * forwarded by the parent's server be kept, since the reply only addresses its own author's followers.
+     * forwarded by the parent's server be kept, since the reply only addresses its own author's followers. As for
+     * {@link #of}, nobody counts who blocks the sender or its server, so a reply to someone who blocks its author isn't
+     * kept.
+     *
+     * @param senderUri the activity's actor, which has to be stored already
      */
-    boolean repliesToSomeoneHere(URI parentUri) {
+    boolean repliesToSomeoneHere(URI parentUri, URI senderUri) {
         return statuses.findAuthorOf(parentUri)
-                .filter(author -> RemoteActorDocument.isOnDomain(author, instance.domain()) || follows.hasLocalFollowers(author))
+                .filter(author -> blocks.isAcceptedThrough(author, senderUri))
                 .isPresent();
     }
 

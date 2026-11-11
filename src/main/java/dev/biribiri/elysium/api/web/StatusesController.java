@@ -395,16 +395,7 @@ public class StatusesController {
      * can't be read as one value is rejected, as it is for a new status, rather than boosting publicly.
      */
     private Visibility reblogVisibility(HttpServletRequest request) throws IOException {
-        Object value;
-        var contentType = request.getContentType();
-        if (contentType != null && MediaType.APPLICATION_JSON.isCompatibleWith(MediaType.parseMediaType(contentType))
-                && request.getContentLengthLong() != 0) {
-            value = json.read(request, REBLOG_BODY_BYTES).get("visibility");
-        } else {
-            var values = request.getParameterValues("visibility");
-            value = values == null ? null : values.length == 1 ? values[0] : List.of(values);
-        }
-        var visibility = switch (value) {
+        var visibility = switch (json.readAny(request, REBLOG_BODY_BYTES).get("visibility")) {
             case null -> Visibility.PUBLIC;
             case String text -> Visibility.fromValue(text);
             default -> throw new InvalidRequestException("Validation failed: visibility must be a single value");

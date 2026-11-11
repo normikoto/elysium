@@ -101,7 +101,9 @@ public class TimelinesController {
                     Differences from Mastodon: statuses from other servers are only stored when they're sent here, \
                     which is when a local account follows their author or is addressed.
 
-                    Only public statuses are listed, and not ones from suspended accounts. With a user token, ones                     from accounts the user has blocked, muted, or blocked the server of, or that block the user, are                     left out too.""",
+                    Only public statuses are listed, and not ones from suspended accounts. With a user token, ones \
+                    from accounts the user has blocked, muted, or blocked the server of, or that block the user, are \
+                    left out too.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#public"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "

@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -214,8 +215,11 @@ public class StatusDeliveries {
             actors.findById(parentAuthorId).ifPresent(addressed::add);
         }
         addressed.addAll(mentioned);
+        Set<UUID> blocked = withoutBlocked
+                ? blocks.inBlockWith(authorId, addressed.stream().map(Actor::id).toList())
+                : Set.of();
         for (var actor : addressed) {
-            if (!withoutBlocked || !blocks.blocksEitherWay(authorId, actor.id())) {
+            if (!blocked.contains(actor.id())) {
                 recipients.add(actor, inboxes);
             }
         }

@@ -5,7 +5,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -49,6 +52,19 @@ public class MuteService {
      */
     public List<FollowEntry> muted(UUID accountId, FollowPage page) {
         return mutes.findPage(accountId, page);
+    }
+
+    /**
+     * @return when the account's current mutes of these accounts end, leaving out those that don't
+     */
+    public Map<UUID, Instant> expiries(UUID accountId, Collection<UUID> targetIds) {
+        var expiries = new HashMap<UUID, Instant>();
+        mutes.findCurrent(accountId, targetIds).forEach((target, mute) -> {
+            if (mute.expiresAt() != null) {
+                expiries.put(target, mute.expiresAt());
+            }
+        });
+        return expiries;
     }
 
     /**

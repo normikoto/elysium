@@ -485,6 +485,43 @@ class CreateIntegrationTests {
     }
 
     @Test
+    void ignoresRepliesToALocalAccountThatBlocksItsAuthorOrTheirServer() {
+        var parent = statuses.create(bystander.id(), new NewStatus("hello", null, null, Visibility.PUBLIC, false, null));
+        var blocked = stranger();
+        var fromBlockedServer = stranger();
+        block(bystander, blocked);
+        blockServer(bystander, fromBlockedServer.getHost());
+        // A follower of the parent's author doesn't overrule its author's block.
+        follow(follower, bystander);
+        var reply = replierNoteId(blocked);
+        var serverReply = replierNoteId(fromBlockedServer);
+
+        handler.handle(reply(blocked, reply, parent.uri().toString(), List.of(PUBLIC), List.of()));
+        handler.handle(reply(fromBlockedServer, serverReply, parent.uri().toString(), List.of(PUBLIC), List.of()));
+
+        assertThat(status(reply)).isEmpty();
+        assertThat(status(serverReply)).isEmpty();
+    }
+
+    @Test
+    void storesAReplyToAFollowedAccountOnlyWhileAFollowerDoesNotBlockItsAuthor() {
+        var parent = noteId();
+        handler.handle(create(note(parent, List.of(PUBLIC), List.of(followers))));
+        var replier = stranger();
+        var withAnotherFollower = replierNoteId(replier);
+        var withNone = replierNoteId(replier);
+        block(follower, replier);
+        follow(bystander, author);
+
+        handler.handle(reply(replier, withAnotherFollower, parent, List.of(PUBLIC), List.of()));
+        jdbc.sql("DELETE FROM follow WHERE follower_id = :id").param("id", bystander.id()).update();
+        handler.handle(reply(replier, withNone, parent, List.of(PUBLIC), List.of()));
+
+        assertThat(status(withAnotherFollower)).isPresent();
+        assertThat(status(withNone)).isEmpty();
+    }
+
+    @Test
     void ignoresRepliesThatNobodyHereFollowsTheParentOf() {
         var parent = noteId();
         handler.handle(create(note(parent, List.of(PUBLIC), List.of(followers))));
@@ -621,6 +658,26 @@ class CreateIntegrationTests {
         var name = "u" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         return actors.createLocalIfAbsent(name, actor -> {
         }).orElseThrow();
+    }
+
+    private void block(Actor blocker, URI target) {
+        jdbc.sql("""
+                        INSERT INTO account_block (id, account_id, target_id, activity_uri)
+                        SELECT :id, :blocker, a.id, :activity FROM actor a WHERE a.uri = :target
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("blocker", blocker.id())
+                .param("target", target.toString())
+                .param("activity", blocker.uri() + "#blocks/" + UUID.randomUUID())
+                .update();
+    }
+
+    private void blockServer(Actor blocker, String domain) {
+        jdbc.sql("INSERT INTO account_domain_block (id, account_id, domain) VALUES (:id, :account, :domain)")
+                .param("id", UUID.randomUUID())
+                .param("account", blocker.id())
+                .param("domain", domain)
+                .update();
     }
 
     private void follow(Actor from, Actor to) {
