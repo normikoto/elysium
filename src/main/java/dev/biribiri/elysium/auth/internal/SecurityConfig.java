@@ -10,10 +10,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.server.authorization.authentication.ClientSecretAuthenticationProvider;
@@ -23,6 +25,7 @@ import org.springframework.security.oauth2.server.resource.introspection.OpaqueT
 import org.springframework.security.web.DefaultRedirectStrategy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.Http403ForbiddenEntryPoint;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -36,6 +39,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 import static org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.pathPattern;
@@ -53,6 +57,12 @@ class SecurityConfig {
     static final String SIGNUP_VERIFY_PATH = SIGNUP_PATH + "/verify";
     static final String DELETE_ACCOUNT_PATH = "/settings/delete-account";
     static final String SETTINGS_PATH = "/settings";
+    static final String TWO_FACTOR_LOGIN_PATH = LOGIN_PATH + "/two-factor";
+    static final String TWO_FACTOR_SETTINGS_PATH = SETTINGS_PATH + "/two-factor";
+    static final String TWO_FACTOR_SETUP_PATH = TWO_FACTOR_SETTINGS_PATH + "/setup";
+    static final String TWO_FACTOR_CONFIRM_PATH = TWO_FACTOR_SETTINGS_PATH + "/confirm";
+    static final String TWO_FACTOR_DISABLE_PATH = TWO_FACTOR_SETTINGS_PATH + "/disable";
+    static final String RECOVERY_CODES_PATH = TWO_FACTOR_SETTINGS_PATH + "/recovery-codes";
 
     static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
     static final String APP_REGISTRATION_PATH = "/api/v1/apps";
@@ -94,6 +104,27 @@ class SecurityConfig {
             "introspection_endpoint_auth_methods_supported",
             "tls_client_certificate_bound_access_tokens",
             "dpop_signing_alg_values_supported");
+
+    /**
+     * Checks passwords for the login form. It's declared so that accounts with two-factor login stop after their password, with
+     * {@link TwoFactorRequiredException}. Being the only provider bean, it replaces the one Spring Boot would make, so there's no
+     * other provider that could log someone in with only a password.
+     */
+    @Bean
+    DaoAuthenticationProvider passwordLogins(
+            LocalAccounts accounts, PasswordEncoder passwordEncoder, TwoFactorAccounts twoFactor) {
+        var provider = new DaoAuthenticationProvider(accounts);
+        provider.setPasswordEncoder(passwordEncoder);
+        // Replaces the default check, which is only that the password hasn't expired, and passwords here never do.
+        provider.setPostAuthenticationChecks(user -> {
+            // A logged in user's name is their actor ID: see LocalAccounts.loadUserByUsername.
+            var actorId = UUID.fromString(user.getUsername());
+            if (twoFactor.isEnabled(actorId)) {
+                throw new TwoFactorRequiredException(actorId);
+            }
+        });
+        return provider;
+    }
 
     /**
      * Handles the OAuth endpoints. This names them explicitly rather than using the configurer's own matcher, because
@@ -177,12 +208,14 @@ class SecurityConfig {
             AdminAccess adminAccess,
             InstanceProperties instance,
             ActorService actors,
-            LocalAccounts accounts)
+            LocalAccounts accounts,
+            TwoFactorAccounts twoFactor)
             throws Exception {
         var pagesNeedingLogin = new OrRequestMatcher(
                 adminPageRequests(),
                 pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH),
-                pathPattern(HttpMethod.GET, SETTINGS_PATH));
+                pathPattern(HttpMethod.GET, SETTINGS_PATH),
+                pathPattern(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH));
 
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
         // can't lose a pending authorization. It only saves a page if nothing is waiting, so that logging in can return to
@@ -194,8 +227,14 @@ class SecurityConfig {
         var redirects = new DefaultRedirectStrategy();
 
         // Setting a success handler replaces Spring's default one, which is also what it would give this request cache.
-        var loginSuccess = new SavedRequestAwareAuthenticationSuccessHandler();
-        loginSuccess.setRequestCache(requestCache);
+        var savedRequests = new SavedRequestAwareAuthenticationSuccessHandler();
+        savedRequests.setRequestCache(requestCache);
+        // Both for the login form, and for a code after it.
+        AuthenticationSuccessHandler loginSuccess = (request, response, authentication) -> {
+            limits.loginSucceeded(request);
+            LoginGenerationFilter.loggedIn(request);
+            savedRequests.onAuthenticationSuccess(request, response, authentication);
+        };
 
         return http
                 .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
@@ -214,23 +253,34 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.HEAD, PUBLIC_PATHS).permitAll()
                         .requestMatchers(HttpMethod.GET, SIGNUP_PATH, SIGNUP_VERIFY_PATH).permitAll()
                         .requestMatchers(HttpMethod.POST, SIGNUP_PATH, SIGNUP_VERIFY_PATH).permitAll()
+                        // Submitting it is handled by TwoFactorLoginFilter, before this.
+                        .requestMatchers(HttpMethod.GET, TWO_FACTOR_LOGIN_PATH).permitAll()
                         .requestMatchers(HttpMethod.GET, CONSENT_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, DELETE_ACCOUNT_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, DELETE_ACCOUNT_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, SETTINGS_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, SETTINGS_PATH).authenticated()
+                        .requestMatchers(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH).authenticated()
+                        .requestMatchers(HttpMethod.POST, TWO_FACTOR_SETUP_PATH, TWO_FACTOR_CONFIRM_PATH,
+                                TWO_FACTOR_DISABLE_PATH, RECOVERY_CODES_PATH).authenticated()
                         // Not hasRole: see AdminAccess.
                         .requestMatchers(ADMIN_PATHS).access(adminAccess)
                         .anyRequest().denyAll())
                 .requestCache(cache -> cache.requestCache(requestCache))
+                .with(new TwoFactorLoginFilter.Configurer(actors, accounts, twoFactor, limits, loginSuccess), withDefaults())
                 .formLogin(login -> login
                         .loginPage(LOGIN_PATH)
-                        .successHandler((request, response, authentication) -> {
-                            limits.loginSucceeded(request);
-                            LoginGenerationFilter.loggedIn(request);
-                            loginSuccess.onAuthenticationSuccess(request, response, authentication);
-                        })
+                        .successHandler(loginSuccess)
                         .failureHandler((request, response, failure) -> {
+                            if (failure instanceof TwoFactorRequiredException required) {
+                                // The password was right. Whether the code is counts separately.
+                                limits.loginNotCounted(request);
+                                // The account exists, so its generation was read.
+                                TwoFactorChallenge.start(request, required.actorId(),
+                                        LoginGenerationFilter.generationBeingLoggedIn(request).orElseThrow());
+                                redirects.sendRedirect(request, response, TWO_FACTOR_LOGIN_PATH);
+                                return;
+                            }
                             // Unknown usernames are reported as bad credentials too.
                             if (failure instanceof BadCredentialsException) {
                                 limits.loginFailed(request);

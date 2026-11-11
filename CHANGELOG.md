@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user approves or refuses them through `/api/v1/follow_requests`. Other servers see the setting as
   `manuallyApprovesFollowers`, and get an `Accept` or a `Reject` once the user decides. See `docs/api.md` and
   `FEDERATION.md`.
+- Two-factor login with an authenticator app, which people turn on at `/settings/two-factor`. It comes with single-use
+  recovery codes, and the `disable-two-factor` command turns it off for someone who's lost both. Turning it on logs the
+  account out of other browsers, but not out of apps. See `docs/accounts.md`.
 
 - Initial scaffolding
 - Local accounts with username and password login, hashed with Argon2id

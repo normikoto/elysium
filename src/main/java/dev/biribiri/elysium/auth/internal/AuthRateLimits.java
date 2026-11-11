@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
@@ -72,6 +73,18 @@ class AuthRateLimits {
      */
     Optional<Duration> beginPasswordCheck(HttpServletRequest request, String username) {
         return begin(request, Optional.of(username.toLowerCase(Locale.ROOT)));
+    }
+
+    /**
+     * Starts checking a two-factor code for an account whose password was right, or that someone's logged in to. Codes count
+     * against the same limits as passwords, but separately from the account's passwords, so that a mistyped code doesn't use
+     * up password attempts. This finishes in the same ways as a login attempt.
+     *
+     * @return how long to wait, if the attempt isn't allowed
+     */
+    Optional<Duration> beginCodeCheck(HttpServletRequest request, UUID actorId) {
+        // Usernames can't contain a colon, so this can't be anyone's username.
+        return begin(request, Optional.of("code:" + actorId));
     }
 
     private Optional<Duration> begin(HttpServletRequest request, Optional<String> username) {

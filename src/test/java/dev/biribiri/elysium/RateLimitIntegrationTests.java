@@ -1,5 +1,6 @@
 package dev.biribiri.elysium;
 
+import com.eatthepath.otp.TimeBasedOneTimePasswordGenerator;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.auth.internal.PasswordHashingBusyException;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,12 +12,17 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -268,6 +274,43 @@ class RateLimitIntegrationTests {
                 .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
         logIn(username, PASSWORD, address).andExpect(status().isTooManyRequests());
         assertThat(actors.findLocalByUsername(username)).isPresent();
+    }
+
+    @Test
+    void wrongTwoFactorCodesCountAgainstTheAccount() throws Exception {
+        var username = "codelimit" + nextAddress.incrementAndGet();
+        createAccount(username);
+        var secret = "12345678901234567890".getBytes(StandardCharsets.US_ASCII);
+        jdbc.sql("""
+                        UPDATE account_credential SET totp_secret = :secret, totp_enabled_at = now()
+                        WHERE actor_id IN (SELECT id FROM actor WHERE username = :username)
+                        """)
+                .param("secret", secret)
+                .param("username", username)
+                .update();
+        var address = newAddress();
+
+        var session = new MockHttpSession();
+        mockMvc.perform(from(address, post("/login")).session(session).with(csrf())
+                        .param("username", username)
+                        .param("password", PASSWORD))
+                .andExpect(redirectedUrl("/login/two-factor"));
+        for (var i = 0; i < 5; i++) {
+            mockMvc.perform(from(address, post("/login/two-factor")).session(session).with(csrf()).param("code", "wrong"))
+                    .andExpect(status().is3xxRedirection());
+        }
+
+        // The password still works, since codes are counted separately, but even the right code doesn't.
+        var again = new MockHttpSession();
+        mockMvc.perform(from(address, post("/login")).session(again).with(csrf())
+                        .param("username", username)
+                        .param("password", PASSWORD))
+                .andExpect(redirectedUrl("/login/two-factor"));
+        var code = new TimeBasedOneTimePasswordGenerator().generateOneTimePasswordString(
+                new SecretKeySpec(secret, "HmacSHA1"), Instant.now(), Locale.ROOT);
+        mockMvc.perform(from(address, post("/login/two-factor")).session(again).with(csrf()).param("code", code))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
     }
 
     private void createAccount(String username) throws Exception {

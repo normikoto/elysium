@@ -1,0 +1,14 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Two-factor login', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="alert" th:if="${failed}">That code didn't match, or it's been used already.</p>
+    <form method="post" action="/login/two-factor">
+        <input type="hidden" th:name="${csrfParameter}" th:value="${csrfToken}">
+        <label for="code">The code from your authenticator app, or a recovery code</label>
+        <input type="text" id="code" th:name="${codeParameter}" autocomplete="one-time-code" autocapitalize="characters"
+               spellcheck="false" required autofocus>
+        <button type="submit">Log in</button>
+    </form>
+    <p><a href="/login">Start again</a></p>
+</th:block>
+</html>

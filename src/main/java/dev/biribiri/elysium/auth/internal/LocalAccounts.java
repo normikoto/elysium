@@ -307,14 +307,22 @@ class LocalAccounts implements UserDetailsService {
      * Logs an account out of every browser, in the caller's transaction, including any login that's in progress, which is why this
      * also moves on its generation: see {@link LoginGenerationFilter}. A session's principal name is the actor ID: see
      * {@link #loadUserByUsername}. Attributes go with it through the foreign key.
+     *
+     * @return the account's new generation, which a session started afterward in the same transaction belongs to, or empty if it
+     * has no password
      */
-    void endSessions(UUID actorId) {
-        jdbc.sql("UPDATE account_credential SET login_generation = login_generation + 1 WHERE actor_id = :actorId")
+    Optional<Long> endSessions(UUID actorId) {
+        var generation = jdbc.sql("""
+                        UPDATE account_credential SET login_generation = login_generation + 1 WHERE actor_id = :actorId
+                        RETURNING login_generation
+                        """)
                 .param("actorId", actorId)
-                .update();
+                .query(Long.class)
+                .optional();
         jdbc.sql("DELETE FROM spring_session WHERE principal_name = :principalName")
                 .param("principalName", actorId.toString())
                 .update();
+        return generation;
     }
 
     /**
