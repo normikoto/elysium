@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Optional;
 
 import static org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.pathPattern;
 
@@ -55,6 +56,21 @@ class LoginGenerationFilter extends OncePerRequestFilter {
         var session = request.getSession();
         session.setAttribute(SESSION_ATTRIBUTE, request.getAttribute(REQUEST_ATTRIBUTE));
         session.setAttribute(LOGIN_ID_ATTRIBUTE, hash(session.getId()));
+    }
+
+    /**
+     * @return the generation that a login in this request was read with, if the account can log in
+     */
+    static Optional<Long> generationBeingLoggedIn(HttpServletRequest request) {
+        return request.getAttribute(REQUEST_ATTRIBUTE) instanceof Long generation ? Optional.of(generation) : Optional.empty();
+    }
+
+    /**
+     * Notes the generation of a login that finishes in this request without going through the login form, which is where
+     * {@link #loggedIn} would otherwise find it.
+     */
+    static void loggingIn(HttpServletRequest request, long generation) {
+        request.setAttribute(REQUEST_ATTRIBUTE, generation);
     }
 
     /**

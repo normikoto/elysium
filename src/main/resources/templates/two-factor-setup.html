@@ -1,0 +1,17 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Set up two-factor login', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+    <p>Scan this with your authenticator app, such as Aegis, 2FAS, or Google Authenticator.</p>
+    <div class="qr-code" th:utext="${qrCode}"></div>
+    <p>Or enter this key in the app:</p>
+    <code th:text="${secret}"></code>
+    <form method="post" th:action="@{/settings/two-factor/confirm}">
+        <label for="code">The code the app shows now</label>
+        <input type="text" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9 ]*"
+               required autofocus>
+        <button type="submit">Turn on two-factor login</button>
+    </form>
+    <p><a href="/settings/two-factor">Cancel</a></p>
+</th:block>
+</html>

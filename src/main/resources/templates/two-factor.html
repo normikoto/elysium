@@ -1,0 +1,39 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Two-factor login', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+    <p class="notice" th:if="${disabled}">Two-factor login is off.</p>
+    <th:block th:if="${enabled}">
+        <p>
+            Two-factor login is on. Logging in needs a code from your authenticator app as well as your password.
+            <span th:text="|Recovery codes left: ${recoveryCodesLeft}.|"></span>
+        </p>
+        <h2>New recovery codes</h2>
+        <p>This replaces your recovery codes, so the old ones stop working.</p>
+        <form method="post" th:action="@{/settings/two-factor/recovery-codes}">
+            <label for="recovery-password">Your password</label>
+            <input type="password" id="recovery-password" name="password" autocomplete="current-password" required>
+            <button type="submit">Get new recovery codes</button>
+        </form>
+        <h2>Turn it off</h2>
+        <form method="post" th:action="@{/settings/two-factor/disable}">
+            <label for="disable-password">Your password</label>
+            <input type="password" id="disable-password" name="password" autocomplete="current-password" required>
+            <button type="submit">Turn off two-factor login</button>
+        </form>
+    </th:block>
+    <th:block th:unless="${enabled}">
+        <p>
+            Two-factor login asks for a code from an authenticator app on your phone, as well as your password, so that
+            your password alone isn't enough to get into your account. Turning it on logs you out of other browsers.
+            Apps you've already logged in to stay logged in.
+        </p>
+        <form method="post" th:action="@{/settings/two-factor/setup}">
+            <label for="password">Your password</label>
+            <input type="password" id="password" name="password" autocomplete="current-password" required autofocus>
+            <button type="submit">Set up two-factor login</button>
+        </form>
+    </th:block>
+    <p><a href="/settings">Back to settings</a></p>
+</th:block>
+</html>

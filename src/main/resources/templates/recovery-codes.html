@@ -1,0 +1,14 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Recovery codes', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" th:if="${justEnabled}">Two-factor login is on.</p>
+    <p>
+        If you lose your phone, you can log in with one of these codes instead of a code from the app. Each one works once.
+        Keep them somewhere safe, such as a password manager. They won't be shown again.
+    </p>
+    <ul class="recovery-codes">
+        <li th:each="code : ${recoveryCodes}"><code th:text="${code}"></code></li>
+    </ul>
+    <p><a href="/settings/two-factor">Done</a></p>
+</th:block>
+</html>

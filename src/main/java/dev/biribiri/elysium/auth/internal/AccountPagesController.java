@@ -60,6 +60,24 @@ class AccountPagesController {
         return "login";
     }
 
+    /**
+     * Asks for a code, once a password was right for an account with two-factor login: see {@link TwoFactorLoginFilter}.
+     */
+    @GetMapping(SecurityConfig.TWO_FACTOR_LOGIN_PATH)
+    String twoFactorLogin(
+            @RequestParam(required = false) String error,
+            CsrfToken csrf,
+            Model model,
+            HttpServletRequest request) {
+        if (TwoFactorChallenge.current(request).isEmpty()) {
+            return "redirect:" + SecurityConfig.LOGIN_PATH;
+        }
+        addCsrf(model, csrf);
+        model.addAttribute("failed", error != null);
+        model.addAttribute("codeParameter", TwoFactorLoginFilter.CODE_PARAMETER);
+        return "login-two-factor";
+    }
+
     @GetMapping(SecurityConfig.SIGNUP_PATH)
     String signupForm(
             @RequestParam(required = false) String invite,

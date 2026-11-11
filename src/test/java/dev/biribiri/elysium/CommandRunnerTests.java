@@ -36,6 +36,7 @@ class CommandRunnerTests {
                 .containsOnlyKeys(
                         "create-user",
                         "reset-password",
+                        "disable-two-factor",
                         "set-role",
                         "suspend-account",
                         "unsuspend-account",

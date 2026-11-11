@@ -42,6 +42,9 @@ dependencies {
     implementation("com.sksamuel.scrimage:scrimage-webp:4.6.9")
     // Reads the pages that profile fields link to, to check that they link back.
     implementation("org.jsoup:jsoup:1.23.2")
+    // Two-factor login: TOTP codes, and the QR code that adds an account to an authenticator app. Neither has dependencies.
+    implementation("com.eatthepath:java-otp:1.0.0")
+    implementation("io.nayuki:qrcodegen:1.8.0")
     // Unlike the JDK's client, this lets each client choose how hosts resolve, which is what keeps fetches from reaching
     // private addresses.
     implementation("org.apache.httpcomponents.client5:httpclient5")

@@ -196,6 +196,25 @@ failed. Jobs don't contain posts, so private posts aren't shown.
 - **Limits:** Each copy of the server sends at most 3 activities at a time to another server, and starts about 3 jobs a
   second for one server, so a large backlog for one server drains at about 180 a minute for each copy.
 
+## Two-factor login
+Anyone can turn on two-factor login at `/settings/two-factor`, linked from their settings. Logging in then asks for a
+six-digit code from an authenticator app, such as Aegis, 2FAS, or Google Authenticator, after the password. Apps that log in
+through the browser get the same page, so they need nothing extra.
+
+- **Turning it on** needs the password and a code from the app. It logs the account out of every other browser. Apps that
+  were already authorized keep working.
+- **Recovery codes:** Turning it on shows 10 single-use codes that work in place of a code from the app. People can get new
+  ones, which replaces the old ones, with their password.
+- **Lost phone and recovery codes:** Run `disable-two-factor alice`, after checking that the request really comes from that
+  person. Their password is then enough to log in, and they can turn two-factor login on again. `reset-password` doesn't
+  turn it off.
+- **Turning it off** needs the password.
+
+The server's clock has to be right, within about 30 seconds, or codes won't match. Use NTP, as most systems do already.
+
+Two-factor secrets are stored in the database as they are, because the server needs them to check codes. Anyone with a copy
+of the database or a backup could work out codes, so keep them as private as you keep passwords.
+
 ## Rate limits
 Logins and sign-ups are limited, and requests over a limit get a `429` response:
 
@@ -204,7 +223,12 @@ Logins and sign-ups are limited, and requests over a limit get a `429` response:
 | Failed logins from one address                   | 20 per 15 minutes |
 | Failed logins for one username from one address  | 5 per 15 minutes  |
 | Failed logins for one username from any address  | 50 per hour       |
+| Wrong two-factor codes for one account from one address | 5 per 15 minutes |
+| Wrong two-factor codes for one account from any address | 50 per hour |
 | Sign-ups from one address                        | 5 per hour        |
+
+Wrong two-factor codes also count toward the limit for their address. After 5 wrong codes in a row, logging in starts again
+from the password, and so does waiting more than 5 minutes after typing it.
 
 IPv6 addresses are counted by their /64 network. Someone trying many passwords can stop a username from logging in until the
 hour is up, including its owner. Counts are kept in memory, so restarting resets them, and each copy of the server counts on
