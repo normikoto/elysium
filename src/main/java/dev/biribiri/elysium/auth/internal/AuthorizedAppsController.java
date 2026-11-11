@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.actor.Ids;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -32,7 +33,7 @@ class AuthorizedAppsController {
 
     @PostMapping(SecurityConfig.REVOKE_AUTHORIZED_APP_PATH)
     String revoke(@PathVariable String id, Authentication authentication) {
-        apps.revoke(actorId(authentication), id);
+        Ids.parse(id).ifPresent(appId -> apps.revoke(actorId(authentication), appId.toString()));
         return "redirect:" + SecurityConfig.AUTHORIZED_APPS_PATH + "?revoked";
     }
 

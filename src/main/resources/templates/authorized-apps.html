@@ -2,7 +2,7 @@
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Authorized apps', ~{::content})}">
 <th:block th:fragment="content">
     <p class="notice" role="status" th:if="${revoked}">That app no longer has access to your account.</p>
-    <p>These apps can use your account. Revoking one logs it out, and it has to ask for your approval to get back in.</p>
+    <p th:unless="${apps.isEmpty()}">These apps can use your account. Revoking one logs it out, and it has to ask for your approval to get back in.</p>
     <p th:if="${apps.isEmpty()}">You haven't authorized any apps.</p>
     <th:block th:each="app : ${apps}">
         <h2 th:text="${app.name()}"></h2>

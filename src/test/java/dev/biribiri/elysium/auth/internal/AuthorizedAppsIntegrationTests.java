@@ -224,21 +224,7 @@ class AuthorizedAppsIntegrationTests {
     }
 
     private Map<String, String> register(String name, String website, String scopes) throws Exception {
-        var request = post("/api/v1/apps")
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .param("client_name", name)
-                .param("redirect_uris", "https://app.example/callback")
-                .param("scopes", scopes);
-        if (website != null) {
-            request.param("website", website);
-        }
-        var body = mockMvc.perform(request)
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        return Map.of(
-                "id", JsonPath.read(body, "$.id"),
-                "client_id", JsonPath.read(body, "$.client_id"),
-                "client_secret", JsonPath.read(body, "$.client_secret"));
+        return TestOAuth.registerApp(mockMvc, name, website, scopes);
     }
 
     private void revoke(Map<String, String> app, MockHttpSession session) throws Exception {

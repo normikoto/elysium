@@ -28,11 +28,23 @@ public final class TestOAuth {
     }
 
     public static Map<String, String> registerApp(MockMvc mockMvc, String scopes) throws Exception {
-        var body = mockMvc.perform(post("/api/v1/apps")
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("client_name", "Test")
-                        .param("redirect_uris", REDIRECT_URI)
-                        .param("scopes", scopes))
+        return registerApp(mockMvc, "Test", null, scopes);
+    }
+
+    /**
+     * @param website the application's homepage, or null
+     */
+    public static Map<String, String> registerApp(MockMvc mockMvc, String name, String website, String scopes)
+            throws Exception {
+        var request = post("/api/v1/apps")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("client_name", name)
+                .param("redirect_uris", REDIRECT_URI)
+                .param("scopes", scopes);
+        if (website != null) {
+            request.param("website", website);
+        }
+        var body = mockMvc.perform(request)
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return Map.of(
