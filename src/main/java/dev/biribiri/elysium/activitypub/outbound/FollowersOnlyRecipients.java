@@ -9,9 +9,10 @@ import java.util.UUID;
 import java.util.List;
 
 /**
- * Which remote followers each local followers-only status was sent to. Follows can't say this once someone has unfollowed,
- * or followed again since, which makes their follow look newer than the status. Without this, those servers would never be
- * sent its {@code Delete}, and would keep a private status that's gone.
+ * Which remote followers each local followers-only status or boost was sent to. Follows can't say this once someone has
+ * unfollowed, or followed again since, which makes their follow look newer than the status. Without this, those servers
+ * would never be sent its {@code Delete} or {@code Undo}, and would keep a private status that's gone. A boost is recorded
+ * under its own status ID, and its booster as the author.
  */
 @Component
 class FollowersOnlyRecipients {
@@ -71,14 +72,14 @@ class FollowersOnlyRecipients {
     }
 
     /**
-     * For once a status's {@code Delete} has been queued, when nothing more is sent for it.
+     * For once a status's {@code Delete}, or a boost's {@code Undo}, has been queued, when nothing more is sent for it.
      */
     void forget(UUID statusId) {
         jdbc.sql("DELETE FROM followers_only_recipient WHERE status_id = :statusId").param("statusId", statusId).update();
     }
 
     /**
-     * Removes the statuses an actor wrote, and what it was sent.
+     * Removes the statuses an actor wrote or boosted, and what it was sent.
      */
     void removeForActor(UUID actorId) {
         jdbc.sql("DELETE FROM followers_only_recipient WHERE author_id = :actorId OR actor_id = :actorId")

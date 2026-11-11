@@ -12,6 +12,7 @@ import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusUnreblogged;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
@@ -34,11 +35,16 @@ public class BoostDeliveries {
     private final StatusService statuses;
     private final ActorService actors;
     private final Recipients recipients;
+    private final FollowService follows;
+    private final FollowersOnlyRecipients followersOnly;
     private final ActivityDeliveries deliveries;
     private final JsonMapper json;
 
     BoostDeliveries(BoostService boosts, StatusService statuses, ActorService actors, Recipients recipients,
-                    ActivityDeliveries deliveries, JsonMapper json) {
+                    FollowService follows, FollowersOnlyRecipients followersOnly, ActivityDeliveries deliveries,
+                    JsonMapper json) {
+        this.follows = follows;
+        this.followersOnly = followersOnly;
         this.boosts = boosts;
         this.statuses = statuses;
         this.actors = actors;
@@ -60,7 +66,12 @@ public class BoostDeliveries {
                     var author = actors.findById(status.actorId()).orElse(null);
                     var announce = Announce.fromHere(boost.uri(), booster.get(), status.uri(), author, boost.visibility(),
                             boost.publishedAt());
-                    var inboxes = inboxes(booster.get().id(), author, boost.visibility(), boost.publishedAt());
+                    if (boost.visibility() == Visibility.PRIVATE) {
+                        followersOnly.record(boost.id(), booster.get().id(),
+                                follows.remoteFollowerIdsAsOf(booster.get().id(), boost.publishedAt()));
+                    }
+                    var inboxes = inboxes(boost.id(), booster.get().id(), author, boost.visibility(), boost.publishedAt(),
+                            true);
                     if (inboxes.isEmpty()) return;
                     deliveries.enqueue(new OutboundActivity(announce.id(), booster.get().id(),
                             json.writeValueAsString(announce), WhileSuspended.DROP), inboxes);
@@ -75,9 +86,13 @@ public class BoostDeliveries {
     public void on(StatusUnreblogged event) {
         deliveries.cancel(event.boostUri().toString());
         var booster = actors.findAnyLocalById(event.actorId()).filter(found -> !found.isDeleted());
-        if (booster.isEmpty()) return;
+        if (booster.isEmpty()) {
+            followersOnly.forget(event.boostId());
+            return;
+        }
         var author = actors.findById(event.authorId()).orElse(null);
-        var inboxes = inboxes(booster.get().id(), author, event.visibility(), event.publishedAt());
+        var inboxes = inboxes(event.boostId(), booster.get().id(), author, event.visibility(), event.publishedAt(), false);
+        followersOnly.forget(event.boostId());
         if (inboxes.isEmpty()) return;
         var undo = Undo.of(Announce.fromHere(event.boostUri(), booster.get(), event.statusUri(), author, event.visibility(),
                 event.publishedAt()));
@@ -87,10 +102,23 @@ public class BoostDeliveries {
 
     /**
      * The booster's followers, and the boosted status's author, so that their server can count the boost.
+     *
+     * <p>A followers-only boost goes to those already following when it was made, so that its {@code Undo} can't tell anyone
+     * else about it. Its {@code Announce} records who they were, since follows can't say once someone has unfollowed or
+     * followed again, and its {@code Undo} goes to all of them. Those already following when it was made are included
+     * either way, which covers boosts from before anything was recorded.
+     *
+     * @param sending whether this is for the {@code Announce}, which only goes to those who still follow
      */
-    private List<URI> inboxes(UUID boosterId, Actor author, Visibility visibility, Instant publishedAt) {
+    private List<URI> inboxes(
+            UUID boostId, UUID boosterId, Actor author, Visibility visibility, Instant publishedAt, boolean sending) {
         var inboxes = new LinkedHashSet<URI>();
-        recipients.addFollowers(boosterId, visibility, publishedAt, inboxes);
+        if (visibility == Visibility.PRIVATE) {
+            inboxes.addAll(followersOnly.inboxes(boostId, follows.remoteFollowerIdsAsOf(boosterId, publishedAt),
+                    sending ? follows.remoteFollowerIds(boosterId) : null));
+        } else {
+            recipients.addFollowers(boosterId, visibility, publishedAt, inboxes);
+        }
         if (author != null) recipients.add(author, inboxes);
         return List.copyOf(inboxes);
     }

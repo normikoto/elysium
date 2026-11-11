@@ -954,6 +954,44 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
+    void someoneWhoFollowedAgainIsSentTheUndoOfAFollowersOnlyBoostTheyWereSent() {
+        var host = newHost();
+        var follower = follow(host, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        var boost = boosts.reblog(status.id(), author.id(), Visibility.PUBLIC).orElseThrow();
+        awaitOfType(host, "Announce", boost);
+        awaitNothingLeftFor(status);
+        unfollow(follower);
+        follow(host, "bob", false, author, "#follow-again");
+
+        boosts.unreblog(status.id(), author.id());
+
+        awaitOfType(host, "Undo", boost);
+        awaitNothingLeftFor(status);
+        assertThat(jdbc.sql("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id")
+                .param("id", boost.id()).query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void aFormerFollowerIsSentTheUndoOfAFollowersOnlyBoostButALaterFollowerIsNot() {
+        var host = newHost();
+        var follower = follow(host, "bob", false);
+        var status = post(Visibility.PRIVATE, null);
+        var boost = boosts.reblog(status.id(), author.id(), Visibility.PUBLIC).orElseThrow();
+        awaitOfType(host, "Announce", boost);
+        awaitNothingLeftFor(status);
+        unfollow(follower);
+        var later = newHost();
+        follow(later, "carol", false);
+
+        boosts.unreblog(status.id(), author.id());
+
+        awaitOfType(host, "Undo", boost);
+        awaitNothingLeftFor(status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
+    }
+
+    @Test
     void aQueuedCreateCarriesTheEdit() {
         var status = post(Visibility.PUBLIC, null);
         awaitNothingLeftFor(status);
@@ -1114,6 +1152,12 @@ class StatusDeliveryIntegrationTests {
         transactions.executeWithoutResult(transaction -> follows.receive(
                 follower.id(), uri, followed.id(), uri + activity, new FollowService.Arrival(now, now)));
         return uri;
+    }
+
+    private void awaitOfType(String host, String type, Status boost) {
+        await().atMost(WAIT).until(() -> receivedBy(host).stream().anyMatch(request ->
+                request.body().contains(boost.uri().toString())
+                        && json.readTree(request.body()).path("type").asString().equals(type)));
     }
 
     private void unfollow(URI follower) {
