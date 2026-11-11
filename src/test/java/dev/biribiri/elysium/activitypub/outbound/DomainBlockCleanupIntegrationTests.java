@@ -164,6 +164,29 @@ class DomainBlockCleanupIntegrationTests {
     }
 
     @Test
+    void forgetsWhoALocalFollowersOnlyBoostOfItsActorsStatusWasSentTo() {
+        var author = remote(domain);
+        var recipient = remote("not" + domain);
+        var remoteStatus = statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/1"), null,
+                author.id(), "<p>remote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
+        var boost = boosts.reblog(remoteStatus, local.id(), Visibility.PRIVATE).orElseThrow();
+        jdbc.sql("""
+                        INSERT INTO followers_only_recipient (status_id, author_id, actor_id)
+                        VALUES (:status, :author, :actor)
+                        """)
+                .param("status", boost.id())
+                .param("author", local.id())
+                .param("actor", recipient.id())
+                .update();
+
+        blocks.create(domain, null);
+
+        await().atMost(WAIT).until(() -> !statusExists(remoteStatus));
+        assertThat(jdbc.sql("SELECT count(*) FROM followers_only_recipient WHERE status_id = :status")
+                .param("status", boost.id()).query(Long.class).single()).isZero();
+    }
+
+    @Test
     void removesStatusesOfTheBlockedServersActors() {
         var blocked = remote("social." + domain);
         var other = remote("not" + domain);

@@ -296,6 +296,27 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAuthorForgetsWhoLocalFollowersOnlyBoostsOfItsStatusesWereSentTo() {
+        var booster = newLocal();
+        var recipient = remote();
+        var remoteAuthor = remote();
+        var remoteStatus = statuses.storeRemote(new RemoteStatus(URI.create(remoteAuthor.uri() + "/statuses/1"), null,
+                remoteAuthor.id(), "<p>Hi</p>", null, null, Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
+        var ofRemote = boosts.reblog(remoteStatus, booster.id(), Visibility.PRIVATE).orElseThrow();
+        var localStatus = statuses.create(local.id(), draft());
+        var ofLocal = boosts.reblog(localStatus.id(), booster.id(), Visibility.PRIVATE).orElseThrow();
+        recordRecipient(ofRemote.id(), booster, recipient);
+        recordRecipient(ofLocal.id(), booster, recipient);
+
+        assertThat(actors.markRemoteDeleted(remoteAuthor.id())).isTrue();
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() ->
+                count("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id", ofRemote.id()) == 0
+                        && count("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id", ofLocal.id()) == 0);
+    }
+
+    @Test
     void deletingARemoteActorRemovesItsDataAndSendsNothing() {
         var deleted = remote();
         follow(deleted, local);
