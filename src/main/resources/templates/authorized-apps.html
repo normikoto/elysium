@@ -1,0 +1,22 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Authorized apps', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="status" th:if="${revoked}">That app no longer has access to your account.</p>
+    <p>These apps can use your account. Revoking one logs it out, and it has to ask for your approval to get back in.</p>
+    <p th:if="${apps.isEmpty()}">You haven't authorized any apps.</p>
+    <th:block th:each="app : ${apps}">
+        <h2 th:text="${app.name()}"></h2>
+        <p th:if="${app.website() != null}">
+            <a th:href="${app.website()}" th:text="${app.website()}" rel="noopener noreferrer nofollow"></a>
+        </p>
+        <p>Can use: <span th:text="${#strings.setJoin(app.scopes(), ', ')}"></span></p>
+        <p th:if="${app.authorizedAt() != null}">
+            Authorized <time th:datetime="${app.authorizedAt()}" th:text="${app.authorizedAt()}"></time>
+        </p>
+        <form method="post" th:action="@{/oauth/authorized_applications/{id}/revoke(id=${app.id()})}">
+            <button type="submit">Revoke</button>
+        </form>
+    </th:block>
+    <p><a href="/settings">Back to settings</a></p>
+</th:block>
+</html>
