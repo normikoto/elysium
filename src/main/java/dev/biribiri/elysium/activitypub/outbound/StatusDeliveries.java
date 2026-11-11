@@ -11,9 +11,11 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusPublished;
+import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.BlockService;
+import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
@@ -40,6 +42,8 @@ public class StatusDeliveries {
     private final Recipients recipients;
     private final Notes notes;
     private final BlockService blocks;
+    private final FollowService follows;
+    private final FollowersOnlyRecipients followersOnly;
     private final ActivityDeliveries deliveries;
     private final JsonMapper json;
 
@@ -49,6 +53,8 @@ public class StatusDeliveries {
             Recipients recipients,
             Notes notes,
             BlockService blocks,
+            FollowService follows,
+            FollowersOnlyRecipients followersOnly,
             ActivityDeliveries deliveries,
             JsonMapper json) {
         this.statuses = statuses;
@@ -56,6 +62,8 @@ public class StatusDeliveries {
         this.recipients = recipients;
         this.notes = notes;
         this.blocks = blocks;
+        this.follows = follows;
+        this.followersOnly = followersOnly;
         this.deliveries = deliveries;
         this.json = json;
     }
@@ -75,7 +83,14 @@ public class StatusDeliveries {
         }
         var mentioned = notes.mentioned(status.get());
         var note = notes.of(status.get(), author.get(), mentioned);
+        if (status.get().visibility() == Visibility.PRIVATE) {
+            followersOnly.record(
+                    status.get().id(),
+                    author.get().id(),
+                    follows.remoteFollowerIdsAsOf(author.get().id(), status.get().publishedAt()));
+        }
         var inboxes = inboxes(
+                status.get().id(),
                 author.get().id(),
                 status.get().visibility(),
                 status.get().publishedAt(),
@@ -96,8 +111,7 @@ public class StatusDeliveries {
      * Stops any further sending of the status, and tells followers, the accounts it mentioned, and the followers of local
      * accounts that boosted it to remove it, after any {@code Create} or {@code Update} still being sent. A server that gets
      * an {@code Update} of a status it doesn't have can store it, as Mastodon does, so one that arrived after this would
-     * bring the status back. Which followers were sent the status isn't kept, so this goes to current followers, as
-     * {@link #inboxes} decides. An author who's been suspended since can come back, and this waits for that, so that
+     * bring the status back. An author who's been suspended since can come back, and this waits for that, so that
      * followers don't keep what was deleted.
      */
     @ApplicationModuleListener
@@ -108,12 +122,14 @@ public class StatusDeliveries {
         deliveries.cancelStartingWith(updates);
         var author = actors.findAnyLocalById(event.authorId()).filter(found -> !found.isDeleted());
         if (author.isEmpty()) {
+            followersOnly.forget(event.statusId());
             return;
         }
         var mentioned = actors.findByIds(event.mentioned());
         var inboxes = everyoneSent(
-                author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(), mentioned,
-                event.boosters(), false);
+                event.statusId(), author.get().id(), event.visibility(), event.publishedAt(), event.inReplyToAccountId(),
+                mentioned, event.boosters(), false);
+        followersOnly.forget(event.statusId());
         if (inboxes.isEmpty()) {
             return;
         }
@@ -150,6 +166,7 @@ public class StatusDeliveries {
         var create = Create.of(note);
         deliveries.replaceBody(create.id().toString(), json.writeValueAsString(create));
         var inboxes = everyoneSent(
+                status.get().id(),
                 author.get().id(),
                 status.get().visibility(),
                 status.get().publishedAt(),
@@ -175,10 +192,10 @@ public class StatusDeliveries {
      * @param mentioned every account it mentions, silently or not
      */
     private List<URI> everyoneSent(
-            UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId, Collection<Actor> mentioned,
-            List<UUID> boosters, boolean withoutBlocked) {
+            UUID statusId, UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId,
+            Collection<Actor> mentioned, List<UUID> boosters, boolean withoutBlocked) {
         var inboxes = new LinkedHashSet<>(
-                inboxes(authorId, visibility, publishedAt, parentAuthorId, mentioned, withoutBlocked));
+                inboxes(statusId, authorId, visibility, publishedAt, parentAuthorId, mentioned, withoutBlocked));
         boosters.forEach(booster -> recipients.addFollowers(booster, visibility, publishedAt, inboxes));
         return List.copyOf(inboxes);
     }
@@ -187,6 +204,12 @@ public class StatusDeliveries {
      * Where to send a status's activities. Its {@code Create} and {@code Delete} have to use the same rule, or a follower
      * could be sent a status and not its deletion. Statuses that anyone can see can be fetched, so a later follower may have
      * a copy to remove.
+     *
+     * <p>A followers-only status goes to those already following when it was posted, so that its activities can't tell
+     * anyone else that it existed. Follows can't say who that was once someone has unfollowed, or followed again, so its
+     * {@code Create} records them. Its {@code Delete} goes to everyone recorded, and its {@code Update}s only to those
+     * who still follow, since the others shouldn't see an edit. Those already following when it was posted are included
+     * either way, which covers statuses from before anything was recorded.
      *
      * <p>The author of a public or unlisted status's parent on another server gets them as well, since otherwise their server
      * wouldn't know about the reply. A followers-only reply isn't sent to them: whether it addressed them depends on whether
@@ -203,13 +226,20 @@ public class StatusDeliveries {
      *
      * @param parentAuthorId the parent's author, or null if the status doesn't address them
      * @param mentioned      the accounts the status mentions
-     * @param withoutBlocked whether to leave out the parent's author and mentioned accounts in a block with the author
+     * @param withoutBlocked whether this is for a {@code Create} or {@code Update}, which leaves out the parent's author and
+     *                       mentioned accounts in a block with the author, and former followers
      */
     private List<URI> inboxes(
-            UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId, Collection<Actor> mentioned,
-            boolean withoutBlocked) {
+            UUID statusId, UUID authorId, Visibility visibility, Instant publishedAt, UUID parentAuthorId,
+            Collection<Actor> mentioned, boolean withoutBlocked) {
         var inboxes = new LinkedHashSet<URI>();
-        recipients.addFollowers(authorId, visibility, publishedAt, inboxes);
+        if (visibility == Visibility.PRIVATE) {
+            var followedThen = follows.remoteFollowerIdsAsOf(authorId, publishedAt);
+            inboxes.addAll(followersOnly.inboxes(
+                    statusId, followedThen, withoutBlocked ? follows.remoteFollowerIds(authorId) : null));
+        } else {
+            recipients.addFollowers(authorId, visibility, publishedAt, inboxes);
+        }
         var addressed = new ArrayList<Actor>();
         if (parentAuthorId != null && (visibility == Visibility.PUBLIC || visibility == Visibility.UNLISTED)) {
             actors.findById(parentAuthorId).ifPresent(addressed::add);

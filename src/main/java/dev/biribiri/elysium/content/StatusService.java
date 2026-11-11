@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
+import dev.biribiri.elysium.content.internal.FollowersOnlyRecipientRepository;
 import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
@@ -75,6 +76,7 @@ public class StatusService {
     private final MediaAttachmentRepository media;
     private final MediaAttachments attachments;
     private final AttachmentProperties attachmentProperties;
+    private final FollowersOnlyRecipientRepository followersOnly;
 
     StatusService(
             StatusRepository statuses,
@@ -90,7 +92,9 @@ public class StatusService {
             BoostRepository boosts,
             MediaAttachmentRepository media,
             MediaAttachments attachments,
-            AttachmentProperties attachmentProperties) {
+            AttachmentProperties attachmentProperties,
+            FollowersOnlyRecipientRepository followersOnly) {
+        this.followersOnly = followersOnly;
         this.media = media;
         this.attachments = attachments;
         this.attachmentProperties = attachmentProperties;
@@ -646,9 +650,11 @@ public class StatusService {
 
     /**
      * Finds a status if this actor, fetching it from another server, is allowed to see it. Unlike {@link #isVisible}, a
-     * followers-only status is only shown to followers who were already following when it was posted, and to the accounts it
-     * mentions, or mentioned before an edit. Those are who its {@code Create}, {@code Update}s and {@code Delete} are sent
-     * to, so a fetch tells nobody else that it exists, and nobody can have it without being sent its deletion.
+     * followers-only status is only shown to the accounts it mentions, or mentioned before an edit, and to current followers
+     * who were sent it, or who were already following when it was posted, for one from before that was recorded. Those are
+     * who its {@code Update}s are sent to, and its {@code Delete} reaches all of them, so a fetch tells nobody else that it
+     * exists, and nobody can have it without being sent its deletion. Former followers aren't shown it, as they aren't sent
+     * its edits.
      *
      * <p>An author who blocks the fetcher, or the fetcher's server, doesn't show it anything.
      *
@@ -667,8 +673,11 @@ public class StatusService {
             }
             // Silent mentions too, which an edit leaves the accounts it no longer mentions, so they keep what they were sent.
             var mentioned = statuses.findAllMentioned(id).contains(fetcher.get());
-            return mentioned || (status.visibility() == Visibility.PRIVATE
-                    && follows.wasFollowingAsOf(fetcher.get(), status.actorId(), status.publishedAt()));
+            if (mentioned || status.visibility() != Visibility.PRIVATE) {
+                return mentioned;
+            }
+            return follows.wasFollowingAsOf(fetcher.get(), status.actorId(), status.publishedAt())
+                    || (follows.isFollowing(fetcher.get(), status.actorId()) && followersOnly.wasSent(id, fetcher.get()));
         });
     }
 

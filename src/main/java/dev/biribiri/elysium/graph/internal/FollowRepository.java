@@ -515,6 +515,27 @@ public class FollowRepository {
     }
 
     /**
+     * @param time leave out followers who started following after this, as {@link #findFollowerInboxesAsOf} does, or null
+     *             for every current follower
+     * @return the remote actors with an accepted follow of an account
+     */
+    public List<UUID> findRemoteFollowerIds(UUID followedId, Instant time) {
+        var sql = """
+                SELECT f.follower_id
+                FROM follow f JOIN actor a ON a.id = f.follower_id
+                WHERE f.followed_id = :followedId AND f.state = 'accepted' AND NOT a.is_local
+                """;
+        if (time == null) {
+            return jdbc.sql(sql).param("followedId", followedId).query(UUID.class).list();
+        }
+        return jdbc.sql(sql + " AND f.created_at <= :time")
+                .param("followedId", followedId)
+                .param("time", time(time))
+                .query(UUID.class)
+                .list();
+    }
+
+    /**
      * @return who the removed follow was of, if one was removed
      */
     public Optional<UUID> deleteByActivity(UUID followerId, String activityUri) {

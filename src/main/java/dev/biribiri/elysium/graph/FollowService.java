@@ -552,6 +552,21 @@ public class FollowService {
     }
 
     /**
+     * @return the remote actors that follow an account
+     */
+    public List<UUID> remoteFollowerIds(UUID followedId) {
+        return follows.findRemoteFollowerIds(followedId, null);
+    }
+
+    /**
+     * Like {@link #remoteFollowerIds}, leaving out actors who started following after this time. These are who a
+     * followers-only status posted then is sent to.
+     */
+    public List<UUID> remoteFollowerIdsAsOf(UUID followedId, Instant time) {
+        return follows.findRemoteFollowerIds(followedId, time);
+    }
+
+    /**
      * @return the domain of every remote actor, each as {@code actor.domain} has it
      */
     public List<String> remoteDomains() {

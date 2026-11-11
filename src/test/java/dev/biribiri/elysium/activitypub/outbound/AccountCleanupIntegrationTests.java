@@ -277,6 +277,46 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAccountForgetsWhoItsFollowersOnlyStatusesWentToAndWhatItWasSent() {
+        var other = newLocal();
+        var deletedRemote = remote();
+        var keptRemote = remote();
+        var mine = UUID.randomUUID();
+        var theirs = UUID.randomUUID();
+        recordRecipient(mine, local, keptRemote);
+        recordRecipient(theirs, other, deletedRemote);
+        recordRecipient(theirs, other, keptRemote);
+
+        actors.markDeleted(local.id());
+        assertThat(actors.markRemoteDeleted(deletedRemote.id())).isTrue();
+
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id", mine) == 0
+                && count("SELECT count(*) FROM followers_only_recipient WHERE actor_id = :id", deletedRemote.id()) == 0);
+        assertThat(count("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id", theirs)).isOne();
+    }
+
+    @Test
+    void deletingAnAuthorForgetsWhoLocalFollowersOnlyBoostsOfItsStatusesWereSentTo() {
+        var booster = newLocal();
+        var recipient = remote();
+        var remoteAuthor = remote();
+        var remoteStatus = statuses.storeRemote(new RemoteStatus(URI.create(remoteAuthor.uri() + "/statuses/1"), null,
+                remoteAuthor.id(), "<p>Hi</p>", null, null, Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
+        var ofRemote = boosts.reblog(remoteStatus, booster.id(), Visibility.PRIVATE).orElseThrow();
+        var localStatus = statuses.create(local.id(), draft());
+        var ofLocal = boosts.reblog(localStatus.id(), booster.id(), Visibility.PRIVATE).orElseThrow();
+        recordRecipient(ofRemote.id(), booster, recipient);
+        recordRecipient(ofLocal.id(), booster, recipient);
+
+        assertThat(actors.markRemoteDeleted(remoteAuthor.id())).isTrue();
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() ->
+                count("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id", ofRemote.id()) == 0
+                        && count("SELECT count(*) FROM followers_only_recipient WHERE status_id = :id", ofLocal.id()) == 0);
+    }
+
+    @Test
     void deletingARemoteActorRemovesItsDataAndSendsNothing() {
         var deleted = remote();
         follow(deleted, local);
@@ -459,6 +499,17 @@ class AccountCleanupIntegrationTests {
                 .param("activity", activity)
                 .update();
         return activity;
+    }
+
+    private void recordRecipient(UUID statusId, Actor author, Actor recipient) {
+        jdbc.sql("""
+                        INSERT INTO followers_only_recipient (status_id, author_id, actor_id)
+                        VALUES (:status, :author, :actor)
+                        """)
+                .param("status", statusId)
+                .param("author", author.id())
+                .param("actor", recipient.id())
+                .update();
     }
 
     private long follows(Actor actor) {

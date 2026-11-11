@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
+import dev.biribiri.elysium.content.internal.FollowersOnlyRecipientRepository;
 import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
@@ -66,7 +67,8 @@ class StatusServiceTests {
                 mock(MediaAttachmentRepository.class),
                 mock(MediaAttachments.class),
                 new AttachmentProperties(DataSize.ofMegabytes(16), DataSize.ofMegabytes(100), DataSize.ofMegabytes(40),
-                        Duration.ofDays(1), Duration.ofHours(1), 20));
+                        Duration.ofDays(1), Duration.ofHours(1), 20),
+                mock(FollowersOnlyRecipientRepository.class));
     }
 
     private static Actor actor(String username, String domain) {

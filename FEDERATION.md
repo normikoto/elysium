@@ -102,8 +102,10 @@ and any origin can read both through CORS. Public and unlisted statuses are serv
 A fetch of a `Note` doesn't need a signature, but one is checked if it's sent, and the request is answered as the actor
 that owns the signing key:
 
-- A followers-only status is served to an actor that was already following its author when it was posted, which is who
-  its `Create` went to, and to the actors in its `Mention` tags, or in them before an edit.
+- A followers-only status is served to an actor that follows its author and was sent its `Create`, including one that
+  has unfollowed and followed again since, and to the actors in its `Mention` tags, or in them before an edit. A former
+  follower isn't served it. For a status posted before this server version recorded who its `Create` went to, it's
+  served to followers who have been following since before it was posted.
 - A direct status is served to the actors in its `Mention` tags, or in them before an edit.
 - Only the signer counts. An instance actor, or any other actor, isn't served a status because other actors on its
   server can see it. This matches Mastodon. Misskey's lookups, and Mastodon's searches, are signed as their instance
@@ -471,7 +473,8 @@ same `id`.
 
 When a local user edits a status, an `Update` of it is sent, signed as the user, to everyone its `Delete` would be sent
 to, as described below. That includes the actors it mentioned before the edit, who can still fetch it, and those it now
-mentions, who haven't been sent its `Create`. Its `id` is `{note-uri}#updates/{milliseconds}`, it's addressed like the
+mentions, who haven't been sent its `Create`. For a followers-only status, it only goes to the followers who still follow
+the author. Its `id` is `{note-uri}#updates/{milliseconds}`, it's addressed like the
 `Note`, and its `object` is the `Note` as it is when the `Update` is sent, with `updated` set. Each edit's `updated` is at
 least a second later than the version before, and an edit that changes nothing sends nothing. A user can change the
 text, content warning, sensitivity, and language, but not the visibility or `inReplyTo`, as on Mastodon.
@@ -509,9 +512,9 @@ sent to the same server.
 When a local user deletes a status, or an admin removes it, any delivery of its `Create` or `Update`s that hasn't started is cancelled, and a
 `Delete` is sent to their followers on other servers and the actors it mentioned, the same way as a `Create`. It's addressed like the `Create`,
 except that it doesn't address the author of a parent status, though it's sent to them if the `Create` was. The `Delete` of
-a followers-only status only goes to followers who were already following when it was posted, so that it can't tell anyone else
-that the status existed. Since it goes to who follows the author when it's deleted, a server whose followers have all left
-since keeps its copy.
+a followers-only status goes to the followers its `Create` was sent to, including any who have unfollowed since, or
+unfollowed and followed again, so that it can't tell anyone else that the status existed. For a followers-only status posted
+before this server version recorded that, it only goes to followers who are still following since before it was posted.
 
 A `Delete` doesn't overtake a `Create` or `Update` that's already being sent: it waits until that request to the same
 server has ended, which takes at most 30 seconds. This server can only control when each is sent, so a server that handles activities out of order
@@ -702,8 +705,8 @@ It's addressed like a status of the same visibility, with the author in `cc`. A 
 followers-only, and a boost of a followers-only status is always followers-only. Its `id` can't be fetched. Unboosting
 cancels the `Announce` if it hasn't been sent, and sends an `Undo` that embeds it, after any request with the `Announce` to
 the same server has ended. So does deleting the boosted status, here or on its server. The `Undo` goes to the status's author
-and to whoever follows the booster at the time, or for a followers-only boost, only to those who were already following when
-it was made. A local status's `Delete` also
+and to whoever follows the booster at the time, or for a followers-only boost, to the followers its `Announce` was sent to,
+including any who have unfollowed since, or unfollowed and followed again. A local status's `Delete` also
 goes to the followers of local users who boosted it.
 
 An `Announce` is only read for its `object`'s ID, and an embedded copy is never used. A boost of a local public or unlisted
@@ -774,8 +777,8 @@ signature.
 - An `Update` from another server doesn't change who its status mentions, so an edit can't show a followers-only or
   direct status to more local users.
 - A reply's `inReplyTo` is left out if its parent can't be shown, so it doesn't look like a reply.
-- A followers-only status can't be fetched by an actor that started following after it was posted, though Mastodon would
-  serve it to any current follower.
+- A followers-only status can't be fetched by an actor that started following after it was posted and wasn't sent it,
+  though Mastodon would serve it to any current follower.
 - A local user's boost of a status that's removed with its author's account, or with a blocked domain's statuses, goes
   without an `Undo`.
 - Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.
@@ -843,8 +846,8 @@ host is. An admin can also reject the media of one account on another server. A 
 - **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, and boosts of
   their statuses. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
-  blocked isn't delivered. Following again counts as a new follow, so that server isn't sent a `Delete` for a followers-only
-  status posted before then, and it keeps any copy it has.
+  blocked isn't delivered. Following again counts as a new follow, and that server isn't sent a `Delete` for a followers-only
+  status it was sent before the block, so it keeps any copy it has.
 
 These are an admin's blocks. A user's own block of a server [isn't federated](#blocks), apart from the `Reject`s it sends.
 

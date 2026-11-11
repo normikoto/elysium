@@ -64,6 +64,15 @@ public class StatusRepository {
     private static final int REMOVAL_BATCH_SIZE = 1000;
 
     /**
+     * Forgets who the boosts of a batch of statuses were sent to. Removing statuses in bulk removes their boosts through a
+     * cascade, with no {@code StatusUnreblogged} to forget them, and a local boost's rows belong to its booster, which
+     * removing the boosted status's author doesn't reach.
+     */
+    private static final String FORGET_BOOSTS_OF_BATCH = """
+            DELETE FROM followers_only_recipient r USING status b
+            WHERE b.reblog_of_id IN (SELECT id FROM batch) AND r.status_id = b.id""";
+
+    /**
      * How many versions of a status are kept, counting the current one.
      */
     public static final int MAX_VERSIONS = 50;
@@ -533,9 +542,10 @@ public class StatusRepository {
         int removed;
         do {
             removed = jdbc.sql("""
-                            DELETE FROM status
-                            WHERE id IN (SELECT id FROM status WHERE actor_id = :actorId LIMIT :limit)
-                            """)
+                            WITH batch AS (SELECT id FROM status WHERE actor_id = :actorId LIMIT :limit),
+                            boost_recipients AS (%s)
+                            DELETE FROM status WHERE id IN (SELECT id FROM batch)
+                            """.formatted(FORGET_BOOSTS_OF_BATCH))
                     .param("actorId", actorId)
                     .param("limit", REMOVAL_BATCH_SIZE)
                     .update();
@@ -562,14 +572,15 @@ public class StatusRepository {
         int removed;
         do {
             removed = jdbc.sql("""
-                            DELETE FROM status
-                            WHERE id IN (
+                            WITH batch AS (
                                 SELECT s.id FROM status s
                                 JOIN actor a ON a.id = s.actor_id
                                 WHERE a.domain = :domain AND NOT a.is_local
                                 LIMIT :limit
-                            )
-                            """)
+                            ),
+                            boost_recipients AS (%s)
+                            DELETE FROM status WHERE id IN (SELECT id FROM batch)
+                            """.formatted(FORGET_BOOSTS_OF_BATCH))
                     .param("domain", domain)
                     .param("limit", REMOVAL_BATCH_SIZE)
                     .update();
