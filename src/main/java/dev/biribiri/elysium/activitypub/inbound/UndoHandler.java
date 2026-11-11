@@ -4,6 +4,7 @@ import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
 import dev.biribiri.elysium.activitypub.vocab.Accept;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
@@ -19,8 +20,8 @@ import java.util.Optional;
 
 /**
  * Handles every {@code Undo}, because only one handler can have a type, and tells what's undone from the {@code object}'s
- * type, or the stored activity's when it's sent as just an ID. Undoing a {@code Follow}, {@code Like} or {@code Announce}
- * does something.
+ * type, or the stored activity's when it's sent as just an ID. Undoing a {@code Follow}, {@code Like}, {@code Announce} or
+ * {@code Block} does something.
  */
 @Component
 class UndoHandler implements InboundActivityHandler {
@@ -31,6 +32,7 @@ class UndoHandler implements InboundActivityHandler {
     private final FollowService follows;
     private final LikeService likes;
     private final BoostService boosts;
+    private final BlockService blocks;
     private final StoredActivities stored;
     private final ActivityDeliveries deliveries;
     private final TransactionTemplate transaction;
@@ -41,6 +43,7 @@ class UndoHandler implements InboundActivityHandler {
             FollowService follows,
             LikeService likes,
             BoostService boosts,
+            BlockService blocks,
             StoredActivities stored,
             ActivityDeliveries deliveries,
             TransactionTemplate transaction,
@@ -49,6 +52,7 @@ class UndoHandler implements InboundActivityHandler {
         this.follows = follows;
         this.likes = likes;
         this.boosts = boosts;
+        this.blocks = blocks;
         this.stored = stored;
         this.deliveries = deliveries;
         this.transaction = transaction;
@@ -69,7 +73,7 @@ class UndoHandler implements InboundActivityHandler {
         }
         var object = parsed.get();
         if (object.type() != null && !object.type().equals("Follow") && !object.type().equals("Like")
-                && !object.type().equals("Announce")) return;
+                && !object.type().equals("Announce") && !object.type().equals("Block")) return;
         var original = Optional.ofNullable(object.id()).flatMap(stored::find);
         if (original.isPresent() && (!original.get().actorUri().equals(activity.actorUri())
                 || (object.type() != null && !object.type().equals(original.get().type())))) return;
@@ -81,6 +85,10 @@ class UndoHandler implements InboundActivityHandler {
         if ("Announce".equals(type) || type == null) {
             undoAnnounce(activity, object);
             if ("Announce".equals(type)) return;
+        }
+        if ("Block".equals(type) || type == null) {
+            undoBlock(activity, object, original);
+            if ("Block".equals(type)) return;
         }
         if (type != null && !type.equals("Follow")) return;
         if (object.id() != null) {
@@ -100,6 +108,22 @@ class UndoHandler implements InboundActivityHandler {
         if (object.id() == null && (!"Like".equals(object.type()) || target.isEmpty())) return;
         likes.undo(activity.actorUri(), object.id(), target,
                 original.filter(found -> found.type().equals("Like")).map(InboundActivity::firstReceivedAt),
+                activity.receivedAt());
+    }
+
+    /**
+     * Like a {@code Like}, a {@code Block} is undone by its ID, or by its two actors if it's embedded without one. Its target
+     * comes from the stored {@code Block} when there's one, since the embedded copy hasn't been through the inbox's checks.
+     */
+    private void undoBlock(InboundActivity activity, ActivityObject object, Optional<InboundActivity> original) {
+        if (object.id() != null && (!InboundActivity.isStorableId(object.id())
+                || !canSpeakFor(activity.actorUri(), object.id()))) return;
+        var block = original.filter(found -> found.type().equals("Block"));
+        var target = block.flatMap(found -> ActivityObject.of(found.body(), json)).map(ActivityObject::id)
+                .or(() -> Optional.ofNullable(object.object()))
+                .flatMap(ActivityObject::parseUri).flatMap(actors::findAnyLocalByUri);
+        if (object.id() == null && (!"Block".equals(object.type()) || target.isEmpty())) return;
+        blocks.undo(activity.actorUri(), object.id(), target, block.map(InboundActivity::firstReceivedAt),
                 activity.receivedAt());
     }
 

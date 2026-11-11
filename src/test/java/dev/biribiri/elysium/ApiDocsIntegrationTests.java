@@ -354,6 +354,29 @@ class ApiDocsIntegrationTests {
         }
     }
 
+    @Test
+    void documentsBlocksAndMutes() throws Exception {
+        var paths = document().get("paths");
+        for (var list : List.of(Map.entry("/api/v1/blocks", "read:blocks"), Map.entry("/api/v1/mutes", "read:mutes"),
+                Map.entry("/api/v1/domain_blocks", "read:blocks"))) {
+            var operation = paths.get(list.getKey()).get("get");
+            assertThat(operation.at("/security/0/oauth2/0").asString()).isEqualTo(list.getValue());
+            assertThat(operation.at("/responses/200/headers/Link").isMissingNode()).isFalse();
+        }
+        for (var action : List.of(Map.entry("block", "write:blocks"), Map.entry("unblock", "write:blocks"),
+                Map.entry("mute", "write:mutes"), Map.entry("unmute", "write:mutes"))) {
+            var operation = paths.get("/api/v1/accounts/{id}/" + action.getKey()).get("post");
+            assertThat(operation.at("/security/0/oauth2/0").asString()).isEqualTo(action.getValue());
+            assertThat(operation.path("responses").propertyNames()).contains("200", "401", "403", "404", "422");
+        }
+        assertThat(paths.at("/~1api~1v1~1accounts~1{id}~1follow/post/responses").propertyNames()).contains("403");
+        for (var method : List.of("post", "delete")) {
+            var operation = paths.get("/api/v1/domain_blocks").get(method);
+            assertThat(operation.at("/security/0/oauth2/0").asString()).isEqualTo("write:blocks");
+            assertThat(operation.path("responses").propertyNames()).contains("200", "413", "422");
+        }
+    }
+
     private JsonNode document() throws Exception {
         return json.readTree(mockMvc.perform(get("/api-docs")).andReturn().getResponse().getContentAsString());
     }

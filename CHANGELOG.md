@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Blocks, mutes, and blocking whole servers, for each user, through `POST /api/v1/accounts/:id/block`, `/unblock`,
+  `/mute`, and `/unmute`, `GET /api/v1/blocks` and `/api/v1/mutes`, and `/api/v1/domain_blocks`. Blocking someone ends the
+  follows between them and hides each from the other, and muting hides someone's posts and, if asked, their
+  notifications. Blocks of people on other servers are federated as `Block` and `Undo`, unless
+  `elysium.federation.send-blocks` is set to `false`, and the follows they end are ended on the other server either way.
+  Blocks from other servers are honored. See `docs/accounts.md`, `docs/api.md`, and `FEDERATION.md`.
 - Removing posts as an admin, at `/admin/statuses`. A post from this server is deleted everywhere, as if its author had
   deleted it, and a post from another server is only removed here, for good. See `docs/accounts.md`.
 - RFC 9421 HTTP Message Signatures, alongside the older draft-cavage ones. Requests from other servers can be signed

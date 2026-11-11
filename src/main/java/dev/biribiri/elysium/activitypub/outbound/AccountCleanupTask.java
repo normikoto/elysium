@@ -8,13 +8,16 @@ import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.graph.AccountDomainBlockService;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.graph.MuteService;
 import dev.biribiri.elysium.inbox.InboxService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses, attachments, follows, and profile, and a suspended remote actor's follows, which would otherwise give it a
+ * Removes a deleted account's statuses, attachments, follows, blocks, mutes, and profile, and a suspended remote actor's follows, which would otherwise give it a
  * way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that they come back
  * if the suspension is undone. A suspended local account keeps everything, for the same reason. This
  * looks at the actor's state now, so it's safe to run again, and does nothing for a suspension that's since ended.
@@ -27,11 +30,18 @@ class AccountCleanupTask {
     private final ActorService actors;
     private final StatusService statuses;
     private final FollowService follows;
+    private final BlockService blocks;
+    private final MuteService mutes;
+    private final AccountDomainBlockService domainBlocks;
     private final ProfileService profiles;
     private final MediaAttachments attachments;
 
-    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, ProfileService profiles, InboxService inbox, LikeService likes,
-                       MediaAttachments attachments) {
+    AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
+                       MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
+                       LikeService likes, MediaAttachments attachments) {
+        this.blocks = blocks;
+        this.mutes = mutes;
+        this.domainBlocks = domainBlocks;
         this.attachments = attachments;
         this.inbox = inbox;
         this.likes = likes;
@@ -54,6 +64,9 @@ class AccountCleanupTask {
                 // Uploads it hadn't posted too, which removing its statuses doesn't reach.
                 attachments.removeAllBy(actor.id());
                 follows.removeForActor(actor.id());
+                blocks.removeForActor(actor.id());
+                mutes.removeForActor(actor.id());
+                domainBlocks.removeForAccount(actor.id());
                 profiles.removeAll(actor.id());
                 inbox.removeForActor(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {

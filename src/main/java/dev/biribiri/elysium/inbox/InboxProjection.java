@@ -5,6 +5,7 @@ import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.content.StatusLiked;
 import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
+import dev.biribiri.elysium.graph.AccountBlocked;
 import dev.biribiri.elysium.graph.FollowEstablished;
 import dev.biribiri.elysium.graph.FollowRequestAuthorized;
 import dev.biribiri.elysium.graph.FollowRequestReceived;
@@ -69,7 +70,8 @@ public class InboxProjection {
             }
             if (source.direct()) {
                 for (var recipient : conversations.localRecipients(people)) {
-                    if (told.test(recipient)) {
+                    if (told.test(recipient)
+                            && (recipient.equals(source.authorId()) || !notifications.isHidden(recipient, source.authorId()))) {
                         conversations.add(source, recipient, people);
                     }
                 }
@@ -149,6 +151,15 @@ public class InboxProjection {
                 .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
                 .filter(source -> conversations.currentReblog(event.boostId(), event.actorId(), event.statusId()))
                 .ifPresent(source -> notifications.insertReblog(event.authorId(), event.actorId(), event.boostId(), source.id()));
+    }
+
+    /**
+     * What's already been said between the two goes, as on Mastodon, while new notifications are kept out by the block.
+     */
+    @ApplicationModuleListener
+    public void on(AccountBlocked event) {
+        notifications.lock();
+        notifications.deleteBetween(event.blockerId(), event.blockedId());
     }
 
     @ApplicationModuleListener

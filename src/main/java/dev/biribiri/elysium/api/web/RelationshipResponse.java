@@ -7,12 +7,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
- * Mastodon's Relationship entity. Only follows exist so far, so the rest hold the values they'd have for an account with no
- * blocks, mutes, notes, or endorsements.
+ * Mastodon's Relationship entity. Notes, endorsements, and notifications of new statuses don't exist, so those fields hold
+ * the values they'd have for an account with none.
  */
 @Schema(name = "Relationship", description = """
-        Mastodon's Relationship entity. Blocks, mutes, notes, endorsements, and notifications don't exist, so those \
-        fields are always false or empty.""")
+        Mastodon's Relationship entity. Notes, endorsements, and notifications of new statuses don't exist, so `note`, \
+        `endorsed`, `notifying`, and `languages` are always empty, false, or null.""")
 record RelationshipResponse(
         String id,
         boolean following,
@@ -41,13 +41,13 @@ record RelationshipResponse(
                 false,
                 null,
                 relationship.followedBy(),
-                false,
-                false,
-                false,
-                false,
+                relationship.blocking(),
+                relationship.blockedBy(),
+                relationship.muting(),
+                relationship.mutingNotifications(),
                 relationship.requested(),
                 relationship.requestedBy(),
-                false,
+                relationship.domainBlocking(),
                 false,
                 "");
     }

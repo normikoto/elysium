@@ -4,6 +4,7 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
 import com.github.kagkarlsson.scheduler.task.schedule.FixedDelay;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.graph.MuteService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -14,7 +15,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
 /**
- * Removes what jobs leave behind. It's a recurring job, so only one node runs it at a time.
+ * Removes what jobs leave behind, and expired mutes, which every query already ignores. It's a recurring job, so only one
+ * node runs it at a time.
  */
 @Configuration(proxyBeanMethods = false)
 class JobCleanupTask {
@@ -28,13 +30,14 @@ class JobCleanupTask {
     private static final Duration FAILED_HISTORY_KEPT = RetryPolicy.PARKED_FOR;
 
     @Bean
-    Task<Void> jobCleanup(JdbcClient jdbc, ActorService actors) {
+    Task<Void> jobCleanup(JdbcClient jdbc, ActorService actors, MuteService mutes) {
         return Tasks.recurring("job-cleanup", FixedDelay.of(Duration.ofDays(1)))
                 .execute((instance, context) -> {
                     var now = Instant.now();
                     removeOldRows(jdbc, now);
                     // Only once their last activities can't be sent any more, including by an admin retrying one.
                     actors.removeKeysOfDeleted(now.minus(Jobs.ACTIVITIES_KEPT));
+                    mutes.removeExpired();
                 });
     }
 
@@ -62,6 +65,10 @@ class JobCleanupTask {
         jdbc.sql("DELETE FROM undone_follow_pair WHERE undone_at < :before")
                 .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();
+        jdbc.sql("DELETE FROM undone_block WHERE undone_at < :before")
+                .param("before", before(now, Jobs.ACTIVITIES_KEPT)).update();
+        jdbc.sql("DELETE FROM undone_block_pair WHERE undone_at < :before")
+                .param("before", before(now, Jobs.ACTIVITIES_KEPT)).update();
         jdbc.sql("DELETE FROM undone_like WHERE undone_at < :before")
                 .param("before", before(now, Jobs.ACTIVITIES_KEPT)).update();
         jdbc.sql("DELETE FROM undone_like_pair WHERE undone_at < :before")

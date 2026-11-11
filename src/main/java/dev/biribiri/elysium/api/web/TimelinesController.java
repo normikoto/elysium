@@ -101,7 +101,7 @@ public class TimelinesController {
                     Differences from Mastodon: statuses from other servers are only stored when they're sent here, \
                     which is when a local account follows their author or is addressed.
 
-                    Only public statuses are listed, and not ones from suspended accounts.""",
+                    Only public statuses are listed, and not ones from suspended accounts. With a user token, ones                     from accounts the user has blocked, muted, or blocked the server of, or that block the user, are                     left out too.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#public"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
@@ -126,7 +126,8 @@ public class TimelinesController {
             @RequestParam(name = "only_media", required = false) String onlyMedia) {
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         var origin = RequestParameters.origin(local, remote);
-        List<Status> found = timelines.publicTimeline(origin, page, RequestParameters.flag(onlyMedia));
+        List<Status> found = timelines.publicTimeline(
+                origin, page, RequestParameters.flag(onlyMedia), RequestParameters.viewer(token));
 
         var filters = new LinkedHashMap<String, String>();
         RequestParameters.putOrigin(filters, origin);
@@ -152,8 +153,9 @@ public class TimelinesController {
                     those in their `tag`. Tags are \
                     matched without regard to case or Unicode composition, as Mastodon's normalized names are.
 
-                    Only public statuses are listed, including replies, and not ones from suspended accounts. A \
-                    `hashtag` that isn't a valid tag name gives an empty list.""",
+                    Only public statuses are listed, including replies, and not ones from suspended accounts, or, with \
+                    a user token, from accounts the user has blocked, muted, or blocked the server of, or that block \
+                    the user. A `hashtag` that isn't a valid tag name gives an empty list.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#tag"),
             parameters = {
                     @Parameter(name = "hashtag", description = "The tag's name, without its `#`."),
@@ -197,7 +199,8 @@ public class TimelinesController {
         if (filter.isEmpty()) {
             return ResponseEntity.ok(List.of());
         }
-        List<Status> found = timelines.tagTimeline(filter.get(), origin, page, RequestParameters.flag(onlyMedia));
+        List<Status> found = timelines.tagTimeline(
+                filter.get(), origin, page, RequestParameters.flag(onlyMedia), RequestParameters.viewer(token));
 
         var filters = new LinkedHashMap<String, Object>();
         for (var mode : List.of(Map.entry("any[]", anyNames), Map.entry("all[]", allNames), Map.entry("none[]", noneNames))) {

@@ -3,7 +3,9 @@ package dev.biribiri.elysium.graph;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.graph.internal.BlockRepository;
 import dev.biribiri.elysium.graph.internal.FollowRepository;
+import dev.biribiri.elysium.graph.internal.MuteRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -13,6 +15,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -37,12 +40,17 @@ public class FollowService {
     private static final int REMOVAL_BATCH_SIZE = 1000;
 
     private final FollowRepository follows;
+    private final BlockRepository blocks;
+    private final MuteRepository mutes;
     private final ActorService actors;
     private final ProfileService profiles;
     private final ApplicationEventPublisher events;
 
-    FollowService(FollowRepository follows, ActorService actors, ProfileService profiles, ApplicationEventPublisher events) {
+    FollowService(FollowRepository follows, BlockRepository blocks, MuteRepository mutes, ActorService actors,
+                  ProfileService profiles, ApplicationEventPublisher events) {
         this.follows = follows;
+        this.blocks = blocks;
+        this.mutes = mutes;
         this.actors = actors;
         this.profiles = profiles;
         this.events = events;
@@ -55,17 +63,22 @@ public class FollowService {
      * Asking it again while it's waiting publishes that again, as its server may have lost the request. Following an
      * account already followed or asked does nothing else.
      *
-     * <p>The caller checks that both accounts can take part, since this has no view of domain blocks.
+     * <p>The caller checks that both accounts can take part, since this has no view of instance domain blocks.
      *
      * @param follower a local account
      * @param followed any other account
+     * @throws FollowNotAllowedException if either blocks the other, or the follower has blocked the other's server
      */
     @Transactional
     public void follow(Actor follower, Actor followed) {
         if (follower.id().equals(followed.id())) {
             throw new IllegalArgumentException("An account can't follow itself");
         }
+        // The same lock as BlockService takes, so that a block can't miss a follow made while it's being saved.
         follows.lock(pairKey(follower.uri().toString(), followed.id()));
+        if (blocks.refuses(follower.id(), followed.id()) || blocks.refuses(followed.id(), follower.id())) {
+            throw new FollowNotAllowedException();
+        }
         var existing = follows.findByPair(follower.id(), followed.id());
         var local = actors.isLocal(followed);
         if (existing.isPresent()) {
@@ -107,11 +120,43 @@ public class FollowService {
     @Transactional
     public boolean unfollow(Actor follower, UUID followedId) {
         follows.lock(pairKey(follower.uri().toString(), followedId));
-        var removed = follows.deletePair(follower.id(), followedId);
+        return unfollowLocked(follower.id(), followedId);
+    }
+
+    /**
+     * Like {@link #unfollow}, for a caller that holds the pair's lock.
+     */
+    boolean unfollowLocked(UUID followerId, UUID followedId) {
+        var removed = follows.deletePair(followerId, followedId);
         // Only follows of remote accounts have an activity behind them, when the follower is local.
         removed.filter(row -> row.activityUri() != null).ifPresent(row ->
-                events.publishEvent(new FollowWithdrawn(follower.id(), followedId, row.activityUri())));
+                events.publishEvent(new FollowWithdrawn(followerId, followedId, row.activityUri())));
         return removed.isPresent();
+    }
+
+    /**
+     * Removes a follower of a local account, or its request to follow, for a caller that holds the pair's lock. A repeat of
+     * the same {@code Follow} is then ignored, as one that was refused is.
+     */
+    void removeFollowerLocked(Actor follower, UUID followedId) {
+        follows.deletePair(follower.id(), followedId).ifPresent(row -> {
+            if (row.activityUri() != null) {
+                follows.markUndone(row.activityUri(), follower.uri().toString(), Instant.now());
+            }
+            events.publishEvent(new FollowerRemoved(row.id(), follower.id(), followedId, row.activityUri()));
+        });
+    }
+
+    /**
+     * Removes a remote actor's follow of a local account, or its request to follow, without telling its server, which
+     * already knows. An older {@code Follow} handled later can't add it back. This is for a caller that holds the pair's
+     * lock.
+     *
+     * @param arrivedBy when what removes it arrived
+     * @return the follow that was removed, if any
+     */
+    Optional<Removed> coverLocked(String followerUri, UUID followedId, Instant arrivedBy) {
+        return cover(followerUri, followedId, arrivedBy);
     }
 
     /**
@@ -212,12 +257,32 @@ public class FollowService {
                 incoming.put(pair.followerId(), pair.accepted());
             }
         }
-        return otherIds.stream().map(other -> new Relationship(
-                other,
-                Boolean.TRUE.equals(outgoing.get(other)),
-                Boolean.FALSE.equals(outgoing.get(other)),
-                Boolean.TRUE.equals(incoming.get(other)),
-                Boolean.FALSE.equals(incoming.get(other)))).toList();
+        var blocking = new HashSet<UUID>();
+        var blockedBy = new HashSet<UUID>();
+        for (var block : blocks.findPairsWith(viewerId, otherIds)) {
+            if (block.accountId().equals(viewerId)) {
+                blocking.add(block.targetId());
+            } else {
+                blockedBy.add(block.accountId());
+            }
+        }
+        var muted = mutes.findCurrent(viewerId, otherIds);
+        var domainBlocked = blocks.domainBlockedAmong(viewerId, otherIds);
+        return otherIds.stream().map(other -> {
+            var mute = muted.get(other);
+            return new Relationship(
+                    other,
+                    Boolean.TRUE.equals(outgoing.get(other)),
+                    Boolean.FALSE.equals(outgoing.get(other)),
+                    Boolean.TRUE.equals(incoming.get(other)),
+                    Boolean.FALSE.equals(incoming.get(other)),
+                    blocking.contains(other),
+                    blockedBy.contains(other),
+                    mute != null,
+                    mute != null && mute.notifications(),
+                    mute == null ? null : mute.expiresAt(),
+                    domainBlocked.contains(other));
+        }).toList();
     }
 
     /**
@@ -352,6 +417,9 @@ public class FollowService {
      * this follower, when it waits for the account. This takes part in the caller's transaction, so that the caller can save
      * its answer along with it.
      *
+     * <p>A request from an actor the account blocks, or from a server it blocks, is {@link Refused}, and nothing is stored,
+     * so that the same request can succeed once the block is lifted.
+     *
      * @return what happened if this activity is now the one behind the follow, or empty if nothing changed
      * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
      */
@@ -359,11 +427,16 @@ public class FollowService {
     public Optional<Received> receive(UUID followerId, URI followerUri, UUID followedId, String activityUri, Arrival arrival) {
         var follower = followerUri.toString();
         // The caller checks wasUndone before fetching anything, but an Undo can run after that, or be running right now.
-        // Without the locks, neither transaction would see what the other one is doing. They're always taken in this order.
+        // Without the locks, neither transaction would see what the other one is doing. They're always taken in this order,
+        // and blocking a server takes the first, so that a follower it removes can't be added while it's being saved.
+        follows.lock(serverBlockKey(followedId));
         follows.lock(pairKey(follower, followedId));
         follows.lock(activityUri);
         if (wasUndone(activityUri, follower, followedId, arrival)) {
             return Optional.empty();
+        }
+        if (blocks.refuses(followedId, followerId)) {
+            return Optional.of(new Refused());
         }
         var existing = follows.findByPair(followerId, followedId);
         if (existing.isPresent() && existing.get().activityAt().isAfter(arrival.first())) {
@@ -517,8 +590,18 @@ public class FollowService {
                 .map(activityUri -> new Removed(followedId, activityUri));
     }
 
-    private static String pairKey(String followerUri, UUID followedId) {
+    /**
+     * The lock on the follows from one actor to another.
+     */
+    static String pairKey(String followerUri, UUID followedId) {
         return followerUri + "\n" + followedId;
+    }
+
+    /**
+     * The lock on a local account's server blocks, which is taken before any of the pair locks.
+     */
+    static String serverBlockKey(UUID accountId) {
+        return "server blocks\n" + accountId;
     }
 
     /**
@@ -545,6 +628,12 @@ public class FollowService {
      * The request waits for the account followed to approve it, and gets no answer until then.
      */
     public record Pending() implements Received {
+    }
+
+    /**
+     * The account followed blocks the follower or its server, so the request should be answered with a {@code Reject}.
+     */
+    public record Refused() implements Received {
     }
 
     public record Removed(UUID followedId, String activityUri) {

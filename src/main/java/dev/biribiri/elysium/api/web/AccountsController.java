@@ -9,9 +9,12 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
+import dev.biribiri.elysium.graph.FollowNotAllowedException;
 import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.graph.MuteService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,11 +25,13 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,6 +44,8 @@ import org.springframework.web.multipart.MultipartHttpServletRequest;
 import org.springframework.web.util.WebUtils;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,7 +57,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/accounts")
-@Tag(name = "Accounts", description = "Viewing accounts, and following them.",
+@Tag(name = "Accounts", description = "Viewing accounts, and following, blocking, and muting them.",
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/"))
 public class AccountsController {
 
@@ -64,6 +71,11 @@ public class AccountsController {
             If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A suspended \
             account gets a 404.""";
 
+    /**
+     * Room for a mute's two parameters, with plenty to spare.
+     */
+    private static final long MAX_MUTE_BODY_BYTES = 4 * 1024;
+
     private static final String FOLLOW_LIMIT =
             "How many to return. Values outside 1 to " + FollowPage.MAX_LIMIT + " are clamped to them.";
 
@@ -72,6 +84,8 @@ public class AccountsController {
     private final StatusResponses responses;
     private final AccountResponses accounts;
     private final FollowService follows;
+    private final BlockService accountBlocks;
+    private final MuteService mutes;
     private final DomainBlocks blocks;
     private final AccountLookup lookup;
     private final JsonBodies json;
@@ -84,6 +98,8 @@ public class AccountsController {
             StatusResponses responses,
             AccountResponses accounts,
             FollowService follows,
+            BlockService accountBlocks,
+            MuteService mutes,
             DomainBlocks blocks,
             AccountLookup lookup,
             JsonBodies json,
@@ -95,6 +111,8 @@ public class AccountsController {
         this.responses = responses;
         this.accounts = accounts;
         this.follows = follows;
+        this.accountBlocks = accountBlocks;
+        this.mutes = mutes;
         this.blocks = blocks;
         this.lookup = lookup;
         this.json = json;
@@ -239,8 +257,9 @@ public class AccountsController {
             operationId = "getRelationships",
             summary = "Check the user's relationships with accounts",
             description = """
-                    Differences from Mastodon: blocks, mutes, notes, and endorsements don't exist, so those fields are \
-                    always false or empty, and `showing_reblogs` is true whenever `following` or `requested` is. \
+                    Differences from Mastodon: notes, endorsements, and notifications of new statuses don't exist, so \
+                    `note`, `endorsed`, and `notifying` are always empty or false, and `showing_reblogs` is true \
+                    whenever `following` or `requested` is. \
                     Suspended accounts are always left out, and `with_suspended` is ignored. Unknown and malformed \
                     IDs are left out, as on Mastodon.
 
@@ -297,13 +316,18 @@ public class AccountsController {
                     Differences from Mastodon:
 
                     - Following an account on another server returns `requested: true` until that server accepts.
-                    - Following yourself, or an account on a blocked server, gets a 422.
+                    - Following yourself, or an account on a server this server blocks, gets a 422.
                     - `reblogs`, `notify`, and `languages` are ignored.
+
+                    Following an account that either blocks the other, or on a server the user has blocked, gets a \
+                    403, as on Mastodon.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#follow"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "403", description = """
+                            The user blocks the account or its server, or the account blocks the user."""),
                     @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
                     @ApiResponse(responseCode = "422", description = """
                             The account is the user's own, or is on a blocked server, or the token has no user.""")
@@ -347,6 +371,164 @@ public class AccountsController {
         var followed = RequestParameters.uuid(id).flatMap(actors::findById).orElseThrow(RecordNotFoundException::new);
         follows.unfollow(follower, followed.id());
         return relationship(follower.id(), followed.id());
+    }
+
+    @PostMapping("/{id}/block")
+    @PreAuthorize("hasAuthority('SCOPE_write:blocks')")
+    @Operation(
+            operationId = "blockAccount",
+            summary = "Block an account",
+            description = """
+                    Removes the follows between the user and the account, both ways, and the notifications between \
+                    them, and stops either following the other. The account's statuses are hidden from the user, and \
+                    the user's from the account. An account on another server is sent a `Block`, unless the server \
+                    is set not to, and its server is told that the follows ended either way. Repeats have no \
+                    additional effect.
+
+                    Differences from Mastodon: blocking yourself gets a 422.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#block"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
+                    @ApiResponse(responseCode = "422", description = "The account is the user's own, or the token has no user.")
+            })
+    public RelationshipResponse block(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var blocker = viewerAccount(token);
+        var target = activeAccount(id);
+        if (target.id().equals(blocker.id())) {
+            throw new InvalidRequestException("Validation failed: you can't block yourself");
+        }
+        accountBlocks.block(blocker, target);
+        return relationship(blocker.id(), target.id());
+    }
+
+    /**
+     * An account can be unblocked whatever its state, as it can be unfollowed.
+     */
+    @PostMapping("/{id}/unblock")
+    @PreAuthorize("hasAuthority('SCOPE_write:blocks')")
+    @Operation(
+            operationId = "unblockAccount",
+            summary = "Unblock an account",
+            description = """
+                    Follows that the block removed don't come back. An account on another server is sent an `Undo`, \
+                    unless the server is set not to send blocks. An account can be unblocked while it's suspended.\s\
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unblock"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public RelationshipResponse unblock(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var blocker = viewerAccount(token);
+        var target = RequestParameters.uuid(id).flatMap(actors::findById).orElseThrow(RecordNotFoundException::new);
+        accountBlocks.unblock(blocker, target.id());
+        return relationship(blocker.id(), target.id());
+    }
+
+    /**
+     * Read from a form, the query, or a JSON body, since clients send each, and some send none, as they do for a boost.
+     */
+    @PostMapping("/{id}/mute")
+    @PreAuthorize("hasAuthority('SCOPE_write:mutes')")
+    @Operation(
+            operationId = "muteAccount",
+            summary = "Mute an account",
+            description = """
+                    Hides the account's statuses and boosts of them from the user's timelines and threads, and, \
+                    unless `notifications` is false, its notifications. Follows are left as they are, and nothing is \
+                    sent to other servers. Muting an account already muted changes the mute.
+
+                    Differences from Mastodon: muting yourself, or a `duration` that's negative or not a whole \
+                    number of seconds, gets a 422.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#mute"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
+                    @ApiResponse(responseCode = "413", description = "The body is too large."),
+                    @ApiResponse(responseCode = "422", description = """
+                            The account is the user's own, a parameter is refused, or the token has no user.""")
+            })
+    @RequestBody(content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = MuteBody.class)))
+    public RelationshipResponse mute(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            HttpServletRequest request) throws IOException {
+        var owner = viewerAccount(token);
+        var target = activeAccount(id);
+        if (target.id().equals(owner.id())) {
+            throw new InvalidRequestException("Validation failed: you can't mute yourself");
+        }
+        var parameters = json.readAny(request, MAX_MUTE_BODY_BYTES);
+        var notifications = parameters.get("notifications") == null || RequestParameters.flag(parameters, "notifications");
+        var duration = muteDuration(parameters.get("duration"));
+        mutes.mute(owner.id(), target.id(), notifications, duration.map(Instant.now()::plus));
+        return relationship(owner.id(), target.id());
+    }
+
+    /**
+     * Zero or nothing is a mute that doesn't end, as on Mastodon.
+     */
+    private static Optional<Duration> muteDuration(Object value) {
+        long seconds;
+        try {
+            seconds = switch (value) {
+                case null -> 0;
+                case Integer number -> number;
+                case Long number -> number;
+                case String text when text.isEmpty() -> 0;
+                case String text -> Long.parseLong(text);
+                default -> -1;
+            };
+        } catch (NumberFormatException e) {
+            seconds = -1;
+        }
+        // Up to about a hundred years, which keeps the end within what PostgreSQL can store.
+        if (seconds < 0 || seconds > 100L * 365 * 24 * 60 * 60) {
+            throw new InvalidRequestException("Validation failed: duration must be a whole number of seconds");
+        }
+        return seconds == 0 ? Optional.empty() : Optional.of(Duration.ofSeconds(seconds));
+    }
+
+    /**
+     * An account can be unmuted whatever its state, as it can be unfollowed.
+     */
+    @PostMapping("/{id}/unmute")
+    @PreAuthorize("hasAuthority('SCOPE_write:mutes')")
+    @Operation(
+            operationId = "unmuteAccount",
+            summary = "Unmute an account",
+            description = """
+                    Notifications from while the account was muted don't come back. An account can be unmuted \
+                    while it's suspended.\s""" + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unmute"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public RelationshipResponse unmute(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var owner = viewerAccount(token);
+        var target = RequestParameters.uuid(id).flatMap(actors::findById).orElseThrow(RecordNotFoundException::new);
+        mutes.unmute(owner.id(), target.id());
+        return relationship(owner.id(), target.id());
+    }
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> notAllowed(FollowNotAllowedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This action is not allowed"));
     }
 
     @GetMapping("/{id}/followers")
@@ -537,6 +719,14 @@ public class AccountsController {
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")
             Boolean hide_collections) {
+    }
+
+    @Schema(name = "AccountMute")
+    private record MuteBody(
+            @Schema(description = "Whether to hide the account's notifications too.", defaultValue = "true")
+            Boolean notifications,
+            @Schema(description = "How many seconds the mute lasts. 0 or none is until it's lifted.", defaultValue = "0")
+            Long duration) {
     }
 
     @Schema(name = "AccountCredentialsField")

@@ -9,6 +9,7 @@ import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -30,11 +31,18 @@ public class TimelineService {
         return statuses.findHome(viewerId, follows.followedIds(viewerId), page);
     }
 
-    public List<Status> publicTimeline(StatusOrigin origin, StatusPage page, boolean onlyMedia) {
-        return statuses.findPublic(origin, page, onlyMedia);
+    /**
+     * @param viewer who's looking, from whom what they've blocked or muted is left out
+     */
+    public List<Status> publicTimeline(StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
+        return statuses.findPublic(origin, page, onlyMedia, viewer);
     }
 
-    public List<Status> tagTimeline(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia) {
-        return statuses.findTagged(tags, origin, page, onlyMedia);
+    /**
+     * @param viewer who's looking, from whom what they've blocked or muted is left out
+     */
+    public List<Status> tagTimeline(
+            TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
+        return statuses.findTagged(tags, origin, page, onlyMedia, viewer);
     }
 }

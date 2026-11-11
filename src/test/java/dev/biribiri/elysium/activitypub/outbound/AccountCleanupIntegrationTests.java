@@ -130,6 +130,50 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAccountRemovesItsBlocksAndMutesAndThoseOfIt() {
+        var other = newLocal();
+        var remote = remote();
+        insert("account_block", local, other);
+        insert("account_block", other, local);
+        insert("account_block", remote, local);
+        insert("account_mute", local, other);
+        insert("account_mute", other, local);
+        jdbc.sql("INSERT INTO account_domain_block (id, account_id, domain) VALUES (gen_random_uuid(), :id, 'example.com')")
+                .param("id", local.id()).update();
+
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() -> count("""
+                SELECT (SELECT count(*) FROM account_block WHERE account_id = :id OR target_id = :id)
+                     + (SELECT count(*) FROM account_mute WHERE account_id = :id OR target_id = :id)
+                     + (SELECT count(*) FROM account_domain_block WHERE account_id = :id)""", local.id()) == 0);
+    }
+
+    @Test
+    void suspendingARemoteActorKeepsItsBlocks() {
+        var suspended = remote();
+        insert("account_block", suspended, local);
+        insert("account_block", local, suspended);
+        follow(suspended, newLocal());
+
+        actors.suspend(suspended.id());
+
+        await().atMost(WAIT).until(() -> follows(suspended) == 0);
+        assertThat(count("SELECT count(*) FROM account_block WHERE account_id = :id OR target_id = :id", suspended.id()))
+                .isEqualTo(2);
+    }
+
+    private void insert(String table, Actor account, Actor target) {
+        var activity = "account_block".equals(table) ? ", activity_uri" : "";
+        var value = "account_block".equals(table) ? ", 'https://example.test/activities/" + UUID.randomUUID() + "'" : "";
+        jdbc.sql("INSERT INTO " + table + " (id, account_id, target_id" + activity + ") VALUES (gen_random_uuid(), :account, :target"
+                        + value + ")")
+                .param("account", account.id())
+                .param("target", target.id())
+                .update();
+    }
+
+    @Test
     void suspendingALocalAccountKeepsEverythingAndTellsFollowers() {
         var follower = remote();
         follow(follower, local);

@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.vocab.Accept;
+import dev.biribiri.elysium.activitypub.vocab.Reject;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.FollowService;
@@ -18,8 +19,9 @@ import java.util.List;
 
 /**
  * Stores requests to follow local accounts. Each is accepted straight away, unless the account approves its followers by
- * hand, when its answer is sent once it decides, by {@code FollowRequestAnswers}. The instance actor can't be followed: it isn't in the table that follows
- * refer to, and activities can't be sent as it.
+ * hand, when its answer is sent once it decides, by {@code FollowRequestAnswers}. A request from an actor the account blocks,
+ * or from a server it blocks, is answered with a {@code Reject}. The instance actor can't be followed: it isn't in the table
+ * that follows refer to, and activities can't be sent as it.
  */
 @Component
 class FollowHandler implements InboundActivityHandler {
@@ -101,6 +103,14 @@ class FollowHandler implements InboundActivityHandler {
                 return;
             }
             var received = follows.receive(follower.id(), follower.uri(), followed.id(), activity.id(), activity.arrival());
+            if (received.orElse(null) instanceof FollowService.Refused) {
+                var reject = Reject.of(followed.uri(), activity.id(), follower.uri());
+                deliveries.enqueue(
+                        new OutboundActivity(reject.id().toString(), followed.id(), json.writeValueAsString(reject)),
+                        List.of(follower.inboxUri()),
+                        activity.receivedAt().toString());
+                return;
+            }
             if (!(received.orElse(null) instanceof FollowService.Accepted accepted)) {
                 return;
             }

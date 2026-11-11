@@ -167,6 +167,23 @@ lookups a minute, so that nobody can use this server to flood another one with r
 Nobody can suspend or delete the server's last admin, so [choose another](#admins) first. Admins also can't suspend or delete
 themselves from the admin page or the API.
 
+## Blocks and mutes
+People can block or mute other accounts, and block whole servers, from an app. These are their own choices, separate from
+an admin's [domain blocks](#domain-blocks), and other people can't see them.
+
+- **Blocking** someone ends the follows between them both ways, removes the notifications between them, and stops either
+  from following the other or seeing the other's posts here. Someone on another server is told about the block, so that
+  their server can do the same, unless you turn that off with
+  [`elysium.federation.send-blocks`](configuration.md). With it off, their server is only told that the follows ended,
+  and can keep showing them public posts. Either way, anyone can still read public posts without signing in.
+- **Muting** someone hides their posts and, unless the person chooses otherwise, their notifications, but leaves follows as
+  they are, and the muted person isn't told. A mute can be set to end after a while.
+- **Blocking a server** hides its accounts and removes followers there, as blocking each of them would, but isn't sent to
+  that server. Subdomains are blocked too.
+
+What someone on another server posts can still reach this server through the people here who follow them, and blocks don't
+stop it being stored, only shown.
+
 ## Removing posts
 An admin can remove a post that breaks the rules at `/admin/statuses`, by finding it with its URL or its ID. Removing a post
 can't be undone.

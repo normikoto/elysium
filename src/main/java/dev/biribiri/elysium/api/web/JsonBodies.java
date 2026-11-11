@@ -1,12 +1,15 @@
 package dev.biribiri.elysium.api.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -43,5 +46,23 @@ class JsonBodies {
             throw new InvalidRequestException("Validation failed: the request body must be a JSON object");
         }
         return body;
+    }
+
+    /**
+     * Reads parameters from a JSON body, or else from a form or the query, since clients send each, and some send no body
+     * at all. A form parameter given more than once is read as a list.
+     *
+     * @param limit the most bytes of JSON to accept
+     */
+    Map<String, Object> readAny(HttpServletRequest request, long limit) throws IOException {
+        var contentType = request.getContentType();
+        if (contentType != null && MediaType.APPLICATION_JSON.isCompatibleWith(MediaType.parseMediaType(contentType))
+                && request.getContentLengthLong() != 0) {
+            return read(request, limit);
+        }
+        var parameters = new HashMap<String, Object>();
+        request.getParameterMap().forEach((name, values) ->
+                parameters.put(name, values.length == 1 ? values[0] : List.of(values)));
+        return parameters;
     }
 }

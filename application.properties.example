@@ -64,6 +64,10 @@ spring.datasource.password=
 #elysium.federation.inbox-limits.data-per-hour=20MB
 #elysium.federation.inbox-limits.exempt-domains=
 
+# Whether a user's block of someone on another server is sent to them, so that their server can stop showing them the
+# user's posts. Either way, the follows between them end on both servers. See docs/accounts.md.
+#elysium.federation.send-blocks=true
+
 # This should not normally be set. Lets requests to other servers reach these private networks, as a comma-separated list
 # in CIDR form. It's only for federating with servers on a private network, because anyone can make this server send
 # requests to any host, and could then reach anything on these networks.
