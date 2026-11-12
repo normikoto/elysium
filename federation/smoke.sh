@@ -5,7 +5,8 @@
 # edits, apart from on Misskey, which can't edit, shows Mastodon's attachments, and removes a status and an account that the other server deletes. Both
 # servers also like and unlike, and boost and unboost, each other's posts, Elysium fetches a post that a followed account
 # boosts, and it backfills a followed account's older post from its outbox. Elysium quotes the other server's post, and
-# Mastodon and Misskey quote Elysium's, with Mastodon's approvals and a revocation checked on both sides.
+# Mastodon and Misskey quote Elysium's, with Mastodon's approvals and a revocation checked on both sides. Each server
+# forwards a report to the other.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -835,6 +836,9 @@ resolve_from_gotosocial() {
     # After the server starts, because GoToSocial refuses to create users before its first run.
     gts_admin account create --username lab --email lab@gts.test --password "$password"
     gts_admin account confirm --username lab
+    # For reading reports, in gotosocial_expect_report. Here, because the server keeps the account cached once it's loaded it,
+    # so it doesn't see a promotion until it restarts.
+    gts_admin account promote --username lab
 
     local result
     # Not local, because deliver_from_gotosocial uses it too.
@@ -1852,6 +1856,132 @@ delete_account_from_misskey() {
     expect_actor_deleted misskey.test gone
 }
 
+# The other server's lab user reports alice, with her public status where its API takes one, and forwards it to Elysium,
+# and then alice reports lab, with its post that mentions her, and forwards that. Run while both statuses exist. alice is
+# Elysium's only admin, so she's both who the first report is about and who's told about it.
+check_reports() {
+    local server=$1 admin_token read_token write_token alice_elysium_id lab_id remote_uri remote_id body comment
+    admin_token=$(driver sh /federation/elysium-token.sh alice "$password" admin:read:reports)
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write:reports)
+    alice_elysium_id=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT id FROM actor WHERE username = 'alice' AND is_local")
+
+    comment="Reported from $target"
+    report_from_peer "$comment"
+    echo "Waiting for Elysium to store $target's report of alice"
+    for _ in $(seq 1 60); do
+        body=$(driver curl -fsS -G https://elysium.test/api/v1/admin/reports \
+            -H "Authorization: Bearer $admin_token" --data-urlencode "target_account_id=$alice_elysium_id")
+        jq -e --arg comment "$comment" 'any(.[]; .comment == $comment)' <<<"$body" >/dev/null && break
+        sleep 2
+    done
+    jq -e --arg comment "$comment" --arg server "$server" \
+        'any(.[]; .comment == $comment and .account.domain == $server)' <<<"$body" >/dev/null \
+        || fail "Elysium has no report of alice from $server: $body"
+    if [[ $target != misskey ]]; then
+        jq -e --arg comment "$comment" --arg uri "$public_uri" \
+            'any(.[]; .comment == $comment and [.statuses[].uri] == [$uri])' <<<"$body" >/dev/null \
+            || fail "Elysium's report from $server doesn't have alice's status: $body"
+    fi
+    for _ in $(seq 1 30); do
+        body=$(driver curl -fsS "https://elysium.test/api/v1/notifications?types%5B%5D=admin.report" \
+            -H "Authorization: Bearer $read_token")
+        jq -e --arg comment "$comment" 'any(.[]; .report.comment == $comment)' <<<"$body" >/dev/null && break
+        sleep 2
+    done
+    jq -e --arg comment "$comment" 'any(.[]; .report.comment == $comment)' <<<"$body" >/dev/null \
+        || fail "alice got no admin.report notification: $body"
+    echo "Elysium took $target's Flag, and told its admin"
+
+    lab_id=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT id FROM actor WHERE username = 'lab' AND domain = '$server' AND NOT is_local")
+    remote_uri=$(mentioned_status_uri "$server")
+    remote_id=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT id FROM status WHERE uri = '$remote_uri'")
+    [[ -n $lab_id && -n $remote_id ]] || fail "Elysium has no lab account or post on $server to report"
+    comment="Reported from Elysium to $target"
+    body=$(driver curl -fsS https://elysium.test/api/v1/reports -H "Authorization: Bearer $write_token" \
+        --data-urlencode "account_id=$lab_id" --data-urlencode "status_ids[]=$remote_id" \
+        --data-urlencode "comment=$comment" --data-urlencode 'forward=true')
+    jq -e '.forwarded' <<<"$body" >/dev/null || fail "Elysium didn't forward the report: $body"
+    expect_delivered 'https://elysium.test/reports/%'
+    "${target}_expect_report" "$comment" "$remote_uri"
+    echo "$target took Elysium's Flag, signed as its instance actor"
+}
+
+report_from_peer() {
+    local comment=$1 output status_id report_id
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T -e STATUS_URI="$public_uri" -e COMMENT="$comment" mastodon-web bin/rails runner '
+                alice = Account.find_by!(username: "alice", domain: "elysium.test")
+                status = Status.find_by!(uri: ENV["STATUS_URI"])
+                ReportService.new.call(Account.find_local("lab"), alice,
+                    status_ids: [status.id], comment: ENV["COMMENT"], forward: true)
+                puts "REPORTED"')
+            grep -qxF REPORTED <<<"$output" || fail "Mastodon couldn't report alice: $output"
+            ;;
+        gotosocial)
+            status_id=$(driver curl -fsS "https://gts.test/api/v1/accounts/$alice_id/statuses" \
+                -H "Authorization: Bearer $token" | jq -r --arg uri "$public_uri" '.[] | select(.uri == $uri) | .id')
+            [[ -n $status_id ]] || fail "GoToSocial doesn't have alice's public status to report"
+            driver curl -fsS -o /dev/null https://gts.test/api/v1/reports -H "Authorization: Bearer $token" \
+                --data-urlencode "account_id=$alice_id" --data-urlencode "status_ids[]=$status_id" \
+                --data-urlencode "comment=$comment" --data-urlencode 'forward=true'
+            ;;
+        misskey)
+            misskey_api users/report-abuse \
+                "$(jq -cn --arg id "$alice_id" --arg comment "$comment" '{userId: $id, comment: $comment}')" >/dev/null
+            # Misskey only sends a report of a remote account to its server when an admin forwards it.
+            report_id=$(misskey_api admin/abuse-user-reports '{}' \
+                | jq -r --arg comment "$comment" '.[] | select(.comment == $comment) | .id')
+            [[ -n $report_id ]] || fail "Misskey didn't store the report of alice"
+            misskey_api admin/forward-abuse-user-report "$(jq -cn --arg id "$report_id" '{reportId: $id}')" >/dev/null
+            ;;
+    esac
+}
+
+mastodon_expect_report() {
+    local output
+    output=$(docker compose exec -T -e COMMENT="$1" -e STATUS_URI="$2" mastodon-web bin/rails runner '
+        report = nil
+        60.times do
+            report = Report.uncached { Report.find_by(comment: ENV["COMMENT"]) }
+            break if report
+            sleep 2
+        end
+        puts "REPORT #{report&.account&.uri} #{report&.target_account&.username} #{report&.statuses&.map(&:uri)&.join(",")}"')
+    echo "$output"
+    grep -qxF "REPORT https://elysium.test/actor lab $2" <<<"$output" \
+        || fail "Mastodon has no report of lab from Elysium's instance actor, with lab's post"
+}
+
+gotosocial_expect_report() {
+    local admin_token body
+    admin_token=$(driver sh /federation/gotosocial-token.sh lab@gts.test "$password" 'read write admin')
+    [[ -n $admin_token ]] || fail "Couldn't get a GoToSocial admin token"
+    for _ in $(seq 1 60); do
+        body=$(driver curl -fsS https://gts.test/api/v1/admin/reports -H "Authorization: Bearer $admin_token")
+        jq -e --arg comment "$1" 'any(.[]; .comment == $comment)' <<<"$body" >/dev/null && break
+        sleep 2
+    done
+    jq -e --arg comment "$1" --arg uri "$2" \
+        'any(.[]; .comment == $comment and .target_account.username == "lab" and [.statuses[].uri] == [$uri])' \
+        <<<"$body" >/dev/null || fail "GoToSocial has no report of lab, with its post, from Elysium: $body"
+}
+
+misskey_expect_report() {
+    local body
+    for _ in $(seq 1 60); do
+        body=$(misskey_api admin/abuse-user-reports '{}')
+        jq -e --arg comment "$1" 'any(.[]; .comment == $comment)' <<<"$body" >/dev/null && break
+        sleep 2
+    done
+    jq -e --arg comment "$1" 'any(.[]; (.comment | contains($comment)) and .targetUser.username == "lab")' \
+        <<<"$body" >/dev/null || fail "Misskey has no report of lab from Elysium: $body"
+}
+
 # The '*' includes every profile, so that this also clears a lab left over from another target.
 docker compose --profile '*' down -v --remove-orphans
 
@@ -1876,6 +2006,7 @@ case "$target" in
         check_likes gts.test
         check_boosts gts.test
         check_quotes gts.test
+        check_reports gts.test
         delete_from_gotosocial
         delete_from_elysium
         gotosocial_expect_deleted
@@ -1899,6 +2030,7 @@ case "$target" in
         check_likes mastodon.test
         check_boosts mastodon.test
         check_quotes mastodon.test
+        check_reports mastodon.test
         delete_from_mastodon
         delete_from_elysium
         mastodon_expect_deleted
@@ -1920,6 +2052,7 @@ case "$target" in
         check_likes misskey.test
         check_boosts misskey.test
         check_quotes misskey.test
+        check_reports misskey.test
         delete_from_misskey
         delete_from_elysium
         misskey_expect_deleted
@@ -1930,4 +2063,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, boosts and unboosts, and quotes, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, boosts and unboosts, quotes, and reports, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

@@ -1,0 +1,37 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Reports', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>
+            Reports come from this server's users, and from other servers about accounts here. Resolving a report doesn't
+            act on the account: suspend it or remove its statuses from their own pages.
+        </p>
+        <p>
+            <th:block th:text="${open == 1} ? '1 open report' : |${open} open reports|"></th:block> ·
+            <a th:if="${resolved}" href="/admin/reports">Open</a>
+            <a th:unless="${resolved}" href="/admin/reports?resolved">Resolved</a>
+        </p>
+
+        <p th:if="${reports.isEmpty()}" th:text="${resolved} ? 'No resolved reports.' : 'No open reports.'"></p>
+        <div class="status" th:each="report : ${reports}">
+            <p class="status-meta">
+                <strong th:text="${report.target()}"></strong>
+                <span th:if="${report.targetSuspended()}">Suspended</span>
+                <span th:text="${report.category()}"></span>
+                <time th:datetime="${report.createdAt()}" th:text="${report.createdAt()}"></time>
+            </p>
+            <p th:text="${report.fromOtherServer()} ? |From the server ${report.reporter()}| : |From ${report.reporter()}|"></p>
+            <p class="status-content" th:if="${!report.comment().isEmpty()}" th:text="${report.comment()}"></p>
+            <p th:if="${report.assignedTo() != null}" th:text="|Assigned to ${report.assignedTo()}|"></p>
+            <a th:href="@{/admin/reports/{id}(id=${report.id()})}"
+               th:text="${report.statusCount() == 1} ? 'View the report and its status' : |View the report and its ${report.statusCount()} statuses|"></a>
+        </div>
+        <p th:if="${older != null}">
+            <a th:if="${resolved}" th:href="@{/admin/reports(resolved='', max_id=${older})}">More reports</a>
+            <a th:unless="${resolved}" th:href="@{/admin/reports(max_id=${older})}">More reports</a>
+        </p>
+        <p><a href="/admin/accounts">Accounts</a> · <a href="/admin/statuses">Statuses</a> ·
+            <a href="/admin/domain-blocks">Domain blocks</a></p>
+    </div>
+</th:block>
+</html>

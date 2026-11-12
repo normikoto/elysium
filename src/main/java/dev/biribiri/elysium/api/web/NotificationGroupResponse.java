@@ -18,12 +18,13 @@ record NotificationGroupResponse(
         @JsonProperty("page_max_id") String pageMaxId,
         @JsonProperty("latest_page_notification_at") String latestPageNotificationAt,
         @JsonProperty("sample_account_ids") List<String> sampleAccountIds,
-        @JsonProperty("status_id") String statusId) {
-    static NotificationGroupResponse from(NotificationGroup group, List<String> accounts) {
+        @JsonProperty("status_id") String statusId,
+        ReportResponse report) {
+    static NotificationGroupResponse from(NotificationGroup group, List<String> accounts, ReportResponse report) {
         return new NotificationGroupResponse(group.groupKey(), group.notificationsCount(), group.type(),
                 group.mostRecentNotificationId().toString(), group.pageMinId() == null ? null : group.pageMinId().toString(),
                 group.pageMaxId() == null ? null : group.pageMaxId().toString(),
                 group.latestPageNotificationAt() == null ? null : ApiTimestamps.format(group.latestPageNotificationAt()),
-                accounts, group.statusId() == null ? null : group.statusId().toString());
+                accounts, group.statusId() == null ? null : group.statusId().toString(), report);
     }
 }

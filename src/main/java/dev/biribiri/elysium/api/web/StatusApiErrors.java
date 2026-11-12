@@ -7,6 +7,7 @@ import dev.biribiri.elysium.content.InvalidStatusException;
 import dev.biribiri.elysium.inbox.MarkerConflictException;
 import dev.biribiri.elysium.content.QuotedStatusNotFoundException;
 import dev.biribiri.elysium.content.ReplyParentNotFoundException;
+import dev.biribiri.elysium.moderation.InvalidReportException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -31,6 +32,8 @@ import java.util.Map;
         MarkersController.class,
         MediaController.class,
         AdminAccountsController.class,
+        AdminReportsController.class,
+        ReportsController.class,
         DomainBlocksController.class,
         ProfileController.class,
         SearchController.class,
@@ -42,6 +45,12 @@ class StatusApiErrors {
     @ExceptionHandler
     ResponseEntity<Map<String, String>> markerConflict(MarkerConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> invalidReport(InvalidReportException e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(Map.of("error", "Validation failed: " + e.getMessage()));
     }
 
     @ExceptionHandler

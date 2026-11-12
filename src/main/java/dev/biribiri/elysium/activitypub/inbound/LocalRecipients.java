@@ -144,7 +144,7 @@ class LocalRecipients {
     /**
      * Only addresses on this server are looked up, which also leaves out the public collection.
      */
-    private Optional<URI> onThisServer(String address) {
+    Optional<URI> onThisServer(String address) {
         return ActivityObject.parseUri(address).filter(uri -> RemoteActorDocument.isOnDomain(uri, instance.domain()));
     }
 }

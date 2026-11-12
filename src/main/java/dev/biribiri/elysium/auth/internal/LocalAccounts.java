@@ -381,6 +381,13 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
+     * @return the admins whose accounts aren't suspended or deleted
+     */
+    Set<UUID> activeAdmins() {
+        return Set.copyOf(jdbc.sql("SELECT c.actor_id FROM " + ACTIVE_ADMINS).query(UUID.class).list());
+    }
+
+    /**
      * @return which of these accounts have the admin role
      */
     Set<UUID> adminsAmong(Collection<UUID> actorIds) {

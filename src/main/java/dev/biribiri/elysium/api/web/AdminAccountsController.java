@@ -32,7 +32,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,15 +55,15 @@ public class AdminAccountsController {
     private final AccountActions accounts;
     private final InstanceProperties instance;
     private final JsonBodies json;
-    private final AccountResponses accountResponses;
+    private final AdminAccountResponses adminResponses;
 
     AdminAccountsController(
             ActorService actors,
             AccountActions accounts,
             InstanceProperties instance,
             JsonBodies json,
-            AccountResponses accountResponses) {
-        this.accountResponses = accountResponses;
+            AdminAccountResponses adminResponses) {
+        this.adminResponses = adminResponses;
         this.actors = actors;
         this.accounts = accounts;
         this.instance = instance;
@@ -141,7 +140,7 @@ public class AdminAccountsController {
         }
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, PATH, filters, filter.limit(), found.stream().map(Actor::id).toList());
-        return response.body(responses(found));
+        return response.body(adminResponses.list(found));
     }
 
     @GetMapping("/{id}")
@@ -156,7 +155,7 @@ public class AdminAccountsController {
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
             })
     public AdminAccountResponse get(@Parameter(description = ApiDocs.ID) @PathVariable String id) {
-        return response(find(id));
+        return adminResponses.one(find(id));
     }
 
     @PostMapping(path = "/{id}/action", consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
@@ -211,7 +210,7 @@ public class AdminAccountsController {
     public AdminAccountResponse unsuspend(@Parameter(description = ApiDocs.ID) @PathVariable String id) {
         var account = find(id);
         accounts.unsuspend(account.id());
-        return response(find(id));
+        return adminResponses.one(find(id));
     }
 
     @DeleteMapping("/{id}")
@@ -236,7 +235,7 @@ public class AdminAccountsController {
             @Parameter(description = ApiDocs.ID) @PathVariable String id) {
         var account = find(id);
         accounts.delete(account.id(), token.actorId());
-        return response(actors.findById(account.id()).orElse(account));
+        return adminResponses.one(actors.findById(account.id()).orElse(account));
     }
 
     @ExceptionHandler
@@ -264,34 +263,6 @@ public class AdminAccountsController {
                 .flatMap(actors::findById)
                 .filter(account -> !account.isDeleted())
                 .orElseThrow(RecordNotFoundException::new);
-    }
-
-    private AdminAccountResponse response(Actor account) {
-        return responses(List.of(account)).getFirst();
-    }
-
-    private List<AdminAccountResponse> responses(Collection<Actor> found) {
-        var ids = found.stream().map(Actor::id).toList();
-        var admins = accounts.adminsAmong(ids);
-        var emails = accounts.emailsOf(ids);
-        var built = accountResponses.byId(found);
-        return found.stream()
-                .map(account -> from(
-                        account, built.get(account.id()), admins.contains(account.id()), emails.get(account.id())))
-                .toList();
-    }
-
-    private AdminAccountResponse from(Actor account, AccountResponse response, boolean admin, String email) {
-        var local = actors.isLocal(account);
-        return new AdminAccountResponse(
-                account.id().toString(),
-                account.username(),
-                local ? null : account.domain(),
-                email,
-                ApiTimestamps.format(account.createdAt()),
-                local ? new AdminAccountResponse.Role(admin ? "Admin" : "User") : null,
-                !account.isActive(),
-                response);
     }
 
     /**

@@ -96,7 +96,9 @@ class DeliveryTask {
                 // It was queued before the block. This comes before backing off, which could end with it failing.
                 return Jobs.done();
             }
-            var signer = actors.findAnyLocalById(activity.get().actorId());
+            var signer = activity.get().isSignedByInstance()
+                    ? Optional.<Actor>empty()
+                    : actors.findAnyLocalById(activity.get().actorId());
             var whileSuspended = activity.get().whileSuspended();
             if (whileSuspended != WhileSuspended.SEND && signer.filter(found -> !found.isActive()).isPresent()) {
                 // It was queued before a suspension or deletion.
@@ -164,8 +166,10 @@ class DeliveryTask {
      *               suspended or deleted
      */
     void send(OutboundActivity activity, Optional<Actor> signer, URI inbox, String host) {
-        var key = signer.flatMap(keys::forActor)
-                .orElseThrow(() -> new PermanentJobFailure("The activity's actor no longer has a local key"));
+        var key = activity.isSignedByInstance()
+                ? keys.forInstance()
+                : signer.flatMap(keys::forActor)
+                        .orElseThrow(() -> new PermanentJobFailure("The activity's actor no longer has a local key"));
         Response response;
         try {
             response = sender.post(inbox, activity.body().getBytes(StandardCharsets.UTF_8), key);

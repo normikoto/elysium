@@ -196,6 +196,21 @@ can't be undone.
 The page only shows the content of public and unlisted posts, so admins don't get to read followers-only and direct posts
 by looking them up.
 
+## Reports
+People can report an account, and some of its posts, from their app. Other servers can also send reports about accounts
+here. Each admin gets a notification of a new report in their app, and reports are listed at `/admin/reports`, or
+through the [API](api.md).
+
+- A report shows every post it's about, even followers-only and direct ones, because whoever reported them chose to share
+  them with you. A post that's deleted after it's reported goes from the report.
+- A report from another server only says which server sent it, not who on that server reported it.
+- When someone here reports an account on another server, they can choose to send the report there too. It's sent as this
+  server, so it doesn't say who reported it.
+- Resolving a report only marks it as handled. To act on it, suspend the account at `/admin/accounts`, or remove its posts
+  from the report's page.
+- Reports by or about an account go when it's deleted, or when its server is suspended with a domain block. A server that
+  you only limit can still send reports.
+
 ## Domain blocks
 Admins can cut off or limit another server at `/admin/domain-blocks`, or through the [API](api.md). A block covers the
 domain's subdomains too, and applies straight away. There are two kinds:

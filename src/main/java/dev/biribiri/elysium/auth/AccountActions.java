@@ -46,6 +46,11 @@ public interface AccountActions {
     Set<UUID> adminsAmong(Collection<UUID> accountIds);
 
     /**
+     * @return the admins whose accounts are active, who are the ones to tell about something that needs an admin
+     */
+    Set<UUID> activeAdmins();
+
+    /**
      * @return the email addresses of those of these accounts that have one, which only accounts that signed up without an
      * invite do
      */

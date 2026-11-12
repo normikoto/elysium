@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Reports. People can report an account and some of its posts with `POST /api/v1/reports`, and choose to send a report of
+  an account on another server to that server, without saying who reported it. Reports from other servers are accepted
+  too. Admins get an `admin.report` notification for each new report, and handle reports at `/admin/reports` or through
+  `/api/v1/admin/reports`, where reported posts are shown even if they're followers-only or direct. See
+  `docs/accounts.md`, `docs/api.md`, and `FEDERATION.md`.
 - A page at `/oauth/authorized_applications`, linked from settings, where people can see the apps they've authorized and
   revoke one, which logs it out and makes it ask for approval again. See `docs/accounts.md`.
 - Quote posts, as Mastodon 4.5 has them. `quoted_status_id` quotes a status, and `quote_approval_policy`, or the

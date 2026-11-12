@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.inbox;
 
+import dev.biribiri.elysium.auth.AccountActions;
 import dev.biribiri.elysium.content.QuoteAccepted;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteStatusEdited;
@@ -14,6 +15,8 @@ import dev.biribiri.elysium.graph.FollowRequestAuthorized;
 import dev.biribiri.elysium.graph.FollowRequestReceived;
 import dev.biribiri.elysium.inbox.internal.ConversationRepository;
 import dev.biribiri.elysium.inbox.internal.NotificationRepository;
+import dev.biribiri.elysium.moderation.ReportFiled;
+import dev.biribiri.elysium.moderation.Reports;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 
@@ -31,11 +34,32 @@ public class InboxProjection {
     private final ConversationRepository conversations;
     private final NotificationRepository notifications;
     private final QuoteService quotes;
+    private final Reports reports;
+    private final AccountActions accounts;
 
-    InboxProjection(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes) {
+    InboxProjection(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
+                    Reports reports, AccountActions accounts) {
         this.conversations = conversations;
         this.notifications = notifications;
         this.quotes = quotes;
+        this.reports = reports;
+        this.accounts = accounts;
+    }
+
+    /**
+     * Tells the admins there are now, as on Mastodon, except one who filed it. An admin chosen later isn't told about
+     * reports from before, but finds them on the admin page.
+     */
+    @ApplicationModuleListener
+    public void on(ReportFiled event) {
+        var report = reports.find(event.reportId());
+        if (report.isEmpty()) return;
+        notifications.lock();
+        for (var admin : accounts.activeAdmins()) {
+            if (!admin.equals(report.get().reporterId())) {
+                notifications.insertReport(admin, report.get().reporterId(), report.get().id());
+            }
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.graph.DomainBlockListPage;
 import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.moderation.DomainBlockPage;
+import dev.biribiri.elysium.moderation.ReportPage;
 
 import java.util.Locale;
 import java.util.Map;
@@ -111,6 +112,18 @@ final class RequestParameters {
     static DomainBlockPage domainBlockPage(String limit, String maxId, String sinceId, String minId) {
         return new DomainBlockPage(
                 limit(limit, DomainBlockPage.DEFAULT_LIMIT),
+                cursor("max_id", maxId),
+                cursor("since_id", sinceId),
+                cursor("min_id", minId));
+    }
+
+    static ReportPage reportPage(boolean resolved, String accountId, String targetAccountId, String limit, String maxId,
+                                 String sinceId, String minId) {
+        return new ReportPage(
+                resolved,
+                cursor("account_id", accountId),
+                cursor("target_account_id", targetAccountId),
+                limit(limit, ReportPage.DEFAULT_LIMIT),
                 cursor("max_id", maxId),
                 cursor("since_id", sinceId),
                 cursor("min_id", minId));
