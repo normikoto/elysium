@@ -65,6 +65,12 @@ The script checks:
 - **Boosts of other posts:** while alice follows the `lab` user, it boosts a post by another account on its server, `other`,
   which Elysium hasn't been sent. Elysium has to fetch that post and show the boost in alice's home timeline, and remove the
   boost when it's undone.
+- **Reports:** the other server's `lab` user reports alice, with her public status where it can, and forwards it, which
+  Misskey only does once its admin forwards it. Elysium has to store the report from that server, with the status, and
+  notify alice, its admin. alice then reports `lab`, with its post that mentions her, and forwards it. The other server has
+  to accept the `Flag`, signed as Elysium's instance actor, and store a report of `lab` with that comment, from Elysium's
+  instance actor on Mastodon, and with the post on Mastodon and GoToSocial. On GoToSocial, `lab` is an admin, so that it can read
+  reports.
 - **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
   for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
   a `404`.

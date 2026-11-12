@@ -1,10 +1,11 @@
 #!/bin/sh
 # Prints an access token for a GoToSocial user, by going through the login pages like a browser, since there's no other way
-# to get one. Runs inside the driver service, with the email and password as arguments.
+# to get one. Runs inside the driver service, with the email, the password, and optionally the scopes as arguments.
 set -eu
 
 email=$1
 password=$2
+scopes=${3:-read write}
 base=https://gts.test
 oob=urn:ietf:wg:oauth:2.0:oob
 jar=$(mktemp)
@@ -12,7 +13,7 @@ jar=$(mktemp)
 app=$(curl -fsS "$base/api/v1/apps" \
     --data-urlencode 'client_name=federation-lab' \
     --data-urlencode "redirect_uris=$oob" \
-    --data-urlencode 'scopes=read write')
+    --data-urlencode "scopes=$scopes")
 client_id=$(printf '%s' "$app" | sed -n 's/.*"client_id":"\([^"]*\)".*/\1/p')
 client_secret=$(printf '%s' "$app" | sed -n 's/.*"client_secret":"\([^"]*\)".*/\1/p')
 
@@ -21,7 +22,7 @@ curl -fsS -o /dev/null -b "$jar" -c "$jar" -G "$base/oauth/authorize" \
     --data-urlencode "client_id=$client_id" \
     --data-urlencode "redirect_uri=$oob" \
     --data-urlencode 'response_type=code' \
-    --data-urlencode 'scope=read write'
+    --data-urlencode "scope=$scopes"
 
 curl -fsS -o /dev/null -b "$jar" -c "$jar" "$base/auth/sign_in" \
     --data-urlencode "username=$email" \
