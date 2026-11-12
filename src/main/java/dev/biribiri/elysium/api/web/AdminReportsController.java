@@ -6,7 +6,6 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.Report;
-import dev.biribiri.elysium.moderation.ReportCategory;
 import dev.biribiri.elysium.moderation.ReportPage;
 import dev.biribiri.elysium.moderation.Reports;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -32,7 +31,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +39,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Follows Mastodon's admin API for reports. Reported statuses are shown whoever they were for, since reporting one shares
@@ -103,14 +100,8 @@ public class AdminReportsController {
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
             @RequestParam(name = "min_id", required = false) String minId) {
-        var page = new ReportPage(
-                RequestParameters.flag(resolved),
-                account("account_id", accountId),
-                account("target_account_id", targetAccountId),
-                RequestParameters.number("limit", limit, ReportPage.DEFAULT_LIMIT),
-                cursor("max_id", maxId),
-                cursor("since_id", sinceId),
-                cursor("min_id", minId));
+        var page = RequestParameters.reportPage(
+                RequestParameters.flag(resolved), accountId, targetAccountId, limit, maxId, sinceId, minId);
         var found = reports.list(page);
         var filters = new LinkedHashMap<String, String>();
         if (page.resolved()) {
@@ -146,10 +137,7 @@ public class AdminReportsController {
     public AdminReportResponse updateFromForm(
             @Parameter(description = ApiDocs.ID) @PathVariable String id,
             @RequestParam MultiValueMap<String, String> form) {
-        if (form.containsKey("rule_ids[]")) {
-            throw noRules();
-        }
-        return update(id, form.toSingleValueMap());
+        return update(id, ReportParameters.fromForm(form));
     }
 
     @PutMapping(path = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -241,24 +229,10 @@ public class AdminReportsController {
 
     private AdminReportResponse update(String id, Map<String, ?> parameters) {
         var reportId = parse(id);
-        var ruleIds = parameters.get("rule_ids");
-        if (ruleIds != null && !(ruleIds instanceof List<?> list && list.isEmpty()) && !"".equals(ruleIds)) {
-            throw noRules();
-        }
-        var value = RequestParameters.string(parameters, "category");
-        if (value == null) {
-            return response(reports.find(reportId));
-        }
-        if (value.equals("violation")) {
-            throw noRules();
-        }
-        var category = ReportCategory.fromValue(value).orElseThrow(() ->
-                new InvalidRequestException("Validation failed: category must be spam, legal, or other"));
-        return response(reports.updateCategory(reportId, category));
-    }
-
-    private static InvalidRequestException noRules() {
-        return new InvalidRequestException("Validation failed: this server has no rules");
+        ReportParameters.requireNoRules(parameters);
+        return response(ReportParameters.category(RequestParameters.string(parameters, "category"))
+                .map(category -> reports.updateCategory(reportId, category))
+                .orElseGet(() -> reports.find(reportId)));
     }
 
     private static UUID admin(TokenPrincipal token) {
@@ -267,18 +241,6 @@ public class AdminReportsController {
 
     private static UUID parse(String id) {
         return RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
-    }
-
-    private static UUID account(String name, String value) {
-        return cursor(name, value);
-    }
-
-    private static UUID cursor(String name, String value) {
-        if (value == null || value.isEmpty()) {
-            return null;
-        }
-        return RequestParameters.uuid(value)
-                .orElseThrow(() -> new InvalidRequestException("Validation failed: " + name + " is not valid"));
     }
 
     private AdminReportResponse response(Optional<Report> report) {
@@ -290,10 +252,8 @@ public class AdminReportsController {
      * suspended, which is often why it was resolved.
      */
     private List<AdminReportResponse> responses(List<Report> found) {
-        var accountIds = new HashSet<UUID>();
-        found.forEach(report -> Stream.of(report.reporterId(), report.targetId(), report.assignedTo(), report.resolvedBy())
-                .filter(Objects::nonNull).forEach(accountIds::add));
-        var accountMap = accounts.byId(actors.findByIds(accountIds));
+        var accountMap = accounts.byId(actors.findByIds(
+                found.stream().flatMap(Report::accountIds).distinct().toList()));
         var statusIds = found.stream().flatMap(report -> report.statusIds().stream()).distinct().toList();
         var statusMap = statusResponses.list(statuses.findForReport(statusIds), Optional.empty()).stream()
                 .collect(Collectors.toMap(status -> UUID.fromString(status.id()), Function.identity()));
@@ -310,8 +270,8 @@ public class AdminReportsController {
                         ApiTimestamps.format(report.updatedAt()),
                         accountMap.get(report.reporterId()),
                         accountMap.get(report.targetId()),
-                        report.assignedTo() == null ? null : accountMap.get(report.assignedTo()),
-                        report.resolvedBy() == null ? null : accountMap.get(report.resolvedBy()),
+                        accountMap.get(report.assignedTo()),
+                        accountMap.get(report.resolvedBy()),
                         report.statusIds().stream().map(statusMap::get).filter(Objects::nonNull).toList(),
                         List.of()))
                 .toList();

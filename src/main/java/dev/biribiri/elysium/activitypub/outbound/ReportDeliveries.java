@@ -13,12 +13,12 @@ import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.net.URI;
 import java.util.List;
 
 /**
  * Forwards a report to the server of the remote account it's about, when the reporter asked for that. It goes to the
- * account's own inbox, as on Mastodon, and only names the account's statuses, since that server can't act on others. Safe
+ * account's own inbox, as on Mastodon, and a report only ever has the account's own statuses, which is all that server can
+ * act on. Safe
  * to run again, since the {@code Flag}'s ID comes from the report, and does nothing for a report that's gone.
  */
 @Service
@@ -51,17 +51,10 @@ public class ReportDeliveries {
         if (target.isEmpty() || !target.get().isActive() || actors.isLocal(target.get())) {
             return;
         }
-        var statusUris = statuses.findForReport(report.get().statusIds()).stream()
-                .filter(status -> status.actorId().equals(target.get().id()))
-                .map(Status::uri)
-                .toList();
-        var flag = Flag.of(idFor(report.get().id().toString()), actors.instanceActor().uri(), report.get().comment(),
-                target.get().uri(), statusUris);
+        var statusUris = statuses.findForReport(report.get().statusIds()).stream().map(Status::uri).toList();
+        var flag = Flag.of(instance.baseUrl() + "/reports/" + report.get().id(), actors.instanceActor().uri(),
+                report.get().comment(), target.get().uri(), statusUris);
         deliveries.enqueue(OutboundActivity.asInstance(flag.id(), json.writeValueAsString(flag)),
                 List.of(target.get().inboxUri()));
-    }
-
-    private String idFor(String reportId) {
-        return URI.create(instance.baseUrl() + "/reports/" + reportId).toString();
     }
 }

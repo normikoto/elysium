@@ -6,11 +6,10 @@ import dev.biribiri.elysium.auth.AccountActions;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Component
 class AdminAccountResponses {
@@ -40,9 +39,17 @@ class AdminAccountResponses {
                 .toList();
     }
 
+    /**
+     * @return a {@link java.util.HashMap}, so that looking up a null ID finds nothing
+     */
     Map<UUID, AdminAccountResponse> byId(Collection<Actor> found) {
-        return list(found).stream().collect(Collectors.toMap(
-                response -> UUID.fromString(response.id()), Function.identity(), (first, second) -> first));
+        var accounts = List.copyOf(found);
+        var responses = list(accounts);
+        var byId = new HashMap<UUID, AdminAccountResponse>();
+        for (var i = 0; i < accounts.size(); i++) {
+            byId.put(accounts.get(i).id(), responses.get(i));
+        }
+        return byId;
     }
 
     private AdminAccountResponse from(Actor account, AccountResponse response, boolean admin, String email) {

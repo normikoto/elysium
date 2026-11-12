@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.inbox.internal;
 
 import dev.biribiri.elysium.actor.Ids;
+import dev.biribiri.elysium.auth.AdminRole;
 import dev.biribiri.elysium.inbox.InboxPage;
 import dev.biribiri.elysium.inbox.Notification;
 import dev.biribiri.elysium.inbox.NotificationFilter;
@@ -23,14 +24,17 @@ import java.util.UUID;
 @Repository
 public class NotificationRepository {
     /**
-     * A report is for admins to act on whoever sent it, so a block or mute of the reporter doesn't hide it.
+     * Only admins see these, and only while they're admins, since a report can include statuses its audience didn't
+     * include them in. A report is for admins to act on whoever sent it, so a block or mute of the reporter doesn't hide it.
      */
     private static final String ADMIN_REPORT = "admin.report";
     private static final String FROM = """
              FROM inbox_notification n JOIN actor a ON a.id = n.sender_id
              LEFT JOIN status s ON s.id = n.status_id
              WHERE n.recipient_id = :viewer AND NOT n.dismissed AND
-            """ + InboxSql.active("a") + " AND (n.type = '" + ADMIN_REPORT + "' OR " + InboxSql.notHidden("a") + ")"
+            """ + InboxSql.active("a")
+            + " AND (n.type <> '" + ADMIN_REPORT + "' OR " + AdminRole.viewerIsAdmin() + ")"
+            + " AND (n.type = '" + ADMIN_REPORT + "' OR " + InboxSql.notHidden("a") + ")"
             + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + InboxSql.visible("s") + "))";
     private static final String GROUP = """
             CASE WHEN n.type = ANY(CAST(:groupedTypes AS text[])) AND n.group_key IS NOT NULL

@@ -40,4 +40,4 @@ ALTER TABLE inbox_notification ADD CONSTRAINT inbox_notification_type_check
     CHECK (type IN ('mention', 'follow', 'follow_request', 'favourite', 'reblog', 'quote', 'quoted_update',
                     'admin.report'));
 ALTER TABLE inbox_notification ADD COLUMN report_id UUID REFERENCES report (id) ON DELETE CASCADE;
-CREATE INDEX inbox_notification_report_idx ON inbox_notification (report_id);
+CREATE INDEX inbox_notification_report_idx ON inbox_notification (report_id) WHERE report_id IS NOT NULL;

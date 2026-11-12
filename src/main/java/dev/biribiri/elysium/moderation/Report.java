@@ -2,7 +2,9 @@ package dev.biribiri.elysium.moderation;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * A report to this server's admins about an account.
@@ -38,5 +40,17 @@ public record Report(
 
     public boolean isRemote() {
         return activityUri != null;
+    }
+
+    public Report withStatusIds(List<UUID> statusIds) {
+        return new Report(id, reporterId, targetId, comment, category, forwarded, activityUri, assignedTo, resolvedBy,
+                createdAt, updatedAt, resolvedAt, List.copyOf(statusIds));
+    }
+
+    /**
+     * @return the accounts it names, for loading them with it
+     */
+    public Stream<UUID> accountIds() {
+        return Stream.of(reporterId, targetId, assignedTo, resolvedBy).filter(Objects::nonNull);
     }
 }

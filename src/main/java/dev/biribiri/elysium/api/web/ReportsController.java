@@ -3,7 +3,6 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.ReportCategory;
 import dev.biribiri.elysium.moderation.Reports;
@@ -26,13 +25,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Follows Mastodon's reports API. A report goes to this server's admins, and to the reported account's server only if the
@@ -70,7 +66,7 @@ public class ReportsController {
     @PreAuthorize("hasAuthority('SCOPE_write:reports')")
     public ReportResponse createFromForm(
             @AuthenticationPrincipal TokenPrincipal token, @RequestParam MultiValueMap<String, String> form) {
-        return create(token, withLists(form));
+        return create(token, ReportParameters.fromForm(form));
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -121,36 +117,23 @@ public class ReportsController {
                 .flatMap(actors::findById)
                 .filter(Actor::isActive)
                 .orElseThrow(RecordNotFoundException::new);
-        if (!ids(parameters.get("rule_ids"), "rule_ids").isEmpty()) {
-            throw new InvalidRequestException("Validation failed: this server has no rules, so rule_ids can't be given");
-        }
-        var category = category(RequestParameters.string(parameters, "category"));
+        ReportParameters.requireNoRules(parameters);
+        var category = ReportParameters.category(RequestParameters.string(parameters, "category"))
+                .orElse(ReportCategory.OTHER);
         var statusIds = statusIds(parameters.get("status_ids"));
         if (statusIds.size() > Reports.MAX_STATUSES) {
             throw new InvalidRequestException(
                     "Validation failed: a report can't include more than %d statuses".formatted(Reports.MAX_STATUSES));
         }
-        var visible = statuses.findVisible(statusIds, reporter.id()).stream()
+        var reported = statuses.findVisible(statusIds, reporter.id()).stream()
                 .filter(status -> status.actorId().equals(target.id()))
-                .map(Status::id)
-                .collect(Collectors.toSet());
-        if (!visible.containsAll(statusIds)) {
+                .toList();
+        if (reported.size() != statusIds.size()) {
             throw new RecordNotFoundException();
         }
-        var report = reports.file(reporter.id(), target, statusIds, RequestParameters.string(parameters, "comment"),
+        var report = reports.file(reporter.id(), target, reported, RequestParameters.string(parameters, "comment"),
                 category, RequestParameters.flag(parameters, "forward"));
         return ReportResponse.from(report, accounts.one(target));
-    }
-
-    private static ReportCategory category(String value) {
-        if (value == null) {
-            return ReportCategory.OTHER;
-        }
-        if (value.equals("violation")) {
-            throw new InvalidRequestException("Validation failed: this server has no rules, so violation can't be chosen");
-        }
-        return ReportCategory.fromValue(value).orElseThrow(() ->
-                new InvalidRequestException("Validation failed: category must be spam, legal, or other"));
     }
 
     /**
@@ -158,46 +141,10 @@ public class ReportsController {
      */
     private static List<UUID> statusIds(Object value) {
         var ids = new LinkedHashSet<UUID>();
-        for (var id : ids(value, "status_ids")) {
+        for (var id : ReportParameters.ids(value, "status_ids")) {
             ids.add(RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new));
         }
         return List.copyOf(ids);
-    }
-
-    private static List<String> ids(Object value, String name) {
-        List<?> values = switch (value) {
-            case null -> List.of();
-            case String string -> List.of(string);
-            case List<?> list -> list;
-            default -> throw new InvalidRequestException("Validation failed: " + name + " must be a list of IDs");
-        };
-        var ids = new ArrayList<String>();
-        for (var id : values) {
-            switch (id) {
-                case String string when string.isEmpty() -> {
-                }
-                case String string -> ids.add(string);
-                // Mastodon's rule IDs are numbers, which a JSON body can send as they are.
-                case Number number -> ids.add(number.toString());
-                default -> throw new InvalidRequestException("Validation failed: " + name + " must be a list of IDs");
-            }
-        }
-        return ids;
-    }
-
-    /**
-     * A form repeats {@code status_ids[]} for each ID, which a single value for each name would lose.
-     */
-    private static Map<String, Object> withLists(MultiValueMap<String, String> form) {
-        var parameters = new HashMap<String, Object>(form.toSingleValueMap());
-        for (var name : List.of("status_ids", "rule_ids")) {
-            parameters.remove(name + "[]");
-            var values = new ArrayList<String>();
-            values.addAll(form.getOrDefault(name, List.of()));
-            values.addAll(form.getOrDefault(name + "[]", List.of()));
-            parameters.put(name, values);
-        }
-        return parameters;
     }
 
     /**

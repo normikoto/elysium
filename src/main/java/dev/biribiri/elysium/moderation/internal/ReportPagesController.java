@@ -21,12 +21,10 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * The admin page for handling reports. Everything under {@code /admin} is limited to admins and needs a CSRF token, through
@@ -102,11 +100,7 @@ class ReportPagesController {
     }
 
     private List<Summary> summaries(List<Report> found) {
-        var ids = found.stream()
-                .flatMap(report -> Stream.of(report.reporterId(), report.targetId(), report.assignedTo(), report.resolvedBy()))
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
+        var ids = found.stream().flatMap(Report::accountIds).distinct().toList();
         var accounts = actors.findByIds(ids).stream().collect(Collectors.toMap(Actor::id, Function.identity()));
         return found.stream()
                 .filter(report -> accounts.containsKey(report.reporterId()) && accounts.containsKey(report.targetId()))
@@ -143,8 +137,8 @@ class ReportPagesController {
                             Predicate<Actor> isLocal) {
             var reporter = accounts.get(report.reporterId());
             var target = accounts.get(report.targetId());
-            var assigned = report.assignedTo() == null ? null : accounts.get(report.assignedTo());
-            var resolver = report.resolvedBy() == null ? null : accounts.get(report.resolvedBy());
+            var assigned = accounts.get(report.assignedTo());
+            var resolver = accounts.get(report.resolvedBy());
             return new Summary(
                     report.id(),
                     report.createdAt().truncatedTo(ChronoUnit.SECONDS).toString(),

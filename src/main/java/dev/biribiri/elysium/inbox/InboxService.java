@@ -1,6 +1,5 @@
 package dev.biribiri.elysium.inbox;
 
-import dev.biribiri.elysium.auth.AccountActions;
 import dev.biribiri.elysium.inbox.internal.ConversationRepository;
 import dev.biribiri.elysium.inbox.internal.MarkerRepository;
 import dev.biribiri.elysium.inbox.internal.NotificationRepository;
@@ -11,7 +10,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,16 +19,13 @@ import java.util.UUID;
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class InboxService {
     private static final int REMOVAL_BATCH_SIZE = 100;
-    private static final String ADMIN_REPORT = "admin.report";
     private final NotificationRepository notifications;
     private final ConversationRepository conversations;
     private final MarkerRepository markers;
     private final TransactionTemplate transaction;
-    private final AccountActions accounts;
 
     InboxService(NotificationRepository notifications, ConversationRepository conversations, MarkerRepository markers,
-                 PlatformTransactionManager transactionManager, AccountActions accounts) {
-        this.accounts = accounts;
+                 PlatformTransactionManager transactionManager) {
         this.notifications = notifications;
         this.conversations = conversations;
         this.markers = markers;
@@ -38,19 +33,19 @@ public class InboxService {
     }
 
     public List<Notification> notifications(UUID viewer, NotificationFilter filter, InboxPage page) {
-        return notifications.page(viewer, forViewer(viewer, filter), page);
+        return notifications.page(viewer, filter, page);
     }
 
     public Optional<Notification> notification(UUID viewer, UUID id) {
-        return notifications.find(viewer, id).filter(found -> !isAdminOnly(found.type()) || isAdmin(viewer));
+        return notifications.find(viewer, id);
     }
 
     public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, InboxPage page, List<String> groupedTypes) {
-        return notifications.groups(viewer, forViewer(viewer, filter), page, groupedTypes);
+        return notifications.groups(viewer, filter, page, groupedTypes);
     }
 
     public Optional<NotificationGroup> group(UUID viewer, String key) {
-        return notifications.group(viewer, key).filter(found -> !isAdminOnly(found.type()) || isAdmin(viewer));
+        return notifications.group(viewer, key);
     }
 
     public List<UUID> groupAccounts(UUID viewer, String key) {
@@ -58,34 +53,11 @@ public class InboxService {
     }
 
     public long unreadCount(UUID viewer, NotificationFilter filter, int limit) {
-        return notifications.count(viewer, forViewer(viewer, filter), Math.clamp(limit, 1, 1000),
-                markers.notificationPosition(viewer));
+        return notifications.count(viewer, filter, Math.clamp(limit, 1, 1000), markers.notificationPosition(viewer));
     }
 
     public long unreadGroupCount(UUID viewer, NotificationFilter filter, int limit, List<String> groupedTypes) {
-        return notifications.countGroups(viewer, forViewer(viewer, filter), Math.clamp(limit, 1, 1000),
-                markers.notificationPosition(viewer), groupedTypes);
-    }
-
-    /**
-     * An admin who's no longer one stops seeing reports, since those can include statuses its audience didn't include them
-     * in. This is checked each time, as the admin role is, so it applies straight away and comes back with the role.
-     */
-    private NotificationFilter forViewer(UUID viewer, NotificationFilter filter) {
-        if (isAdmin(viewer)) {
-            return filter;
-        }
-        var excluded = new ArrayList<>(filter.excludeTypes());
-        excluded.add(ADMIN_REPORT);
-        return new NotificationFilter(filter.types(), excluded, filter.accountId());
-    }
-
-    private boolean isAdmin(UUID viewer) {
-        return !accounts.adminsAmong(List.of(viewer)).isEmpty();
-    }
-
-    private static boolean isAdminOnly(String type) {
-        return type.equals(ADMIN_REPORT);
+        return notifications.countGroups(viewer, filter, Math.clamp(limit, 1, 1000), markers.notificationPosition(viewer), groupedTypes);
     }
 
     @Transactional

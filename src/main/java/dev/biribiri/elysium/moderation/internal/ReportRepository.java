@@ -7,8 +7,6 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -27,7 +25,20 @@ public class ReportRepository {
             id, reporter_id, target_id, comment, category, forwarded, activity_uri, assigned_to, resolved_by, created_at,
             updated_at, resolved_at""";
 
-    private static final RowMapper<Report> MAPPER = (rs, row) -> map(rs, List.of());
+    private static final RowMapper<Report> MAPPER = (rs, row) -> new Report(
+            rs.getObject("id", UUID.class),
+            rs.getObject("reporter_id", UUID.class),
+            rs.getObject("target_id", UUID.class),
+            rs.getString("comment"),
+            ReportCategory.fromValue(rs.getString("category")).orElse(ReportCategory.OTHER),
+            rs.getBoolean("forwarded"),
+            rs.getString("activity_uri"),
+            rs.getObject("assigned_to", UUID.class),
+            rs.getObject("resolved_by", UUID.class),
+            instant(rs.getTimestamp("created_at")),
+            instant(rs.getTimestamp("updated_at")),
+            instant(rs.getTimestamp("resolved_at")),
+            List.of());
 
     private final JdbcClient jdbc;
 
@@ -55,23 +66,17 @@ public class ReportRepository {
                 .param("activityUri", report.activityUri())
                 .param("createdAt", report.createdAt().atOffset(ZoneOffset.UTC))
                 .update() == 1;
-        if (inserted) {
-            for (var statusId : report.statusIds()) {
-                jdbc.sql("INSERT INTO report_status (report_id, status_id) VALUES (:reportId, :statusId)")
-                        .param("reportId", report.id())
-                        .param("statusId", statusId)
-                        .update();
-            }
+        if (inserted && !report.statusIds().isEmpty()) {
+            jdbc.sql("INSERT INTO report_status (report_id, status_id) SELECT :reportId, unnest(CAST(:ids AS uuid[]))")
+                    .param("reportId", report.id())
+                    .param("ids", report.statusIds().toArray(UUID[]::new))
+                    .update();
         }
         return inserted;
     }
 
     public Optional<Report> find(UUID id) {
-        return jdbc.sql("SELECT " + COLUMNS + " FROM report WHERE id = :id")
-                .param("id", id)
-                .query(MAPPER)
-                .optional()
-                .map(report -> withStatuses(List.of(report)).getFirst());
+        return findByIds(List.of(id)).stream().findFirst();
     }
 
     public List<Report> findPage(ReportPage page) {
@@ -184,28 +189,8 @@ public class ReportRepository {
                 .list()
                 .forEach(entry -> statuses.computeIfAbsent(entry.getKey(), key -> new ArrayList<>()).add(entry.getValue()));
         return reports.stream()
-                .map(report -> new Report(report.id(), report.reporterId(), report.targetId(), report.comment(),
-                        report.category(), report.forwarded(), report.activityUri(), report.assignedTo(),
-                        report.resolvedBy(), report.createdAt(), report.updatedAt(), report.resolvedAt(),
-                        List.copyOf(statuses.getOrDefault(report.id(), List.of()))))
+                .map(report -> report.withStatusIds(statuses.getOrDefault(report.id(), List.of())))
                 .toList();
-    }
-
-    private static Report map(ResultSet rs, List<UUID> statusIds) throws SQLException {
-        return new Report(
-                rs.getObject("id", UUID.class),
-                rs.getObject("reporter_id", UUID.class),
-                rs.getObject("target_id", UUID.class),
-                rs.getString("comment"),
-                ReportCategory.fromValue(rs.getString("category")).orElse(ReportCategory.OTHER),
-                rs.getBoolean("forwarded"),
-                rs.getString("activity_uri"),
-                rs.getObject("assigned_to", UUID.class),
-                rs.getObject("resolved_by", UUID.class),
-                instant(rs.getTimestamp("created_at")),
-                instant(rs.getTimestamp("updated_at")),
-                instant(rs.getTimestamp("resolved_at")),
-                statusIds);
     }
 
     private static Instant instant(Timestamp timestamp) {

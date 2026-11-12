@@ -4,7 +4,6 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.internal.ReportRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -12,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Collection;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,13 +27,11 @@ public class Reports {
 
     private final ReportRepository reports;
     private final ActorService actors;
-    private final StatusService statuses;
     private final ApplicationEventPublisher events;
 
-    Reports(ReportRepository reports, ActorService actors, StatusService statuses, ApplicationEventPublisher events) {
+    Reports(ReportRepository reports, ActorService actors, ApplicationEventPublisher events) {
         this.reports = reports;
         this.actors = actors;
-        this.statuses = statuses;
         this.events = events;
     }
 
@@ -43,12 +39,13 @@ public class Reports {
      * Files a report from a local account. Checking that the reporter can see each status is up to the caller, since it
      * depends on how the reporter found them.
      *
-     * @param comment plain text, or null or empty for none
-     * @param forward whether to send it on to the target's server, which only happens for a remote target
+     * @param statuses the target's statuses that it's about
+     * @param comment  plain text, or null or empty for none
+     * @param forward  whether to send it on to the target's server, which only happens for a remote target
      * @throws InvalidReportException if it can't be filed as asked
      */
     @Transactional
-    public Report file(UUID reporterId, Actor target, Collection<UUID> statusIds, String comment, ReportCategory category,
+    public Report file(UUID reporterId, Actor target, List<Status> statuses, String comment, ReportCategory category,
                        boolean forward) {
         if (target.id().equals(reporterId)) {
             throw new InvalidReportException("You can't report yourself.");
@@ -56,10 +53,14 @@ public class Reports {
         if (!target.isActive()) {
             throw new InvalidReportException("This account can't be reported.");
         }
-        var cleaned = cleanComment(comment);
-        var ids = List.copyOf(new LinkedHashSet<>(statusIds));
-        requireStatusesOf(target, ids);
-        var report = newReport(reporterId, target.id(), ids, cleaned, category, forward && !actors.isLocal(target), null);
+        if (statuses.size() > MAX_STATUSES) {
+            throw new InvalidReportException("A report can't include more than %d statuses.".formatted(MAX_STATUSES));
+        }
+        if (statuses.stream().anyMatch(status -> !status.actorId().equals(target.id()))) {
+            throw new InvalidReportException("A report can only include statuses by the account it's about.");
+        }
+        var report = newReport(reporterId, target.id(), ids(statuses), cleanComment(comment), category,
+                forward && !actors.isLocal(target), null);
         reports.insert(report);
         events.publishEvent(new ReportFiled(report.id()));
         return report;
@@ -67,26 +68,25 @@ public class Reports {
 
     /**
      * Stores a report from another server, about a local account. A repeat of one that's been stored is ignored.
+     * Another server's comment is cut short rather than refused, since its admins chose what to send and nobody there can
+     * be asked to try again, and statuses that aren't the target's are left out.
      *
      * @param reporterId  whoever sent it, usually the other server's instance actor
-     * @param statusIds   the target's statuses that it's about
-     * @param comment     plain text, which is cut short if it's too long rather than refused
+     * @param statuses    the statuses that it's about
+     * @param comment     plain text, or null for none
      * @param activityUri the {@code Flag}'s ID
-     * @return the report, or empty if it's been stored already or the target can't be reported
+     * @return the report, or empty if it's been stored already
      */
     @Transactional
-    public Optional<Report> receive(UUID reporterId, UUID targetId, Collection<UUID> statusIds, String comment,
+    public Optional<Report> receive(UUID reporterId, Actor target, List<Status> statuses, String comment,
                                     String activityUri) {
-        var target = actors.findLocalById(targetId);
-        if (target.isEmpty()) {
-            return Optional.empty();
-        }
-        var ids = statuses.findForReport(new LinkedHashSet<>(statusIds)).stream()
-                .filter(status -> status.actorId().equals(targetId))
-                .map(Status::id)
+        var theirs = statuses.stream()
+                .filter(status -> status.actorId().equals(target.id()))
                 .limit(MAX_STATUSES)
                 .toList();
-        var report = newReport(reporterId, targetId, ids, truncate(comment), ReportCategory.OTHER, false, activityUri);
+        var report = newReport(reporterId, target.id(), ids(theirs),
+                comment == null ? "" : Comments.truncate(comment, MAX_COMMENT_LENGTH), ReportCategory.OTHER, false,
+                activityUri);
         if (!reports.insert(report)) {
             return Optional.empty();
         }
@@ -147,16 +147,8 @@ public class Reports {
         reports.deleteForActor(actorId);
     }
 
-    private void requireStatusesOf(Actor target, List<UUID> ids) {
-        if (ids.size() > MAX_STATUSES) {
-            throw new InvalidReportException("A report can't include more than %d statuses.".formatted(MAX_STATUSES));
-        }
-        var found = statuses.findForReport(ids).stream()
-                .filter(status -> status.actorId().equals(target.id()))
-                .count();
-        if (found != ids.size()) {
-            throw new InvalidReportException("A report can only include statuses by the account it's about.");
-        }
+    private static List<UUID> ids(List<Status> statuses) {
+        return statuses.stream().map(Status::id).distinct().toList();
     }
 
     private static Report newReport(UUID reporterId, UUID targetId, List<UUID> statusIds, String comment,
@@ -174,43 +166,9 @@ public class Reports {
             throw new InvalidReportException(
                     "Comments can't be longer than %d characters.".formatted(MAX_COMMENT_LENGTH));
         }
-        if (!isStorable(comment)) {
+        if (!Comments.isStorable(comment)) {
             throw new InvalidReportException("Comments can't contain invalid characters.");
         }
         return comment.strip();
-    }
-
-    /**
-     * Another server's comment is cut short rather than refused, since its admins chose what to send and nobody there can be
-     * asked to try again.
-     */
-    private static String truncate(String comment) {
-        if (comment == null) {
-            return "";
-        }
-        var builder = new StringBuilder();
-        comment.codePoints()
-                .filter(codePoint -> codePoint != 0 && Character.getType(codePoint) != Character.SURROGATE)
-                .limit(MAX_COMMENT_LENGTH)
-                .forEach(builder::appendCodePoint);
-        return builder.toString().strip();
-    }
-
-    /**
-     * PostgreSQL can't store these, and would otherwise fail the request with an error nobody can act on.
-     */
-    private static boolean isStorable(String comment) {
-        for (var i = 0; i < comment.length(); i++) {
-            var character = comment.charAt(i);
-            var paired = Character.isHighSurrogate(character)
-                    && i + 1 < comment.length()
-                    && Character.isLowSurrogate(comment.charAt(i + 1));
-            if (paired) {
-                i++;
-            } else if (character == '\0' || Character.isSurrogate(character)) {
-                return false;
-            }
-        }
-        return true;
     }
 }

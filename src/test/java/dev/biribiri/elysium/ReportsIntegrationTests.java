@@ -263,7 +263,7 @@ class ReportsIntegrationTests {
     @Test
     void listsOpenReportsWithTheirStatusesEvenPrivateOnes() throws Exception {
         var hidden = publish(target, Visibility.PRIVATE, "Only for followers");
-        var report = reports.file(user.id(), target, List.of(hidden.id()), "Look", ReportCategory.OTHER, false);
+        var report = reports.file(user.id(), target, List.of(hidden), "Look", ReportCategory.OTHER, false);
 
         mockMvc.perform(withToken(get(ADMIN_PATH), token(ADMIN, "admin:read:reports")))
                 .andExpect(status().isOk())
@@ -326,7 +326,7 @@ class ReportsIntegrationTests {
     @Test
     void showsReportsOnTheAdminPageWithPrivateStatuses() throws Exception {
         var hidden = publish(target, Visibility.PRIVATE, "A followers-only secret");
-        var report = reports.file(user.id(), target, List.of(hidden.id()), "Have a look",
+        var report = reports.file(user.id(), target, List.of(hidden), "Have a look",
                 ReportCategory.SPAM, false);
         var session = logIn(ADMIN);
 

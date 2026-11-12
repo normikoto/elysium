@@ -2,7 +2,6 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -15,12 +14,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Stores another server's report of local accounts, as one report for each. Servers usually send these as their instance
@@ -44,19 +45,19 @@ class FlagHandler implements InboundActivityHandler {
     private final StatusService statuses;
     private final Reports reports;
     private final DomainBlocks domainBlocks;
-    private final InstanceProperties instance;
+    private final LocalRecipients recipients;
     private final TransactionTemplate transaction;
     private final JsonMapper json;
 
     FlagHandler(ActorService actors, RemoteActors remoteActors, LikeService likes, StatusService statuses, Reports reports,
-                DomainBlocks domainBlocks, InstanceProperties instance, TransactionTemplate transaction, JsonMapper json) {
+                DomainBlocks domainBlocks, LocalRecipients recipients, TransactionTemplate transaction, JsonMapper json) {
         this.actors = actors;
         this.remoteActors = remoteActors;
         this.likes = likes;
         this.statuses = statuses;
         this.reports = reports;
         this.domainBlocks = domainBlocks;
-        this.instance = instance;
+        this.recipients = recipients;
         this.transaction = transaction;
         this.json = json;
     }
@@ -71,9 +72,8 @@ class FlagHandler implements InboundActivityHandler {
         var document = json.readTree(activity.body());
         var local = ActivityJson.ids(document.path("object")).stream()
                 .limit(MAX_OBJECTS)
-                .map(ActivityObject::parseUri)
+                .map(recipients::onThisServer)
                 .flatMap(Optional::stream)
-                .filter(uri -> RemoteActorDocument.isOnDomain(uri, instance.domain()))
                 .toList();
         var targets = targets(local);
         if (targets.isEmpty()) {
@@ -88,8 +88,8 @@ class FlagHandler implements InboundActivityHandler {
             if (domainBlocks.isBlocked(reporter.uri().getHost()) || actors.isInactive(reporter.uri())) {
                 return;
             }
-            targets.forEach((target, statusIds) ->
-                    reports.receive(reporter.id(), target, statusIds, comment, activity.id()));
+            targets.forEach((target, statuses) ->
+                    reports.receive(reporter.id(), target, statuses, comment, activity.id()));
         });
     }
 
@@ -97,22 +97,22 @@ class FlagHandler implements InboundActivityHandler {
      * The local accounts that are named, or whose statuses are, each with its statuses. A Flag of statuses alone is about
      * their authors, which is how some servers send them.
      */
-    private LinkedHashMap<UUID, List<UUID>> targets(List<URI> uris) {
-        var targets = new LinkedHashMap<UUID, List<UUID>>();
-        var statusIds = new LinkedHashSet<UUID>();
-        for (var uri : uris) {
-            var actor = actors.findLocalByUri(uri);
-            if (actor.isPresent()) {
-                targets.computeIfAbsent(actor.get().id(), id -> new ArrayList<>());
-            } else {
-                likes.localStatusId(uri).ifPresent(statusIds::add);
-            }
-        }
-        for (Status status : statuses.findForReport(statusIds)) {
-            if (actors.findLocalById(status.actorId()).filter(Actor::isActive).isPresent()) {
-                targets.computeIfAbsent(status.actorId(), id -> new ArrayList<>()).add(status.id());
-            }
-        }
-        return targets;
+    private Map<Actor, List<Status>> targets(List<URI> uris) {
+        var named = actors.findLocalByUris(uris);
+        var namedUris = named.stream().map(Actor::uri).collect(Collectors.toSet());
+        var statusIds = uris.stream()
+                .filter(uri -> !namedUris.contains(uri))
+                .map(likes::localStatusId)
+                .flatMap(Optional::stream)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        var found = statuses.findForReport(statusIds);
+        var authors = actors.findLocalByIds(found.stream().map(Status::actorId).distinct().toList());
+
+        var targets = new LinkedHashMap<UUID, Actor>();
+        Stream.concat(named.stream(), authors.stream()).forEach(actor -> targets.putIfAbsent(actor.id(), actor));
+        var byAuthor = found.stream().collect(Collectors.groupingBy(Status::actorId));
+        var result = new LinkedHashMap<Actor, List<Status>>();
+        targets.values().forEach(actor -> result.put(actor, byAuthor.getOrDefault(actor.id(), List.of())));
+        return result;
     }
 }
