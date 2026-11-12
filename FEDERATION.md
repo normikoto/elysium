@@ -792,7 +792,9 @@ The real `@context` and `instrument` have every term and property that a `Note` 
 on Mastodon, rather than after the answer. An `Accept` has to be signed by the quoted author, name the request by its `id`,
 alone or embedded, and have a `QuoteAuthorization` on the quoted author's host and port as its `result`, which isn't
 fetched. A `Reject` from the quoted author rejects the quote. Either way, an `Update` of the quote follows, as below, unless
-a rejection only changes a quote that was never shown. A request whose status is deleted first isn't sent.
+a rejection only changes a quote that was never shown. A request whose status is deleted first isn't sent. A request
+that's still unanswered a minute after it was delivered is sent once more, under the same `id`, since Mastodon can drop
+one that it reads while it's still storing the `Create`.
 
 A status on a server that doesn't say who can quote it, with an `interactionPolicy`, is taken to be from a server that
 can't approve quotes, so a quote of it is shown, and sent with all of the properties above, straight away. Its

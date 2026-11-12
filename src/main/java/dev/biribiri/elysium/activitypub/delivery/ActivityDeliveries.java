@@ -139,6 +139,13 @@ public class ActivityDeliveries {
     }
 
     /**
+     * Whether an activity is still waiting to be sent to an inbox, or failing there, rather than delivered or given up on.
+     */
+    public boolean isQueued(String activityId, URI inbox) {
+        return Jobs.isQueued(scheduler, TASK, activityId, inbox.toString());
+    }
+
+    /**
      * Stops any further sending of an activity, so that a status deleted soon after it was posted isn't then delivered.
      * Its jobs finish without sending the next time they run and get a slot for their host.
      */
