@@ -1,6 +1,9 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
+import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
+import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
@@ -13,6 +16,7 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -24,12 +28,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 /**
  * No job worker runs, so the resend is run by hand, and deliveries are only queued.
@@ -84,20 +93,37 @@ class QuoteRequestResendIntegrationTests {
 
     @Test
     void anUnansweredRequestIsSentAgainAfterAWhile() {
-        var resend = resendScheduledAt();
-        assertThat(resend).isBetween(Instant.now().plus(QuoteDeliveries.RESEND_AFTER).minusSeconds(30),
+        assertThat(resendScheduledAt()).isBetween(Instant.now().plus(QuoteDeliveries.RESEND_AFTER).minus(WAIT),
                 Instant.now().plus(QuoteDeliveries.RESEND_AFTER));
         delivered();
 
-        quoteDeliveries.resend(job());
+        assertThat(resend(job(false))).isEmpty();
 
         assertThat(deliveries()).isEqualTo(1);
     }
 
     @Test
-    void aRequestThatsStillBeingTriedIsntQueuedTwice() {
-        quoteDeliveries.resend(job());
+    void waitsWhileTheRequestIsStillBeingSent() {
+        assertThat(resend(job(false))).hasValueSatisfying(next -> assertThat(next.waitedForSending()).isTrue());
 
+        assertThat(deliveries()).isEqualTo(1);
+    }
+
+    @Test
+    void waitsAgainOnceARequestThatWasBeingSentHasBeenSent() {
+        delivered();
+
+        assertThat(resend(job(true))).hasValueSatisfying(next -> assertThat(next.waitedForSending()).isFalse());
+        assertThat(deliveries()).isZero();
+        assertThat(resend(job(false))).isEmpty();
+        assertThat(deliveries()).isEqualTo(1);
+    }
+
+    @Test
+    void givesUpWhenTheRequestWouldHaveToo() {
+        var job = new QuoteRequestResendJob(quote, author.id(), Instant.now().minus(Jobs.RETRIED_FOR), true);
+
+        assertThat(resend(job)).isEmpty();
         assertThat(deliveries()).isEqualTo(1);
     }
 
@@ -107,7 +133,7 @@ class QuoteRequestResendIntegrationTests {
         assertThat(quotes.answerRequest(request, remote.uri(), URI.create(remote.uri() + "/quote_authorizations/1")))
                 .isTrue();
 
-        quoteDeliveries.resend(job());
+        assertThat(resend(job(false))).isEmpty();
 
         assertThat(deliveries()).isZero();
     }
@@ -117,13 +143,31 @@ class QuoteRequestResendIntegrationTests {
         delivered();
         statuses.delete(quote, author.id());
 
-        quoteDeliveries.resend(job());
+        assertThat(resend(job(false))).isEmpty();
 
         assertThat(deliveries()).isZero();
     }
 
-    private QuoteRequestResendJob job() {
-        return new QuoteRequestResendJob(quote, author.id(), Instant.now());
+    private QuoteRequestResendJob job(boolean waitedForSending) {
+        return new QuoteRequestResendJob(quote, author.id(), Instant.now(), waitedForSending);
+    }
+
+    /**
+     * @return the job's data for its next run, or empty if it's finished
+     */
+    @SuppressWarnings("unchecked")
+    private Optional<QuoteRequestResendJob> resend(QuoteRequestResendJob job) {
+        var complete = mock(ExecutionComplete.class);
+        var operations = (ExecutionOperations<QuoteRequestResendJob>) mock(ExecutionOperations.class);
+        quoteDeliveries.resend(job).complete(complete, operations);
+        var next = ArgumentCaptor.forClass(QuoteRequestResendJob.class);
+        try {
+            verify(operations).reschedule(eq(complete), any(Instant.class), next.capture());
+            return Optional.of(next.getValue());
+        } catch (AssertionError notRescheduled) {
+            verify(operations).remove();
+            return Optional.empty();
+        }
     }
 
     private Instant resendScheduledAt() {

@@ -103,6 +103,13 @@ public final class Jobs {
     }
 
     /**
+     * Whether a job with this ID is queued, including one that's failing or parked.
+     */
+    public static boolean isQueued(SchedulerClient scheduler, TaskDescriptor<?> task, String... idParts) {
+        return scheduler.getScheduledExecution(task.instanceId(instanceId(idParts))).isPresent();
+    }
+
+    /**
      * Makes a job's ID. It's a hash because these values can come from other servers, and PostgreSQL can't index very long
      * ones.
      */

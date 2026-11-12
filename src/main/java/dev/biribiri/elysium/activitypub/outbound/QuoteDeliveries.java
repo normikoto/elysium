@@ -16,6 +16,7 @@ import dev.biribiri.elysium.content.QuoteRevoked;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
 import dev.biribiri.elysium.content.StatusNoteChanged;
+import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.springframework.context.annotation.Lazy;
@@ -91,9 +92,12 @@ public class QuoteDeliveries {
      */
     @ApplicationModuleListener
     public void on(QuoteRequested event) {
-        if (sendRequest(event.statusId(), event.authorId())) {
+        // A legacy quote is shown already, and its server isn't expected to answer.
+        var sent = sendRequest(event.statusId(), event.authorId(), false);
+        if (sent.filter(request -> request.quote().state() == QuoteState.PENDING).isPresent()) {
             var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-            Jobs.scheduleAt(scheduler, RESEND_TASK, new QuoteRequestResendJob(event.statusId(), event.authorId(), now),
+            Jobs.scheduleAt(scheduler, RESEND_TASK,
+                    new QuoteRequestResendJob(event.statusId(), event.authorId(), now, false),
                     now.plus(RESEND_AFTER), RESEND_TASK.getTaskName(), event.statusId().toString());
         }
     }
@@ -101,40 +105,76 @@ public class QuoteDeliveries {
     /**
      * Sends a request that's still unanswered once more, under the same ID. Mastodon handles a quote's {@code Create} and
      * its {@code QuoteRequest} at the same time, and drops the request without answering if it reads the quote while the
-     * {@code Create} is half stored. Mastodon answers every copy, and notifies the quoted author each time, so a delivery
-     * that's still being tried isn't queued twice.
+     * {@code Create} is half stored. Mastodon answers every copy, and notifies the quoted author each time, so this waits
+     * while the first copy is still being sent, and then a while longer, since a {@code Create} that was failing too can
+     * arrive with it. Once the first copy has given up, so does this.
      */
     CompletionHandler<QuoteRequestResendJob> resend(QuoteRequestResendJob job) {
-        transaction.executeWithoutResult(ignored -> {
-            if (quotes.find(job.statusId()).filter(quote -> quote.state() == QuoteState.PENDING).isPresent()) {
-                sendRequest(job.statusId(), job.authorId());
+        if (job.isOverdue(Instant.now())) {
+            return Jobs.done();
+        }
+        var next = transaction.execute(ignored -> {
+            var request = pendingRequest(job.statusId(), job.authorId());
+            if (request.isEmpty()) {
+                return Optional.<QuoteRequestResendJob>empty();
             }
+            if (deliveries.isQueued(request.get().id(), request.get().inbox())) {
+                return Optional.of(job.waitingForSending(true));
+            }
+            if (job.waitedForSending()) {
+                return Optional.of(job.waitingForSending(false));
+            }
+            send(request.get());
+            return Optional.<QuoteRequestResendJob>empty();
         });
-        return Jobs.done();
+        return next == null || next.isEmpty()
+                ? Jobs.done()
+                : Jobs.rescheduleAt(Instant.now().plus(RESEND_AFTER), next.get());
     }
 
     /**
-     * @return whether it was queued
+     * @return the request, if it was queued
      */
-    private boolean sendRequest(UUID statusId, UUID authorId) {
+    private Optional<PendingRequest> sendRequest(UUID statusId, UUID authorId, boolean onlyIfPending) {
+        var request = request(statusId, authorId, onlyIfPending);
+        request.ifPresent(this::send);
+        return request;
+    }
+
+    private Optional<PendingRequest> pendingRequest(UUID statusId, UUID authorId) {
+        return request(statusId, authorId, true);
+    }
+
+    private Optional<PendingRequest> request(UUID statusId, UUID authorId, boolean onlyIfPending) {
         var status = statuses.findAndHold(statusId, authorId);
         var author = actors.findLocalById(authorId);
         var quote = quotes.find(statusId);
-        if (status.isEmpty() || author.isEmpty() || quote.isEmpty() || quote.get().requestUri() == null) {
-            return false;
+        if (status.isEmpty() || author.isEmpty() || quote.isEmpty() || quote.get().requestUri() == null
+                || (onlyIfPending && quote.get().state() != QuoteState.PENDING)) {
+            return Optional.empty();
         }
         var quotedAuthor = Optional.ofNullable(quote.get().quotedAccountId()).flatMap(actors::findById)
                 .filter(actor -> actor.isActive() && !actors.isLocal(actor));
         if (quotedAuthor.isEmpty()) {
-            return false;
+            return Optional.empty();
         }
         var request = QuoteRequest.of(quote.get().requestUri(), notes.of(status.get(), author.get()),
                 quote.get().quotedUri(), quotedAuthor.get().uri());
-        deliveries.enqueue(
+        return Optional.of(new PendingRequest(quote.get(),
                 new OutboundActivity(request.id().toString(), author.get().id(), json.writeValueAsString(request),
                         WhileSuspended.DROP),
-                List.of(quotedAuthor.get().inboxUri()));
-        return true;
+                quotedAuthor.get().inboxUri()));
+    }
+
+    private void send(PendingRequest request) {
+        deliveries.enqueue(request.activity(), List.of(request.inbox()));
+    }
+
+    private record PendingRequest(StatusQuote quote, OutboundActivity activity, URI inbox) {
+
+        String id() {
+            return activity.id();
+        }
     }
 
     /**
