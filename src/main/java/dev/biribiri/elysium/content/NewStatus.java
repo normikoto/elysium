@@ -12,6 +12,7 @@ import java.util.UUID;
  * @param mediaIds    the author's uploads to attach, in order
  * @param quotedStatusId the status to quote, or null for none
  * @param quotePolicy who can quote this status, or null for the author's default
+ * @param poll        its poll, or null for none
  */
 public record NewStatus(
         String text,
@@ -22,7 +23,8 @@ public record NewStatus(
         UUID inReplyToId,
         List<UUID> mediaIds,
         UUID quotedStatusId,
-        QuotePolicy quotePolicy
+        QuotePolicy quotePolicy,
+        NewPoll poll
 ) {
 
     public NewStatus {
@@ -37,5 +39,13 @@ public record NewStatus(
     public NewStatus(String text, String spoilerText, String language, Visibility visibility, boolean sensitive,
                      UUID inReplyToId, List<UUID> mediaIds) {
         this(text, spoilerText, language, visibility, sensitive, inReplyToId, mediaIds, null, null);
+    }
+
+    /**
+     * A status with no poll.
+     */
+    public NewStatus(String text, String spoilerText, String language, Visibility visibility, boolean sensitive,
+                     UUID inReplyToId, List<UUID> mediaIds, UUID quotedStatusId, QuotePolicy quotePolicy) {
+        this(text, spoilerText, language, visibility, sensitive, inReplyToId, mediaIds, quotedStatusId, quotePolicy, null);
     }
 }

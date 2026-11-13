@@ -16,6 +16,7 @@ import java.util.UUID;
  * @param tags        the names of its hashtags as its server gave them, which are checked and normalized
  *                    when it's stored
  * @param attachments every attachment it has now, in order, which replace the ones it had
+ * @param poll        its poll now, or null if it has none
  */
 public record RemoteEdit(
         URI uri,
@@ -26,12 +27,22 @@ public record RemoteEdit(
         boolean sensitive,
         Instant editedAt,
         Collection<String> tags,
-        List<RemoteAttachment> attachments
+        List<RemoteAttachment> attachments,
+        RemotePoll poll
 ) {
 
     public RemoteEdit {
         tags = List.copyOf(tags);
         attachments = List.copyOf(attachments);
+    }
+
+    /**
+     * An edit that leaves the status with no poll.
+     */
+    public RemoteEdit(
+            URI uri, UUID authorId, String content, String spoilerText, String language, boolean sensitive,
+            Instant editedAt, Collection<String> tags, List<RemoteAttachment> attachments) {
+        this(uri, authorId, content, spoilerText, language, sensitive, editedAt, tags, attachments, null);
     }
 
     /**

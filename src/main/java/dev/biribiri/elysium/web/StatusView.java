@@ -16,9 +16,10 @@ import java.util.List;
  * @param publishedAt when the status was published, for people to read
  * @param boostedBy   the username of the local account whose boost this is shown for, or null
  * @param attachments the status's attachments, in order
+ * @param poll        the status's poll, or null if it has none
  */
 record StatusView(Status status, String authorName, String authorUrl, String url, String publishedAt, String boostedBy,
-                  List<AttachmentView> attachments) {
+                  List<AttachmentView> attachments, PollView poll) {
 
     private static final DateTimeFormatter DISPLAY =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC);
@@ -31,7 +32,8 @@ record StatusView(Status status, String authorName, String authorUrl, String url
                 status.uri().getRawPath(),
                 DISPLAY.format(status.publishedAt()),
                 null,
-                List.of());
+                List.of(),
+                null);
     }
 
     /**
@@ -48,7 +50,8 @@ record StatusView(Status status, String authorName, String authorUrl, String url
                 (status.url() == null ? status.uri() : status.url()).toString(),
                 DISPLAY.format(status.publishedAt()),
                 null,
-                List.of());
+                List.of(),
+                null);
     }
 
     /**
@@ -57,10 +60,14 @@ record StatusView(Status status, String authorName, String authorUrl, String url
     static StatusView boosted(Status status, Actor author, boolean local, Actor booster) {
         var view = of(status, author, local);
         return new StatusView(status, view.authorName, view.authorUrl, view.url, view.publishedAt, booster.username(),
-                List.of());
+                List.of(), null);
     }
 
     StatusView withAttachments(List<AttachmentView> attachments) {
-        return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, List.copyOf(attachments));
+        return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, List.copyOf(attachments), poll);
+    }
+
+    StatusView withPoll(PollView poll) {
+        return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, attachments, poll);
     }
 }

@@ -12,13 +12,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Mastodon's Status entity. Polls don't exist yet, so those fields hold the values a status without one would have.
+ * Mastodon's Status entity.
  *
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Polls and cards don't exist yet, so those fields \
-        are always null. A boost has the boosted status in `reblog`, and no content of its own. \
+        Mastodon's Status entity. Cards don't exist yet, so `card` is always null. A boost has the boosted status in `reblog`, and no content of its own. \
         `reblogs_count`, `favourites_count` and `quotes_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
         edited, or null if it never was.""")
@@ -49,7 +48,8 @@ record StatusResponse(
         List<StatusTagResponse> tags,
         List<Object> emojis,
         Object card,
-        Object poll,
+        @Schema(nullable = true, description = "Its poll, or null if it has none. A boost has none of its own.")
+        PollResponse poll,
         boolean favourited,
         boolean reblogged,
         boolean muted,
@@ -93,7 +93,7 @@ record StatusResponse(
     static StatusResponse from(
             Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
             List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
-            Object quote, QuoteApprovalResponse quoteApproval, long quotesCount) {
+            Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -119,7 +119,7 @@ record StatusResponse(
                 tags,
                 List.of(),
                 null,
-                null,
+                poll,
                 likes.favourited(),
                 boosts.reblogged(),
                 false,

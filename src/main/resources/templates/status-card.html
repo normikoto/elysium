@@ -12,10 +12,12 @@
         <summary th:text="${#strings.isEmpty(view.status.spoilerText)} ? 'Sensitive content' : ${view.status.spoilerText}"></summary>
         <div class="status-content" th:utext="${view.status.content}"></div>
         <div th:replace="~{status-card :: attachments(${view.attachments})}"></div>
+        <div th:replace="~{status-card :: poll(${view.poll})}"></div>
     </details>
     <th:block th:unless="${view.status.sensitive}">
         <div class="status-content" th:utext="${view.status.content}"></div>
         <div th:replace="~{status-card :: attachments(${view.attachments})}"></div>
+        <div th:replace="~{status-card :: poll(${view.poll})}"></div>
     </th:block>
 </article>
 <div class="status-attachments" th:fragment="attachments(attachments)" th:unless="${#lists.isEmpty(attachments)}">
@@ -31,5 +33,17 @@
         <a th:if="${attachment.kind == 'link'}" th:href="${attachment.href}" rel="nofollow noopener noreferrer"
            th:text="${attachment.description} ?: 'Attachment'"></a>
     </th:block>
+</div>
+<div class="status-poll" th:fragment="poll(poll)" th:if="${poll}">
+    <ul>
+        <li th:each="option : ${poll.options}">
+            <span th:text="${option.title}"></span>
+            <span class="status-poll-percent" th:if="${option.percent != null}" th:text="|${option.percent}%|"></span>
+        </li>
+    </ul>
+    <p class="status-poll-meta">
+        <span th:if="${poll.votes != null}" th:text="${poll.votes == 1} ? '1 vote' : |${poll.votes} votes|"></span>
+        <span th:if="${poll.closes != null}" th:text="${poll.ended} ? |Closed ${poll.closes}| : |Closes ${poll.closes}|"></span>
+    </p>
 </div>
 </html>

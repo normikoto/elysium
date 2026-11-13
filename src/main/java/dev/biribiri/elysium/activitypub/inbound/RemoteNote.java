@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.Focus;
 import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.content.RemotePoll;
 import dev.biribiri.elysium.content.RemoteQuote;
 import dev.biribiri.elysium.content.StatusService;
 import tools.jackson.databind.JsonNode;
@@ -37,6 +38,7 @@ import java.util.regex.Pattern;
  * @param attachments  what's in its {@code attachment} that has an HTTP or HTTPS URL, up to {@value #MAX_ATTACHMENTS}
  * @param quote        what it quotes, or null if it doesn't say
  * @param quotePolicy  its {@code interactionPolicy.canQuote}, or null if it has none
+ * @param poll         its poll, if it's a {@code Question} with options, or null
  */
 record RemoteNote(
         URI id,
@@ -54,7 +56,8 @@ record RemoteNote(
         List<String> hashtags,
         List<RemoteAttachment> attachments,
         RemoteQuote quote,
-        QuotePolicy quotePolicy) {
+        QuotePolicy quotePolicy,
+        RemotePoll poll) {
 
     /**
      * The properties that say what a note quotes, in the order Mastodon reads them. Only FEP-044f's comes with a way to ask
@@ -120,10 +123,14 @@ record RemoteNote(
 
     /**
      * @param node an object, embedded or fetched
-     * @return the note, or empty if this isn't a {@code Note} with an ID
+     * @return the note, or empty if this isn't a {@code Note} or a {@code Question} with an ID
      */
     static Optional<RemoteNote> read(JsonNode node) {
-        if (!node.isObject() || !ActivityJson.types(node.path("type")).contains("Note")) {
+        if (!node.isObject()) {
+            return Optional.empty();
+        }
+        var types = ActivityJson.types(node.path("type"));
+        if (!types.contains("Note") && !types.contains("Question")) {
             return Optional.empty();
         }
         var id = Optional.ofNullable(ActivityJson.text(node.path("id"))).flatMap(ActivityObject::parseUri);
@@ -146,7 +153,45 @@ record RemoteNote(
                 hashtags(node.path("tag")),
                 attachments(node.path("attachment")),
                 quote(node),
-                quotePolicy(node.path("interactionPolicy").path("canQuote"))));
+                quotePolicy(node.path("interactionPolicy").path("canQuote")),
+                types.contains("Question") ? poll(node, Instant.now()) : null));
+    }
+
+    /**
+     * A {@code Question}'s poll, as Mastodon sends it: each option is an object in {@code oneOf}, or in {@code anyOf} for
+     * one that allows more than one choice, with a {@code name}, and its votes in {@code replies.totalItems}. Some servers
+     * send {@code closed: true} rather than a date, which is read as closing now. Options with no name are left out.
+     *
+     * @return null if it has no options
+     */
+    static RemotePoll poll(JsonNode node, Instant now) {
+        var multiple = node.path("anyOf").isArray() && !node.path("anyOf").isEmpty();
+        var choices = node.path(multiple ? "anyOf" : "oneOf");
+        var options = new ArrayList<String>();
+        var counts = new ArrayList<Integer>();
+        for (var option : choices.isArray() ? choices : List.of(choices)) {
+            if (!option.isObject()) {
+                continue;
+            }
+            var name = ActivityJson.naturalText(option, "name");
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            options.add(name);
+            counts.add(count(option.path("replies").path("totalItems")));
+        }
+        if (options.isEmpty()) {
+            return null;
+        }
+        var closedNode = node.path("closed");
+        var closed = closedNode.isBoolean() ? (closedNode.asBoolean() ? now : null) : timestamp(closedNode);
+        var voters = node.path("votersCount");
+        return new RemotePoll(options, counts, multiple, timestamp(node.path("endTime")), closed,
+                voters.isNumber() && voters.canConvertToInt() ? voters.asInt() : null);
+    }
+
+    private static int count(JsonNode node) {
+        return node.isNumber() && node.canConvertToInt() ? Math.max(node.asInt(), 0) : 0;
     }
 
     private static RemoteQuote quote(JsonNode node) {

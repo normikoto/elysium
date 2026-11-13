@@ -1555,6 +1555,160 @@ check_quotes() {
     echo "$target and Elysium quoted each other's posts, with approvals, notifications, and a revocation where supported"
 }
 
+# A poll's status as Elysium stores it, waiting for it to arrive.
+elysium_poll_id() {
+    local text=$1 id
+    for _ in $(seq 1 60); do
+        id=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT s.id FROM status s JOIN poll p ON p.status_id = s.id WHERE s.text LIKE '%$text%'")
+        if [[ -n $id ]]; then
+            echo "$id"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium didn't store the poll \"$text\" as a poll"
+}
+
+# The lab user votes for the first option of alice's poll, once it's stored there.
+vote_from_peer() {
+    local uri=$1 id output body
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T -e STATUS_URI="$uri" mastodon-web bin/rails runner '
+                status = nil
+                60.times do
+                    status = Status.uncached { Status.find_by(uri: ENV["STATUS_URI"]) }
+                    break if status&.preloadable_poll
+                    sleep 2
+                end
+                VoteService.new.call(Account.find_local("lab"), status.preloadable_poll, [0])
+                puts "VOTED"')
+            echo "$output"
+            grep -qxF VOTED <<<"$output" || fail "Mastodon couldn't vote in $uri"
+            ;;
+        gotosocial)
+            for _ in $(seq 1 60); do
+                body=$(driver curl -fsS "https://gts.test/api/v1/accounts/$alice_id/statuses" \
+                    -H "Authorization: Bearer $token")
+                id=$(jq -r --arg uri "$uri" '.[] | select(.uri == $uri) | .poll.id // empty' <<<"$body")
+                [[ -n $id ]] && break
+                sleep 2
+            done
+            [[ -n $id ]] || fail "GoToSocial has no poll at $uri: $body"
+            driver curl -fsS -o /dev/null -X POST "https://gts.test/api/v1/polls/$id/votes" \
+                -H "Authorization: Bearer $token" --data-urlencode 'choices[]=0'
+            ;;
+        misskey)
+            for _ in $(seq 1 60); do
+                id=$(misskey_api users/notes "$(misskey_user_body)" \
+                    | jq -r --arg uri "$uri" '.[] | select(.uri == $uri and .poll != null) | .id')
+                [[ -n $id ]] && break
+                sleep 2
+            done
+            [[ -n $id ]] || fail "Misskey has no poll at $uri"
+            misskey_api notes/polls/vote "$(jq -cn --arg id "$id" '{noteId: $id, choice: 0}')" >/dev/null
+            ;;
+    esac
+}
+
+# The lab user posts a poll, and this prints what the other server calls it, for expect_peer_votes.
+poll_from_peer() {
+    local text=$1 output
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T -e TEXT="$text" mastodon-web bin/rails runner '
+                status = PostStatusService.new.call(Account.find_local("lab"), text: ENV.fetch("TEXT"),
+                    poll: {options: ["Yes", "No"], expires_in: 600})
+                puts "URI #{ActivityPub::TagManager.instance.uri_for(status)}"')
+            sed -n 's/^URI //p' <<<"$output"
+            ;;
+        gotosocial)
+            driver curl -fsS https://gts.test/api/v1/statuses -H "Authorization: Bearer $token" \
+                --data-urlencode "status=$text" --data-urlencode 'visibility=public' \
+                --data-urlencode 'poll[options][]=Yes' --data-urlencode 'poll[options][]=No' \
+                --data-urlencode 'poll[expires_in]=600' | jq -r .id
+            ;;
+        misskey)
+            misskey_api notes/create "$(jq -cn --arg text "$text" \
+                '{text: $text, visibility: "public", poll: {choices: ["Yes", "No"], expiredAfter: 600000}}')" \
+                | jq -r .createdNote.id
+            ;;
+    esac
+}
+
+# Waits for the other server to count alice's vote for the second option.
+expect_peer_votes() {
+    local ref=$1 output body
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T -e STATUS_URI="$ref" mastodon-web bin/rails runner '
+                matched = false
+                60.times do
+                    poll = Poll.uncached { Status.find_by(uri: ENV["STATUS_URI"])&.preloadable_poll&.reload }
+                    matched = poll && poll.cached_tallies == [0, 1]
+                    break if matched
+                    sleep 2
+                end
+                puts "VOTES #{matched}"')
+            echo "$output"
+            grep -qxF 'VOTES true' <<<"$output" || fail "Mastodon didn't count alice's vote in $ref"
+            ;;
+        gotosocial)
+            for _ in $(seq 1 60); do
+                body=$(driver curl -fsS "https://gts.test/api/v1/statuses/$ref" -H "Authorization: Bearer $token")
+                [[ $(jq -r '.poll.options[1].votes_count' <<<"$body") == 1 ]] && return
+                sleep 2
+            done
+            fail "GoToSocial didn't count alice's vote: $body"
+            ;;
+        misskey)
+            for _ in $(seq 1 60); do
+                body=$(misskey_api notes/show "$(jq -cn --arg id "$ref" '{noteId: $id}')")
+                [[ $(jq -r '.poll.choices[1].votes' <<<"$body") == 1 ]] && return
+                sleep 2
+            done
+            fail "Misskey didn't count alice's vote: $body"
+            ;;
+    esac
+}
+
+# Passing means that the other server read alice's Question and sent a vote that Elysium counted, which queues the Update
+# with the new counts, and that Elysium read the other server's Question and sent alice's vote, which it counted.
+check_polls() {
+    local write_token body uri id ref votes
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write:statuses)
+    body=$(driver curl -fsS https://elysium.test/api/v1/statuses -H "Authorization: Bearer $write_token" \
+        --data-urlencode 'status=A poll from Elysium' --data-urlencode 'visibility=public' \
+        --data-urlencode 'poll[options][]=Tea' --data-urlencode 'poll[options][]=Coffee' \
+        --data-urlencode 'poll[expires_in]=600')
+    uri=$(jq -r .uri <<<"$body")
+    id=$(jq -r .id <<<"$body")
+    expect_delivered "$uri#create"
+    vote_from_peer "$uri"
+    for _ in $(seq 1 60); do
+        votes=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+            "SELECT count(*) FROM poll_vote WHERE status_id = '$id' AND position = 0 AND uri IS NOT NULL")
+        [[ $votes -eq 1 ]] && break
+        sleep 2
+    done
+    [[ $votes -eq 1 ]] || fail "Elysium didn't count $target's vote in alice's poll"
+    [[ $(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT count(*) FROM scheduled_tasks WHERE task_name = 'poll-results'") -ge 1 ]] \
+        || fail "Elysium didn't queue the poll's new counts"
+    echo "$target voted in alice's poll, and Elysium counted it"
+
+    # Mentions alice, since she no longer follows lab by now, and the poll wouldn't be sent here otherwise.
+    ref=$(poll_from_peer '@alice@elysium.test A poll from the lab')
+    [[ -n $ref ]] || fail "$target couldn't post a poll"
+    id=$(elysium_poll_id 'A poll from the lab')
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/polls/$id/votes" \
+        -H "Authorization: Bearer $write_token" --data-urlencode 'choices[]=1'
+    expect_delivered "$expected_actor#votes/%"
+    expect_peer_votes "$ref"
+    echo "Elysium read $target's poll, and $target counted alice's vote"
+}
+
 # Passing means that the other server read manuallyApprovesFollowers from the Update that locking sends to followers, that
 # Elysium held the lab user's next Follow without answering it, and that the other server took the Reject and, for the request
 # after it, the Accept that alice sent once she decided. The lab user follows alice again at the end, and alice is unlocked,
@@ -2006,6 +2160,7 @@ case "$target" in
         check_likes gts.test
         check_boosts gts.test
         check_quotes gts.test
+        check_polls
         check_reports gts.test
         delete_from_gotosocial
         delete_from_elysium
@@ -2030,6 +2185,7 @@ case "$target" in
         check_likes mastodon.test
         check_boosts mastodon.test
         check_quotes mastodon.test
+        check_polls
         check_reports mastodon.test
         delete_from_mastodon
         delete_from_elysium
@@ -2052,6 +2208,7 @@ case "$target" in
         check_likes misskey.test
         check_boosts misskey.test
         check_quotes misskey.test
+        check_polls
         check_reports misskey.test
         delete_from_misskey
         delete_from_elysium
@@ -2063,4 +2220,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, boosts and unboosts, quotes, and reports, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, boosts and unboosts, quotes, polls and votes, and reports, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

@@ -7,6 +7,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
@@ -31,6 +32,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -53,6 +55,7 @@ class PagesController {
     private final RegistrationProperties registration;
     private final ProfileService profiles;
     private final MediaAttachments attachments;
+    private final PollService polls;
 
     PagesController(
             ActorService actors,
@@ -61,8 +64,10 @@ class PagesController {
             ContentNegotiationManager contentNegotiation,
             RegistrationProperties registration,
             ProfileService profiles,
-            MediaAttachments attachments) {
+            MediaAttachments attachments,
+            PollService polls) {
         this.attachments = attachments;
+        this.polls = polls;
         this.actors = actors;
         this.profiles = profiles;
         this.statuses = statuses;
@@ -196,14 +201,20 @@ class PagesController {
     }
 
     /**
-     * One lookup for every status on a page.
+     * One lookup for every status on a page, for its attachments and one for its polls.
      */
     private List<StatusView> withAttachments(List<StatusView> views) {
-        var found = attachments.findByStatuses(views.stream().map(view -> view.status().id()).distinct().toList());
+        var ids = views.stream().map(view -> view.status().id()).distinct().toList();
+        var found = attachments.findByStatuses(ids);
+        var foundPolls = polls.findAll(ids, Optional.empty());
+        var now = Instant.now();
         return views.stream()
                 .map(view -> view.withAttachments(found.getOrDefault(view.status().id(), List.of()).stream()
                         .map(attachment -> AttachmentView.of(attachment, instance))
                         .toList()))
+                .map(view -> Optional.ofNullable(foundPolls.get(view.status().id()))
+                        .map(poll -> view.withPoll(PollView.of(poll, now)))
+                        .orElse(view))
                 .toList();
     }
 

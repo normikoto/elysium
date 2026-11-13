@@ -3,10 +3,12 @@ package dev.biribiri.elysium.activitypub.vocab;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.Visibility;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -30,6 +32,11 @@ import java.util.Map;
  * @param misskeyQuote       the same, for servers that read Misskey's term, once the quote is approved
  * @param quoteAuthorization the quoted author's {@code QuoteAuthorization}, or null if there's none to show
  * @param interactionPolicy  who can quote it
+ * @param oneOf              a poll's options when only one can be chosen, which makes this a {@code Question}
+ * @param anyOf              a poll's options when any number can be chosen, which makes this a {@code Question}
+ * @param endTime            when a poll's voting closes
+ * @param closed             when a poll's voting closed, once it has
+ * @param votersCount        how many accounts have voted in a poll, which Mastodon's term is for
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record Note(
@@ -56,7 +63,12 @@ public record Note(
         URI quoteUrl,
         @JsonProperty("_misskey_quote") URI misskeyQuote,
         URI quoteAuthorization,
-        InteractionPolicy interactionPolicy
+        InteractionPolicy interactionPolicy,
+        List<PollOption> oneOf,
+        List<PollOption> anyOf,
+        String endTime,
+        String closed,
+        Integer votersCount
 ) {
 
     static final Map<String, Object> TERMS = terms();
@@ -77,6 +89,7 @@ public record Note(
         terms.put("toot", "http://joinmastodon.org/ns#");
         terms.put("blurhash", "toot:blurhash");
         terms.put("focalPoint", Map.of("@container", "@list", "@id", "toot:focalPoint"));
+        terms.put("votersCount", "toot:votersCount");
         terms.put("quote", Map.of("@id", "https://w3id.org/fep/044f#quote", "@type", "@id"));
         terms.put("quoteUri", "http://fedibird.com/ns#quoteUri");
         terms.put("quoteUrl", "as:quoteUrl");
@@ -118,6 +131,20 @@ public record Note(
     }
 
     /**
+     * One of a poll's options, as Mastodon has it: an anonymous {@code Note} named after the option, whose replies are
+     * its votes.
+     */
+    public record PollOption(String type, String name, Replies replies) {
+
+        static PollOption of(Poll.Option option) {
+            return new PollOption("Note", option.title(), new Replies("Collection", option.votesCount()));
+        }
+    }
+
+    public record Replies(String type, int totalItems) {
+    }
+
+    /**
      * A direct status is only addressed to the accounts it mentions, so its parent's author has to be mentioned to get it,
      * as on Mastodon.
      *
@@ -128,10 +155,12 @@ public record Note(
      * @param attachments  the status's attachments, in order
      * @param quote        what it quotes, or null if it doesn't
      * @param policy       who can quote it
+     * @param poll         its poll, or null if it has none
+     * @param now          what time it is, which decides whether the poll has closed
      */
     public static Note from(
             Status status, Actor author, URI inReplyTo, URI parentAuthor, List<Mention> mentions, List<Hashtag> hashtags,
-            List<Document> attachments, Quote quote, InteractionPolicy policy) {
+            List<Document> attachments, Quote quote, InteractionPolicy policy, Poll poll, Instant now) {
         var others = new ArrayList<String>();
         mentions.forEach(mention -> others.add(mention.href().toString()));
         if (parentAuthor != null && !parentAuthor.equals(author.uri()) && status.visibility() != Visibility.DIRECT) {
@@ -143,10 +172,12 @@ public record Note(
         var audience = Audience.of(status.visibility(), author, others);
         var shownQuote = quote != null && quote.shown() ? quote.quoted() : null;
 
+        var options = poll == null ? null : poll.options().stream().map(PollOption::of).toList();
+        var endsAt = poll == null ? null : poll.endsAt();
         return new Note(
                 CONTEXT,
                 status.uri(),
-                "Note",
+                poll == null ? "Note" : "Question",
                 author.uri(),
                 // Browsers get the status's page from the same URL as this document.
                 status.uri(),
@@ -168,7 +199,12 @@ public record Note(
                 shownQuote,
                 shownQuote,
                 quote != null && quote.shown() ? quote.authorization() : null,
-                policy);
+                policy,
+                poll != null && !poll.multiple() ? options : null,
+                poll != null && poll.multiple() ? options : null,
+                endsAt == null ? null : ActivityStreams.time(endsAt),
+                poll != null && poll.isExpired(now) ? ActivityStreams.time(endsAt) : null,
+                poll == null ? null : poll.votersCount());
     }
 
     private static List<Tag> tags(List<Mention> mentions, List<Hashtag> hashtags, URI quoted) {
@@ -187,16 +223,16 @@ public record Note(
         return new Note(
                 null, id, type, attributedTo, url, published, updated, to, cc, content, sensitive, summary, inReplyTo,
                 contentMap, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote, quoteAuthorization,
-                interactionPolicy);
+                interactionPolicy, oneOf, anyOf, endTime, closed, votersCount);
     }
 
     /**
      * @param updated when it last changed, for an {@code Update} sent for something other than an edit
      */
-    public Note withUpdated(java.time.Instant updated) {
+    public Note withUpdated(Instant updated) {
         return new Note(
                 context, id, type, attributedTo, url, published, ActivityStreams.time(updated), to, cc, content, sensitive,
                 summary, inReplyTo, contentMap, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote,
-                quoteAuthorization, interactionPolicy);
+                quoteAuthorization, interactionPolicy, oneOf, anyOf, endTime, closed, votersCount);
     }
 }

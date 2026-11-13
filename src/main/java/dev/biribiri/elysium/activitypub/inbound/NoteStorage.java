@@ -215,7 +215,8 @@ class NoteStorage {
                 note.hashtags(),
                 attachments(note, author),
                 note.quote(),
-                quotePolicy(note.quotePolicy(), author));
+                quotePolicy(note.quotePolicy(), author),
+                note.poll());
         return store.apply(remote).isPresent() ? Result.STORED : Result.TAKEN;
     }
 

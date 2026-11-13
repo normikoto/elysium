@@ -307,15 +307,10 @@ class StatusesIntegrationTests {
 
     @Test
     void rejectsFeaturesThatDoNotExistYet() throws Exception {
-        for (var body : List.of(
-                "{\"status\": \"Hello\", \"scheduled_at\": \"2030-01-01T00:00:00Z\"}",
-                "{\"status\": \"Hello\", \"poll\": {\"options\": [\"a\", \"b\"], \"expires_in\": 60}}")) {
-            mockMvc.perform(jsonCreateRequest(alice(), body)).andExpect(status().isUnprocessableContent());
-        }
-        for (var field : List.of("poll[options][]", "scheduled_at")) {
-            mockMvc.perform(createRequest(alice(), "Hello").param(field, "x"))
-                    .andExpect(status().isUnprocessableContent());
-        }
+        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Hello\", \"scheduled_at\": \"2030-01-01T00:00:00Z\"}"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(createRequest(alice(), "Hello").param("scheduled_at", "x"))
+                .andExpect(status().isUnprocessableContent());
         assertThat(jdbc.sql("SELECT count(*) FROM status").query(Long.class).single()).isZero();
     }
 
@@ -1174,7 +1169,7 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.configuration.statuses.max_media_attachments").value(4))
                 .andExpect(jsonPath("$.configuration.statuses.characters_reserved_per_url").value(23))
                 .andExpect(jsonPath("$.configuration.media_attachments.supported_mime_types", not(empty())))
-                .andExpect(jsonPath("$.configuration.polls.max_options").value(0))
+                .andExpect(jsonPath("$.configuration.polls.max_options").value(4))
                 .andExpect(jsonPath("$.configuration.accounts.max_featured_tags").value(0))
                 .andExpect(jsonPath("$.stats.status_count").value(1))
                 .andExpect(jsonPath("$.stats.domain_count").value(0))

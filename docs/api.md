@@ -12,8 +12,8 @@ differs from Mastodon in these ways:
 
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
-- Polls and scheduled posts aren't implemented. `poll` or `scheduled_at` with a value gets a 422 rather than being
-  ignored, and so does `poll` with a value in an edit.
+- Scheduled posts aren't implemented, and `scheduled_at` with a value gets a 422 rather than being ignored. Polls are
+  described below.
 - `media_ids` can have up to 4 of the user's uploads that aren't attached yet, as on Mastodon. A video or audio can't be
   attached with anything else, and a status with media can have no text. In an edit, `media_ids` lists every attachment
   the status is to have, in order, and a missing one keeps them. `media_attributes[]` only changes `description` and
@@ -28,7 +28,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
 - `GET /api/v1/statuses/:id/history` only has the versions of a status from another server that were sent here, so it
   can lack some that its server shows, and it has no versions from before the upgrade that added it. Only the latest 50
   versions of a status are kept. Only the current version has `media_attachments`, and earlier ones have none. Entries
-  have empty `emojis`, and a null `poll`.
+  have empty `emojis`. Their `poll` only has the `title` of each option that version's poll had, and is null for a version
+  with no poll, or from before the upgrade that added polls.
 - URLs, mentions, and hashtags in a status are linked. A mention of an account on another server is looked
   up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
   mention that can't be found, or one past that limit of an account that isn't already known here, stays as text rather
@@ -63,7 +64,7 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   followed here. When a local account starts following someone, up to 40 of their recent public and unlisted statuses are
   fetched as well, and these are ordered by when they were posted, so a client that's already loaded newer statuses
   won't be given them as new. Other older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
-  can differ from what the other server shows, and they never have `emojis` or a `poll`. Their `media_attachments` are
+  can differ from what the other server shows, and they never have `emojis`. Their `media_attachments` are
   copied here shortly after they arrive, as Mastodon does, and until then, or if they can't be, `url` and an image's
   `preview_url` are the same as `remote_url`. A copy is checked like an upload, so its type is what the file is, and a
   file that isn't an accepted format is `unknown`. Copies are removed after 30 days by default, and aren't fetched
@@ -125,6 +126,23 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   or not, and gets a 404 for a status that doesn't quote it. Revoking a quote from a server that can't ask for approval
   only hides it here.
 
+Polls follow [Mastodon's polls API](https://docs.joinmastodon.org/methods/polls/), with these differences:
+
+- A poll's `id` is its status's.
+- A new poll can have 2 to 4 options of up to 50 characters, which have to be different and not blank, and be open for
+  300 to 2629746 seconds, as on Mastodon, and `GET /api/v1/instance` gives these limits. `expires_in` is required. A
+  status with a poll has to have text, and can't have `media_ids`.
+- In `PUT /api/v1/statuses/:id`, a missing `poll` keeps the poll the status has, and a null or empty one removes it.
+  Changing its `options` or `multiple` makes it a new poll, as on Mastodon, which loses its votes and is open for
+  `expires_in` from then. Otherwise the poll keeps its votes and when it closes, and only `hide_totals` changes.
+- `voters_count` is null unless more than one option can be chosen. While a poll with `hide_totals` is open, each
+  option's `votes_count` is null, even for its author, and `votes_count` still has the total.
+- `POST /api/v1/polls/:id/votes` takes `choices[]` as a form, a query parameter, or JSON. A choice that isn't an option,
+  one given twice, more than one in a poll that allows one, or none at all, gets a 422.
+- A poll from another server has the counts its server last sent, and a vote from here is added to them until its server
+  sends new ones. `GET /api/v1/polls/:id` asks that server for new counts in the background when they're more than 5
+  minutes old, so a later request has them. It also asks once the poll ends.
+
 Uploads follow [Mastodon's media API](https://docs.joinmastodon.org/methods/media/), with the `write:media` scope, and
 with these differences:
 
@@ -159,9 +177,10 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
 - V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`, and `admin.report`
+- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`, `poll`, and `admin.report`
   notifications are generated. A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a
-  status that a user quoted. `admin.report` goes to each admin, except one who filed the report, and only admins see
+  status that a user quoted. A `poll` arrives within about a minute of a poll ending, for its author if they're a local
+  user, and for each local user who voted in it, and its `account` is the poll's author. `admin.report` goes to each admin, except one who filed the report, and only admins see
   them: an account that stops being an admin stops seeing them, in lists and counts, until it's an admin again. Its
   `account` is the reporter, which for a report from another server is whoever sent it there, usually that server's
   instance actor, and it isn't hidden by blocking or muting them. Subscribed-account posts, edits, and `admin.sign_up`

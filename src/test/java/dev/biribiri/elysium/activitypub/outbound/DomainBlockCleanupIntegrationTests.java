@@ -10,6 +10,8 @@ import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.NewPoll;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -51,6 +53,8 @@ class DomainBlockCleanupIntegrationTests {
     @Autowired
     private LikeService likes;
     @Autowired
+    private PollService polls;
+    @Autowired
     private BoostService boosts;
 
     private Actor local;
@@ -75,6 +79,17 @@ class DomainBlockCleanupIntegrationTests {
         await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM status_like WHERE actor_id = :id")
                 .param("id", liker.id()).query(Long.class).single() == 0);
         assertThat(likes.count(status.id())).isZero();
+    }
+
+    @Test
+    void removesVotesOfItsActors() {
+        var voter = remote(domain);
+        var status = statuses.create(local.id(), new NewStatus("Which?", null, null, Visibility.PUBLIC, false, null,
+                List.of(), null, null, new NewPoll(List.of("Tea", "Coffee"), 600, false, false)));
+        polls.receiveVote(status.id(), voter.id(), URI.create(voter.uri() + "#votes/1"), "Tea");
+        blocks.create(domain, null);
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM poll_vote WHERE voter_id = :id")
+                .param("id", voter.id()).query(Long.class).single() == 0);
     }
 
     @Test

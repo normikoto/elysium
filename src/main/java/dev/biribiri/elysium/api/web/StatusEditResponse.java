@@ -7,20 +7,20 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
- * Mastodon's StatusEdit entity. Polls and emoji don't exist yet, so those fields hold what a version without any of them
- * would have.
+ * Mastodon's StatusEdit entity. Emoji don't exist yet, so {@code emojis} is always empty.
  */
 @Schema(name = "StatusEdit", description = """
         Mastodon's StatusEdit entity: one version of a status. Only the current version has its \
-        `media_attachments`, since earlier ones don't keep theirs. Polls and emoji don't exist yet, so `emojis` is always \
-        empty, and `poll` is null.""")
+        `media_attachments`, since earlier ones don't keep theirs. `poll` only has the options a version's poll had, \
+        and is null for one without a poll, or from before the upgrade that added polls. Emoji don't exist yet, so \
+        `emojis` is always empty.""")
 record StatusEditResponse(
         String content,
         @JsonProperty("spoiler_text") String spoilerText,
         boolean sensitive,
         @JsonProperty("created_at") String createdAt,
         AccountResponse account,
-        Object poll,
+        PollResponse.Version poll,
         @JsonProperty("media_attachments") List<MediaAttachmentResponse> mediaAttachments,
         List<Object> emojis
 ) {
@@ -33,7 +33,8 @@ record StatusEditResponse(
                 version.sensitive(),
                 ApiTimestamps.format(version.since()),
                 account,
-                null,
+                version.pollOptions() == null ? null : new PollResponse.Version(version.pollOptions().stream()
+                        .map(PollResponse.VersionOption::new).toList()),
                 mediaAttachments,
                 List.of());
     }

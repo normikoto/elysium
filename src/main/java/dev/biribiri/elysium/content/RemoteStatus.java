@@ -24,6 +24,7 @@ import java.util.UUID;
  * @param attachments  its attachments, in order
  * @param quote        what it quotes, or null if it doesn't
  * @param quotePolicy  who its server says can quote it, or null if it doesn't say
+ * @param poll         its poll, or null if it has none
  */
 public record RemoteStatus(
         URI uri,
@@ -41,13 +42,25 @@ public record RemoteStatus(
         Collection<String> tags,
         List<RemoteAttachment> attachments,
         RemoteQuote quote,
-        QuoteApproval quotePolicy
+        QuoteApproval quotePolicy,
+        RemotePoll poll
 ) {
 
     public RemoteStatus {
         mentions = Map.copyOf(mentions);
         tags = List.copyOf(tags);
         attachments = List.copyOf(attachments);
+    }
+
+    /**
+     * A status with no poll.
+     */
+    public RemoteStatus(
+            URI uri, URI url, UUID authorId, String content, String spoilerText, String language, Visibility visibility,
+            boolean sensitive, URI inReplyToUri, Instant publishedAt, Instant editedAt, Map<UUID, Boolean> mentions,
+            Collection<String> tags, List<RemoteAttachment> attachments, RemoteQuote quote, QuoteApproval quotePolicy) {
+        this(uri, url, authorId, content, spoilerText, language, visibility, sensitive, inReplyToUri, publishedAt, editedAt,
+                mentions, tags, attachments, quote, quotePolicy, null);
     }
 
     /**

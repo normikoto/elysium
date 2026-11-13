@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.InvalidProfileException;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.InvalidMediaAttachmentException;
 import dev.biribiri.elysium.content.InvalidStatusException;
+import dev.biribiri.elysium.content.InvalidVoteException;
 import dev.biribiri.elysium.inbox.MarkerConflictException;
 import dev.biribiri.elysium.content.QuotedStatusNotFoundException;
 import dev.biribiri.elysium.content.ReplyParentNotFoundException;
@@ -31,6 +32,7 @@ import java.util.Map;
         ConversationsController.class,
         MarkersController.class,
         MediaController.class,
+        PollsController.class,
         AdminAccountsController.class,
         AdminReportsController.class,
         ReportsController.class,
@@ -55,6 +57,12 @@ class StatusApiErrors {
 
     @ExceptionHandler
     ResponseEntity<Map<String, String>> invalidStatus(InvalidStatusException e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(Map.of("error", "Validation failed: " + e.getMessage()));
+    }
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> invalidVote(InvalidVoteException e) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .body(Map.of("error", "Validation failed: " + e.getMessage()));
     }

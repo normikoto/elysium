@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;
 import dev.biribiri.elysium.graph.BlockService;
@@ -42,11 +43,13 @@ class AccountCleanupTask {
     private final FollowersOnlyRecipients followersOnly;
     private final PostingDefaults postingDefaults;
     private final Reports reports;
+    private final PollService polls;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
                        LikeService likes, MediaAttachments attachments, FollowersOnlyRecipients followersOnly,
-                       PostingDefaults postingDefaults, Reports reports) {
+                       PostingDefaults postingDefaults, Reports reports, PollService polls) {
+        this.polls = polls;
         this.reports = reports;
         this.followersOnly = followersOnly;
         this.postingDefaults = postingDefaults;
@@ -71,6 +74,7 @@ class AccountCleanupTask {
         actors.findById(job.actorId()).ifPresent(actor -> {
             if (actor.isDeleted()) {
                 likes.removeForActor(actor.id());
+                polls.removeForActor(actor.id());
                 statuses.removeAllBy(actor.id());
                 // Uploads it hadn't posted too, which removing its statuses doesn't reach.
                 attachments.removeAllBy(actor.id());

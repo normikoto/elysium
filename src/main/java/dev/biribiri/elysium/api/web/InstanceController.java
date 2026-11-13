@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.AttachmentProperties;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -100,7 +101,8 @@ public class InstanceController {
                         new InstanceResponse.Statuses(
                                 maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl()),
                         mediaAttachments(),
-                        new InstanceResponse.Polls(0, 0, 0, 0)),
+                        new InstanceResponse.Polls(Poll.MAX_OPTIONS, Poll.MAX_OPTION_CHARACTERS, Poll.MIN_EXPIRATION,
+                                Poll.MAX_EXPIRATION)),
                 null,
                 List.of());
     }
@@ -143,7 +145,8 @@ public class InstanceController {
                         new InstanceResponse.Statuses(
                                 maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl()),
                         mediaAttachments(),
-                        new InstanceResponse.Polls(0, 0, 0, 0),
+                        new InstanceResponse.Polls(Poll.MAX_OPTIONS, Poll.MAX_OPTION_CHARACTERS, Poll.MIN_EXPIRATION,
+                                Poll.MAX_EXPIRATION),
                         Map.of("enabled", false)),
                 new InstanceV2Response.Registrations(
                         registration.acceptsUninvited(), registration.approvalRequired(), null),

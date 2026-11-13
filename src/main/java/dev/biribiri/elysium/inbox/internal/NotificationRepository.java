@@ -129,6 +129,13 @@ public class NotificationRepository {
     }
 
     /**
+     * @param status the poll's status, which is also what identifies this, since a poll ends once
+     */
+    public void insertPoll(UUID recipient, UUID sender, UUID status) {
+        insert(recipient, sender, "poll", status, status, null, null, null, null);
+    }
+
+    /**
      * Nothing is added from a sender the recipient hides notifications from, as on Mastodon, so ending a mute doesn't bring
      * back what was sent during it.
      */

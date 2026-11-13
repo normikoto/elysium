@@ -1,6 +1,8 @@
 package dev.biribiri.elysium.inbox;
 
 import dev.biribiri.elysium.auth.AccountActions;
+import dev.biribiri.elysium.content.PollEnded;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteAccepted;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteStatusEdited;
@@ -36,9 +38,11 @@ public class InboxProjection {
     private final QuoteService quotes;
     private final Reports reports;
     private final AccountActions accounts;
+    private final PollService polls;
 
     InboxProjection(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
-                    Reports reports, AccountActions accounts) {
+                    Reports reports, AccountActions accounts, PollService polls) {
+        this.polls = polls;
         this.conversations = conversations;
         this.notifications = notifications;
         this.quotes = quotes;
@@ -116,6 +120,24 @@ public class InboxProjection {
         conversations.holdActors(List.of(event.authorId(), event.quotedAuthorId()));
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
                 .ifPresent(source -> notifications.insertQuote(event.quotedAuthorId(), event.authorId(), source.id()));
+    }
+
+    /**
+     * Tells the local voters in a poll that it's ended, and its author if they're local, as on Mastodon. The author is
+     * who it's from, so a voter who mutes them isn't told.
+     */
+    @ApplicationModuleListener
+    public void on(PollEnded event) {
+        var told = new ArrayList<>(conversations.localRecipients(polls.findVoters(event.statusId())));
+        if (event.local() && !told.contains(event.authorId())) {
+            told.add(event.authorId());
+        }
+        if (told.isEmpty()) return;
+        notifications.lock();
+        conversations.holdActors(people(told, event.authorId()));
+        conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
+                .ifPresent(source -> told.forEach(
+                        recipient -> notifications.insertPoll(recipient, event.authorId(), source.id())));
     }
 
     /**
