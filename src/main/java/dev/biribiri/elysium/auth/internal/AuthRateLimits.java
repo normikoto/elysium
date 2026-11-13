@@ -16,7 +16,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
- * Limits login and sign-up attempts, which are expensive because each one hashes a password.
+ * Limits login and sign-up attempts, which are expensive because each one hashes a password, and app registrations.
  *
  * <p>An attempt takes its slots before hashing and gets them back afterwards if it shouldn't count. Counting failures
  * only after hashing would let a burst of concurrent requests all pass the check before any failure was recorded. The
@@ -26,12 +26,14 @@ import java.util.function.Consumer;
  * so that it takes a lot of effort for someone else to lock an account out.
  */
 @Component
-class AuthRateLimits {
+public class AuthRateLimits {
 
     private static final int MAX_TRACKED_KEYS = 100_000;
     private static final String USERNAME_PARAMETER = "username";
     private static final String LOGIN_ATTEMPT_ATTRIBUTE = AuthRateLimits.class.getName() + ".loginAttempt";
     private static final String SIGN_UP_SLOT_ATTRIBUTE = AuthRateLimits.class.getName() + ".signUpSlot";
+    private static final String APP_REGISTRATION_SLOT_ATTRIBUTE =
+            AuthRateLimits.class.getName() + ".appRegistrationSlot";
 
     private final boolean enabled;
     private final ClientAddresses clients;
@@ -39,6 +41,7 @@ class AuthRateLimits {
     private final RateLimiter loginsByUsernameAndAddress;
     private final RateLimiter loginsByUsername;
     private final RateLimiter signUpsByAddress;
+    private final RateLimiter appRegistrationsByAddress;
 
     @Autowired
     AuthRateLimits(RateLimitProperties properties, ClientAddresses clients) {
@@ -52,6 +55,8 @@ class AuthRateLimits {
         this.loginsByUsernameAndAddress = new RateLimiter(5, Duration.ofMinutes(15), MAX_TRACKED_KEYS, ticker);
         this.loginsByUsername = new RateLimiter(50, Duration.ofHours(1), MAX_TRACKED_KEYS, ticker);
         this.signUpsByAddress = new RateLimiter(5, Duration.ofHours(1), MAX_TRACKED_KEYS, ticker);
+        // Some clients register a new app every time someone logs in, and several of them can share one address.
+        this.appRegistrationsByAddress = new RateLimiter(30, Duration.ofHours(1), MAX_TRACKED_KEYS, ticker);
     }
 
     /**
@@ -150,24 +155,49 @@ class AuthRateLimits {
      * @return how long to wait, if the attempt isn't allowed
      */
     Optional<Duration> beginSignUp(HttpServletRequest request) {
-        if (!enabled) {
-            return Optional.empty();
-        }
-        var address = clients.keyFor(request);
-        var slot = signUpsByAddress.tryAcquire(address);
-        if (slot.isEmpty()) {
-            return Optional.of(signUpsByAddress.timeUntilReset(address));
-        }
-        request.setAttribute(SIGN_UP_SLOT_ATTRIBUTE, slot.get());
-        return Optional.empty();
+        return begin(request, signUpsByAddress, SIGN_UP_SLOT_ATTRIBUTE);
     }
 
     /**
      * Gives back the slot of a sign-up that failed because of the server, such as when it's busy.
      */
     void signUpNotCounted(HttpServletRequest request) {
-        if (request.getAttribute(SIGN_UP_SLOT_ATTRIBUTE) instanceof Slot slot) {
-            request.removeAttribute(SIGN_UP_SLOT_ATTRIBUTE);
+        release(request, SIGN_UP_SLOT_ATTRIBUTE);
+    }
+
+    /**
+     * Starts registering an app, which needs no credentials and stores a client that's kept, so anyone could otherwise
+     * keep growing the database.
+     *
+     * @return how long to wait, if the registration isn't allowed
+     */
+    public Optional<Duration> beginAppRegistration(HttpServletRequest request) {
+        return begin(request, appRegistrationsByAddress, APP_REGISTRATION_SLOT_ATTRIBUTE);
+    }
+
+    /**
+     * Gives back the slot of an app registration that failed because of the server.
+     */
+    public void appRegistrationNotCounted(HttpServletRequest request) {
+        release(request, APP_REGISTRATION_SLOT_ATTRIBUTE);
+    }
+
+    private Optional<Duration> begin(HttpServletRequest request, RateLimiter limiter, String slotAttribute) {
+        if (!enabled) {
+            return Optional.empty();
+        }
+        var address = clients.keyFor(request);
+        var slot = limiter.tryAcquire(address);
+        if (slot.isEmpty()) {
+            return Optional.of(limiter.timeUntilReset(address));
+        }
+        request.setAttribute(slotAttribute, slot.get());
+        return Optional.empty();
+    }
+
+    private static void release(HttpServletRequest request, String slotAttribute) {
+        if (request.getAttribute(slotAttribute) instanceof Slot slot) {
+            request.removeAttribute(slotAttribute);
             slot.release();
         }
     }

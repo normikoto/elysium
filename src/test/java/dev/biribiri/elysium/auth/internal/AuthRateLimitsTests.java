@@ -225,17 +225,43 @@ class AuthRateLimitsTests {
     }
 
     @Test
+    void limitsAppRegistrationsFromAnAddress() {
+        for (var i = 0; i < 30; i++) {
+            assertThat(limits.beginAppRegistration(login(null, ADDRESS))).isEmpty();
+        }
+
+        assertThat(limits.beginAppRegistration(login(null, ADDRESS))).contains(Duration.ofHours(1));
+        assertThat(limits.beginAppRegistration(login(null, "203.0.113.2"))).isEmpty();
+        assertThat(limits.beginSignUp(login(null, ADDRESS))).isEmpty();
+
+        now.addAndGet(Duration.ofHours(1).toNanos());
+        assertThat(limits.beginAppRegistration(login(null, ADDRESS))).isEmpty();
+    }
+
+    @Test
+    void anAppRegistrationThatWasntCountedGivesBackItsSlot() {
+        for (var i = 0; i < 40; i++) {
+            var attempt = login(null, ADDRESS);
+            assertThat(limits.beginAppRegistration(attempt)).isEmpty();
+            limits.appRegistrationNotCounted(attempt);
+            limits.appRegistrationNotCounted(attempt);
+        }
+    }
+
+    @Test
     void doesNothingWhenDisabled(CapturedOutput output) {
         var disabled = limits(false, "https://example.com");
 
         for (var i = 0; i < 100; i++) {
             assertThat(disabled.beginLogin(login("alice", ADDRESS))).isEmpty();
             assertThat(disabled.beginSignUp(login(null, ADDRESS))).isEmpty();
+            assertThat(disabled.beginAppRegistration(login(null, ADDRESS))).isEmpty();
         }
         disabled.loginSucceeded(login("alice", ADDRESS));
         disabled.loginFailed(login("alice", ADDRESS));
         disabled.loginNotCounted(login("alice", ADDRESS));
         disabled.signUpNotCounted(login(null, ADDRESS));
+        disabled.appRegistrationNotCounted(login(null, ADDRESS));
         disabled.beginLogin(login("alice", "127.0.0.1"));
 
         assertThat(output).doesNotContain("forward-headers-strategy");

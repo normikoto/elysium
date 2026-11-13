@@ -268,7 +268,7 @@ Revoking an app logs it out of that person's account straight away, and it has t
 of the same app isn't affected.
 
 ## Rate limits
-Logins and sign-ups are limited, and requests over a limit get a `429` response:
+Logins, sign-ups, and app registrations are limited, and requests over a limit get a `429` response:
 
 | Attempts                                         | Limit             |
 |--------------------------------------------------|-------------------|
@@ -278,6 +278,7 @@ Logins and sign-ups are limited, and requests over a limit get a `429` response:
 | Wrong two-factor codes for one account from one address | 5 per 15 minutes |
 | Wrong two-factor codes for one account from any address | 50 per hour |
 | Sign-ups from one address                        | 5 per hour        |
+| Apps registered from one address                 | 30 per hour       |
 
 Wrong two-factor codes also count toward the limit for their address. After 5 wrong codes in a row, logging in starts again
 from the password, and so does waiting more than 5 minutes after typing it.

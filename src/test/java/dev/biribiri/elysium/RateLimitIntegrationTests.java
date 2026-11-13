@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -37,6 +38,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -256,6 +258,31 @@ class RateLimitIntegrationTests {
     }
 
     @Test
+    void turnsAwayAppRegistrationsOverTheLimitAsJson() throws Exception {
+        var address = newAddress();
+        for (var i = 0; i < 30; i++) {
+            registerApp(address, "urn:ietf:wg:oauth:2.0:oob").andExpect(status().isOk());
+        }
+
+        registerApp(address, "urn:ietf:wg:oauth:2.0:oob")
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.error").value("Too many requests"));
+        registerApp(newAddress(), "urn:ietf:wg:oauth:2.0:oob").andExpect(status().isOk());
+    }
+
+    @Test
+    void invalidAppRegistrationsDontCount() throws Exception {
+        var address = newAddress();
+        for (var i = 0; i < 40; i++) {
+            registerApp(address, "relative/path").andExpect(status().isUnprocessableContent());
+        }
+
+        registerApp(address, "urn:ietf:wg:oauth:2.0:oob").andExpect(status().isOk());
+    }
+
+    @Test
     void wrongPasswordsOnTheDeletePageCountAgainstTheAccount() throws Exception {
         var username = "deletelimit" + nextAddress.incrementAndGet();
         createAccount(username);
@@ -327,6 +354,12 @@ class RateLimitIntegrationTests {
         return mockMvc.perform(from(address, post("/login")).with(csrf())
                 .param("username", username)
                 .param("password", password));
+    }
+
+    private ResultActions registerApp(String address, String redirectUri) throws Exception {
+        return mockMvc.perform(from(address, post("/api/v1/apps")).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("client_name", "Rate limited app")
+                .param("redirect_uris", redirectUri));
     }
 
     private ResultActions signUp(String username, String password, String address) throws Exception {
