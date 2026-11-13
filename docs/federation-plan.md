@@ -149,8 +149,7 @@ This was the largest step, and the first where other servers' content is stored 
   - Left open: blocking someone doesn't revoke their quotes, a quote can't be changed or removed by an edit, and a rejected quote can't ask again.
   - Left open: web pages only show a quote's fallback link.
 - **Polls (#130):** `Question`s in both directions, as Mastodon sends them, with votes sent as `Create`s of named `Note`s. A remote poll keeps the counts its server sends, which answers the question on #130: local votes are added until the next `Update`, and the `Question` is fetched again when it ends and when it's viewed with counts more than 5 minutes old. A local poll's counts go out in an `Update` 3 minutes after a vote, as on Mastodon, and when it ends. Changing a poll's options or `multiple` resets its votes, both ways. `poll` notifications go to local voters and authors when a poll ends.
-  - `federation/smoke.sh` has Elysium and Mastodon vote in each other's polls.
-  - Left open: `check_polls` hasn't been run against GoToSocial or Misskey yet.
+  - `federation/smoke.sh` has Elysium vote in each lab server's poll, and each lab server vote in Elysium's, on all three.
   - Left open: a vote is only counted if the voter could fetch the poll, so a voter on a server that got a followers-only poll through a boost, and doesn't follow its author, can't vote in it.
 
 ## Work across milestones
