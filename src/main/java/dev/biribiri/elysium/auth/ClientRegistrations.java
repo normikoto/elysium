@@ -69,7 +69,20 @@ public class ClientRegistrations {
         validateWebsite(website);
         var parsedScopes = OAuthScopes.parse(scopes);
         validateScopes(parsedScopes);
+        // The slot is taken before saving, so that concurrent registrations can't all get past the limit.
+        var wait = limits.beginAppRegistration(request);
+        if (wait.isPresent()) {
+            throw new AppRegistrationLimitException(wait.get());
+        }
+        try {
+            return save(name, redirectUris, parsedScopes, website);
+        } catch (RuntimeException e) {
+            limits.appRegistrationNotCounted(request);
+            throw e;
+        }
+    }
 
+    private NewClient save(String name, List<String> redirectUris, Set<String> parsedScopes, String website) {
         var clientSettings = ClientSettings.builder()
                 .requireProofKey(false)
                 .requireAuthorizationConsent(true);
@@ -94,17 +107,7 @@ public class ClientRegistrations {
                         .accessTokenTimeToLive(ACCESS_TOKEN_LIFETIME)
                         .build())
                 .build();
-        // The slot is taken before saving, so that concurrent registrations can't all get past the limit.
-        var wait = limits.beginAppRegistration(request);
-        if (wait.isPresent()) {
-            throw new AppRegistrationLimitException(wait.get());
-        }
-        try {
-            clients.save(client);
-        } catch (RuntimeException e) {
-            limits.appRegistrationNotCounted(request);
-            throw e;
-        }
+        clients.save(client);
 
         return new NewClient(toApplication(client, parsedScopes, redirectUris), secret);
     }
