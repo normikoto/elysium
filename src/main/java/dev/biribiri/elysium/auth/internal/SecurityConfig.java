@@ -13,6 +13,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -81,7 +82,9 @@ class SecurityConfig {
 
     private static final String[] PUBLIC_PATHS = {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
-            "/users/*/followers", "/users/*/following", "/tags/*", "/users/*/outbox", "/users/*/statuses/*", "/users/*/statuses/*/likes", "/users/*/statuses/*/shares", "/users/*/quote_authorizations/*", "/actor", "/actor/outbox", "/actuator/health", "/actuator/health/**", "/images/*", "/media/*", "/api-docs/**",
+            "/users/*/followers", "/users/*/following", "/tags/*", "/users/*/outbox", "/users/*/statuses/*",
+            "/users/*/statuses/*/likes", "/users/*/statuses/*/shares", "/users/*/quote_authorizations/*", "/actor",
+            "/actor/outbox", "/actuator/health", "/actuator/health/**", "/images/*", "/media/*", "/api-docs/**",
             "/api-docs.yaml"
     };
 
@@ -90,7 +93,8 @@ class SecurityConfig {
      * matched by an ID's characters, so that paths such as {@code verify_credentials} still need a token.
      */
     private static final String[] PUBLIC_API_PATHS = {
-            "/api/v1/instance", "/api/v2/instance", "/api/v1/statuses/*", "/api/v1/statuses/*/context", "/api/v1/statuses/*/history",
+            "/api/v1/instance", "/api/v2/instance", "/api/v1/statuses/*", "/api/v1/statuses/*/context",
+            "/api/v1/statuses/*/history",
             "/api/v1/accounts/*/statuses",
             "/api/v1/timelines/public", "/api/v1/timelines/tag/*", "/api/v1/tags/*",
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}", "/api/v1/accounts/{id:[0-9a-fA-F-]+}/followers",
@@ -141,8 +145,7 @@ class SecurityConfig {
             OAuthResponses responses,
             AdminAccess adminAccess,
             ActorService actors,
-            LocalAccounts accounts)
-            throws Exception {
+            LocalAccounts accounts) {
         return http
                 .securityMatcher(authorizationServerRequests())
                 .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
@@ -159,13 +162,12 @@ class SecurityConfig {
      */
     @Bean
     @Order(2)
-    SecurityFilterChain apiChain(HttpSecurity http, OpaqueTokenIntrospector introspector, OAuthResponses responses)
-            throws Exception {
+    SecurityFilterChain apiChain(HttpSecurity http, OpaqueTokenIntrospector introspector, OAuthResponses responses) {
         return http
                 .securityMatcher("/api/**")
                 .cors(cors -> cors.configurationSource(clientCors()))
                 // There's no session to protect, and app registration is called with no credentials at all.
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(requests -> requests
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
@@ -175,8 +177,8 @@ class SecurityConfig {
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(server -> server
                         .opaqueToken(token -> token.introspector(introspector))
-                        .authenticationEntryPoint((request, response, e) -> responses.invalidToken(response))
-                        .accessDeniedHandler((request, response, e) -> responses.insufficientScope(response)))
+                        .authenticationEntryPoint((_, response, _) -> responses.invalidToken(response))
+                        .accessDeniedHandler((_, response, _) -> responses.insufficientScope(response)))
                 .build();
     }
 
@@ -186,13 +188,13 @@ class SecurityConfig {
      */
     @Bean
     @Order(3)
-    SecurityFilterChain inboxChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain inboxChain(HttpSecurity http) {
         return http
                 .securityMatcher(new OrRequestMatcher(
                         pathPattern(HttpMethod.POST, "/inbox"),
                         pathPattern(HttpMethod.POST, "/actor/inbox"),
                         pathPattern(HttpMethod.POST, "/users/*/inbox")))
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(requests -> requests.anyRequest().permitAll())
                 .build();
@@ -211,8 +213,7 @@ class SecurityConfig {
             InstanceProperties instance,
             ActorService actors,
             LocalAccounts accounts,
-            TwoFactorAccounts twoFactor)
-            throws Exception {
+            TwoFactorAccounts twoFactor) {
         var pagesNeedingLogin = new OrRequestMatcher(
                 adminPageRequests(),
                 pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH),
@@ -303,7 +304,7 @@ class SecurityConfig {
                 // a bare 403. The job UI's API calls are among them, because they couldn't use a login page as a response.
                 .exceptionHandling(exceptions -> exceptions
                         .defaultAuthenticationEntryPointFor(new LoginUrlAuthenticationEntryPoint(LOGIN_PATH), pagesNeedingLogin)
-                        .defaultAuthenticationEntryPointFor(new Http403ForbiddenEntryPoint(), request -> true))
+                        .defaultAuthenticationEntryPointFor(new Http403ForbiddenEntryPoint(), _ -> true))
                 .build();
     }
 
