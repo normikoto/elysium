@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -127,7 +128,9 @@ class UnauthorizedClientCleanupIntegrationTests {
     }
 
     private String register(String name) {
-        return registrations.register(name, List.of("urn:ietf:wg:oauth:2.0:oob"), "read", null).application().id();
+        return registrations.register(new MockHttpServletRequest(), name, List.of("urn:ietf:wg:oauth:2.0:oob"), "read", null)
+                .application()
+                .id();
     }
 
     private OAuth2Authorization authorization(String clientId, boolean withToken) {

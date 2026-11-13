@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A limit of 30 app registrations an hour from each address, since `POST /api/v1/apps` needs no login. Behind a
+  reverse proxy it needs the same setup as the other limits, and `elysium.rate-limit.enabled=false` turns it off. See `docs/accounts.md` and `docs/api.md`.
 - Apps that nobody has authorized a day after they register are removed, since anyone can register one without logging
   in. On upgrading, apps with no token and no approval left are removed too, which includes ones that everyone has
   revoked. Those apps have to register again. See `docs/accounts.md` and `docs/api.md`.

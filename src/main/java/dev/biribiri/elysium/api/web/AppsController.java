@@ -1,15 +1,19 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.auth.AppRegistrationLimitException;
 import dev.biribiri.elysium.auth.ClientRegistrations;
 import dev.biribiri.elysium.auth.InvalidClientRegistrationException;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -42,11 +46,12 @@ class AppsController {
     }
 
     @PostMapping(consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
-    ApplicationResponse registerFromForm(@RequestParam MultiValueMap<String, String> form) {
+    ApplicationResponse registerFromForm(@RequestParam MultiValueMap<String, String> form, HttpServletRequest request) {
         var redirectUris = new ArrayList<String>();
         addAll(redirectUris, form.get("redirect_uris"));
         addAll(redirectUris, form.get("redirect_uris[]"));
         return ApplicationResponse.withCredentials(registrations.register(
+                request,
                 form.getFirst("client_name"),
                 splitRedirectUris(redirectUris),
                 form.getFirst("scopes"),
@@ -59,18 +64,22 @@ class AppsController {
             operationId = "createApp",
             summary = "Register an application",
             description = """
-                    Needs no token. The response is the only time `client_secret` is shown. An application that isn't approved \
-                    or issued a token within a day of registering is removed, and has to register again. A token from the \
-                    `client_credentials` grant is enough to keep it.""",
+                    Needs no token. The response is the only time `client_secret` is shown. Each address can register \
+                    30 applications an hour, and then gets a 429. Requests that get a 422 don't count. An application \
+                    that isn't approved or issued a token within a day of registering is removed, and has to register \
+                    again. A token from the `client_credentials` grant is enough to keep it.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "apps/#create"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The application, with its credentials."),
                     @ApiResponse(responseCode = "422", description = """
-                            The name, a redirect URI, the website, or a scope is missing or invalid.""")
+                            The name, a redirect URI, the website, or a scope is missing or invalid."""),
+                    @ApiResponse(responseCode = "429", description = "This address has registered too many applications.",
+                            headers = @Header(name = "Retry-After", description = "Seconds until there's room again.",
+                                    schema = @Schema(type = "integer")))
             })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewAppBody.class)))
-    ApplicationResponse registerFromJson(@RequestBody Map<String, Object> body) {
+    ApplicationResponse registerFromJson(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         var redirectUris = new ArrayList<String>();
         switch (body.get("redirect_uris")) {
             case String uris -> redirectUris.add(uris);
@@ -82,6 +91,7 @@ class AppsController {
             }
         }
         return ApplicationResponse.withCredentials(registrations.register(
+                request,
                 string(body.get("client_name")),
                 splitRedirectUris(redirectUris),
                 string(body.get("scopes")),
@@ -107,6 +117,13 @@ class AppsController {
     ResponseEntity<Map<String, String>> invalidRegistration(InvalidClientRegistrationException e) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .body(Map.of("error", "Validation failed: " + e.getMessage()));
+    }
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> tooManyRegistrations(AppRegistrationLimitException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, e.retryAfterSeconds())
+                .body(Map.of("error", e.getMessage()));
     }
 
     /**
