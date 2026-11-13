@@ -24,6 +24,10 @@
         .status-attachments { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); margin: 0.5rem 0; }
         .status-attachments img, .status-attachments video, .status-attachments audio { display: block; max-width: 100%; }
         .status-attachments img { aspect-ratio: 16 / 9; object-fit: cover; width: 100%; }
+        .status-poll ul { list-style: none; margin: 0.5rem 0; padding: 0; }
+        .status-poll li { display: flex; gap: 1rem; justify-content: space-between; overflow-wrap: anywhere; }
+        .status-poll-meta { color: color-mix(in srgb, currentColor 65%, transparent); font-size: 0.9em; }
+        .status-poll-meta span + span::before { content: " · "; }
         summary { cursor: pointer; overflow-wrap: anywhere; }
         textarea { box-sizing: border-box; font: inherit; padding: 0.5rem; width: 100%; }
         fieldset { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); margin-top: 1rem; }

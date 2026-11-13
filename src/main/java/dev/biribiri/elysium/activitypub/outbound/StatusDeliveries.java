@@ -177,9 +177,18 @@ public class StatusDeliveries {
      *               does, and the {@code Create} shouldn't say that of a status that hasn't been edited.
      */
     void sendUpdate(Status status, Actor author, Note note, Update update) {
+        sendUpdate(status, author, note, update, List.of());
+    }
+
+    /**
+     * @param also who else to send it to, besides those who have the status
+     */
+    void sendUpdate(Status status, Actor author, Note note, Update update, Collection<URI> also) {
         var create = Create.of(note);
         deliveries.replaceBody(create.id().toString(), json.writeValueAsString(create));
-        var inboxes = everyoneSent(status, true);
+        var everyone = new LinkedHashSet<>(everyoneSent(status, true));
+        everyone.addAll(also);
+        var inboxes = List.copyOf(everyone);
         if (inboxes.isEmpty()) {
             return;
         }

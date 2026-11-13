@@ -20,6 +20,8 @@ import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.NewPoll;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -59,6 +61,8 @@ class AccountCleanupIntegrationTests {
     private StatusService statuses;
     @Autowired
     private LikeService likes;
+    @Autowired
+    private PollService polls;
     @Autowired
     private BoostService boosts;
     @Autowired
@@ -121,6 +125,17 @@ class AccountCleanupIntegrationTests {
         await().atMost(WAIT).until(() -> count("SELECT count(*) FROM status_like WHERE actor_id = :id", local.id()) == 0);
         assertThat(likes.count(status.id())).isZero();
         assertThat(count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id AND type = 'favourite'", local.id())).isZero();
+    }
+
+    @Test
+    void deletingAVoterRemovesItsVotes() {
+        var author = newLocal();
+        var status = statuses.create(author.id(), new NewStatus("Which?", null, null, Visibility.PUBLIC, false, null,
+                List.of(), null, null, new NewPoll(List.of("Tea", "Coffee"), 600, false, false)));
+        assertThat(polls.vote(status.id(), local.id(), List.of(0))).isPresent();
+        actors.markDeleted(local.id());
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM poll_vote WHERE voter_id = :id", local.id()) == 0);
+        assertThat(polls.find(status.id(), Optional.empty()).orElseThrow().votesCount()).isZero();
     }
 
     @Test

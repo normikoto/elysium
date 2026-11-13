@@ -7,13 +7,12 @@ import java.util.List;
 
 /**
  * Mastodon's V1 Instance entity, plus Pleroma's {@code max_toot_chars}. Clients read the post length limit from one or
- * the other, so both are included. Features that don't exist yet report zero limits, and fields with no setting yet are
+ * the other, so both are included. Fields with no setting yet are
  * empty, because some clients fail to parse a response with fields missing.
  */
 @Schema(name = "Instance", description = """
-        Mastodon's V1 Instance entity, plus Pleroma's `max_toot_chars`. Media and polls don't exist, so their limits \
-        are zero, and settings that don't exist yet, such as the description and contact account, are empty or \
-        null.""")
+        Mastodon's V1 Instance entity, plus Pleroma's `max_toot_chars`. Settings that don't exist yet, such as the \
+        description and contact account, are empty or null.""")
 record InstanceResponse(
         String uri,
         String title,

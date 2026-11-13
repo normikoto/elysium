@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Polls, as on Mastodon. A post can have a poll with 2 to 4 options, open for 5 minutes to a month, which people vote in
+  with `POST /api/v1/polls/:id/votes`. A poll's author and its voters get a `poll` notification when it ends, and its
+  options and percentages are shown on its web page. Polls from other servers are shown with the counts their servers
+  send, and votes in them are sent there. Polls are federated as `Question`s, as Mastodon does. See `docs/api.md` and
+  `FEDERATION.md`.
 - Reports. People can report an account and some of its posts with `POST /api/v1/reports`, and choose to send a report of
   an account on another server to that server, without saying who reported it. Reports from other servers are accepted
   too. Admins get an `admin.report` notification for each new report, and handle reports at `/admin/reports` or through

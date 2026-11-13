@@ -8,13 +8,14 @@ reply to a status that's stored here, or are boosted by an actor that a local us
 statuses are counted. Their images, video, and audio are sent and read as attachments, and other servers' are
 downloaded and served from here for a while. Its users can quote statuses, and quotes from other servers are shown once
 the quoted author has approved them, as FEP-044f has it. Reports of local accounts from other servers are passed to
-admins, and its users can have their reports of remote accounts sent on. Polls and other activities aren't supported yet.
+admins, and its users can have their reports of remote accounts sent on. Polls are sent and read as `Question`s, and
+votes in them are counted and sent as Mastodon does.
 
 ## Supported federation protocols and standards
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `Announce`, and `Block`
-  and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note`,
-  `Update` of an actor or a `Note`, `Delete`, and `Flag`, and sending `Follow`, `Like`, `Announce`, and `Block` and their
+  and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note` or a
+  `Question`, `Update` of an actor, a `Note`, or a `Question`, `Delete`, and `Flag`, and sending `Follow`, `Like`, `Announce`, and `Block` and their
   `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, `Delete`, and `Flag`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
@@ -560,7 +561,8 @@ with the author's `followers` collection addressed, or one it addresses. A publi
 user, or every such follower, [blocks](#blocks) the `Note`'s author or its server. That covers a
 reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
 followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
-that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts) or [backfilled](#backfill). Other object types, such as `Article`, `Page`, and `Question`, are ignored.
+that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts) or [backfilled](#backfill). A `Question` is stored as a status with a [poll](#receiving-polls), and a `Note` that's a vote in a local poll is
+[counted](#voting-in-a-local-poll). Other object types, such as `Article` and `Page`, are ignored.
 
 - **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
   same host and port. Anything else is dropped.
@@ -586,7 +588,7 @@ that isn't for anyone here is ignored, even if it's public, unless it's [boosted
 - **Other properties:** `url` is kept if it's an HTTP or HTTPS URL, or a `Link` to one that's `text/html` or has no
   `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
   other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the
-  parent arrives later. Tags other than `Mention` and `Hashtag`, emoji, and polls aren't read yet.
+  parent arrives later. Tags other than `Mention` and `Hashtag`, and emoji, aren't read yet.
 - **Attachments:** each `Document`, `Image`, `Video`, or `Audio` in `attachment`, one object or an array, up to 16 in
   order, as Misskey allows. Its `url` is a string, a `Link`, or an array of them, and the first HTTP or HTTPS one is
   taken. One without such a URL is left out. Its `mediaType` decides whether it's shown as an image, video, or audio,
@@ -626,7 +628,8 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, the language, the
   `Hashtag` tags, and the attachments are replaced, and read as they are for a `Create`. An attachment with the same
   `url` as before is updated rather than replaced. Its visibility, `inReplyTo`, `url`, and `published` aren't
-  changed. Other object types, such as `Question`, are ignored.
+  changed. A `Question` is read the same way, and its [poll](#receiving-polls) is replaced too. Other object types are
+  ignored.
 - **Order:** the `Note` needs an `updated`, and is only applied if that's later than its `published` and the edit stored
   last. Activities are processed in no order, so one that's older is ignored, and one without `updated` is ignored too, as
   is one more than an hour ahead of this server's clock, which would keep later edits from being applied. One that changes
@@ -924,6 +927,90 @@ arrives first is remembered for 34 days, like a status's, and a quote that names
 - Approvals aren't checked again later, so a revocation that isn't sent here isn't seen.
 - Quotes are never approved by hand, and a remote status's `manualApproval` is only shown to clients.
 
+### Polls
+
+Polls are `Question` objects, as on Mastodon. A local status with a poll is a `Question` rather than a `Note`, everywhere a
+`Note` is sent or served, with its options in `oneOf`, or in `anyOf` when more than one can be chosen. Each option is an
+anonymous `Note` with the option in `name`, and its votes in `replies.totalItems`. `endTime` is when voting closes, `closed`
+is added once it has, with the same time, and Mastodon's `votersCount` is how many actors have voted:
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams", {"toot": "http://joinmastodon.org/ns#",
+    "votersCount": "toot:votersCount"}],
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000",
+  "type": "Question",
+  "attributedTo": "https://elysium.example/users/alice",
+  "content": "<p>Tea or coffee?</p>",
+  "endTime": "2026-01-02T00:00:00Z",
+  "votersCount": 3,
+  "oneOf": [
+    {"type": "Note", "name": "Tea", "replies": {"type": "Collection", "totalItems": 2}},
+    {"type": "Note", "name": "Coffee", "replies": {"type": "Collection", "totalItems": 1}}
+  ]
+}
+```
+
+Its other properties are a `Note`'s. A local poll has 2 to 4 options, of up to 50 characters, and is open for 5 minutes to a
+month. Counts are always sent, even for a poll whose totals are hidden from local users until it ends.
+
+#### Voting in a local poll
+
+A vote is a `Create` of a `Note` whose `name` is the option chosen, exactly, and whose `inReplyTo` is the poll, with no
+`content`, as Mastodon sends it:
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/users/bob#votes/1/activity",
+  "type": "Create",
+  "actor": "https://example.com/users/bob",
+  "to": ["https://elysium.example/users/alice"],
+  "object": {
+    "id": "https://example.com/users/bob#votes/1",
+    "type": "Note",
+    "attributedTo": "https://example.com/users/bob",
+    "to": ["https://elysium.example/users/alice"],
+    "name": "Tea",
+    "inReplyTo": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000"
+  }
+}
+```
+
+It has [the same checks as any `Create`](#receiving-statuses): the `Note` has to be attributed to the `actor` alone, with an
+`id` on the same host and port. The voter has to be an actor that would be [served](#objects) the poll, and the poll has
+to be open. A vote is counted once for each option, and once in all for a poll that allows one choice, so later votes, and
+a repeat of the same `id`, are ignored. A vote that isn't counted is dropped, rather than stored as a reply, and nothing is
+sent back.
+
+About 3 minutes after a vote, an `Update` of the `Question` with its new counts goes to everyone its
+[`Create`](#statuses) went to, and to the servers of the actors that voted in it. Votes in those 3 minutes share one
+`Update`. Another is sent when the poll ends, with `closed`. Neither changes `updated`, since the status wasn't edited, and
+Mastodon reads them as new counts. Each has its own `id`, starting with the status's ID and `#updates/`, as an edit's does.
+
+#### Votes from here
+
+A local user's vote in a poll from another server is sent to the poll's author only, at their `inbox`, in the same shape
+as above: one `Create` for each option chosen, with IDs of the form
+`https://elysium.example/users/alice#votes/{id}/activity` and `https://elysium.example/users/alice#votes/{id}`, which can't
+be fetched. A user can vote once, as on Mastodon.
+
+#### Receiving polls
+
+A `Question` is stored as a status with a poll, everywhere a `Note` is: from a `Create` or an `Update`, a boost, a quote, or
+backfill, with the same checks. Its options are read from `oneOf`, or from `anyOf` when that has any, which makes it
+multiple choice. Each needs a `name`, or a `nameMap`, and options without one are left out. Its votes are
+`replies.totalItems`, and it's stored as a plain status if no option is left. Up to 32 options are kept, of up to 1000
+characters each, and the rest are cut off. `endTime` is when it closes, `closed` as a time closes it then, and
+`closed: true` closes it now. `votersCount` is read too.
+
+Its counts are what its server last sent. A local vote adds to them until then. An `Update` of the `Question` replaces its
+counts, `endTime`, `closed`, and `votersCount` whatever its `updated` says, as long as its options and whether it's
+multiple choice are the same. One that changes those is an edit, with the [usual order](#receiving-updates), which drops
+the votes from here, as on Mastodon. The `Question` is also fetched again, signed as the
+[instance actor](#instance-actor), when it ends, and when a local user views it more than 5 minutes after it was last
+fetched, unless it had ended by then. What's fetched has to have the same `id`, attributed to the status's author.
+
 ### Blocks
 
 When a local user blocks an actor on another server, a `Block` signed as the user is sent to that actor's own `inbox`, never
@@ -997,7 +1084,7 @@ never says whether admins acted on it.
   Mastodon's `forward_to_domains` does.
 - Reports from a server aren't refused unless it's suspended: there's no `reject_reports` for a limited one.
 - An actor's `manuallyApprovesFollowers` isn't read, so local users see every account on another server as unlocked.
-- Only `Note`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
+- Only `Note`s and `Question`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
   are the replies to a status.
 - Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
 - An `Update` from another server doesn't change who its status mentions, so an edit can't show a followers-only or

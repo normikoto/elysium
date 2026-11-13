@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.FollowersOnlyRecipientRepository;
 import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
+import dev.biribiri.elysium.content.internal.PollRepository;
 import dev.biribiri.elysium.content.internal.QuoteRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
@@ -81,6 +82,7 @@ public class StatusService {
     private final QuoteRepository quotes;
     private final QuoteRules quoteRules;
     private final PostingDefaults postingDefaults;
+    private final PollRepository polls;
 
     StatusService(
             StatusRepository statuses,
@@ -100,7 +102,9 @@ public class StatusService {
             FollowersOnlyRecipientRepository followersOnly,
             QuoteRepository quotes,
             QuoteRules quoteRules,
-            PostingDefaults postingDefaults) {
+            PostingDefaults postingDefaults,
+            PollRepository polls) {
+        this.polls = polls;
         this.followersOnly = followersOnly;
         this.quotes = quotes;
         this.quoteRules = quoteRules;
@@ -139,6 +143,10 @@ public class StatusService {
         validate(text, spoilerText, language);
         if (mediaIds.isEmpty()) {
             requireText(text);
+        }
+        var poll = draft.poll() == null ? null : PollService.check(draft.poll());
+        if (poll != null && !mediaIds.isEmpty()) {
+            throw new InvalidStatusException(MEDIA_AND_POLL);
         }
 
         var author = actors.findLocalById(authorId)
@@ -198,6 +206,9 @@ public class StatusService {
                     null);
             statuses.insert(status);
             media.attach(id, authorId, claimed);
+            if (poll != null) {
+                insertLocalPoll(id, poll, publishedAt);
+            }
             var mentions = new HashMap<UUID, Boolean>();
             mentionedIds(mentioned, authorId).forEach(mentionedId -> mentions.put(mentionedId, false));
             // A silent mention lets the quoted author see a followers-only quote, and its server be sent it.
@@ -229,6 +240,7 @@ public class StatusService {
         var spoilerText = looksBlank(normalize(draft.spoilerText())) ? "" : normalize(draft.spoilerText());
         var language = draft.language() == null || draft.language().isBlank() ? null : draft.language().strip();
         var newMediaIds = draft.mediaIds() == null ? null : checkMediaIds(draft.mediaIds());
+        var newPoll = draft.poll() == null || draft.poll().poll() == null ? null : PollService.check(draft.poll().poll());
         validate(text, spoilerText, language);
         if (newMediaIds != null && newMediaIds.isEmpty()) {
             requireText(text);
@@ -275,6 +287,11 @@ public class StatusService {
             if (mediaIds.isEmpty()) {
                 requireText(text);
             }
+            var oldPoll = polls.findAndLock(id);
+            var pollEdit = PollEdit.of(oldPoll, draft.poll(), newPoll);
+            if (pollEdit.hasPoll(oldPoll) && !mediaIds.isEmpty()) {
+                throw new InvalidStatusException(MEDIA_AND_POLL);
+            }
             var added = mediaIds.stream().filter(mediaId -> !currentIds.contains(mediaId)).toList();
             var claimed = media.findAttachableAndLock(added, authorId);
             if (claimed.size() != added.size()) {
@@ -291,7 +308,8 @@ public class StatusService {
             // The content links each mention, so it changes whenever they do.
             var unchanged = text.equals(old.text()) && content.equals(old.content())
                     && spoilerText.equals(old.spoilerText()) && Objects.equals(newLanguage, old.language())
-                    && sensitive == old.sensitive() && mediaIds.equals(currentIds) && describe.isEmpty();
+                    && sensitive == old.sensitive() && mediaIds.equals(currentIds) && describe.isEmpty()
+                    && pollEdit == PollEdit.KEEP;
             if (unchanged) {
                 if (!policyChanged) {
                     return new Edited(found, false);
@@ -311,6 +329,16 @@ public class StatusService {
             var editedAt = now.isBefore(next) ? next : now;
             if (!statuses.editLocal(id, authorId, text, content, spoilerText, newLanguage, sensitive, editedAt)) {
                 return new Edited(Optional.<Status>empty(), false);
+            }
+            switch (pollEdit) {
+                case KEEP -> {
+                }
+                case REMOVE -> polls.delete(id);
+                case REPLACE -> {
+                    polls.delete(id);
+                    insertLocalPoll(id, newPoll, now);
+                }
+                case HIDE_TOTALS -> polls.setHideTotals(id, newPoll.hideTotals());
             }
             var removed = !currentIds.stream().allMatch(mediaIds::contains);
             media.removeFromStatusExcept(id, mediaIds);
@@ -334,6 +362,40 @@ public class StatusService {
     }
 
     private record Edited(Optional<Status> status, boolean removedMedia) {
+    }
+
+    private static final String MEDIA_AND_POLL = "A status can't have both media and a poll";
+
+    private void insertLocalPoll(UUID statusId, NewPoll poll, Instant from) {
+        polls.insert(statusId, poll.multiple(), poll.hideTotals(), from.plusSeconds(poll.expiresIn()), null, null, null,
+                poll.options(), null);
+    }
+
+    /**
+     * What an edit does to a local status's poll. Changing its options, or whether more than one can be chosen, makes it a
+     * new poll, as on Mastodon, which loses its votes and is open for as long as the edit says. Otherwise it keeps its
+     * votes and when it closes, so that an edit of the text can't keep a poll open, and only whether its totals are hidden
+     * can change.
+     */
+    private enum PollEdit {
+        KEEP, REMOVE, REPLACE, HIDE_TOTALS;
+
+        static PollEdit of(Optional<PollRepository.Row> old, PollChange change, NewPoll poll) {
+            if (change == null) {
+                return KEEP;
+            }
+            if (poll == null) {
+                return old.isPresent() ? REMOVE : KEEP;
+            }
+            if (old.isEmpty() || !old.get().hasOptions(poll.options(), poll.multiple())) {
+                return REPLACE;
+            }
+            return old.get().hideTotals() == poll.hideTotals() ? KEEP : HIDE_TOTALS;
+        }
+
+        boolean hasPoll(Optional<PollRepository.Row> old) {
+            return this == KEEP ? old.isPresent() : this != REMOVE;
+        }
     }
 
     /**
@@ -480,7 +542,7 @@ public class StatusService {
      */
     public List<StatusVersion> findHistory(Status status) {
         var versions = new ArrayList<>(statuses.findEdits(status.id()));
-        versions.add(StatusVersion.current(status));
+        versions.add(StatusVersion.current(status, polls.find(status.id()).map(PollRepository.Row::titles).orElse(null)));
         return List.copyOf(versions);
     }
 
@@ -659,6 +721,9 @@ public class StatusService {
             statuses.insertMentions(id, mentions);
             statuses.insertTags(id, remoteTags(remote.tags()));
             attachments.addRemote(id, author.id(), remote.attachments());
+            if (remote.poll() != null) {
+                insertRemotePoll(id, PollService.clean(remote.poll()), now);
+            }
             if (remote.quote() != null) {
                 insertRemoteQuote(id, remote.quote(), fetchQuoted);
             }
@@ -695,10 +760,11 @@ public class StatusService {
     public RemoteEdit.Outcome updateRemote(RemoteEdit edit) {
         var html = RemoteText.of(edit.content(), edit.spoilerText(), edit.language());
         var tags = remoteTags(edit.tags());
+        var poll = edit.poll() == null ? null : PollService.clean(edit.poll());
         // Servers also send an Update when nothing an edit can change has, such as when a quote is approved, and that
         // isn't kept as a version, so that the status doesn't show as edited.
         var stored = statuses.findByUriForAuthor(edit.uri(), edit.authorId());
-        if (stored.isPresent() && isSameVersion(stored.get(), html, edit, tags)) {
+        if (stored.isPresent() && isSameVersion(stored.get(), html, edit, tags, poll)) {
             return RemoteEdit.Outcome.UNCHANGED;
         }
         // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
@@ -716,6 +782,7 @@ public class StatusService {
                     edit.sensitive() || !html.spoilerText().isEmpty(),
                     edit.editedAt().truncatedTo(ChronoUnit.MICROS));
             id.ifPresent(editedId -> {
+                replaceRemotePoll(editedId, poll);
                 statuses.replaceTags(editedId, tags);
                 removedMedia[0] = attachments.replaceRemote(editedId, edit.authorId(), edit.attachments());
             });
@@ -732,7 +799,37 @@ public class StatusService {
         return statuses.existsByUri(edit.uri()) ? RemoteEdit.Outcome.UNCHANGED : RemoteEdit.Outcome.NOT_STORED;
     }
 
-    private boolean isSameVersion(Status status, RemoteText html, RemoteEdit edit, Collection<String> tags) {
+    private void insertRemotePoll(UUID statusId, RemotePoll poll, Instant now) {
+        polls.insert(statusId, poll.multiple(), false, poll.expiresAt(), poll.closedAt(), poll.votersCount(),
+                now.truncatedTo(ChronoUnit.MICROS), poll.options(), poll.counts());
+    }
+
+    /**
+     * A poll whose options change is a new one, whose votes from here no longer mean anything, as on Mastodon.
+     */
+    private void replaceRemotePoll(UUID statusId, RemotePoll poll) {
+        var old = polls.findAndLock(statusId);
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        if (poll == null) {
+            old.ifPresent(found -> polls.delete(statusId));
+        } else if (old.isPresent() && old.get().hasOptions(poll.options(), poll.multiple())) {
+            polls.refreshRemote(statusId, poll.counts(), poll.votersCount(), poll.expiresAt(), poll.closedAt(), now);
+        } else {
+            old.ifPresent(found -> polls.delete(statusId));
+            insertRemotePoll(statusId, poll, now);
+        }
+    }
+
+    /**
+     * @param poll the edit's poll, as {@link PollService#clean} keeps it
+     */
+    private boolean isSameVersion(
+            Status status, RemoteText html, RemoteEdit edit, Collection<String> tags, RemotePoll poll) {
+        var stored = polls.find(status.id());
+        if (poll == null ? stored.isPresent()
+                : stored.isEmpty() || !stored.get().hasOptions(poll.options(), poll.multiple())) {
+            return false;
+        }
         if (!html.content().equals(status.content()) || !html.spoilerText().equals(status.spoilerText())
                 || !Objects.equals(html.language(), status.language())
                 || (edit.sensitive() || !html.spoilerText().isEmpty()) != status.sensitive()) {

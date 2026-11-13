@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteEdit;
 import dev.biribiri.elysium.content.StatusService;
@@ -30,6 +31,10 @@ import java.util.Optional;
  * no order, and one without it isn't applied as an edit, because nothing says that it's newer than what's stored. What it
  * quotes, and who can quote it, are applied either way, as {@link QuoteService#reconcileRemote} explains. One that isn't stored
  * yet is stored as a {@code Create} would store it, if it was published recently, since its {@code Create} can run later.
+ *
+ * <p>A {@code Question}'s counts and closing time are applied whatever its {@code updated} says, since Mastodon sends an
+ * {@code Update} with new counts that doesn't change it. Counts only go to a poll with the same options, so an older
+ * {@code Update} can't undo an edit of them. One that's run late can still set older counts, until the next one.
  */
 @Component
 class UpdateHandler implements InboundActivityHandler {
@@ -49,6 +54,7 @@ class UpdateHandler implements InboundActivityHandler {
     private final NoteStorage storage;
     private final DomainBlocks blocks;
     private final QuoteService quotes;
+    private final PollService polls;
     private final JsonMapper json;
 
     UpdateHandler(
@@ -59,7 +65,9 @@ class UpdateHandler implements InboundActivityHandler {
             NoteStorage storage,
             DomainBlocks blocks,
             QuoteService quotes,
+            PollService polls,
             JsonMapper json) {
+        this.polls = polls;
         this.quotes = quotes;
         this.actors = actors;
         this.remoteActors = remoteActors;
@@ -108,6 +116,9 @@ class UpdateHandler implements InboundActivityHandler {
             return;
         }
         applyEdit(activity, actorUri, document, read.get());
+        if (note.poll() != null) {
+            storedAuthor(actorUri).ifPresent(author -> polls.refreshRemote(note.id(), author.id(), note.poll()));
+        }
         // Whatever its updated says, since servers send an Update when a quote is approved, and the approval is checked
         // with whoever gave it rather than ordered by time. Found again, since storing a late note can store its author.
         storedAuthor(actorUri).ifPresent(author -> quotes.reconcileRemote(
@@ -170,6 +181,7 @@ class UpdateHandler implements InboundActivityHandler {
                 note.sensitive(),
                 note.editedAt(note.published(), Instant.now()),
                 note.hashtags(),
-                storage.attachments(note, author)));
+                storage.attachments(note, author),
+                note.poll()));
     }
 }

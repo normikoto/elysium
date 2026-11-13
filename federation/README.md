@@ -65,6 +65,9 @@ The script checks:
 - **Boosts of other posts:** while alice follows the `lab` user, it boosts a post by another account on its server, `other`,
   which Elysium hasn't been sent. Elysium has to fetch that post and show the boost in alice's home timeline, and remove the
   boost when it's undone.
+- **Polls:** alice posts a poll, and the other server's `lab` user votes in it once it's stored there. Elysium has to count
+  the vote and queue the `Update` with the new counts. `lab` then posts a poll, which Elysium has to store as one, and alice
+  votes in it. The other server has to count her vote.
 - **Reports:** the other server's `lab` user reports alice, with her public status where it can, and forwards it, which
   Misskey only does once its admin forwards it. Elysium has to store the report from that server, with the status, and
   notify alice, its admin. alice then reports `lab`, with its post that mentions her, and forwards it. The other server has

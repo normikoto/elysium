@@ -7,6 +7,7 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.FollowersOnlyRecipientRepository;
 import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
+import dev.biribiri.elysium.content.internal.PollRepository;
 import dev.biribiri.elysium.content.internal.QuoteRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
@@ -74,7 +75,8 @@ class StatusServiceTests {
                 mock(FollowersOnlyRecipientRepository.class),
                 mock(QuoteRepository.class),
                 mock(QuoteRules.class),
-                postingDefaults);
+                postingDefaults,
+                mock(PollRepository.class));
     }
 
     private static Actor actor(String username, String domain) {

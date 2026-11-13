@@ -44,7 +44,7 @@ public class NotificationsController {
     @GetMapping
     @PreAuthorize("hasAuthority('SCOPE_read:notifications')")
     @Operation(operationId = "getNotifications", summary = "List notifications",
-            description = "Mention, follow, follow request, favourite, reblog, quote, quoted_update, and admin.report events are generated, and only admins see admin.report. A quote is only notified once it is approved. A follow request's notification is removed once it's answered, as on Mastodon. Notification policies and requests are not implemented. Pages default to 40 and allow up to 80 results.\n\n" + ApiDocs.NEEDS_USER,
+            description = "Mention, follow, follow request, favourite, reblog, quote, quoted_update, poll, and admin.report events are generated, and only admins see admin.report. A poll notification goes to the author of a local poll and to its local voters, shortly after it ends. A quote is only notified once it is approved. A follow request's notification is removed once it's answered, as on Mastodon. Notification policies and requests are not implemented. Pages default to 40 and allow up to 80 results.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "notifications/#get-all"),
             parameters = {
                     @Parameter(in = ParameterIn.QUERY, name = "limit", description = "Page size, clamped to 1–80.", schema = @Schema(type = "integer", defaultValue = "40")),

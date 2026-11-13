@@ -324,7 +324,9 @@ public class StatusRepository {
         var edited = jdbc.sql("""
                         WITH old AS (
                             SELECT id, text, content, spoiler_text, language, sensitive,
-                                   coalesce(edited_at, published_at) AS since
+                                   coalesce(edited_at, published_at) AS since,
+                                   (SELECT array_agg(o.title ORDER BY o.position) FROM poll_option o
+                                    WHERE o.status_id = status.id) AS poll_options
                             FROM status WHERE %s
                             FOR NO KEY UPDATE
                         ), replaced AS (
@@ -333,8 +335,9 @@ public class StatusRepository {
                             FROM old WHERE s.id = old.id
                             RETURNING old.*
                         )
-                        INSERT INTO status_edit (status_id, text, content, spoiler_text, language, sensitive, created_at)
-                        SELECT id, text, content, spoiler_text, language, sensitive, since FROM replaced
+                        INSERT INTO status_edit (status_id, text, content, spoiler_text, language, sensitive, created_at,
+                                                 poll_options)
+                        SELECT id, text, content, spoiler_text, language, sensitive, since, poll_options FROM replaced
                         RETURNING status_id
                         """.formatted(condition))
                 .params(parameters)
@@ -370,7 +373,7 @@ public class StatusRepository {
      */
     public List<StatusVersion> findEdits(UUID statusId) {
         return jdbc.sql("""
-                        SELECT text, content, spoiler_text, language, sensitive, created_at FROM status_edit
+                        SELECT text, content, spoiler_text, language, sensitive, created_at, poll_options FROM status_edit
                         WHERE status_id = :statusId ORDER BY created_at, id
                         """)
                 .param("statusId", statusId)
@@ -380,7 +383,9 @@ public class StatusRepository {
                         rs.getString("spoiler_text"),
                         rs.getString("language"),
                         rs.getBoolean("sensitive"),
-                        rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+                        rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                        rs.getArray("poll_options") == null ? null
+                                : List.of((String[]) rs.getArray("poll_options").getArray())))
                 .list();
     }
 

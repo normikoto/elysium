@@ -7,6 +7,9 @@ import dev.biribiri.elysium.content.QuotePolicy;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.NewPoll;
+import dev.biribiri.elysium.content.Poll;
+import dev.biribiri.elysium.content.PollChange;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
@@ -86,14 +89,32 @@ public class StatusesController {
     public StatusResponse createFromForm(
             @AuthenticationPrincipal TokenPrincipal token, @RequestParam MultiValueMap<String, String> form) {
         rejectUnsupported(form);
-        return create(token, withMediaIds(form));
+        return create(token, withLists(form));
     }
 
     /**
-     * A form repeats {@code media_ids[]} for each ID, which a single value for each name would lose.
+     * A form repeats {@code media_ids[]} for each ID, and {@code poll[options][]} for each option, which a single value
+     * for each name would lose. The poll's fields are gathered into one {@code poll}, as JSON has it, which is null if
+     * they're all empty.
      */
-    private static Map<String, Object> withMediaIds(MultiValueMap<String, String> form) {
+    private static Map<String, Object> withLists(MultiValueMap<String, String> form) {
         var parameters = new HashMap<String, Object>(form.toSingleValueMap());
+        parameters.keySet().removeIf(StatusesController::isPoll);
+        var poll = new HashMap<String, Object>();
+        var options = new ArrayList<String>();
+        form.forEach((name, values) -> {
+            if (name.equals("poll[options][]") || name.equals("poll[options]")) {
+                options.addAll(values);
+                poll.put("options", options);
+            } else if (name.startsWith("poll[") && name.endsWith("]") && !values.isEmpty()) {
+                poll.put(name.substring("poll[".length(), name.length() - 1), values.getFirst());
+            }
+        });
+        if (poll.values().stream().anyMatch(StatusesController::isPresent)) {
+            parameters.put("poll", poll);
+        } else if (form.keySet().stream().anyMatch(StatusesController::isPoll)) {
+            parameters.put("poll", null);
+        }
         parameters.remove("media_ids[]");
         var ids = new ArrayList<String>();
         ids.addAll(form.getOrDefault("media_ids", List.of()));
@@ -114,8 +135,13 @@ public class StatusesController {
             description = """
                     Differences from Mastodon:
 
-                    - Polls and scheduled statuses aren't supported, and `poll` or `scheduled_at` with a value gets a \
-                    422 rather than being ignored. Empty values are allowed.
+                    - Scheduled statuses aren't supported, and `scheduled_at` with a value gets a 422 rather than \
+                    being ignored. An empty value is allowed.
+                    - A poll can have 2 to\s""" + Poll.MAX_OPTIONS + """
+                     options of up to\s""" + Poll.MAX_OPTION_CHARACTERS + """
+                     characters each, which have to be different, and be open for\s""" + Poll.MIN_EXPIRATION + """
+                     to\s""" + Poll.MAX_EXPIRATION + """
+                     seconds, as on Mastodon. A status with a poll can't have media, and has to have text.
                     - `media_ids` can have up to\s""" + MediaAttachments.MAX_PER_STATUS + """
                      uploads that the user made and hasn't attached yet. As on Mastodon, a video or audio can't be \
                     attached with anything else, and a status with media can have no text.
@@ -184,8 +210,7 @@ public class StatusesController {
     public StatusResponse editFromForm(
             @AuthenticationPrincipal TokenPrincipal token, @PathVariable String id,
             @RequestParam MultiValueMap<String, String> form) {
-        rejectUnsupportedInEdit(form);
-        var parameters = withMediaIds(form);
+        var parameters = withLists(form);
         parameters.put("media_attributes", MediaAttributes.fromForm(form));
         return edit(token, id, parameters);
     }
@@ -203,8 +228,10 @@ public class StatusesController {
 
                     Differences from Mastodon:
 
-                    - Polls aren't supported, and `poll` with a value gets a 422 rather than being ignored. Empty values \
-                    are allowed.
+                    - A missing `poll` keeps the poll the status has, and an empty or null one removes it. Changing \
+                    its `options` or `multiple` makes it a new poll, as on Mastodon, which loses its votes and is open \
+                    for `expires_in` from now. Otherwise only `hide_totals` can change, and the poll keeps its votes \
+                    and when it closes.
                     - `media_ids` has every attachment the status is to have, in order, and can add the user's uploads \
                     that aren't attached yet. A missing `media_ids` keeps the attachments it has. `media_attributes[]` \
                     only changes `description` and `focus`, and a `thumbnail` gets a 422.
@@ -232,7 +259,6 @@ public class StatusesController {
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
             HttpServletRequest request) throws IOException {
         var body = json.read(request, statuses.maxStoredCharacters() * MAX_BYTES_PER_CHARACTER + OTHER_FIELDS_BYTES);
-        rejectUnsupportedInEdit(body);
         return edit(token, id, body);
     }
 
@@ -600,7 +626,8 @@ public class StatusesController {
                 replyParent(RequestParameters.string(parameters, "in_reply_to_id")),
                 mediaIds(parameters.get("media_ids")),
                 quoted(RequestParameters.string(parameters, "quoted_status_id")),
-                quotePolicy(parameters));
+                quotePolicy(parameters),
+                poll(parameters.get("poll")));
         return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
     }
 
@@ -615,7 +642,8 @@ public class StatusesController {
                 parameters.containsKey("media_ids") ? mediaIds(parameters.get("media_ids")) : null,
                 MediaAttributes.read(parameters.get("media_attributes")),
                 quoted(RequestParameters.string(parameters, "quoted_status_id")),
-                quotePolicy(parameters));
+                quotePolicy(parameters),
+                parameters.containsKey("poll") ? new PollChange(poll(parameters.get("poll"))) : null);
         return statuses.edit(statusId, author, draft)
                 .map(found -> responses.one(found, Optional.of(author)))
                 .orElseThrow(RecordNotFoundException::new);
@@ -645,6 +673,35 @@ public class StatusesController {
         return ids;
     }
 
+    /**
+     * @return null if it's missing or empty
+     */
+    private static NewPoll poll(Object value) {
+        if (!isPresent(value)) {
+            return null;
+        }
+        if (!(value instanceof Map<?, ?> fields)) {
+            throw new InvalidRequestException("Validation failed: poll must be an object");
+        }
+        var poll = new HashMap<String, Object>();
+        fields.forEach((name, field) -> poll.put(String.valueOf(name), field));
+        var options = switch (poll.get("options")) {
+            case null -> throw new InvalidRequestException("Validation failed: poll[options] is required");
+            case List<?> list when list.stream().allMatch(String.class::isInstance) ->
+                    list.stream().map(String.class::cast).toList();
+            default -> throw new InvalidRequestException("Validation failed: poll[options] must be a list of strings");
+        };
+        long expiresIn = switch (poll.get("expires_in")) {
+            case null -> throw new InvalidRequestException("Validation failed: poll[expires_in] is required");
+            case Integer number -> number;
+            case Long number -> number;
+            case String string when !string.isEmpty() -> RequestParameters.number("poll[expires_in]", string, 0);
+            default -> throw new InvalidRequestException("Validation failed: poll[expires_in] must be a number");
+        };
+        return new NewPoll(options, expiresIn, RequestParameters.flag(poll, "multiple"),
+                RequestParameters.flag(poll, "hide_totals"));
+    }
+
     private static UUID requireUser(TokenPrincipal token) {
         return token.actorId().orElseThrow(InvalidRequestException::requiresUser);
     }
@@ -670,15 +727,8 @@ public class StatusesController {
             if (repeated || name.startsWith("visibility[")) {
                 throw new InvalidRequestException("Validation failed: visibility must be a single value");
             }
-            rejectIfPresent(name, value, isPoll(name) || name.equals("scheduled_at"));
+            rejectIfPresent(name, value, name.equals("scheduled_at"));
         });
-    }
-
-    /**
-     * As for a new status, ignoring these would leave out what the user meant to change without telling them.
-     */
-    private static void rejectUnsupportedInEdit(Map<String, ?> parameters) {
-        parameters.forEach((name, value) -> rejectIfPresent(name, value, isPoll(name)));
     }
 
     private static boolean isPoll(String name) {
@@ -743,13 +793,30 @@ public class StatusesController {
             List<String> media_ids,
             @Schema(description = "Changes to the description and focus of the status's attachments.")
             List<MediaAttributes.Body> media_attributes,
-            @Schema(description = "Not supported, and only accepted when empty.")
-            Map<String, Object> poll,
+            @Schema(description = """
+                    The poll it's to have. Missing keeps the one it has, and null or empty removes it. Changing its \
+                    options or `multiple` resets its votes.""")
+            PollBody poll,
             @Schema(description = "The status it quotes, which can't be changed. Missing keeps it.")
             String quoted_status_id,
             @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
                     Who can quote it. Missing keeps who can. Ignored for a followers-only or direct status.""")
             String quote_approval_policy) {
+    }
+
+    /**
+     * Only documents the body, which is read by hand.
+     */
+    @Schema(name = "NewPoll")
+    private record PollBody(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "The answers, in order.")
+            List<String> options,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "How many seconds it's open for.")
+            Integer expires_in,
+            @Schema(description = "Whether more than one answer can be chosen.", defaultValue = "false")
+            Boolean multiple,
+            @Schema(description = "Whether to hide the counts until it ends.", defaultValue = "false")
+            Boolean hide_totals) {
     }
 
     /**
@@ -789,8 +856,8 @@ public class StatusesController {
                     Uploads to attach, in order, which the user made and hasn't attached yet. A status with media can \
                     have no text.""")
             List<String> media_ids,
-            @Schema(description = "Not supported, and only accepted when empty.")
-            Map<String, Object> poll,
+            @Schema(description = "A poll, which can't go with media.")
+            PollBody poll,
             @Schema(description = "Not supported, and only accepted when empty.")
             String scheduled_at,
             @Schema(description = """

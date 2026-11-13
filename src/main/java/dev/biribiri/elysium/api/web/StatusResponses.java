@@ -10,6 +10,7 @@ import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.LikeStats;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusVersion;
@@ -24,6 +25,7 @@ import java.util.Set;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,11 +51,13 @@ class StatusResponses {
     private final MediaAttachments attachments;
     private final QuoteService quotes;
     private final BlockService blocks;
+    private final PollService polls;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
             StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments,
-            QuoteService quotes, BlockService blocks) {
+            QuoteService quotes, BlockService blocks, PollService polls) {
+        this.polls = polls;
         this.quotes = quotes;
         this.blocks = blocks;
         this.attachments = attachments;
@@ -171,6 +175,8 @@ class StatusResponses {
         var likeStats = likes.stats(ids, viewer);
         var boostStats = boosts.stats(ids, viewer);
         var quoteCounts = quotes.acceptedCounts(ids);
+        var pollsById = polls.findAll(ids, viewer);
+        var now = Instant.now();
         var localAuthors = authors.values().stream().filter(actors::isLocal).map(Actor::id).collect(Collectors.toSet());
         var decisions = quotes.decide(all.stream().filter(status -> !status.isReblog()).distinct().toList(), localAuthors, viewer);
         Map<UUID, BlockService.Hiding> hiding = viewer.isEmpty() ? Map.of() : blocks.hidingReasons(viewer.get(),
@@ -195,7 +201,8 @@ class StatusResponses {
                 reblog,
                 quote,
                 approval.apply(status),
-                status.isReblog() ? 0 : quoteCounts.getOrDefault(status.id(), 0L));
+                status.isReblog() ? 0 : quoteCounts.getOrDefault(status.id(), 0L),
+                Optional.ofNullable(pollsById.get(status.id())).map(poll -> PollResponse.from(poll, now)).orElse(null));
         // A status that's quoted only shows what it quotes in turn by ID, as on Mastodon, so that quotes don't nest.
         Function<Status, StatusResponse> nested = status -> basic.apply(status, null,
                 Optional.ofNullable(quoteRows.get(status.id())).map(StatusResponses::shallow).orElse(null));

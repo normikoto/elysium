@@ -9,6 +9,8 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.Poll;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.QuotePolicy;
 import dev.biribiri.elysium.content.QuoteService;
@@ -18,6 +20,7 @@ import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import java.net.URI;
+import java.time.Instant;
 import java.util.UUID;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -38,9 +41,11 @@ public class Notes {
     private final InstanceProperties instance;
     private final MediaAttachments attachments;
     private final QuoteService quotes;
+    private final PollService polls;
 
     Notes(StatusService statuses, ActorService actors, InstanceProperties instance, MediaAttachments attachments,
-          QuoteService quotes) {
+          QuoteService quotes, PollService polls) {
+        this.polls = polls;
         this.quotes = quotes;
         this.attachments = attachments;
         this.statuses = statuses;
@@ -66,7 +71,9 @@ public class Notes {
         var quote = quotes.find(status.id());
         return of(status, author, mentioned, tags,
                 attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of()),
-                quote, quote.map(StatusQuote::quotedAccountId).flatMap(actors::findById));
+                quote, quote.map(StatusQuote::quotedAccountId).flatMap(actors::findById),
+                // Nobody's own votes, since these are shown to everyone.
+                polls.find(status.id(), Optional.empty()));
     }
 
     /**
@@ -76,9 +83,10 @@ public class Notes {
      * @param quote        what {@link QuoteService#findAll} gives for this status
      * @param quotedAuthor the account {@code quote} names, whatever its state, since a {@code Note} keeps naming an author
      *                     who's since been suspended or deleted
+     * @param poll         what {@link PollService#findAll} gives for this status, with no viewer
      */
     public Note of(Status status, Actor author, List<Actor> mentioned, List<String> tags, List<MediaAttachment> media,
-                   Optional<StatusQuote> quote, Optional<Actor> quotedAuthor) {
+                   Optional<StatusQuote> quote, Optional<Actor> quotedAuthor, Optional<Poll> poll) {
         var parent = shownParent(status, mentioned);
         return Note.from(
                 status,
@@ -89,7 +97,9 @@ public class Notes {
                 Hashtag.of(tags, instance),
                 media.stream().map(attachment -> Document.of(attachment, instance)).toList(),
                 quote.map(found -> quote(status, found, quotedAuthor)).orElse(null),
-                policy(status, author));
+                policy(status, author),
+                poll.orElse(null),
+                Instant.now());
     }
 
     /**

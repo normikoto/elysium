@@ -15,9 +15,11 @@ import java.util.UUID;
  * @param mediaChanges changes to the descriptions and focus of its attachments
  * @param quotedStatusId the status it quotes, or null to keep what it quotes. A quote can't be changed, as on Mastodon
  * @param quotePolicy    who can quote it, or null to keep that
+ * @param poll           what to do to its poll, or null to keep the one it has, or that it has none
  */
 public record StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
-                         List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy) {
+                         List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy,
+                         PollChange poll) {
 
     public StatusEdit {
         mediaIds = mediaIds == null ? null : List.copyOf(mediaIds);
@@ -31,5 +33,13 @@ public record StatusEdit(String text, String spoilerText, String language, Boole
     public StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
                       List<MediaChange> mediaChanges) {
         this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, null, null);
+    }
+
+    /**
+     * An edit that keeps the status's poll.
+     */
+    public StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
+                      List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy) {
+        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quotedStatusId, quotePolicy, null);
     }
 }
