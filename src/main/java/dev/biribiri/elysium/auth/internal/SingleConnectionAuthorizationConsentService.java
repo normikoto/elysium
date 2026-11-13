@@ -5,22 +5,30 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Runs each call in a transaction, for the same reason as {@link SingleConnectionAuthorizationService}.
+ * Runs each call in a transaction, for the same reason as {@link SingleConnectionAuthorizationService}. Saving a consent
+ * also marks its client as authorized.
  */
 class SingleConnectionAuthorizationConsentService implements OAuth2AuthorizationConsentService {
 
     private final OAuth2AuthorizationConsentService delegate;
     private final TransactionTemplate transaction;
+    private final AuthorizedClients authorizedClients;
 
     SingleConnectionAuthorizationConsentService(
-            OAuth2AuthorizationConsentService delegate, TransactionTemplate transaction) {
+            OAuth2AuthorizationConsentService delegate, TransactionTemplate transaction,
+            AuthorizedClients authorizedClients) {
         this.delegate = delegate;
         this.transaction = transaction;
+        this.authorizedClients = authorizedClients;
     }
 
     @Override
     public void save(OAuth2AuthorizationConsent consent) {
-        transaction.executeWithoutResult(status -> delegate.save(consent));
+        transaction.executeWithoutResult(status -> {
+            authorizedClients.lock(consent.getRegisteredClientId());
+            authorizedClients.markAuthorized(consent.getRegisteredClientId());
+            delegate.save(consent);
+        });
     }
 
     @Override

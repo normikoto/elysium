@@ -57,16 +57,20 @@ class AuthorizationServerConfig {
 
     @Bean
     OAuth2AuthorizationService authorizationService(
-            JdbcOperations jdbc, RegisteredClientRepository clients, PlatformTransactionManager transactionManager) {
+            JdbcOperations jdbc, RegisteredClientRepository clients, PlatformTransactionManager transactionManager,
+            AuthorizedClients authorizedClients) {
         return new SingleConnectionAuthorizationService(
-                new JdbcOAuth2AuthorizationService(jdbc, clients), new TransactionTemplate(transactionManager));
+                new JdbcOAuth2AuthorizationService(jdbc, clients), new TransactionTemplate(transactionManager),
+                authorizedClients);
     }
 
     @Bean
     OAuth2AuthorizationConsentService authorizationConsentService(
-            JdbcOperations jdbc, RegisteredClientRepository clients, PlatformTransactionManager transactionManager) {
+            JdbcOperations jdbc, RegisteredClientRepository clients, PlatformTransactionManager transactionManager,
+            AuthorizedClients authorizedClients) {
         return new SingleConnectionAuthorizationConsentService(
-                new JdbcOAuth2AuthorizationConsentService(jdbc, clients), new TransactionTemplate(transactionManager));
+                new JdbcOAuth2AuthorizationConsentService(jdbc, clients), new TransactionTemplate(transactionManager),
+                authorizedClients);
     }
 
     @Bean

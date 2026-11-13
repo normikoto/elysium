@@ -267,6 +267,9 @@ prove who made it.
 Revoking an app logs it out of that person's account straight away, and it has to ask for approval again. Other people's use
 of the same app isn't affected.
 
+Anyone can register an app, without logging in. An app that nobody has authorized a day after it was registered is
+removed, and has to register again. Once someone authorizes an app, it's kept, even if they revoke it later.
+
 ## Rate limits
 Logins, sign-ups, and app registrations are limited, and requests over a limit get a `429` response:
 

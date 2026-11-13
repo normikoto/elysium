@@ -11,6 +11,8 @@ differs from Mastodon in these ways:
 - `/oauth/token` and `/oauth/revoke` only accept form-encoded bodies, not JSON.
 - `POST /api/v1/apps` allows 30 registrations an hour from one address, not counting ones that get a 422, and then
   returns a 429 with a `Retry-After` header.
+- An application that isn't approved or issued a token within a day of registering is removed. Its credentials then stop
+  working, and it has to register again. A token from the `client_credentials` grant is enough to keep it.
 
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
