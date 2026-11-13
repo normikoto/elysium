@@ -1,7 +1,9 @@
 package dev.biribiri.elysium.auth;
 
+import dev.biribiri.elysium.auth.internal.AuthRateLimits;
 import dev.biribiri.elysium.auth.internal.ClientSecretEncoder;
 import dev.biribiri.elysium.auth.internal.OAuthScopes;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.crypto.keygen.Base64StringKeyGenerator;
 import org.springframework.security.crypto.keygen.StringKeyGenerator;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
@@ -41,21 +43,27 @@ public class ClientRegistrations {
     private static final Set<String> FORBIDDEN_REDIRECT_SCHEMES = Set.of("javascript", "data", "vbscript", "file");
 
     private final RegisteredClientRepository clients;
+    private final AuthRateLimits limits;
     private final StringKeyGenerator credentials =
             new Base64StringKeyGenerator(Base64.getUrlEncoder().withoutPadding(), 32);
 
-    ClientRegistrations(RegisteredClientRepository clients) {
+    ClientRegistrations(RegisteredClientRepository clients, AuthRateLimits limits) {
         this.clients = clients;
+        this.limits = limits;
     }
 
     /**
-     * Registers a new client.
+     * Registers a new client. Only valid registrations count against the request's limit, since the others don't store
+     * anything.
      *
+     * @param request the request asking for it, which the limit is counted for
      * @param scopes  space-separated scopes, defaulting to {@code read}
      * @param website the client's homepage, or null
      * @throws InvalidClientRegistrationException if the request isn't valid
+     * @throws AppRegistrationLimitException       if the client has registered too many
      */
-    public NewClient register(String name, List<String> redirectUris, String scopes, String website) {
+    public NewClient register(
+            HttpServletRequest request, String name, List<String> redirectUris, String scopes, String website) {
         validateName(name);
         validateRedirectUris(redirectUris);
         validateWebsite(website);
@@ -86,7 +94,17 @@ public class ClientRegistrations {
                         .accessTokenTimeToLive(ACCESS_TOKEN_LIFETIME)
                         .build())
                 .build();
-        clients.save(client);
+        // The slot is taken before saving, so that concurrent registrations can't all get past the limit.
+        var wait = limits.beginAppRegistration(request);
+        if (wait.isPresent()) {
+            throw new AppRegistrationLimitException(wait.get());
+        }
+        try {
+            clients.save(client);
+        } catch (RuntimeException e) {
+            limits.appRegistrationNotCounted(request);
+            throw e;
+        }
 
         return new NewClient(toApplication(client, parsedScopes, redirectUris), secret);
     }

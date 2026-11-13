@@ -9,6 +9,8 @@ differs from Mastodon in these ways:
 - Each authorization issues a new token rather than reusing the application's existing one.
 - Revoking an unknown token succeeds, rather than returning the 403 that Mastodon documents.
 - `/oauth/token` and `/oauth/revoke` only accept form-encoded bodies, not JSON.
+- `POST /api/v1/apps` allows 30 registrations an hour from one address, not counting ones that get a 422, and then
+  returns a 429 with a `Retry-After` header.
 
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 
