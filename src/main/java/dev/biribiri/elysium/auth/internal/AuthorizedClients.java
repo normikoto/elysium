@@ -1,16 +1,23 @@
 package dev.biribiri.elysium.auth.internal;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
 /**
  * Keeps track of which clients have ever been authorized, so that {@link UnauthorizedClientCleanupTask} can remove the
  * ones that never were.
+ *
+ * <p>Spring's tables have no foreign key to the client, so anything saved for one has to go through {@link #lock} first.
+ * Otherwise a save that commits while a cleanup is removing the client would leave rows behind that point at nothing,
+ * and Spring fails to read those.
  */
 @Component
 class AuthorizedClients {
@@ -20,16 +27,38 @@ class AuthorizedClients {
      */
     static final Duration GRACE_PERIOD = Duration.ofDays(1);
 
-    private final JdbcClient jdbc;
+    /**
+     * Keeps each transaction short, and well under the number of rows a run might find after a flood of registrations.
+     */
+    private static final int BATCH_SIZE = 1000;
 
-    AuthorizedClients(JdbcClient jdbc) {
+    private final JdbcClient jdbc;
+    private final TransactionTemplate transaction;
+
+    AuthorizedClients(JdbcClient jdbc, TransactionTemplate transaction) {
         this.jdbc = jdbc;
+        this.transaction = transaction;
     }
 
     /**
-     * Records that a client was authorized. This has to run in the same transaction as saving what authorized it, so that
-     * the foreign key refuses to authorize a client that a cleanup has removed. If the two happen at the same moment, the
-     * cleanup can still win, and then removes what was just saved along with the client.
+     * Keeps the client from being removed until the transaction ends. A cleanup that's already removing it makes this
+     * wait, and then fail.
+     *
+     * @throws OAuth2AuthenticationException with {@code invalid_client} if the client is gone, which Spring turns into
+     *                                       the OAuth error response
+     */
+    void lock(String registeredClientId) {
+        var found = jdbc.sql("SELECT id FROM oauth2_registered_client WHERE id = :id FOR KEY SHARE")
+                .param("id", registeredClientId)
+                .query(String.class)
+                .optional();
+        if (found.isEmpty()) {
+            throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_CLIENT);
+        }
+    }
+
+    /**
+     * Records that a client was authorized, after {@link #lock} in the same transaction.
      */
     void markAuthorized(String registeredClientId) {
         jdbc.sql("""
@@ -46,25 +75,41 @@ class AuthorizedClients {
      *
      * @return how many clients were removed
      */
-    @Transactional
     int removeUnauthorized() {
-        var removed = jdbc.sql("""
-                        DELETE FROM oauth2_registered_client c
-                        WHERE c.client_id_issued_at <= :cutoff
-                          AND NOT EXISTS (SELECT 1 FROM authorized_client a WHERE a.registered_client_id = c.id)
-                        RETURNING c.id
+        var cutoff = Instant.now().minus(GRACE_PERIOD).atOffset(ZoneOffset.UTC);
+        var total = 0;
+        int removed;
+        do {
+            removed = transaction.execute(status -> removeBatch(cutoff));
+            total += removed;
+        } while (removed == BATCH_SIZE);
+        return total;
+    }
+
+    private int removeBatch(OffsetDateTime cutoff) {
+        var ids = jdbc.sql("""
+                        DELETE FROM oauth2_registered_client
+                        WHERE id IN (SELECT c.id
+                                     FROM oauth2_registered_client c
+                                     WHERE c.client_id_issued_at <= :cutoff
+                                       AND NOT EXISTS (SELECT 1 FROM authorized_client a WHERE a.registered_client_id = c.id)
+                                     LIMIT :batchSize)
+                        RETURNING id
                         """)
-                .param("cutoff", Instant.now().minus(GRACE_PERIOD).atOffset(ZoneOffset.UTC))
+                .param("cutoff", cutoff)
+                .param("batchSize", BATCH_SIZE)
                 .query(String.class)
-                .list();
-        if (removed.isEmpty()) {
+                .list()
+                .toArray(String[]::new);
+        if (ids.length == 0) {
             return 0;
         }
-        for (var table : new String[]{"oauth2_authorization", "oauth2_authorization_consent"}) {
-            jdbc.sql("DELETE FROM " + table + " WHERE registered_client_id IN (:ids)")
-                    .param("ids", removed)
-                    .update();
-        }
-        return removed.size();
+        // Separate statements, so that they see what a save that held its lock on the client committed while this waited.
+        // The IDs go as one array, since a list would need a parameter each.
+        jdbc.sql("DELETE FROM oauth2_authorization WHERE registered_client_id = ANY (:ids)").param("ids", ids).update();
+        jdbc.sql("DELETE FROM oauth2_authorization_consent WHERE registered_client_id = ANY (:ids)")
+                .param("ids", ids)
+                .update();
+        return ids.length;
     }
 }

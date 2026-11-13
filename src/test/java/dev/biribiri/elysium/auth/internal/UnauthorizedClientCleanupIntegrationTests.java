@@ -9,6 +9,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsent;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -47,6 +50,9 @@ class UnauthorizedClientCleanupIntegrationTests {
 
     @Autowired
     private OAuth2AuthorizationConsentService consents;
+
+    @Autowired
+    private AuthorizedClients authorizedClients;
 
     @Test
     void removesOldClientsThatNobodyAuthorized() {
@@ -83,6 +89,41 @@ class UnauthorizedClientCleanupIntegrationTests {
         for (var id : List.of(recent, consented, tokenIssued, revoked)) {
             assertThat(clients.findById(id)).isNotNull();
         }
+    }
+
+    @Test
+    void refusesToSaveAnythingForAClientThatsGone() {
+        var removed = register("removed");
+        var authorization = authorization(removed, true);
+        jdbc.sql("DELETE FROM oauth2_registered_client WHERE id = :id").param("id", removed).update();
+
+        assertThatThrownBy(() -> authorizations.save(authorization))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, e ->
+                        assertThat(e.getError().getErrorCode()).isEqualTo(OAuth2ErrorCodes.INVALID_CLIENT));
+        assertThatThrownBy(() -> consents.save(OAuth2AuthorizationConsent.withId(removed, "someone").scope("read").build()))
+                .isInstanceOf(OAuth2AuthenticationException.class);
+        assertThat(jdbc.sql("SELECT count(*) FROM oauth2_authorization WHERE registered_client_id = :id")
+                .param("id", removed)
+                .query(Long.class)
+                .single()).isZero();
+    }
+
+    @Test
+    void removesMoreClientsThanFitInOneBatch() {
+        jdbc.sql("""
+                        INSERT INTO oauth2_registered_client (id, client_id, client_id_issued_at, client_name,
+                            client_authentication_methods, authorization_grant_types, scopes, client_settings, token_settings)
+                        SELECT 'batch-' || n, 'batch-' || n, now() - INTERVAL '2 days', 'batch', 'client_secret_basic',
+                               'authorization_code', 'read', '{}', '{}'
+                        FROM generate_series(1, 2500) n
+                        """)
+                .update();
+
+        authorizedClients.removeUnauthorized();
+
+        assertThat(jdbc.sql("SELECT count(*) FROM oauth2_registered_client WHERE id LIKE 'batch-%'")
+                .query(Long.class)
+                .single()).isZero();
     }
 
     private String register(String name) {

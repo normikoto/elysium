@@ -29,6 +29,7 @@ class SingleConnectionAuthorizationService implements OAuth2AuthorizationService
     @Override
     public void save(OAuth2Authorization authorization) {
         transaction.executeWithoutResult(status -> {
+            authorizedClients.lock(authorization.getRegisteredClientId());
             if (authorization.getAccessToken() != null) {
                 authorizedClients.markAuthorized(authorization.getRegisteredClientId());
             }

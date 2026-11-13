@@ -25,6 +25,7 @@ class SingleConnectionAuthorizationConsentService implements OAuth2Authorization
     @Override
     public void save(OAuth2AuthorizationConsent consent) {
         transaction.executeWithoutResult(status -> {
+            authorizedClients.lock(consent.getRegisteredClientId());
             authorizedClients.markAuthorized(consent.getRegisteredClientId());
             delegate.save(consent);
         });

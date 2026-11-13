@@ -59,7 +59,9 @@ class AppsController {
             operationId = "createApp",
             summary = "Register an application",
             description = """
-                    Needs no token. The response is the only time `client_secret` is shown.""",
+                    Needs no token. The response is the only time `client_secret` is shown. An application that isn't approved \
+                    or issued a token within a day of registering is removed, and has to register again. A token from the \
+                    `client_credentials` grant is enough to keep it.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "apps/#create"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The application, with its credentials."),
