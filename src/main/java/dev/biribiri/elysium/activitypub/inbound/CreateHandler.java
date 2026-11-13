@@ -31,8 +31,10 @@ class CreateHandler implements InboundActivityHandler {
     @Override
     public void handle(InboundActivity activity) {
         var document = json.readTree(activity.body());
-        notes.read(activity, document)
-                .filter(read -> !votes.receive(activity, document, read))
-                .ifPresent(read -> storage.store(activity, document, read));
+        var read = notes.read(activity, document);
+        if (read.isEmpty() || votes.receive(activity, read.get().note())) {
+            return;
+        }
+        storage.store(activity, document, read.get());
     }
 }

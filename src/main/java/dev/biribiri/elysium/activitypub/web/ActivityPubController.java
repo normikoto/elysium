@@ -16,6 +16,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.activitypub.vocab.Announce;
 import dev.biribiri.elysium.content.BoostService;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.content.Status;
@@ -90,6 +91,7 @@ public class ActivityPubController {
     private final FetchSigners signers;
     private final MediaAttachments attachments;
     private final QuoteService quotes;
+    private final PollService polls;
 
     ActivityPubController(
             ActorService actors,
@@ -102,7 +104,9 @@ public class ActivityPubController {
             ProfileService profiles,
             FetchSigners signers,
             MediaAttachments attachments,
-            QuoteService quotes) {
+            QuoteService quotes,
+            PollService polls) {
+        this.polls = polls;
         this.attachments = attachments;
         this.quotes = quotes;
         this.signers = signers;
@@ -311,6 +315,7 @@ public class ActivityPubController {
         var tags = statuses.findTags(noteIds);
         var media = attachments.findByStatuses(noteIds);
         var quoteRows = quotes.findAll(noteIds);
+        var pollsById = polls.findAll(noteIds, Optional.empty());
         // Not activeActors, since a Note keeps naming the author it quotes after they're suspended or deleted.
         var quotedAuthors = actors.findByIds(quoteRows.values().stream().map(StatusQuote::quotedAccountId)
                         .filter(Objects::nonNull).distinct().toList())
@@ -324,7 +329,8 @@ public class ActivityPubController {
                 var quote = Optional.ofNullable(quoteRows.get(status.id()));
                 var note = notes.of(status, author, mentions.getOrDefault(status.id(), List.of()),
                         tags.getOrDefault(status.id(), List.of()), media.getOrDefault(status.id(), List.of()),
-                        quote, quote.map(StatusQuote::quotedAccountId).map(quotedAuthors::get));
+                        quote, quote.map(StatusQuote::quotedAccountId).map(quotedAuthors::get),
+                        Optional.ofNullable(pollsById.get(status.id())));
                 items.add(Create.of(note).withoutContext());
                 continue;
             }

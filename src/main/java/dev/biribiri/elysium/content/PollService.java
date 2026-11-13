@@ -9,7 +9,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -28,11 +27,6 @@ import java.util.UUID;
  */
 @Service
 public class PollService {
-
-    /**
-     * How old a remote poll's counts can be before a viewer asking for them has them fetched again.
-     */
-    public static final Duration STALE_AFTER = Duration.ofMinutes(5);
 
     private static final int ENDING_BATCH_SIZE = 100;
 
@@ -68,14 +62,10 @@ public class PollService {
     }
 
     /**
-     * Whether a remote poll's counts are old enough to fetch again. One that ended, and was fetched since, won't change.
+     * Whether a status is a local one with a poll, without counting its votes.
      */
-    public boolean isStale(UUID statusId, Instant now) {
-        return polls.find(statusId)
-                .filter(poll -> !poll.local())
-                .filter(poll -> poll.fetchedAt() == null || poll.fetchedAt().plus(STALE_AFTER).isBefore(now))
-                .filter(poll -> !poll.isExpired(poll.fetchedAt() == null ? Instant.EPOCH : poll.fetchedAt()))
-                .isPresent();
+    public boolean hasLocalPoll(UUID statusId) {
+        return polls.find(statusId).filter(PollRepository.Row::local).isPresent();
     }
 
     /**
@@ -122,7 +112,7 @@ public class PollService {
                 ids.add(id);
             }
             if (!poll.local()) {
-                polls.addRemoteVotes(statusId, choices, true);
+                polls.addRemoteVotes(statusId, choices);
             }
             events.publishEvent(new PollVoted(statusId, voterId, ids));
             return true;
@@ -194,8 +184,7 @@ public class PollService {
         var poll = clean(remote);
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             var found = polls.findAndLock(statusId).filter(row -> !row.local());
-            if (found.isEmpty() || !found.get().titles().equals(poll.options())
-                    || found.get().multiple() != poll.multiple()) {
+            if (found.isEmpty() || !found.get().hasOptions(poll.options(), poll.multiple())) {
                 return false;
             }
             polls.refreshRemote(statusId, poll.counts(), poll.votersCount(), poll.expiresAt(), poll.closedAt(), now());
@@ -232,7 +221,7 @@ public class PollService {
         do {
             var batch = transaction.execute(tx -> {
                 var due = polls.endDue(now(), ENDING_BATCH_SIZE);
-                due.forEach(poll -> events.publishEvent(new PollEnded(poll.statusId(), poll.authorId(), poll.local())));
+                due.forEach(events::publishEvent);
                 return due.size();
             });
             ended = batch == null ? 0 : batch;

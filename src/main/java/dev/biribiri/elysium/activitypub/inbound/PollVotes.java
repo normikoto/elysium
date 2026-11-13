@@ -1,13 +1,11 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.content.LikeService;
-import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.StatusService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.util.Optional;
@@ -38,17 +36,14 @@ class PollVotes {
     /**
      * Blocks while fetching the voter, if it isn't stored, so this mustn't be called inside a database transaction.
      *
-     * @param document the activity's JSON
      * @return whether the note was a vote in a local poll, counted or not
      */
-    boolean receive(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read) {
-        var note = read.note();
-        var name = voteName(document, note);
-        if (name.isEmpty()) {
+    boolean receive(InboundActivity activity, RemoteNote note) {
+        if (!isVoteShaped(note)) {
             return false;
         }
         var statusId = likes.localStatusId(note.inReplyTo());
-        if (statusId.isEmpty() || polls.find(statusId.get(), Optional.empty()).filter(Poll::local).isEmpty()) {
+        if (statusId.isEmpty() || !polls.hasLocalPoll(statusId.get())) {
             return false;
         }
         var voter = remoteActors.fetchOrRefresh(URI.create(activity.actorUri()));
@@ -56,7 +51,7 @@ class PollVotes {
             log.debug("Dropping vote {}, whose voter can't see the poll", activity.id());
             return true;
         }
-        var outcome = polls.receiveVote(statusId.get(), voter.id(), note.id(), name.get());
+        var outcome = polls.receiveVote(statusId.get(), voter.id(), note.id(), note.name());
         if (outcome != PollService.VoteOutcome.COUNTED) {
             log.debug("Not counting vote {}: {}", activity.id(), outcome);
         }
@@ -64,17 +59,10 @@ class PollVotes {
     }
 
     /**
-     * The option a vote chose, if the note is shaped like one. A reply with content is a reply, even with a name.
+     * A reply with content is a reply, even with a name.
      */
-    private static Optional<String> voteName(JsonNode document, RemoteNote note) {
-        if (note.inReplyTo() == null || (note.content() != null && !note.content().isBlank()) || note.poll() != null) {
-            return Optional.empty();
-        }
-        var object = document.path("object");
-        if (object.isArray() && object.size() == 1) {
-            object = object.path(0);
-        }
-        // A vote is only ever embedded, since Mastodon doesn't serve them.
-        return Optional.ofNullable(ActivityJson.text(object.path("name"))).filter(name -> !name.isEmpty());
+    private static boolean isVoteShaped(RemoteNote note) {
+        return note.inReplyTo() != null && note.name() != null && !note.name().isEmpty() && note.poll() == null
+                && (note.content() == null || note.content().isBlank());
     }
 }

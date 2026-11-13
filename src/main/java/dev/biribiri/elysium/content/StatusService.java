@@ -338,7 +338,7 @@ public class StatusService {
                     polls.delete(id);
                     insertLocalPoll(id, newPoll, now);
                 }
-                case HIDE_TOTALS -> polls.update(id, newPoll.hideTotals(), oldPoll.orElseThrow().expiresAt());
+                case HIDE_TOTALS -> polls.setHideTotals(id, newPoll.hideTotals());
             }
             var removed = !currentIds.stream().allMatch(mediaIds::contains);
             media.removeFromStatusExcept(id, mediaIds);
@@ -387,7 +387,7 @@ public class StatusService {
             if (poll == null) {
                 return old.isPresent() ? REMOVE : KEEP;
             }
-            if (old.isEmpty() || !old.get().titles().equals(poll.options()) || old.get().multiple() != poll.multiple()) {
+            if (old.isEmpty() || !old.get().hasOptions(poll.options(), poll.multiple())) {
                 return REPLACE;
             }
             return old.get().hideTotals() == poll.hideTotals() ? KEEP : HIDE_TOTALS;
@@ -760,10 +760,11 @@ public class StatusService {
     public RemoteEdit.Outcome updateRemote(RemoteEdit edit) {
         var html = RemoteText.of(edit.content(), edit.spoilerText(), edit.language());
         var tags = remoteTags(edit.tags());
+        var poll = edit.poll() == null ? null : PollService.clean(edit.poll());
         // Servers also send an Update when nothing an edit can change has, such as when a quote is approved, and that
         // isn't kept as a version, so that the status doesn't show as edited.
         var stored = statuses.findByUriForAuthor(edit.uri(), edit.authorId());
-        if (stored.isPresent() && isSameVersion(stored.get(), html, edit, tags)) {
+        if (stored.isPresent() && isSameVersion(stored.get(), html, edit, tags, poll)) {
             return RemoteEdit.Outcome.UNCHANGED;
         }
         // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
@@ -781,7 +782,7 @@ public class StatusService {
                     edit.sensitive() || !html.spoilerText().isEmpty(),
                     edit.editedAt().truncatedTo(ChronoUnit.MICROS));
             id.ifPresent(editedId -> {
-                replaceRemotePoll(editedId, edit.poll() == null ? null : PollService.clean(edit.poll()));
+                replaceRemotePoll(editedId, poll);
                 statuses.replaceTags(editedId, tags);
                 removedMedia[0] = attachments.replaceRemote(editedId, edit.authorId(), edit.attachments());
             });
@@ -811,7 +812,7 @@ public class StatusService {
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         if (poll == null) {
             old.ifPresent(found -> polls.delete(statusId));
-        } else if (old.isPresent() && isSamePoll(old.get(), poll)) {
+        } else if (old.isPresent() && old.get().hasOptions(poll.options(), poll.multiple())) {
             polls.refreshRemote(statusId, poll.counts(), poll.votersCount(), poll.expiresAt(), poll.closedAt(), now);
         } else {
             old.ifPresent(found -> polls.delete(statusId));
@@ -819,14 +820,14 @@ public class StatusService {
         }
     }
 
-    private static boolean isSamePoll(PollRepository.Row stored, RemotePoll poll) {
-        return stored.titles().equals(poll.options()) && stored.multiple() == poll.multiple();
-    }
-
-    private boolean isSameVersion(Status status, RemoteText html, RemoteEdit edit, Collection<String> tags) {
-        var poll = polls.find(status.id());
-        if (edit.poll() == null ? poll.isPresent()
-                : poll.isEmpty() || !isSamePoll(poll.get(), PollService.clean(edit.poll()))) {
+    /**
+     * @param poll the edit's poll, as {@link PollService#clean} keeps it
+     */
+    private boolean isSameVersion(
+            Status status, RemoteText html, RemoteEdit edit, Collection<String> tags, RemotePoll poll) {
+        var stored = polls.find(status.id());
+        if (poll == null ? stored.isPresent()
+                : stored.isEmpty() || !stored.get().hasOptions(poll.options(), poll.multiple())) {
             return false;
         }
         if (!html.content().equals(status.content()) || !html.spoilerText().equals(status.spoilerText())

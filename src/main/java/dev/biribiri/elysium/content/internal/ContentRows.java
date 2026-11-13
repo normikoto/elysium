@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
@@ -38,6 +39,10 @@ final class ContentRows {
 
     static Instant instantOrNull(OffsetDateTime value) {
         return value == null ? null : value.toInstant();
+    }
+
+    static OffsetDateTime offsetOrNull(Instant value) {
+        return value == null ? null : value.atOffset(ZoneOffset.UTC);
     }
 
     /**

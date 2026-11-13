@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.content.internal;
 
 import dev.biribiri.elysium.content.Poll;
+import dev.biribiri.elysium.content.PollEnded;
 import dev.biribiri.elysium.content.PollVote;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -9,7 +10,6 @@ import java.net.URI;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -18,6 +18,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+
+import static dev.biribiri.elysium.content.internal.ContentRows.instantOrNull;
+import static dev.biribiri.elysium.content.internal.ContentRows.offsetOrNull;
 
 @Repository
 public class PollRepository {
@@ -34,19 +37,20 @@ public class PollRepository {
      * @param titles its options, in order
      */
     public record Row(
-            UUID statusId, UUID authorId, boolean local, boolean multiple, boolean hideTotals, Instant expiresAt,
-            Instant closedAt, Instant endedAt, Instant fetchedAt, List<String> titles) {
+            UUID statusId, boolean local, boolean multiple, boolean hideTotals, Instant expiresAt, Instant closedAt,
+            List<String> titles) {
 
         public boolean isExpired(Instant now) {
-            return isPast(expiresAt, now) || isPast(closedAt, now);
+            return Poll.isPast(Poll.endsAt(expiresAt, closedAt), now);
         }
 
-        private static boolean isPast(Instant at, Instant now) {
-            return at != null && !at.isAfter(now);
+        /**
+         * Whether a poll with these options is the same one, which keeps its votes. Changing either makes it a new poll,
+         * as on Mastodon.
+         */
+        public boolean hasOptions(List<String> options, boolean multiple) {
+            return titles.equals(options) && this.multiple == multiple;
         }
-    }
-
-    public record Ended(UUID statusId, UUID authorId, boolean local) {
     }
 
     /**
@@ -63,10 +67,10 @@ public class PollRepository {
                 .param("statusId", statusId)
                 .param("multiple", multiple)
                 .param("hideTotals", hideTotals)
-                .param("expiresAt", offset(expiresAt), Types.TIMESTAMP_WITH_TIMEZONE)
-                .param("closedAt", offset(closedAt), Types.TIMESTAMP_WITH_TIMEZONE)
+                .param("expiresAt", offsetOrNull(expiresAt), Types.TIMESTAMP_WITH_TIMEZONE)
+                .param("closedAt", offsetOrNull(closedAt), Types.TIMESTAMP_WITH_TIMEZONE)
                 .param("votersCount", votersCount, Types.INTEGER)
-                .param("fetchedAt", offset(fetchedAt), Types.TIMESTAMP_WITH_TIMEZONE)
+                .param("fetchedAt", offsetOrNull(fetchedAt), Types.TIMESTAMP_WITH_TIMEZONE)
                 .update();
         for (var position = 0; position < titles.size(); position++) {
             jdbc.sql("""
@@ -84,8 +88,8 @@ public class PollRepository {
     /**
      * Removes a poll with its votes.
      */
-    public boolean delete(UUID statusId) {
-        return jdbc.sql("DELETE FROM poll WHERE status_id = :statusId").param("statusId", statusId).update() == 1;
+    public void delete(UUID statusId) {
+        jdbc.sql("DELETE FROM poll WHERE status_id = :statusId").param("statusId", statusId).update();
     }
 
     /**
@@ -100,39 +104,28 @@ public class PollRepository {
     }
 
     private Optional<Row> find(String condition, UUID statusId) {
-        var row = jdbc.sql("""
-                        SELECT p.status_id, s.actor_id, a.is_local, p.multiple, p.hide_totals, p.expires_at, p.closed_at,
-                               p.ended_at, p.fetched_at
+        return jdbc.sql("""
+                        SELECT p.status_id, a.is_local, p.multiple, p.hide_totals, p.expires_at, p.closed_at,
+                               (SELECT array_agg(o.title ORDER BY o.position) FROM poll_option o
+                                WHERE o.status_id = p.status_id) AS titles
                         FROM poll p JOIN status s ON s.id = p.status_id JOIN actor a ON a.id = s.actor_id
                         """ + condition)
                 .param("statusId", statusId)
                 .query((rs, n) -> new Row(
                         rs.getObject("status_id", UUID.class),
-                        rs.getObject("actor_id", UUID.class),
                         rs.getBoolean("is_local"),
                         rs.getBoolean("multiple"),
                         rs.getBoolean("hide_totals"),
-                        ContentRows.instantOrNull(rs.getObject("expires_at", OffsetDateTime.class)),
-                        ContentRows.instantOrNull(rs.getObject("closed_at", OffsetDateTime.class)),
-                        ContentRows.instantOrNull(rs.getObject("ended_at", OffsetDateTime.class)),
-                        ContentRows.instantOrNull(rs.getObject("fetched_at", OffsetDateTime.class)),
-                        List.of()))
+                        instantOrNull(rs.getObject("expires_at", OffsetDateTime.class)),
+                        instantOrNull(rs.getObject("closed_at", OffsetDateTime.class)),
+                        rs.getArray("titles") == null ? List.of() : List.of((String[]) rs.getArray("titles").getArray())))
                 .optional();
-        return row.map(found -> new Row(found.statusId(), found.authorId(), found.local(), found.multiple(),
-                found.hideTotals(), found.expiresAt(), found.closedAt(), found.endedAt(), found.fetchedAt(),
-                titles(statusId)));
-    }
-
-    private List<String> titles(UUID statusId) {
-        return jdbc.sql("SELECT title FROM poll_option WHERE status_id = :statusId ORDER BY position")
-                .param("statusId", statusId)
-                .query(String.class)
-                .list();
     }
 
     /**
      * A local poll counts the votes of accounts that can be seen, as likes do, so that a suspended account's come back if
-     * that ends. A remote poll has the counts its server gave.
+     * that ends. A remote poll has the counts its server gave. Votes are counted once for each poll, rather than for each
+     * option.
      *
      * @param viewer whose own votes to include, or null for nobody's
      * @return an entry for each status that has a poll
@@ -142,20 +135,28 @@ public class PollRepository {
             return Map.of();
         }
         record OptionRow(UUID statusId, boolean local, boolean multiple, boolean hideTotals, Instant expiresAt,
-                         Instant closedAt, Integer votersCount, long localVoters, String title, Integer remoteCount,
-                         long localCount) {
+                         Instant closedAt, Integer votersCount, Instant fetchedAt, long localVoters, String title,
+                         Integer remoteCount, long localCount) {
         }
         var rows = jdbc.sql("""
+                        WITH votes AS (
+                            SELECT v.status_id, v.position, v.voter_id
+                            FROM poll_vote v JOIN actor va ON va.id = v.voter_id
+                            WHERE v.status_id IN (:ids) AND %s
+                        ), counts AS (
+                            SELECT status_id, position, count(*) AS votes FROM votes GROUP BY status_id, position
+                        ), voters AS (
+                            SELECT status_id, count(DISTINCT voter_id) AS voters FROM votes GROUP BY status_id
+                        )
                         SELECT p.status_id, a.is_local, p.multiple, p.hide_totals, p.expires_at, p.closed_at, p.voters_count,
-                               o.title, o.votes_count,
-                               (SELECT count(*) FROM poll_vote v JOIN actor va ON va.id = v.voter_id
-                                WHERE v.status_id = p.status_id AND v.position = o.position AND %1$s) AS local_count,
-                               (SELECT count(DISTINCT v.voter_id) FROM poll_vote v JOIN actor va ON va.id = v.voter_id
-                                WHERE v.status_id = p.status_id AND %1$s) AS local_voters
+                               p.fetched_at, o.title, o.votes_count, coalesce(c.votes, 0) AS local_count,
+                               coalesce(vs.voters, 0) AS local_voters
                         FROM poll p
                         JOIN status s ON s.id = p.status_id
                         JOIN actor a ON a.id = s.actor_id
                         JOIN poll_option o ON o.status_id = p.status_id
+                        LEFT JOIN counts c ON a.is_local AND c.status_id = o.status_id AND c.position = o.position
+                        LEFT JOIN voters vs ON a.is_local AND vs.status_id = p.status_id
                         WHERE p.status_id IN (:ids)
                         ORDER BY p.status_id, o.position
                         """.formatted(LikeRepository.eligible("va")))
@@ -165,9 +166,10 @@ public class PollRepository {
                         rs.getBoolean("is_local"),
                         rs.getBoolean("multiple"),
                         rs.getBoolean("hide_totals"),
-                        ContentRows.instantOrNull(rs.getObject("expires_at", OffsetDateTime.class)),
-                        ContentRows.instantOrNull(rs.getObject("closed_at", OffsetDateTime.class)),
+                        instantOrNull(rs.getObject("expires_at", OffsetDateTime.class)),
+                        instantOrNull(rs.getObject("closed_at", OffsetDateTime.class)),
                         rs.getObject("voters_count", Integer.class),
+                        instantOrNull(rs.getObject("fetched_at", OffsetDateTime.class)),
                         rs.getLong("local_voters"),
                         rs.getString("title"),
                         rs.getObject("votes_count", Integer.class),
@@ -194,7 +196,7 @@ public class PollRepository {
                 voters = first.multiple() ? counts.max().orElse(0) : counts.sum();
             }
             polls.put(statusId, new Poll(statusId, first.local(), first.multiple(), first.hideTotals(),
-                    first.expiresAt(), first.closedAt(), counted, voters,
+                    first.expiresAt(), first.closedAt(), counted, voters, first.fetchedAt(),
                     viewer == null ? null : own.getOrDefault(statusId, List.of())));
         });
         return polls;
@@ -237,14 +239,14 @@ public class PollRepository {
                 .param("voterId", voterId)
                 .param("position", position)
                 .param("uri", uri == null ? null : uri.toString(), Types.VARCHAR)
-                .param("createdAt", offset(createdAt))
+                .param("createdAt", offsetOrNull(createdAt))
                 .update() == 1;
     }
 
     /**
-     * Adds votes from here to a remote poll's counts, until its server sends counts that include them.
+     * Adds a new voter's votes to a remote poll's counts, until its server sends counts that include them.
      */
-    public void addRemoteVotes(UUID statusId, Collection<Integer> positions, boolean newVoter) {
+    public void addRemoteVotes(UUID statusId, Collection<Integer> positions) {
         jdbc.sql("""
                         UPDATE poll_option SET votes_count = coalesce(votes_count, 0) + 1
                         WHERE status_id = :statusId AND position IN (:positions)
@@ -252,30 +254,15 @@ public class PollRepository {
                 .param("statusId", statusId)
                 .param("positions", positions)
                 .update();
-        if (newVoter) {
-            jdbc.sql("UPDATE poll SET voters_count = voters_count + 1 WHERE status_id = :statusId AND voters_count IS NOT NULL")
-                    .param("statusId", statusId)
-                    .update();
-        }
+        jdbc.sql("UPDATE poll SET voters_count = voters_count + 1 WHERE status_id = :statusId AND voters_count IS NOT NULL")
+                .param("statusId", statusId)
+                .update();
     }
 
-    public void deleteVotes(UUID statusId) {
-        jdbc.sql("DELETE FROM poll_vote WHERE status_id = :statusId").param("statusId", statusId).update();
-    }
-
-    /**
-     * Changes what an edit can change of a local poll without changing its options. A poll that's open again can end
-     * again.
-     */
-    public void update(UUID statusId, boolean hideTotals, Instant expiresAt) {
-        jdbc.sql("""
-                        UPDATE poll SET hide_totals = :hideTotals, expires_at = :expiresAt,
-                                        ended_at = CASE WHEN :expiresAt > now() THEN NULL ELSE ended_at END
-                        WHERE status_id = :statusId
-                        """)
+    public void setHideTotals(UUID statusId, boolean hideTotals) {
+        jdbc.sql("UPDATE poll SET hide_totals = :hideTotals WHERE status_id = :statusId")
                 .param("statusId", statusId)
                 .param("hideTotals", hideTotals)
-                .param("expiresAt", offset(expiresAt), Types.TIMESTAMP_WITH_TIMEZONE)
                 .update();
     }
 
@@ -292,9 +279,9 @@ public class PollRepository {
                         """)
                 .param("statusId", statusId)
                 .param("votersCount", votersCount, Types.INTEGER)
-                .param("expiresAt", offset(expiresAt), Types.TIMESTAMP_WITH_TIMEZONE)
-                .param("closedAt", offset(closedAt), Types.TIMESTAMP_WITH_TIMEZONE)
-                .param("fetchedAt", offset(fetchedAt), Types.TIMESTAMP_WITH_TIMEZONE)
+                .param("expiresAt", offsetOrNull(expiresAt), Types.TIMESTAMP_WITH_TIMEZONE)
+                .param("closedAt", offsetOrNull(closedAt), Types.TIMESTAMP_WITH_TIMEZONE)
+                .param("fetchedAt", offsetOrNull(fetchedAt), Types.TIMESTAMP_WITH_TIMEZONE)
                 .update();
         for (var position = 0; position < counts.size(); position++) {
             jdbc.sql("UPDATE poll_option SET votes_count = :count WHERE status_id = :statusId AND position = :position")
@@ -308,7 +295,7 @@ public class PollRepository {
     public void markFetched(UUID statusId, Instant fetchedAt) {
         jdbc.sql("UPDATE poll SET fetched_at = :fetchedAt WHERE status_id = :statusId")
                 .param("statusId", statusId)
-                .param("fetchedAt", offset(fetchedAt))
+                .param("fetchedAt", offsetOrNull(fetchedAt))
                 .update();
     }
 
@@ -316,7 +303,7 @@ public class PollRepository {
      * Marks polls whose voting has closed as ended. Polls that another node is ending are skipped, rather than waited
      * for.
      */
-    public List<Ended> endDue(Instant now, int limit) {
+    public List<PollEnded> endDue(Instant now, int limit) {
         return jdbc.sql("""
                         WITH due AS (
                             SELECT status_id FROM poll
@@ -330,9 +317,9 @@ public class PollRepository {
                         WHERE p.status_id = due.status_id AND s.id = p.status_id
                         RETURNING p.status_id, s.actor_id, a.is_local
                         """)
-                .param("now", offset(now))
+                .param("now", offsetOrNull(now))
                 .param("limit", limit)
-                .query((rs, n) -> new Ended(
+                .query((rs, n) -> new PollEnded(
                         rs.getObject("status_id", UUID.class),
                         rs.getObject("actor_id", UUID.class),
                         rs.getBoolean("is_local")))
@@ -354,21 +341,14 @@ public class PollRepository {
             return List.of();
         }
         return jdbc.sql("""
-                        SELECT v.id, v.status_id, v.voter_id, v.position, o.title, v.uri, v.created_at
+                        SELECT v.id, o.title
                         FROM poll_vote v
                         JOIN poll_option o ON o.status_id = v.status_id AND o.position = v.position
                         WHERE v.id IN (:ids)
                         ORDER BY v.position
                         """)
                 .param("ids", ids)
-                .query((rs, n) -> new PollVote(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("status_id", UUID.class),
-                        rs.getObject("voter_id", UUID.class),
-                        rs.getInt("position"),
-                        rs.getString("title"),
-                        ContentRows.uriOrNull(rs.getString("uri")),
-                        rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+                .query((rs, n) -> new PollVote(rs.getObject("id", UUID.class), rs.getString("title")))
                 .list();
     }
 
@@ -391,9 +371,5 @@ public class PollRepository {
 
     public void removeForActors(Collection<UUID> actorIds) {
         jdbc.sql("DELETE FROM poll_vote WHERE voter_id IN (:ids)").param("ids", actorIds).update();
-    }
-
-    private static OffsetDateTime offset(Instant instant) {
-        return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
     }
 }

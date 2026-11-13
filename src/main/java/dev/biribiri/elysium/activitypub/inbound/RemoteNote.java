@@ -39,6 +39,7 @@ import java.util.regex.Pattern;
  * @param quote        what it quotes, or null if it doesn't say
  * @param quotePolicy  its {@code interactionPolicy.canQuote}, or null if it has none
  * @param poll         its poll, if it's a {@code Question} with options, or null
+ * @param name         its {@code name}, or the one in {@code nameMap}, which a vote in a poll has, or null if it has none
  */
 record RemoteNote(
         URI id,
@@ -57,7 +58,8 @@ record RemoteNote(
         List<RemoteAttachment> attachments,
         RemoteQuote quote,
         QuotePolicy quotePolicy,
-        RemotePoll poll) {
+        RemotePoll poll,
+        String name) {
 
     /**
      * The properties that say what a note quotes, in the order Mastodon reads them. Only FEP-044f's comes with a way to ask
@@ -154,7 +156,8 @@ record RemoteNote(
                 attachments(node.path("attachment")),
                 quote(node),
                 quotePolicy(node.path("interactionPolicy").path("canQuote")),
-                types.contains("Question") ? poll(node, Instant.now()) : null));
+                types.contains("Question") ? poll(node, Instant.now()) : null,
+                ActivityJson.naturalText(node, "name")));
     }
 
     /**

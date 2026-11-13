@@ -19,11 +19,6 @@ public record StatusVersion(
         pollOptions = pollOptions == null ? null : List.copyOf(pollOptions);
     }
 
-    public StatusVersion(
-            String text, String content, String spoilerText, String language, boolean sensitive, Instant since) {
-        this(text, content, spoilerText, language, sensitive, since, null);
-    }
-
     static StatusVersion current(Status status, List<String> pollOptions) {
         return new StatusVersion(
                 status.text(),

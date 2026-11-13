@@ -21,7 +21,7 @@ import java.util.List;
 record StatusView(Status status, String authorName, String authorUrl, String url, String publishedAt, String boostedBy,
                   List<AttachmentView> attachments, PollView poll) {
 
-    private static final DateTimeFormatter DISPLAY =
+    static final DateTimeFormatter DISPLAY =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC);
 
     static StatusView from(Status status, Actor author) {

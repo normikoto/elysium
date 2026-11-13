@@ -55,14 +55,8 @@ class StatusApiErrors {
                 .body(Map.of("error", "Validation failed: " + e.getMessage()));
     }
 
-    @ExceptionHandler
-    ResponseEntity<Map<String, String>> invalidStatus(InvalidStatusException e) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
-                .body(Map.of("error", "Validation failed: " + e.getMessage()));
-    }
-
-    @ExceptionHandler
-    ResponseEntity<Map<String, String>> invalidVote(InvalidVoteException e) {
+    @ExceptionHandler({InvalidStatusException.class, InvalidVoteException.class})
+    ResponseEntity<Map<String, String>> invalidStatus(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .body(Map.of("error", "Validation failed: " + e.getMessage()));
     }

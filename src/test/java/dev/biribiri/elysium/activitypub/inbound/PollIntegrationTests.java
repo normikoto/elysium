@@ -146,7 +146,7 @@ class PollIntegrationTests {
         refreshes.run(new PollRefreshJob(statusId(id), Instant.now()));
 
         assertThat(poll(id).options()).extracting(Poll.Option::votesCount).containsExactly(10, 20);
-        assertThat(polls.isStale(statusId(id), Instant.now())).isFalse();
+        assertThat(poll(id).isStale(Instant.now())).isFalse();
     }
 
     @Test

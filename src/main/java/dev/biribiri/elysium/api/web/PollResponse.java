@@ -34,12 +34,11 @@ record PollResponse(
     }
 
     static PollResponse from(Poll poll, Instant now) {
-        var expired = poll.isExpired(now);
-        var hidden = poll.hideTotals() && !expired;
+        var hidden = poll.countsHidden(now);
         return new PollResponse(
                 poll.statusId().toString(),
                 poll.endsAt() == null ? null : ApiTimestamps.format(poll.endsAt()),
-                expired,
+                poll.isExpired(now),
                 poll.multiple(),
                 poll.votesCount(),
                 poll.multiple() ? poll.votersCount() : null,

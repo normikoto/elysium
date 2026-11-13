@@ -74,7 +74,7 @@ public class PollsController {
         var statusId = visible(id, viewer);
         var poll = polls.find(statusId, viewer).orElseThrow(RecordNotFoundException::new);
         var now = Instant.now();
-        if (!poll.local() && polls.isStale(statusId, now)) {
+        if (poll.isStale(now)) {
             refresher.refreshSoon(statusId);
         }
         return PollResponse.from(poll, now);

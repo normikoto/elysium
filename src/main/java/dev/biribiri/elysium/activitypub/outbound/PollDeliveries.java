@@ -27,7 +27,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -141,10 +140,13 @@ public class PollDeliveries {
     private void sendResults(UUID statusId, UUID authorId) {
         var status = statuses.findAndHoldAgainstEdits(statusId, authorId);
         var author = actors.findLocalById(authorId);
-        if (status.isEmpty() || author.isEmpty() || polls.find(statusId, Optional.empty()).isEmpty()) {
+        if (status.isEmpty() || author.isEmpty()) {
             return;
         }
         var note = notes.of(status.get(), author.get());
+        if (note.oneOf() == null && note.anyOf() == null) {
+            return;
+        }
         var voters = new LinkedHashSet<URI>();
         actors.findByIds(polls.findVoters(statusId)).forEach(voter -> recipients.add(voter, voters));
         statusDeliveries.sendUpdate(status.get(), author.get(), note, Update.of(note, Instant.now()), voters);

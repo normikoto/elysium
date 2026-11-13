@@ -3,8 +3,6 @@ package dev.biribiri.elysium.web;
 import dev.biribiri.elysium.content.Poll;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -15,9 +13,6 @@ import java.util.List;
  */
 record PollView(List<Option> options, boolean ended, String closes, Integer votes) {
 
-    private static final DateTimeFormatter DISPLAY =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC);
-
     /**
      * @param percent its share of the votes, rounded, or null while counts are hidden
      */
@@ -25,16 +20,15 @@ record PollView(List<Option> options, boolean ended, String closes, Integer vote
     }
 
     static PollView of(Poll poll, Instant now) {
-        var ended = poll.isExpired(now);
-        var hidden = poll.hideTotals() && !ended;
+        var hidden = poll.countsHidden(now);
         var total = poll.votesCount();
         return new PollView(
                 poll.options().stream()
                         .map(option -> new Option(option.title(), hidden ? null
                                 : total == 0 ? 0 : Math.round(100f * option.votesCount() / total)))
                         .toList(),
-                ended,
-                poll.endsAt() == null ? null : DISPLAY.format(poll.endsAt()),
+                poll.isExpired(now),
+                poll.endsAt() == null ? null : StatusView.DISPLAY.format(poll.endsAt()),
                 hidden ? null : total);
     }
 }
