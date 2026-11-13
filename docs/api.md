@@ -9,6 +9,8 @@ differs from Mastodon in these ways:
 - Each authorization issues a new token rather than reusing the application's existing one.
 - Revoking an unknown token succeeds, rather than returning the 403 that Mastodon documents.
 - `/oauth/token` and `/oauth/revoke` only accept form-encoded bodies, not JSON.
+- An application that isn't approved or issued a token within a day of registering is removed. Its credentials then stop
+  working, and it has to register again. A token from the `client_credentials` grant is enough to keep it.
 
 Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses/), with these differences:
 

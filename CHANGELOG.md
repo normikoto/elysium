@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Apps that nobody has authorized a day after they register are removed, since anyone can register one without logging
+  in. On upgrading, apps with no token and no approval left are removed too, which includes ones that everyone has
+  revoked. Those apps have to register again. See `docs/accounts.md` and `docs/api.md`.
 - Polls, as on Mastodon. A post can have a poll with 2 to 4 options, open for 5 minutes to a month, which people vote in
   with `POST /api/v1/polls/:id/votes`. A poll's author and its voters get a `poll` notification when it ends, and its
   options and percentages are shown on its web page. Polls from other servers are shown with the counts their servers
