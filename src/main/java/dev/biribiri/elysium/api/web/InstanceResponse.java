@@ -53,6 +53,7 @@ record InstanceResponse(
      */
     record Accounts(
             @JsonProperty("max_featured_tags") int maxFeaturedTags,
+            @JsonProperty("max_pinned_statuses") int maxPinnedStatuses,
             @Schema(description = "How many fields a profile can have. Mastodon doesn't send this, and allows 4.")
             @JsonProperty("max_profile_fields") int maxProfileFields) {
     }

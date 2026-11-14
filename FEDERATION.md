@@ -57,7 +57,10 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
 `manuallyApprovesFollowers` is always included, and is true when the user [approves followers by hand](#follows).
 
 The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields,
-`Hashtag` (`as:Hashtag`), and `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`).
+`Hashtag` (`as:Hashtag`), `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`), and `toot`
+(`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`). `featured` is the user's
+[pinned statuses](#pinned-statuses), at `/users/{username}/collections/featured`. A suspended user's document leaves it
+out.
 
 When a user changes their profile, or whether they approve followers by hand, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
 `{actor-uri}#profile/{milliseconds}`. It's addressed to the public, with the followers collection in `cc`, and its
@@ -201,7 +204,7 @@ plain JSON, without a JSON-LD processor, and no `@context` is ever fetched. Inbo
 | Status | Meaning                                                                                                      |
 |--------|--------------------------------------------------------------------------------------------------------------|
 | `202`  | The activity is queued, it's a repeat of one with the same `id`, it was [forwarded](#forwarded-activities) and will be fetched from its origin, or it was dropped |
-| `400`  | The signature or digest headers can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, or the `id` isn't a valid URI or is over 2048 bytes |
+| `400`  | The signature or digest headers can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, and `actor`, or the `id` isn't a valid URI or is over 2048 bytes. An `Add` or `Remove` can leave out its `id`, as Mastodon and Misskey send them |
 | `401`  | There's no signature in a supported format, or it isn't valid                                                |
 | `403`  | The activity's `id` is a valid URI, but not an HTTPS URL on the same host and port as its `actor`, or the signature's key is on a [blocked domain](#domain-blocks) |
 | `404`  | The user doesn't exist                                                                                       |
@@ -227,8 +230,8 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
 one worked. Activities are processed in no particular order. `Follow`, `Like`, `Announce`, `Block`, their `Undo`s, `Accept`
-and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, `Delete`, and `Flag` are acted on, and other
-types are ignored.
+and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, `Delete`, `Flag`, and `Add` and `Remove`
+of a [pinned status](#pinned-statuses) are acted on, and other types are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -749,6 +752,59 @@ A `Note`'s `shares` collection is served like its `likes`, and counts and lists 
 Boosts from suspended actors, and of a suspended author's statuses, aren't counted or listed, and come back if the suspension
 ends.
 
+### Pinned statuses
+
+A local user can pin up to 5 of their own public, unlisted, or followers-only statuses. Their actor's `featured` collection,
+at `/users/{username}/collections/featured`, is an `OrderedCollection` that lists the public and unlisted ones, the most
+recently pinned first. It isn't paged: each item is the status's `Note`, embedded in `orderedItems` as it's served on its
+own, and `totalItems` counts them. It's served like the [outbox](#actors), with the same media types, CORS, 403, and 410,
+and any signature is ignored.
+
+Pinning a status sends an `Add`, signed as the user, to their followers. Its `object` is the status's ID, and its `target`
+is the `featured` collection. It's addressed like the status, without its mentions, and goes to the followers who were sent
+it, so pinning a followers-only status tells nobody else that it exists:
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice#pins/5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+  "type": "Add",
+  "actor": "https://elysium.example/users/alice",
+  "object": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000001",
+  "target": "https://elysium.example/users/alice/collections/featured",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://elysium.example/users/alice/followers"]
+}
+```
+
+Its `id` is new for each pin, and can't be fetched. Unpinning cancels the `Add` if it hasn't been sent, and sends a
+`Remove` with the `id` `{add-id}/remove` and the same `object` and `target`, after any request with the `Add` to the same
+server has ended. Deleting a pinned status only sends its `Delete`, as on Mastodon.
+
+An `Add` or `Remove` from another server is acted on if its `target` is the `featured` collection given in its actor's
+document, and its `object` is the ID of a status on the actor's host and port, alone or embedded as a `Note` or `Question`.
+Anything else is ignored, including Mastodon's `Add`s of a `Hashtag` and of its own collections. The `featured` collection
+in an actor document is only used if it's an HTTPS URL on the same host and port as the actor. An `Add` or `Remove`
+without an `id`, as Mastodon and Misskey send them, is only accepted from the actor that signed it, and can't be
+[forwarded](#forwarded-activities).
+
+An `Add` pins the status if it's stored here and attributed to the actor. One that isn't stored is fetched from its `id`,
+signed as the [instance actor](#instance-actor), once its host has a [turn](#forwarded-activities), and pinned if it comes
+back as a public or unlisted `Note` with that `id`, attributed to the actor alone, with a `published`. It's stored as
+[backfill](#backfill) stores statuses. Nothing is fetched if no local account follows the actor. A `Remove` unpins the
+status whether or not it's stored. A repeat of either is processed again, since pinning a status a second time sends the same
+`Add` as the first time, and they're ordered by when they last arrived here: a `Remove` stops an `Add` that arrived before it
+from pinning the status if that's processed later, for about 34 days. At most 40 pins are kept for an actor.
+
+When a `Follow` from here is accepted, and when an actor sends an `Update` of itself, its `featured` collection is fetched,
+signed as the instance actor, with a turn of its own, and replaces the actor's pins. This is how pins from before a follow
+are learned, and the only way at all from servers that don't send `Add`s, such as GoToSocial. The collection is read like an
+outbox for [backfill](#backfill): it has to be an `OrderedCollection` or `Collection` with the `id` that was fetched, its
+`first` page can be embedded or fetched, and up to 40 items of `orderedItems` or `items` are read, the first as the most
+recently pinned. An item can be an embedded `Note` attributed to the actor, which is stored, or the ID of a status on the
+actor's host and port, which is fetched like a status an `Add` names if it isn't stored. Other items are skipped. An actor
+whose document has no `featured` has no pins.
+
 ### Quotes
 
 Quotes follow [FEP-044f](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as on Mastodon: someone
@@ -1096,6 +1152,9 @@ never says whether admins acted on it.
   without an `Undo`.
 - Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.
 - Backfill only reads the first page of an outbox, and only its `Create`s.
+- A `featured` collection only lists public and unlisted pins, where Mastodon also names followers-only ones to a
+  follower's signed fetch. Pins from another server are kept for its followers-only statuses that were sent here, but those
+  aren't fetched.
 - Once `elysium.federation.send-blocks` is turned off, lifting a block that was sent before then sends no `Undo`, so the
   other server keeps it.
 

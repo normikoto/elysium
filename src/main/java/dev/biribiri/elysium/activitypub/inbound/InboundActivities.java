@@ -31,6 +31,19 @@ public class InboundActivities {
         this.scheduler = scheduler;
         this.handlers = handlers.stream()
                 .collect(Collectors.toUnmodifiableMap(InboundActivityHandler::type, Function.identity()));
+        this.handlers.values().stream().filter(handler -> handler.acceptsWithoutId() && !handler.processesRepeats())
+                .findAny().ifPresent(handler -> {
+                    throw new IllegalStateException(handler.type() + " is accepted without an ID, so its handler has to "
+                            + "process repeats");
+                });
+    }
+
+    /**
+     * @see InboundActivityHandler#acceptsWithoutId
+     */
+    boolean acceptsWithoutId(String type) {
+        var handler = handlers.get(type);
+        return handler != null && handler.acceptsWithoutId();
     }
 
     /**

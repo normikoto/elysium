@@ -29,4 +29,13 @@ public interface InboundActivityHandler {
     default boolean processesRepeats() {
         return false;
     }
+
+    /**
+     * Says whether an activity without an {@code id} is accepted from its own actor, because common servers send this type
+     * that way. {@link Inbox} makes it an ID from its body, so a handler that says yes has to process repeats: the same
+     * body sent again can be a new change, such as pinning a status again after unpinning it.
+     */
+    default boolean acceptsWithoutId() {
+        return false;
+    }
 }

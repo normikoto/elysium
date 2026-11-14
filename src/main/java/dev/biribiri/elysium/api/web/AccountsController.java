@@ -9,6 +9,7 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.PostingDefaults;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
@@ -93,6 +94,7 @@ public class AccountsController {
     private final InstanceProperties instance;
     private final ProfileService profiles;
     private final PostingDefaults postingDefaults;
+    private final StatusPinService pins;
 
     AccountsController(
             ActorService actors,
@@ -107,7 +109,9 @@ public class AccountsController {
             JsonBodies json,
             InstanceProperties instance,
             ProfileService profiles,
-            PostingDefaults postingDefaults) {
+            PostingDefaults postingDefaults,
+            StatusPinService pins) {
+        this.pins = pins;
         this.profiles = profiles;
         this.postingDefaults = postingDefaults;
         this.actors = actors;
@@ -619,7 +623,8 @@ public class AccountsController {
     }
 
     /**
-     * Statuses can't be pinned, tagged, or have media yet, so those filters have nothing to return.
+     * Statuses can't be tagged yet, so that filter has nothing to return. An account has few enough pins that they're
+     * never paged.
      */
     @GetMapping("/{id}/statuses")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
@@ -629,8 +634,13 @@ public class AccountsController {
             description = """
                     Differences from Mastodon: for an account on another server, only the statuses it has sent here \
                     are listed, and older ones aren't fetched. Its boosts of other servers' statuses are only stored \
-                    while someone here follows it, so others aren't listed. Statuses can't be pinned or tagged, \
-                    so `pinned` and `tagged` return an empty list. `only_media` leaves out boosts.
+                    while someone here follows it, so others aren't listed. Statuses can't be tagged, so `tagged` \
+                    returns an empty list. `only_media` leaves out boosts.
+
+                    With `pinned`, the pins are listed the most recently pinned first, with no `Link` header, since \
+                    they all fit in one page. Only `limit` applies to them, and `max_id`, `since_id` and `min_id` \
+                    return an empty list. An account on another server only has the pins it has sent here, or that \
+                    its `featured` collection listed when it was last fetched.
 
                     Only statuses the viewer can see are listed. A suspended account gets a 404.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
@@ -641,7 +651,7 @@ public class AccountsController {
                     @Parameter(name = "exclude_replies", description = "Leave out replies. " + ApiDocs.FLAG),
                     @Parameter(name = "exclude_reblogs", description = "Leave out boosts. " + ApiDocs.FLAG),
                     @Parameter(name = "only_media", description = "Only list statuses with media. " + ApiDocs.FLAG),
-                    @Parameter(name = "pinned", description = "Returns an empty list if true. " + ApiDocs.FLAG),
+                    @Parameter(name = "pinned", description = "Only list pinned statuses. " + ApiDocs.FLAG),
                     @Parameter(name = "tagged", description = "Returns an empty list if not empty.")
             },
             responses = {
@@ -663,7 +673,14 @@ public class AccountsController {
         var actorId = activeAccount(id).id();
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         var withoutReplies = RequestParameters.flag(excludeReplies);
-        var nothingToReturn = RequestParameters.flag(pinned) || (tagged != null && !tagged.isEmpty());
+        if (RequestParameters.flag(pinned)) {
+            var viewer = RequestParameters.viewer(token);
+            var listed = page.maxId() != null || page.sinceId() != null || page.minId() != null
+                    ? List.<Status>of()
+                    : pins.findPinned(actorId, viewer).stream().limit(page.limit()).toList();
+            return ResponseEntity.ok(responses.list(listed, viewer));
+        }
+        var nothingToReturn = tagged != null && !tagged.isEmpty();
         List<Status> found = nothingToReturn
                 ? List.of()
                 : statuses.findByAccount(actorId, RequestParameters.viewer(token), withoutReplies,

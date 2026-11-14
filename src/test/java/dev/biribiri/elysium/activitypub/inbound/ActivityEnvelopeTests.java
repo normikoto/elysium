@@ -50,6 +50,21 @@ class ActivityEnvelopeTests {
         assertThat(parsed).get().extracting(ActivityEnvelope::type).isEqualTo("Create");
     }
 
+    /**
+     * Whether an activity can come without an ID depends on its type, which the inbox decides.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
+            "{\"id\":1,\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
+            "{\"id\":\"\",\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
+            // A spelled-out NUL character, which the database can't store in a column
+            "{\"id\":\"https://a.test/\\u0000\",\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
+    })
+    void hasNoIdWhenItIsMissingOrUnusable(String body) {
+        assertThat(parse(body)).get().extracting(ActivityEnvelope::id).isNull();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "",
@@ -57,18 +72,14 @@ class ActivityEnvelopeTests {
             "[]",
             "\"text\"",
             "{}",
-            "{\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
             "{\"id\":\"https://a.test/1\",\"actor\":\"https://a.test/u\"}",
             "{\"id\":\"https://a.test/1\",\"type\":\"Create\"}",
-            "{\"id\":1,\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
-            "{\"id\":\"\",\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
             "{\"id\":\"https://a.test/1\",\"type\":[],\"actor\":\"https://a.test/u\"}",
             "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":{}}",
             "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":[]}",
             "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":[1]}",
             "{\"id\":\"https://a.test/1\",\"type\":\"Create\",\"actor\":[[\"https://a.test/u\"]]}",
-            // Spelled-out NUL characters, which the database can't store in a column
-            "{\"id\":\"https://a.test/\\u0000\",\"type\":\"Create\",\"actor\":\"https://a.test/u\"}",
+            // A spelled-out NUL character, which the database can't store in a column
             "{\"id\":\"https://a.test/1\",\"type\":\"Cre\\u0000ate\",\"actor\":\"https://a.test/u\"}",
     })
     void refusesWhatIsNotAnActivity(String body) {

@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentStubs;
 import dev.biribiri.elysium.activitypub.signature.CavageRequestSigner;
 import dev.biribiri.elysium.activitypub.signature.Rfc9421RequestSigner;
+import dev.biribiri.elysium.activitypub.signature.Digests;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -28,6 +29,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -286,6 +288,50 @@ class InboxIntegrationTests {
 
         assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
         assertThat(storedActor(id)).isEqualTo(realActor);
+    }
+
+    /**
+     * Mastodon and Misskey send pins like this.
+     */
+    @Test
+    void acceptsAnAddOrRemoveWithoutAnIdUnderOneMadeFromItsBody() {
+        var actor = "https://other.example/users/" + UUID.randomUUID();
+        var signature = new VerifiedSignature(actor + "#main-key", URI.create(actor));
+        for (var type : List.of("Add", "Remove")) {
+            var body = "{\"type\":\"" + type + "\",\"actor\":\"" + actor + "\",\"object\":\"" + actor
+                    + "/statuses/1\",\"target\":\"" + actor + "/collections/featured\"}";
+            var id = actor + "#" + type.toLowerCase() + "/" + Digests.sha256Hex(body);
+
+            assertThat(inbox.receive(signature, bytes(body)).outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
+            assertThat(inbox.receive(signature, bytes(body)).outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
+
+            assertThat(stored(id)).isOne();
+            assertThat(storedActor(id)).isEqualTo(actor);
+        }
+    }
+
+    @Test
+    void refusesOtherActivitiesWithoutAnId() throws Exception {
+        var alice = alice();
+        var body = "{\"type\":\"Like\",\"actor\":\"" + alice.uri() + "\",\"object\":\"" + alice.uri() + "\"}";
+
+        signed("/inbox", alice, body).andExpect(status().isBadRequest());
+    }
+
+    /**
+     * There's no ID to fetch it from its origin by, so it can't be checked.
+     */
+    @Test
+    void ignoresAnAddWithoutAnIdFromSomeoneElse() {
+        var actor = "https://other.example/users/" + UUID.randomUUID();
+        var forwarder = "https://third.example/users/carol";
+        var body = "{\"type\":\"Add\",\"actor\":\"" + actor + "\",\"object\":\"" + actor
+                + "/statuses/1\",\"target\":\"" + actor + "/collections/featured\"}";
+
+        var outcome = inbox.receive(new VerifiedSignature(forwarder + "#main-key", URI.create(forwarder)), bytes(body));
+
+        assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
+        assertThat(stored(actor + "#add/" + Digests.sha256Hex(body))).isZero();
     }
 
     @ParameterizedTest

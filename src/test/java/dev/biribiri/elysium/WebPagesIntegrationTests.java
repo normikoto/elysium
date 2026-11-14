@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +22,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
@@ -58,6 +60,9 @@ class WebPagesIntegrationTests {
 
     @Autowired
     private StatusService statuses;
+
+    @Autowired
+    private StatusPinService pins;
 
     private Actor wanda;
     private Actor walt;
@@ -186,6 +191,27 @@ class WebPagesIntegrationTests {
                 .andExpect(content().string(not(containsString("private text"))))
                 .andExpect(content().string(not(containsString("direct text"))))
                 .andExpect(content().string(not(containsString("text from walt"))));
+    }
+
+    @Test
+    void profileShowsPinsThatAnyoneCanSeeAboveItsFirstPage() throws Exception {
+        var pinned = post(wanda, "pinned text", Visibility.PUBLIC);
+        pins.pin(pinned.id(), wanda.id());
+        pins.pin(post(wanda, "pinned private text", Visibility.PRIVATE).id(), wanda.id());
+        var newer = post(wanda, "newer text", Visibility.PUBLIC);
+
+        var page = mockMvc.perform(get("/users/wanda"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Pinned")))
+                .andExpect(content().string(not(containsString("pinned private text"))))
+                .andReturn().getResponse().getContentAsString();
+        var pinsHeading = page.indexOf("Pinned</h2>");
+        assertThat(pinsHeading).isPositive();
+        assertThat(page.indexOf("pinned text")).isBetween(pinsHeading, page.indexOf("newer text"));
+        assertThat(page.lastIndexOf("pinned text")).isGreaterThan(page.indexOf("newer text"));
+
+        mockMvc.perform(get("/users/wanda").param("max_id", newer.id().toString()))
+                .andExpect(content().string(not(containsString("Pinned</h2>"))));
     }
 
     @Test

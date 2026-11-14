@@ -49,7 +49,9 @@ public final class ActivityStreams {
             "https://w3id.org/security/v1",
             Map.of("schema", "http://schema.org#", "PropertyValue", "schema:PropertyValue", "value", "schema:value",
                     Hashtag.CONTEXT_TERM, Hashtag.CONTEXT_IRI,
-                    "manuallyApprovesFollowers", "as:manuallyApprovesFollowers"));
+                    "manuallyApprovesFollowers", "as:manuallyApprovesFollowers",
+                    "toot", "http://joinmastodon.org/ns#",
+                    "featured", Map.of("@id", "toot:featured", "@type", "@id")));
 
     /**
      * The {@code @context} of an actor document or activity saying that the actor is suspended, which adds Mastodon's term for

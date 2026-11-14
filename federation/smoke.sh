@@ -3,7 +3,8 @@
 # and unfollow it, including while it approves followers by hand, take its blocks and their Undos, be followed and unfollowed by it, and receive its statuses, their attachments, edits and deletion, and profile changes,
 # apart from edits on Misskey, which doesn't apply them, and that Elysium takes the other server's profile changes and status
 # edits, apart from on Misskey, which can't edit, shows Mastodon's attachments, and removes a status and an account that the other server deletes. Both
-# servers also like and unlike, and boost and unboost, each other's posts, Elysium fetches a post that a followed account
+# servers also like and unlike, boost and unboost, and pin and unpin, each other's posts, apart from GoToSocial reading
+# Elysium's pins, which it only does when it refreshes an actor. Elysium fetches a post that a followed account
 # boosts, and it backfills a followed account's older post from its outbox. Elysium quotes the other server's post, and
 # Mastodon and Misskey quote Elysium's, with Mastodon's approvals and a revocation checked on both sides. Each server
 # forwards a report to the other.
@@ -1288,6 +1289,130 @@ check_likes() {
     echo "$target and Elysium exchanged signed Likes and Undos, with counts, notifications, and a public likes collection"
 }
 
+# Pins alice's public status, which the other server has, and the lab user's status that mentions alice, which Elysium has.
+# alice follows the lab user again meanwhile, since servers only send their pins, or their Updates, to followers.
+check_pins() {
+    local server=$1 write_token read_token follow_token remote_uri remote_actor_id body featured following
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write:accounts)
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    body=$(driver curl -fsS -X POST "https://elysium.test/api/v1/statuses/${public_uri##*/}/pin" \
+        -H "Authorization: Bearer $write_token")
+    jq -e .pinned <<<"$body" >/dev/null || fail "Pinning failed: $body"
+    featured=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/collections/featured")
+    jq -e --arg uri "$public_uri" '.totalItems == 1 and .orderedItems[0].id == $uri' <<<"$featured" >/dev/null \
+        || fail "Unexpected featured collection: $featured"
+    # GoToSocial doesn't read Adds, and only reads featured collections when it refreshes an actor.
+    [[ $target == gotosocial ]] || expect_peer_pinned "$public_uri" true
+    body=$(driver curl -fsS -X POST "https://elysium.test/api/v1/statuses/${public_uri##*/}/unpin" \
+        -H "Authorization: Bearer $write_token")
+    jq -e '.pinned | not' <<<"$body" >/dev/null || fail "Unpinning failed: $body"
+    [[ $target == gotosocial ]] || expect_peer_pinned "$public_uri" false
+
+    remote_uri=$(mentioned_status_uri "$server")
+    [[ -n $remote_uri ]] || fail "No remote lab post to pin"
+    remote_actor_id=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT actor_id FROM status WHERE uri = '$remote_uri'")
+    follow_token=$(driver sh /federation/elysium-token.sh alice "$password" write:follows)
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$remote_actor_id/follow" \
+        -H "Authorization: Bearer $follow_token"
+    [[ $target != gotosocial ]] || gotosocial_approve
+    following=false
+    for _ in $(seq 1 60); do
+        following=$(driver curl -fsS -G https://elysium.test/api/v1/accounts/relationships \
+            -H "Authorization: Bearer $read_token" --data-urlencode "id[]=$remote_actor_id" | jq -r '.[0].following')
+        [[ $following == true ]] && break
+        sleep 2
+    done
+    [[ $following == true ]] || fail "lab@$server never accepted alice's Follow again"
+    pin_from_peer "$remote_uri" pin
+    expect_elysium_pinned "$remote_actor_id" "$remote_uri" true "$read_token"
+    pin_from_peer "$remote_uri" unpin
+    expect_elysium_pinned "$remote_actor_id" "$remote_uri" false "$read_token"
+    driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$remote_actor_id/unfollow" \
+        -H "Authorization: Bearer $follow_token"
+    if [[ $target == gotosocial ]]; then
+        echo "Elysium served alice's featured collection, and read GoToSocial's pins from its featured collection"
+    else
+        echo "$target and Elysium exchanged pins and unpins as Adds and Removes, and Elysium served a featured collection"
+    fi
+}
+
+# GoToSocial doesn't send Adds or Removes, so its pins are only read again when it sends an Update of the lab user.
+pin_from_peer() {
+    local uri=$1 action=$2 output id
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T -e STATUS_URI="$uri" -e PIN_ACTION="$action" mastodon-web bin/rails runner '
+                lab = Account.find_local("lab")
+                status = Status.find_by!(uri: ENV["STATUS_URI"])
+                serializer = if ENV["PIN_ACTION"] == "pin"
+                    StatusPin.create!(account: lab, status: status)
+                    ActivityPub::AddNoteSerializer
+                else
+                    StatusPin.find_by!(account: lab, status: status).destroy!
+                    ActivityPub::RemoveNoteSerializer
+                end
+                json = ActiveModelSerializers::SerializableResource.new(status, serializer: serializer,
+                    adapter: ActivityPub::Adapter).as_json
+                ActivityPub::RawDistributionWorker.new.perform(json.to_json, lab.id)
+                puts "DONE"')
+            echo "$output"
+            grep -qxF DONE <<<"$output" || fail "Mastodon couldn't $action $uri"
+            ;;
+        gotosocial)
+            id=$(gotosocial_status_id "$uri")
+            [[ -n $id ]] || fail "GoToSocial has no status at $uri"
+            driver curl -fsS -o /dev/null -X POST "https://gts.test/api/v1/statuses/$id/$action" \
+                -H "Authorization: Bearer $token"
+            driver curl -fsS -o /dev/null -X PATCH https://gts.test/api/v1/accounts/update_credentials \
+                -H "Authorization: Bearer $token" --data-urlencode "display_name=Lab after $action"
+            ;;
+        misskey)
+            misskey_api "i/$action" "$(jq -cn --arg id "${uri##*/notes/}" '{noteId: $id}')" >/dev/null
+            ;;
+    esac
+}
+
+expect_peer_pinned() {
+    local uri=$1 expected=$2 body output id
+    case "$target" in
+        mastodon)
+            output=$(docker compose exec -T -e STATUS_URI="$uri" -e EXPECTED="$expected" mastodon-web bin/rails runner '
+                60.times do
+                    status = Status.find_by(uri: ENV["STATUS_URI"])
+                    pinned = status && StatusPin.exists?(account_id: status.account_id, status_id: status.id)
+                    if pinned.to_s == ENV["EXPECTED"]
+                        puts "DONE"
+                        break
+                    end
+                    sleep 2
+                end')
+            grep -qxF DONE <<<"$output" || fail "Mastodon didn't show $uri as pinned: $expected"
+            ;;
+        misskey)
+            id=$(misskey_api ap/show "$(jq -cn --arg uri "$uri" '{uri: $uri}')" | jq -r .object.id)
+            [[ -n $id && $id != null ]] || fail "Misskey has no note at $uri"
+            for _ in $(seq 1 60); do
+                body=$(misskey_api users/show "$(misskey_user_body)")
+                [[ $(jq --arg id "$id" 'any(.pinnedNoteIds[]; . == $id)' <<<"$body") == "$expected" ]] && return
+                sleep 2
+            done
+            fail "Misskey didn't show $uri as pinned: $expected: $body"
+            ;;
+    esac
+}
+
+expect_elysium_pinned() {
+    local account_id=$1 uri=$2 expected=$3 read_token=$4 body
+    for _ in $(seq 1 60); do
+        body=$(driver curl -fsS "https://elysium.test/api/v1/accounts/$account_id/statuses?pinned=true" \
+            -H "Authorization: Bearer $read_token")
+        [[ $(jq --arg uri "$uri" 'any(.[]; .uri == $uri)' <<<"$body") == "$expected" ]] && return
+        sleep 2
+    done
+    fail "Elysium didn't show $uri as pinned: $expected: $body. Check /admin/db-scheduler, and its logs at debug level"
+}
+
 expect_elysium_boosts() {
     local uri=$1 expected=$2 read_token=$3 body
     for _ in $(seq 1 60); do
@@ -2159,6 +2284,7 @@ case "$target" in
         gotosocial_expect_statuses
         check_likes gts.test
         check_boosts gts.test
+        check_pins gts.test
         check_quotes gts.test
         check_polls
         check_reports gts.test
@@ -2184,6 +2310,7 @@ case "$target" in
         mastodon_expect_statuses
         check_likes mastodon.test
         check_boosts mastodon.test
+        check_pins mastodon.test
         check_quotes mastodon.test
         check_polls
         check_reports mastodon.test
@@ -2207,6 +2334,7 @@ case "$target" in
         misskey_expect_statuses
         check_likes misskey.test
         check_boosts misskey.test
+        check_pins misskey.test
         check_quotes misskey.test
         check_polls
         check_reports misskey.test
@@ -2220,4 +2348,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, boosts and unboosts, quotes, polls and votes, and reports, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, boosts and unboosts, pins, quotes, polls and votes, and reports, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"

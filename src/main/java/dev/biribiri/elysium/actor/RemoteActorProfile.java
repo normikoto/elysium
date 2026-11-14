@@ -10,6 +10,7 @@ import java.net.URI;
  * @param sharedInboxUri the actor's shared inbox, or null if it doesn't have one
  * @param publicKeyPem   the actor's public key, or null if its document doesn't include one
  * @param followersUri   the actor's followers collection, or null if it doesn't have one
+ * @param featuredUri    the collection of the actor's pinned statuses, or null if it doesn't have one
  */
 public record RemoteActorProfile(
         URI uri,
@@ -19,7 +20,8 @@ public record RemoteActorProfile(
         URI outboxUri,
         URI sharedInboxUri,
         String publicKeyPem,
-        URI followersUri
+        URI followersUri,
+        URI featuredUri
 ) {
 
     /**
@@ -27,6 +29,15 @@ public record RemoteActorProfile(
      */
     public RemoteActorProfile(
             URI uri, String username, String domain, URI inboxUri, URI outboxUri, URI sharedInboxUri, String publicKeyPem) {
-        this(uri, username, domain, inboxUri, outboxUri, sharedInboxUri, publicKeyPem, null);
+        this(uri, username, domain, inboxUri, outboxUri, sharedInboxUri, publicKeyPem, null, null);
+    }
+
+    /**
+     * An actor with no featured collection.
+     */
+    public RemoteActorProfile(
+            URI uri, String username, String domain, URI inboxUri, URI outboxUri, URI sharedInboxUri, String publicKeyPem,
+            URI followersUri) {
+        this(uri, username, domain, inboxUri, outboxUri, sharedInboxUri, publicKeyPem, followersUri, null);
     }
 }

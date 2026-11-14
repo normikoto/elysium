@@ -23,11 +23,9 @@ import tools.jackson.databind.JsonNode;
 import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.StreamSupport;
 
 /**
  * Stores what a remote actor posted before anyone here followed them, from the first page of their outbox, once a local
@@ -143,17 +141,17 @@ class OutboxBackfill {
         }
         if (note.isPresent()) {
             RemoteNote.read(document.get())
-                    .filter(found -> found.id().equals(target) && isActors(found, actor))
+                    .filter(found -> found.id().equals(target) && ActorCollections.isActors(found, actor))
                     .ifPresent(found -> storage.storeBackfilled(found, actor));
             return Jobs.done();
         }
         if (job.page() != null) {
-            if (hasId(document.get(), target, "OrderedCollectionPage", "CollectionPage")) {
+            if (ActorCollections.hasId(document.get(), target, "OrderedCollectionPage", "CollectionPage")) {
                 store(document.get(), actor, job);
             }
             return Jobs.done();
         }
-        if (!hasId(document.get(), target, "OrderedCollection", "Collection")) {
+        if (!ActorCollections.hasId(document.get(), target, "OrderedCollection", "Collection")) {
             return Jobs.done();
         }
         var first = document.get().path("first");
@@ -166,7 +164,7 @@ class OutboxBackfill {
             store(document.get(), actor, job);
             return Jobs.done();
         }
-        var page = idOnActorsServer(first, actor);
+        var page = ActorCollections.idOnActorsServer(first, actor);
         if (page.isEmpty()) {
             log.debug("Not backfilling {}, whose outbox's first page isn't on its server", actor.uri());
             return Jobs.done();
@@ -176,22 +174,10 @@ class OutboxBackfill {
     }
 
     /**
-     * @return whether the document is one of these types, with the ID it was fetched from, so that it's what the actor's
-     * server serves at that URL rather than a copy of something else
-     */
-    private static boolean hasId(JsonNode document, URI fetched, String... types) {
-        var found = ActivityJson.types(document.path("type"));
-        return fetched.toString().equals(ActivityJson.text(document.path("id")))
-                && Arrays.stream(types).anyMatch(found::contains);
-    }
-
-    /**
      * Stores the notes the page embeds, and queues a fetch of each one it only names.
      */
     private void store(JsonNode page, Actor actor, OutboxBackfillJob job) {
-        var items = page.has("orderedItems") ? page.path("orderedItems") : page.path("items");
-        var listed = items.isArray() ? StreamSupport.stream(items.spliterator(), false).limit(MAX_ITEMS).toList()
-                : List.of(items);
+        var listed = ActorCollections.items(page, MAX_ITEMS);
         var stored = 0;
         var queued = 0;
         for (var item : listed) {
@@ -200,13 +186,13 @@ class OutboxBackfill {
                 continue;
             }
             if (object.get().isObject()) {
-                var note = RemoteNote.read(object.get()).filter(found -> isActors(found, actor));
+                var note = RemoteNote.read(object.get()).filter(found -> ActorCollections.isActors(found, actor));
                 if (note.isPresent() && storage.storeBackfilled(note.get(), actor) == NoteStorage.Result.STORED) {
                     stored++;
                 }
                 continue;
             }
-            var named = idOnActorsServer(object.get(), actor).filter(id -> !statuses.isStored(id));
+            var named = ActorCollections.idOnActorsServer(object.get(), actor).filter(id -> !statuses.isStored(id));
             if (named.isPresent()) {
                 Jobs.schedule(scheduler, TASK, job.forNote(named.get()), TASK_NAME, job.actorId(), named.get().toString());
                 queued++;
@@ -228,25 +214,6 @@ class OutboxBackfill {
             object = object.size() == 1 ? object.get(0) : null;
         }
         return object == null || !(object.isObject() || object.isString()) ? Optional.empty() : Optional.of(object);
-    }
-
-    /**
-     * The actor's server serves what it says is at these, so they're the only IDs that are fetched on its word.
-     */
-    private static Optional<URI> idOnActorsServer(JsonNode node, Actor actor) {
-        return Optional.ofNullable(ActivityJson.text(node))
-                .filter(InboundActivity::isStorableId)
-                .flatMap(ActivityObject::parseUri)
-                .filter(id -> Inbox.isOnActorsServer(id, actor.uri()));
-    }
-
-    /**
-     * Whether the note is attributed to the actor alone, with an ID on its server that could be stored.
-     */
-    private static boolean isActors(RemoteNote note, Actor actor) {
-        return note.attributedTo().equals(List.of(actor.uri().toString()))
-                && InboundActivity.isStorableId(note.id().toString())
-                && Inbox.isOnActorsServer(note.id(), actor.uri());
     }
 
     /**

@@ -62,6 +62,11 @@ The script checks:
 - **Boosts:** alice boosts and unboosts the remote lab post, and the peer's count has to follow. The peer then boosts and
   unboosts alice's public post. Elysium must update `reblogs_count`, emit a reblog notification, and list the `Announce` in
   the post's shares collection.
+- **Pins:** alice pins and unpins her public post, which Elysium's `featured` collection has to list, and Mastodon and
+  Misskey have to show as pinned and then not, from the `Add` and `Remove`. GoToSocial doesn't read those, and only reads a
+  `featured` collection when it refreshes an actor, so it isn't checked. The peer then pins and unpins the lab post that
+  mentions alice, and Elysium's `?pinned=true` has to follow. GoToSocial doesn't send `Add`s either, so there the lab user's
+  profile is changed after each, and Elysium reads its `featured` collection from the `Update`.
 - **Boosts of other posts:** while alice follows the `lab` user, it boosts a post by another account on its server, `other`,
   which Elysium hasn't been sent. Elysium has to fetch that post and show the boost in alice's home timeline, and remove the
   boost when it's undone.

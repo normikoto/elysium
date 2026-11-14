@@ -56,6 +56,7 @@ class UpdateHandler implements InboundActivityHandler {
     private final QuoteService quotes;
     private final PollService polls;
     private final JsonMapper json;
+    private final FeaturedFetch featured;
 
     UpdateHandler(
             ActorService actors,
@@ -66,7 +67,9 @@ class UpdateHandler implements InboundActivityHandler {
             DomainBlocks blocks,
             QuoteService quotes,
             PollService polls,
-            JsonMapper json) {
+            JsonMapper json,
+            FeaturedFetch featured) {
+        this.featured = featured;
         this.polls = polls;
         this.quotes = quotes;
         this.actors = actors;
@@ -99,10 +102,17 @@ class UpdateHandler implements InboundActivityHandler {
         updateNote(activity, actorUri, document);
     }
 
+    /**
+     * Pins are read again too, as Mastodon does, since a server that doesn't send {@code Add}s has no other way to say
+     * they've changed.
+     */
     private void updateActor(InboundActivity activity, URI actorUri) {
-        if (remoteActors.refresh(actorUri).isEmpty()) {
+        var refreshed = remoteActors.refresh(actorUri);
+        if (refreshed.isEmpty()) {
             log.debug("Ignoring Update {}, whose actor isn't stored here", activity.id());
+            return;
         }
+        featured.queue(refreshed.get().id());
     }
 
     private void updateNote(InboundActivity activity, URI actorUri, JsonNode document) {

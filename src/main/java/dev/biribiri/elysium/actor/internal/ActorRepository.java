@@ -292,9 +292,9 @@ public class ActorRepository {
     public Actor upsertRemote(RemoteActorProfile profile) {
         return jdbc.sql("""
                         INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, shared_inbox_uri, public_key_pem,
-                                           followers_uri)
+                                           followers_uri, featured_uri)
                         VALUES (:id, :uri, :username, :domain, :inboxUri, :outboxUri, :sharedInboxUri, :publicKeyPem,
-                                :followersUri)
+                                :followersUri, :featuredUri)
                         ON CONFLICT (uri) DO UPDATE SET
                             username = EXCLUDED.username,
                             inbox_uri = EXCLUDED.inbox_uri,
@@ -302,6 +302,7 @@ public class ActorRepository {
                             shared_inbox_uri = EXCLUDED.shared_inbox_uri,
                             public_key_pem = EXCLUDED.public_key_pem,
                             followers_uri = EXCLUDED.followers_uri,
+                            featured_uri = EXCLUDED.featured_uri,
                             updated_at = now()
                         WHERE actor.suspended_at IS NULL AND actor.deleted_at IS NULL
                         RETURNING\s""" + COLUMNS)
@@ -314,6 +315,7 @@ public class ActorRepository {
                 .param("sharedInboxUri", text(profile.sharedInboxUri()), Types.VARCHAR)
                 .param("publicKeyPem", profile.publicKeyPem(), Types.VARCHAR)
                 .param("followersUri", text(profile.followersUri()), Types.VARCHAR)
+                .param("featuredUri", text(profile.featuredUri()), Types.VARCHAR)
                 .query(Actor.class)
                 .optional()
                 .or(() -> findByUri(profile.uri()))
@@ -326,6 +328,16 @@ public class ActorRepository {
     public Optional<URI> findFollowersUri(URI actor) {
         return jdbc.sql("SELECT followers_uri FROM actor WHERE uri = :uri AND NOT is_local AND followers_uri IS NOT NULL")
                 .param("uri", actor.toString())
+                .query(URI.class)
+                .optional();
+    }
+
+    /**
+     * @return a remote actor's featured collection, if it has one stored
+     */
+    public Optional<URI> findFeaturedUri(UUID actorId) {
+        return jdbc.sql("SELECT featured_uri FROM actor WHERE id = :id AND NOT is_local AND featured_uri IS NOT NULL")
+                .param("id", actorId)
                 .query(URI.class)
                 .optional();
     }

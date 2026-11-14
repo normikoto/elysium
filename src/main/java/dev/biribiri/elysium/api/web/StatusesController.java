@@ -11,6 +11,7 @@ import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.PollChange;
 import dev.biribiri.elysium.content.StatusEdit;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -73,10 +74,12 @@ public class StatusesController {
     private final StatusResponses responses;
     private final JsonBodies json;
     private final QuoteService quotes;
+    private final StatusPinService pins;
 
     StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes,
-                       BoostService boosts, QuoteService quotes) {
+                       BoostService boosts, QuoteService quotes, StatusPinService pins) {
         this.quotes = quotes;
+        this.pins = pins;
         this.statuses = statuses;
         this.likes = likes;
         this.boosts = boosts;
@@ -478,6 +481,47 @@ public class StatusesController {
     public StatusResponse unfavourite(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var viewer = requireUser(token);
         return RequestParameters.uuid(id).flatMap(boosts::original).flatMap(statusId -> likes.unfavourite(statusId, viewer))
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/pin")
+    @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
+    @Operation(operationId = "pinStatus", summary = "Pin a status to the profile",
+            description = "Pins one of the user's own statuses, which other servers are sent as an `Add`. At most "
+                    + StatusPinService.MAX_PER_ACCOUNT + " can be pinned, as on Mastodon. Repeats have no additional "
+                    + "effect. " + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#pin"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status, now pinned."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = """
+                            The token has no user, the status is someone else's, a boost, or direct, or the limit on pins \
+                            has been reached.""")
+            })
+    public StatusResponse pin(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = requireUser(token);
+        return RequestParameters.uuid(id).flatMap(statusId -> pins.pin(statusId, viewer))
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/unpin")
+    @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
+    @Operation(operationId = "unpinStatus", summary = "Unpin a status from the profile",
+            description = "Unpins a status, which other servers are sent as a `Remove`. Repeats, and statuses that "
+                    + "aren't pinned, have no additional effect. " + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unpin"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status, no longer pinned."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse unpin(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = requireUser(token);
+        return RequestParameters.uuid(id).flatMap(statusId -> pins.unpin(statusId, viewer))
                 .map(found -> responses.one(found, RequestParameters.viewer(token)))
                 .orElseThrow(RecordNotFoundException::new);
     }

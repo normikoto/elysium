@@ -11,6 +11,7 @@ import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.text.Hashtags;
@@ -56,6 +57,7 @@ class PagesController {
     private final ProfileService profiles;
     private final MediaAttachments attachments;
     private final PollService polls;
+    private final StatusPinService pins;
 
     PagesController(
             ActorService actors,
@@ -65,7 +67,9 @@ class PagesController {
             RegistrationProperties registration,
             ProfileService profiles,
             MediaAttachments attachments,
-            PollService polls) {
+            PollService polls,
+            StatusPinService pins) {
+        this.pins = pins;
         this.attachments = attachments;
         this.polls = polls;
         this.actors = actors;
@@ -111,6 +115,8 @@ class PagesController {
         model.addAttribute("avatar", profile.avatar() == null ? null : instance.resolve(profile.avatar().path()));
         model.addAttribute("header", profile.header() == null ? null : instance.resolve(profile.header().path()));
         model.addAttribute("joined", LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC));
+        // Above the first page only, and still in their place below, as on Mastodon.
+        model.addAttribute("pinned", maxId == null ? profileViews(pins.findPinned(actor.id(), ANONYMOUS), actor) : List.of());
         model.addAttribute("statuses", profileViews(found, actor));
         // Only a full page can have older statuses after it.
         model.addAttribute("olderThan", found.size() == page.limit() ? found.getLast().id() : null);

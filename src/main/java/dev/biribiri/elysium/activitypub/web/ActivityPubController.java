@@ -17,6 +17,7 @@ import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.activitypub.vocab.Announce;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.PollService;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.content.Status;
@@ -55,6 +56,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -92,6 +94,7 @@ public class ActivityPubController {
     private final MediaAttachments attachments;
     private final QuoteService quotes;
     private final PollService polls;
+    private final StatusPinService pins;
 
     ActivityPubController(
             ActorService actors,
@@ -105,7 +108,9 @@ public class ActivityPubController {
             FetchSigners signers,
             MediaAttachments attachments,
             QuoteService quotes,
-            PollService polls) {
+            PollService polls,
+            StatusPinService pins) {
+        this.pins = pins;
         this.polls = polls;
         this.attachments = attachments;
         this.quotes = quotes;
@@ -309,29 +314,48 @@ public class ActivityPubController {
                 pageUri(uri, cursor.orElse(null)), total, uri, next, outboxItems(author, entries)));
     }
 
+    /**
+     * Like {@link #outbox}. Mastodon lists followers-only pins by ID to a follower's signed fetch, but that would only tell
+     * other servers which statuses are pinned, without letting them show any.
+     */
+    @CrossOrigin
+    @GetMapping(path = "/users/{username}/collections/featured", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getFeatured",
+            summary = "Fetch a user's pinned statuses",
+            description = FederationDocs.FEATURED,
+            parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The collection.", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = OrderedCollection.class))
+                    }),
+                    @ApiResponse(responseCode = "403", description = "The user is suspended."),
+                    @ApiResponse(responseCode = "404", description = "There's no such user."),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
+    ResponseEntity<?> featured(@PathVariable String username) {
+        var actor = actors.findAnyLocalByUsername(username);
+        var unavailable = unavailable(actor);
+        if (unavailable.isPresent()) {
+            return unavailable.get();
+        }
+        var author = actor.get();
+        var pinned = pins.findPinned(author.id(), ANONYMOUS);
+        var notesById = notesOf(author, pinned);
+        return ResponseEntity.ok(OrderedCollection.of(Person.featuredOf(author),
+                pinned.stream().map(status -> notesById.get(status.id()).withoutContext()).toList()));
+    }
+
     private List<Object> outboxItems(Actor author, List<Status> entries) {
-        var noteIds = entries.stream().filter(status -> !status.isReblog()).map(Status::id).toList();
-        var mentions = statuses.findMentions(noteIds);
-        var tags = statuses.findTags(noteIds);
-        var media = attachments.findByStatuses(noteIds);
-        var quoteRows = quotes.findAll(noteIds);
-        var pollsById = polls.findAll(noteIds, Optional.empty());
-        // Not activeActors, since a Note keeps naming the author it quotes after they're suspended or deleted.
-        var quotedAuthors = actors.findByIds(quoteRows.values().stream().map(StatusQuote::quotedAccountId)
-                        .filter(Objects::nonNull).distinct().toList())
-                .stream().collect(Collectors.toMap(Actor::id, Function.identity()));
+        var notesById = notesOf(author, entries.stream().filter(status -> !status.isReblog()).toList());
         var boosted = statuses.findVisibleToAnyone(entries.stream().filter(Status::isReblog).map(Status::reblogOfId).toList())
                 .stream().collect(Collectors.toMap(Status::id, Function.identity()));
         var boostedAuthors = activeActors(boosted.values().stream().map(Status::actorId).distinct().toList());
         var items = new ArrayList<Object>();
         for (var status : entries) {
             if (!status.isReblog()) {
-                var quote = Optional.ofNullable(quoteRows.get(status.id()));
-                var note = notes.of(status, author, mentions.getOrDefault(status.id(), List.of()),
-                        tags.getOrDefault(status.id(), List.of()), media.getOrDefault(status.id(), List.of()),
-                        quote, quote.map(StatusQuote::quotedAccountId).map(quotedAuthors::get),
-                        Optional.ofNullable(pollsById.get(status.id())));
-                items.add(Create.of(note).withoutContext());
+                items.add(Create.of(notesById.get(status.id())).withoutContext());
                 continue;
             }
             var original = boosted.get(status.reblogOfId());
@@ -342,6 +366,31 @@ public class ActivityPubController {
             }
         }
         return items;
+    }
+
+    /**
+     * @param written statuses the author wrote, rather than boosted
+     */
+    private Map<UUID, Note> notesOf(Actor author, List<Status> written) {
+        var noteIds = written.stream().map(Status::id).toList();
+        var mentions = statuses.findMentions(noteIds);
+        var tags = statuses.findTags(noteIds);
+        var media = attachments.findByStatuses(noteIds);
+        var quoteRows = quotes.findAll(noteIds);
+        var pollsById = polls.findAll(noteIds, Optional.empty());
+        // Not activeActors, since a Note keeps naming the author it quotes after they're suspended or deleted.
+        var quotedAuthors = actors.findByIds(quoteRows.values().stream().map(StatusQuote::quotedAccountId)
+                        .filter(Objects::nonNull).distinct().toList())
+                .stream().collect(Collectors.toMap(Actor::id, Function.identity()));
+        var found = new HashMap<UUID, Note>();
+        for (var status : written) {
+            var quote = Optional.ofNullable(quoteRows.get(status.id()));
+            found.put(status.id(), notes.of(status, author, mentions.getOrDefault(status.id(), List.of()),
+                    tags.getOrDefault(status.id(), List.of()), media.getOrDefault(status.id(), List.of()),
+                    quote, quote.map(StatusQuote::quotedAccountId).map(quotedAuthors::get),
+                    Optional.ofNullable(pollsById.get(status.id()))));
+        }
+        return found;
     }
 
     /**
