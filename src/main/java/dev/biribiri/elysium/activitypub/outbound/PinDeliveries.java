@@ -51,16 +51,16 @@ public class PinDeliveries {
      */
     @ApplicationModuleListener
     public void on(StatusPinned event) {
-        var actor = actors.findAnyLocalById(event.actorId()).filter(found -> !found.isDeleted());
-        if (actor.isEmpty()) return;
-        pins.findAndHold(event.pinId()).ifPresent(pin ->
-                statuses.findVisible(pin.statusId(), Optional.of(pin.actorId())).ifPresent(status -> {
-                    var inboxes = inboxes(actor.get().id(), status.visibility(), status.publishedAt());
-                    if (inboxes.isEmpty()) return;
-                    var add = CollectionChange.pin(pin.activityUri(), actor.get(), status.uri(), status.visibility());
-                    deliveries.enqueue(new OutboundActivity(add.id(), actor.get().id(), json.writeValueAsString(add),
-                            WhileSuspended.WAIT), inboxes);
-                }));
+        var actor = actors.findAnyLocalById(event.actorId()).filter(found -> !found.isDeleted()).orElse(null);
+        if (actor == null) return;
+        var pin = pins.findAndHold(event.pinId()).orElse(null);
+        var status = pin == null ? null : statuses.findVisible(pin.statusId(), Optional.of(actor.id())).orElse(null);
+        if (status == null) return;
+        var inboxes = inboxes(actor.id(), status.visibility(), status.publishedAt());
+        if (inboxes.isEmpty()) return;
+        var add = CollectionChange.pin(pin.activityUri(), actor, status.uri(), status.visibility());
+        deliveries.enqueue(new OutboundActivity(add.id(), actor.id(), json.writeValueAsString(add), WhileSuspended.WAIT),
+                inboxes);
     }
 
     /**
@@ -70,13 +70,13 @@ public class PinDeliveries {
     @ApplicationModuleListener
     public void on(StatusUnpinned event) {
         deliveries.cancel(event.activityUri());
-        var actor = actors.findAnyLocalById(event.actorId()).filter(found -> !found.isDeleted());
-        if (actor.isEmpty()) return;
-        var inboxes = inboxes(actor.get().id(), event.visibility(), event.publishedAt());
+        var actor = actors.findAnyLocalById(event.actorId()).filter(found -> !found.isDeleted()).orElse(null);
+        if (actor == null) return;
+        var inboxes = inboxes(actor.id(), event.visibility(), event.publishedAt());
         if (inboxes.isEmpty()) return;
-        var remove = CollectionChange.unpin(CollectionChange.removalIdFor(event.activityUri()), actor.get(),
-                event.statusUri(), event.visibility());
-        deliveries.enqueueAfter(new OutboundActivity(remove.id(), actor.get().id(), json.writeValueAsString(remove),
+        var remove = CollectionChange.unpin(CollectionChange.removalIdFor(event.activityUri()), actor, event.statusUri(),
+                event.visibility());
+        deliveries.enqueueAfter(new OutboundActivity(remove.id(), actor.id(), json.writeValueAsString(remove),
                 WhileSuspended.WAIT), inboxes, event.activityUri());
     }
 

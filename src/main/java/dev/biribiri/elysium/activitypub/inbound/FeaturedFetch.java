@@ -142,13 +142,13 @@ class FeaturedFetch {
                 .or(() -> actors.findFeaturedUri(actor.id()));
         if (target.isEmpty()) {
             // It no longer has pins to show, or never did.
-            pins.replaceRemote(actor.id(), Map.of(), Instant.now());
+            pins.replaceRemote(actor.id(), Map.of(), now());
             return Jobs.done();
         }
         if (!Inbox.isOnActorsServer(target.get(), actor.uri())) {
             return Jobs.done();
         }
-        var now = Instant.now();
+        var now = now();
         var turn = turns.take(target.get(), job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not reading the pins of {}, since too many fetches are waiting for its server", actor.uri());
@@ -208,7 +208,7 @@ class FeaturedFetch {
         for (var i = 0; i < items.size(); i++) {
             var item = items.get(i);
             // Collections don't say when each was pinned, so they're spaced to keep the order they're listed in.
-            var pinnedAt = now.truncatedTo(ChronoUnit.MICROS).minus(i, ChronoUnit.MICROS);
+            var pinnedAt = now.minus(i, ChronoUnit.MICROS);
             Optional<URI> id;
             if (item.isObject()) {
                 var embedded = RemoteNote.read(item).filter(found -> ActorCollections.isActors(found, actor));

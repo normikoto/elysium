@@ -124,6 +124,13 @@ record RemoteNote(
     }
 
     /**
+     * @return whether an object of this type can be stored as a status
+     */
+    static boolean isStatusType(String type) {
+        return "Note".equals(type) || "Question".equals(type);
+    }
+
+    /**
      * @param node an object, embedded or fetched
      * @return the note, or empty if this isn't a {@code Note} or a {@code Question} with an ID
      */
@@ -132,7 +139,7 @@ record RemoteNote(
             return Optional.empty();
         }
         var types = ActivityJson.types(node.path("type"));
-        if (!types.contains("Note") && !types.contains("Question")) {
+        if (types.stream().noneMatch(RemoteNote::isStatusType)) {
             return Optional.empty();
         }
         var id = Optional.ofNullable(ActivityJson.text(node.path("id"))).flatMap(ActivityObject::parseUri);

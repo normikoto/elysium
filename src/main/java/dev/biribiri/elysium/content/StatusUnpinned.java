@@ -11,5 +11,5 @@ import java.util.UUID;
  * @param activityUri the {@code Add}'s ID
  */
 public record StatusUnpinned(
-        UUID actorId, UUID statusId, URI statusUri, String activityUri, Visibility visibility, Instant publishedAt) {
+        UUID actorId, URI statusUri, String activityUri, Visibility visibility, Instant publishedAt) {
 }

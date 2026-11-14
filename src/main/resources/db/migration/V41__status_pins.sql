@@ -9,6 +9,7 @@ CREATE TABLE status_pin
     UNIQUE (actor_id, status_id)
 );
 CREATE INDEX status_pin_actor_idx ON status_pin (actor_id, pinned_at DESC);
+CREATE INDEX status_pin_status_idx ON status_pin (status_id);
 
 -- A Remove can run before the Add it follows, since jobs have no order, and the Add mustn't pin the status again.
 CREATE TABLE removed_pin

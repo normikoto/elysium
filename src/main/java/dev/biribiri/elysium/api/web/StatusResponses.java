@@ -179,7 +179,7 @@ class StatusResponses {
         var boostStats = boosts.stats(ids, viewer);
         var quoteCounts = quotes.acceptedCounts(ids);
         var pollsById = polls.findAll(ids, viewer);
-        var pinned = pins.pinnedIds(ids, viewer);
+        var pinned = pins.pinnedIds(all, viewer);
         var now = Instant.now();
         var localAuthors = authors.values().stream().filter(actors::isLocal).map(Actor::id).collect(Collectors.toSet());
         var decisions = quotes.decide(all.stream().filter(status -> !status.isReblog()).distinct().toList(), localAuthors, viewer);

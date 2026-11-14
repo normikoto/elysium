@@ -8,13 +8,16 @@ import org.springframework.stereotype.Repository;
 import java.net.URI;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+
+import static dev.biribiri.elysium.content.internal.ContentRows.offsetOrNull;
 
 @Repository
 public class StatusPinRepository {
@@ -53,7 +56,7 @@ public class StatusPinRepository {
                         INSERT INTO status_pin (id, actor_id, status_id, pinned_at, activity_uri)
                         VALUES (:id, :actor, :status, :at, :activity)
                         """).param("id", pin.id()).param("actor", actorId).param("status", statusId)
-                .param("at", time(pinnedAt)).param("activity", activityUri).update();
+                .param("at", offsetOrNull(pinnedAt)).param("activity", activityUri).update();
         return pin;
     }
 
@@ -75,11 +78,22 @@ public class StatusPinRepository {
                 .param("actor", actorId).param("ids", statusIds).query(UUID.class).list());
     }
 
+    /**
+     * @return when each of the actor's statuses that's been unpinned was last unpinned, by URI
+     */
+    public Map<String, Instant> removedAt(UUID actorId) {
+        return jdbc.sql("SELECT status_uri, removed_at FROM removed_pin WHERE actor_id = :actor")
+                .param("actor", actorId)
+                .query((rs, row) -> Map.entry(rs.getString("status_uri"), rs.getObject("removed_at", OffsetDateTime.class)
+                        .toInstant()))
+                .list().stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
     public boolean wasRemoved(UUID actorId, URI statusUri, Instant at) {
         return jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM removed_pin WHERE actor_id = :actor
                             AND md5(status_uri) = md5(:status) AND status_uri = :status AND removed_at >= :at)
-                        """).param("actor", actorId).param("status", statusUri.toString()).param("at", time(at))
+                        """).param("actor", actorId).param("status", statusUri.toString()).param("at", offsetOrNull(at))
                 .query(Boolean.class).single();
     }
 
@@ -91,11 +105,11 @@ public class StatusPinRepository {
                         INSERT INTO removed_pin (actor_id, status_uri, removed_at) VALUES (:actor, :status, :at)
                         ON CONFLICT (actor_id, md5(status_uri))
                         DO UPDATE SET removed_at = greatest(removed_pin.removed_at, EXCLUDED.removed_at)
-                        """).param("actor", actorId).param("status", statusUri.toString()).param("at", time(at)).update();
+                        """).param("actor", actorId).param("status", statusUri.toString()).param("at", offsetOrNull(at)).update();
         jdbc.sql("""
                         DELETE FROM status_pin p USING status s WHERE p.status_id = s.id AND p.actor_id = :actor
                         AND s.uri = :status AND p.pinned_at <= :at
-                        """).param("actor", actorId).param("status", statusUri.toString()).param("at", time(at)).update();
+                        """).param("actor", actorId).param("status", statusUri.toString()).param("at", offsetOrNull(at)).update();
     }
 
     /**
@@ -104,16 +118,11 @@ public class StatusPinRepository {
     public void deleteExcept(UUID actorId, Collection<UUID> kept, Instant before) {
         if (kept.isEmpty()) {
             jdbc.sql("DELETE FROM status_pin WHERE actor_id = :actor AND pinned_at <= :before")
-                    .param("actor", actorId).param("before", time(before)).update();
+                    .param("actor", actorId).param("before", offsetOrNull(before)).update();
             return;
         }
         jdbc.sql("DELETE FROM status_pin WHERE actor_id = :actor AND pinned_at <= :before AND status_id NOT IN (:kept)")
-                .param("actor", actorId).param("before", time(before)).param("kept", kept).update();
-    }
-
-    public void removeForActor(UUID actor) {
-        jdbc.sql("DELETE FROM status_pin WHERE actor_id = :actor").param("actor", actor).update();
-        jdbc.sql("DELETE FROM removed_pin WHERE actor_id = :actor").param("actor", actor).update();
+                .param("actor", actorId).param("before", offsetOrNull(before)).param("kept", kept).update();
     }
 
     public void removeForActors(Collection<UUID> actors) {
@@ -126,7 +135,4 @@ public class StatusPinRepository {
                 .param("domain", domain).param("after", after).param("limit", limit).query(UUID.class).list();
     }
 
-    private static OffsetDateTime time(Instant at) {
-        return at.atOffset(ZoneOffset.UTC);
-    }
 }

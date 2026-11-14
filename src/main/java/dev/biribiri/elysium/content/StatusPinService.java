@@ -11,11 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URI;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -74,7 +74,7 @@ public class StatusPinService {
                 throw new InvalidStatusException("You have already pinned the maximum number of posts");
             }
             var pin = pins.insert(actorId, statusId, now(), actor.get().uri() + "#pins/" + UUID.randomUUID());
-            events.publishEvent(new StatusPinned(pin.id(), actorId, statusId));
+            events.publishEvent(new StatusPinned(pin.id(), actorId));
         });
         return found;
     }
@@ -87,13 +87,11 @@ public class StatusPinService {
         if (actors.findLocalById(actorId).isEmpty()) return Optional.empty();
         pins.lockActor(actorId);
         var found = repository.findById(statusId).filter(status -> statuses.isVisible(status, Optional.of(actorId)));
-        found.flatMap(status -> pins.findPair(actorId, statusId).map(pin -> Map.entry(status, pin)))
-                .ifPresent(entry -> {
-                    var status = entry.getKey();
-                    pins.delete(entry.getValue().id());
-                    events.publishEvent(new StatusUnpinned(actorId, statusId, status.uri(), entry.getValue().activityUri(),
-                            status.visibility(), status.publishedAt()));
-                });
+        found.ifPresent(status -> pins.findPair(actorId, statusId).ifPresent(pin -> {
+            pins.delete(pin.id());
+            events.publishEvent(new StatusUnpinned(actorId, status.uri(), pin.activityUri(), status.visibility(),
+                    status.publishedAt()));
+        }));
         return found;
     }
 
@@ -114,12 +112,12 @@ public class StatusPinService {
     /**
      * Pins a remote actor's status, unless a {@code Remove} of it arrived after this did.
      *
-     * @param status one of the actor's statuses, which the caller has checked
-     * @param at     when the {@code Add} arrived
+     * @param actorId a remote actor
+     * @param at      when the {@code Add} arrived
      */
     @Transactional
     public void receivePin(UUID actorId, Status status, Instant at) {
-        if (!status.actorId().equals(actorId) || status.isReblog() || isLocal(actorId)) return;
+        if (!status.actorId().equals(actorId) || status.isReblog()) return;
         pins.lockActor(actorId);
         if (pins.wasRemoved(actorId, status.uri(), at) || pins.findPair(actorId, status.id()).isPresent()
                 || pins.count(actorId) >= MAX_REMOTE) {
@@ -132,11 +130,11 @@ public class StatusPinService {
      * Unpins a remote actor's status, which doesn't have to be stored, and keeps an {@code Add} that arrived before this from
      * pinning it later.
      *
-     * @param at when the {@code Remove} arrived
+     * @param actorId a remote actor
+     * @param at      when the {@code Remove} arrived
      */
     @Transactional
     public void receiveUnpin(UUID actorId, URI statusUri, Instant at) {
-        if (isLocal(actorId)) return;
         pins.lockActor(actorId);
         pins.remove(actorId, statusUri, at);
     }
@@ -145,17 +143,21 @@ public class StatusPinService {
      * Replaces a remote actor's pins with what its {@code featured} collection lists. What an {@code Add} or a
      * {@code Remove} that arrived while the collection was being fetched did is kept.
      *
-     * @param pinnedAt  the actor's statuses that the collection lists, which the caller has checked are the actor's, with
-     *                  when to say each was pinned. Collections don't say, so the caller makes times that keep their order.
+     * @param actorId   a remote actor
+     * @param pinnedAt  the statuses that the collection lists, with when to say each was pinned. Collections don't say, so
+     *                  the caller makes times that keep their order. Any that aren't the actor's own are left out.
      * @param fetchedAt when the collection was fetched
      */
     @Transactional
     public void replaceRemote(UUID actorId, Map<UUID, Instant> pinnedAt, Instant fetchedAt) {
-        if (isLocal(actorId)) return;
         pins.lockActor(actorId);
+        var removedAt = pins.removedAt(actorId);
         var listed = repository.findByIds(pinnedAt.keySet()).stream()
                 .filter(status -> status.actorId().equals(actorId) && !status.isReblog())
-                .filter(status -> !pins.wasRemoved(actorId, status.uri(), pinnedAt.get(status.id())))
+                .filter(status -> {
+                    var removed = removedAt.get(status.uri().toString());
+                    return removed == null || removed.isBefore(pinnedAt.get(status.id()));
+                })
                 .sorted(Comparator.comparing((Status status) -> pinnedAt.get(status.id())).reversed())
                 .limit(MAX_REMOTE)
                 .toList();
@@ -170,10 +172,14 @@ public class StatusPinService {
     }
 
     /**
-     * @return which of these statuses the viewer has pinned. Mastodon only says a status is pinned to its author.
+     * @return which of these statuses the viewer has pinned. Mastodon only says a status is pinned to its author, so only the
+     * viewer's own statuses need to be looked up.
      */
-    public Set<UUID> pinnedIds(Collection<UUID> statusIds, Optional<UUID> viewer) {
-        return viewer.map(id -> pins.pinnedAmong(id, statusIds)).orElse(Set.of());
+    public Set<UUID> pinnedIds(Collection<Status> found, Optional<UUID> viewer) {
+        if (viewer.isEmpty()) return Set.of();
+        var own = found.stream().filter(status -> status.actorId().equals(viewer.get())).map(Status::id)
+                .collect(Collectors.toSet());
+        return own.isEmpty() ? Set.of() : pins.pinnedAmong(viewer.get(), own);
     }
 
     /**
@@ -181,17 +187,13 @@ public class StatusPinService {
      */
     public List<Status> findPinned(UUID actorId, Optional<UUID> viewer) {
         var ids = pins.pinnedBy(actorId, MAX_REMOTE);
-        var byId = repository.findByIds(ids).stream().collect(Collectors.toMap(Status::id, Function.identity()));
-        var found = new ArrayList<Status>();
-        for (var id : ids) {
-            var status = byId.get(id);
-            if (status != null && statuses.isVisible(status, viewer)) found.add(status);
-        }
-        return found;
+        var visible = viewer.map(id -> statuses.findVisible(ids, id)).orElseGet(() -> statuses.findVisibleToAnyone(ids))
+                .stream().collect(Collectors.toMap(Status::id, Function.identity()));
+        return ids.stream().map(visible::get).filter(Objects::nonNull).toList();
     }
 
     public void removeForActor(UUID id) {
-        pins.removeForActor(id);
+        pins.removeForActors(List.of(id));
     }
 
     public void removeForDomain(String domain) {
@@ -204,10 +206,6 @@ public class StatusPinService {
                 after = batch.getLast();
             }
         } while (batch.size() == 1000);
-    }
-
-    private boolean isLocal(UUID actorId) {
-        return actors.findById(actorId).map(actors::isLocal).orElse(true);
     }
 
     private static Instant now() {

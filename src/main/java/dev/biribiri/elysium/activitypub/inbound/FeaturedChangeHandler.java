@@ -9,7 +9,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * An {@code Add} or {@code Remove} whose {@code target} is the actor's {@code featured} collection, which is how Mastodon
@@ -23,8 +22,6 @@ import java.util.Set;
 abstract class FeaturedChangeHandler implements InboundActivityHandler {
 
     private static final Logger log = LoggerFactory.getLogger(FeaturedChangeHandler.class);
-
-    private static final Set<String> STATUS_TYPES = Set.of("Note", "Question");
 
     private final RemoteActors remoteActors;
     private final ActorService actors;
@@ -42,12 +39,17 @@ abstract class FeaturedChangeHandler implements InboundActivityHandler {
     }
 
     @Override
+    public boolean acceptsWithoutId() {
+        return true;
+    }
+
+    @Override
     public void handle(InboundActivity activity) {
         var actorUri = URI.create(activity.actorUri());
         var document = json.readTree(activity.body());
         var target = Optional.ofNullable(ActivityJson.idOf(document.path("target"))).flatMap(ActivityObject::parseUri);
         var status = ActivityObject.of(document)
-                .filter(object -> object.type() == null || STATUS_TYPES.contains(object.type()))
+                .filter(object -> object.type() == null || RemoteNote.isStatusType(object.type()))
                 .map(ActivityObject::id)
                 .filter(InboundActivity::isStorableId)
                 .flatMap(ActivityObject::parseUri)
