@@ -152,6 +152,14 @@ public class ActorService {
     }
 
     /**
+     * @return a remote actor's collection of pinned statuses, from its document, or empty if it doesn't have one. Local
+     * actors' aren't stored, since they're derived from their URIs.
+     */
+    public Optional<URI> findFeaturedUri(UUID actorId) {
+        return actors.findFeaturedUri(actorId);
+    }
+
+    /**
      * Whether an actor is on this server. An actor from another server can't be stored with this server's domain.
      */
     public boolean isLocal(Actor actor) {

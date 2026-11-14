@@ -12,6 +12,7 @@ import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.QuoteApproval;
@@ -52,12 +53,14 @@ class StatusResponses {
     private final QuoteService quotes;
     private final BlockService blocks;
     private final PollService polls;
+    private final StatusPinService pins;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
             StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments,
-            QuoteService quotes, BlockService blocks, PollService polls) {
+            QuoteService quotes, BlockService blocks, PollService polls, StatusPinService pins) {
         this.polls = polls;
+        this.pins = pins;
         this.quotes = quotes;
         this.blocks = blocks;
         this.attachments = attachments;
@@ -176,6 +179,7 @@ class StatusResponses {
         var boostStats = boosts.stats(ids, viewer);
         var quoteCounts = quotes.acceptedCounts(ids);
         var pollsById = polls.findAll(ids, viewer);
+        var pinned = pins.pinnedIds(ids, viewer);
         var now = Instant.now();
         var localAuthors = authors.values().stream().filter(actors::isLocal).map(Actor::id).collect(Collectors.toSet());
         var decisions = quotes.decide(all.stream().filter(status -> !status.isReblog()).distinct().toList(), localAuthors, viewer);
@@ -202,7 +206,8 @@ class StatusResponses {
                 quote,
                 approval.apply(status),
                 status.isReblog() ? 0 : quoteCounts.getOrDefault(status.id(), 0L),
-                Optional.ofNullable(pollsById.get(status.id())).map(poll -> PollResponse.from(poll, now)).orElse(null));
+                Optional.ofNullable(pollsById.get(status.id())).map(poll -> PollResponse.from(poll, now)).orElse(null),
+                pinned.contains(status.id()));
         // A status that's quoted only shows what it quotes in turn by ID, as on Mastodon, so that quotes don't nest.
         Function<Status, StatusResponse> nested = status -> basic.apply(status, null,
                 Optional.ofNullable(quoteRows.get(status.id())).map(StatusResponses::shallow).orElse(null));

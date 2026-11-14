@@ -89,11 +89,12 @@ record StatusResponse(
 
     /**
      * @param reblog the boosted status, for a boost, or null
+     * @param pinned whether the viewer pinned it, which only its author can have
      */
     static StatusResponse from(
             Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
             List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
-            Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll) {
+            Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll, boolean pinned) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -124,7 +125,7 @@ record StatusResponse(
                 boosts.reblogged(),
                 false,
                 false,
-                false,
+                pinned,
                 quote,
                 quoteApproval,
                 quotesCount);

@@ -8,18 +8,23 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The parts of an activity that an inbox needs in order to accept it. Activities are read as plain JSON, without a JSON-LD
  * processor, and no {@code @context} is ever fetched.
  *
- * @param id    the activity's {@code id}
+ * @param id    the activity's {@code id}, or null for an {@code Add} or {@code Remove} without one, as Mastodon and Misskey
+ *              send them
  * @param type  the activity's {@code type}, or the first one if it has several
  * @param actor the ID of the activity's {@code actor}, which can be sent as an ID, an object, or an array of one of those.
  *              This is null if there are several, since one signature can't speak for all of them.
  * @param body  the activity's JSON
  */
 record ActivityEnvelope(String id, String type, String actor, String body) {
+
+    /** The types of activity that are accepted without an {@code id}, since common servers send them that way. */
+    private static final Set<String> ID_OPTIONAL = Set.of("Add", "Remove");
 
     /**
      * @return the activity, or empty if the body isn't one
@@ -43,7 +48,7 @@ record ActivityEnvelope(String id, String type, String actor, String body) {
         var actorNode = document.path("actor");
         var hasSeveralActors = actorNode.isArray() && actorNode.size() > 1;
         var actor = hasSeveralActors ? null : ActivityJson.idOf(actorNode.isArray() ? actorNode.path(0) : actorNode);
-        if (id == null || type == null || (actor == null && !hasSeveralActors)) {
+        if (type == null || (id == null && !ID_OPTIONAL.contains(type)) || (actor == null && !hasSeveralActors)) {
             return Optional.empty();
         }
         return Optional.of(new ActivityEnvelope(id, type, actor, body));

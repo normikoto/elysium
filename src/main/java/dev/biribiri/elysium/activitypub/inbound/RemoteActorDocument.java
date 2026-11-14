@@ -63,6 +63,8 @@ final class RemoteActorDocument {
         var followers = onActorsServer(uri, document.path("followers").stringValue(null));
         // Backfill fetches it, and trusts what it embeds as the actor's, so it has to be the actor's server's word.
         var outbox = onActorsServer(uri, document.path("outbox").stringValue(null));
+        // Pins are read from it, and its Adds and Removes have to name it, so it has to be the actor's server's word too.
+        var featured = onActorsServer(uri, ActivityJson.idOf(document.path("featured")));
         return new RemoteActorProfile(
                 uri,
                 username,
@@ -71,12 +73,13 @@ final class RemoteActorDocument {
                 outbox,
                 sharedInbox,
                 publicKeyPem(document.path("publicKey")),
-                followers);
+                followers,
+                featured);
     }
 
     /**
      * Inboxes are where this server sends requests when it's told to, so one on another host would let any server aim this
-     * one at a third party. Followers collections and outboxes are checked the same way.
+     * one at a third party. Followers, featured collections, and outboxes are checked the same way.
      *
      * @return the URI, or null if there isn't one that can be used
      */

@@ -63,6 +63,10 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   what's missing gets a 404. It has no thumbnail, icon, contact account, or rules, `usage.users.active_month` counts every
   local account, and `configuration.translation.enabled` is false.
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
+- `POST /api/v1/statuses/:id/pin` and `/unpin` need `write:accounts`, as on Mastodon, and a user can pin up to 5 statuses,
+  which `configuration.accounts.max_pinned_statuses` says. Pinning someone else's status, a boost, or a direct status gets a
+  422 with Mastodon's message, and so does a sixth pin. Unpinning a status that isn't pinned does nothing. `pinned` is only
+  true for the user's own statuses.
 - Statuses from other servers are only stored when they're sent here, which is when a local account follows their author or
   is addressed by them, or when they're a public or unlisted reply to a stored status of a local account or one that's
   followed here. When a local account starts following someone, up to 40 of their recent public and unlisted statuses are
@@ -298,6 +302,10 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   A query that's a valid name, with or without its `#`, also finds that tag when nothing uses it, as the first result,
   as on Mastodon. Only the first 200 can be paged through with `offset`.
 - `GET /api/v1/accounts/:id/statuses` for an account on another server only lists its statuses stored here.
+- `GET /api/v1/accounts/:id/statuses?pinned=true` lists the pins the viewer can see, the most recently pinned first, with no
+  `Link` header, since they fit in one page. Only `limit` applies, and `max_id`, `since_id`, or `min_id` gets an empty list.
+  An account on another server has the pins its server has told this one about, which are only kept for statuses stored
+  here, and at most 40 of them.
 
 Reports follow [Mastodon's reports API](https://docs.joinmastodon.org/methods/reports/), with the `write:reports` scope,
 with these differences:

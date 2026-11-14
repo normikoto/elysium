@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.activitypub.http.HostHeader;
+import dev.biribiri.elysium.activitypub.signature.Digests;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
@@ -13,6 +14,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -93,9 +95,10 @@ public class Inbox {
         if (!signer.owner().toString().equals(envelope.actor())) {
             return forwarded(signer, envelope, body.length);
         }
+        var activityId = envelope.id() == null ? anonymousId(envelope) : envelope.id();
         URI id;
         try {
-            id = new URI(envelope.id());
+            id = new URI(activityId);
         } catch (URISyntaxException e) {
             return Result.of(Outcome.INVALID);
         }
@@ -105,7 +108,7 @@ public class Inbox {
         }
         InboundActivity activity;
         try {
-            activity = new InboundActivity(envelope.id(), envelope.actor(), envelope.type(), envelope.body());
+            activity = new InboundActivity(activityId, envelope.actor(), envelope.type(), envelope.body());
         } catch (IllegalArgumentException e) {
             return Result.of(Outcome.INVALID);
         }
@@ -143,6 +146,11 @@ public class Inbox {
      * against the signer's limits, since it's the one causing them.
      */
     private Result forwarded(VerifiedSignature signer, ActivityEnvelope envelope, int bodyBytes) {
+        if (envelope.id() == null) {
+            log.debug("Ignoring a {} from {}, signed by {}, which has no ID to fetch it by", envelope.type(),
+                    envelope.actor(), signer.owner());
+            return Result.of(Outcome.IGNORED);
+        }
         var parsedId = ActivityObject.parseUri(envelope.id());
         var actor = ActivityObject.parseUri(envelope.actor());
         if (parsedId.isEmpty()
@@ -171,6 +179,16 @@ public class Inbox {
             return Optional.empty();
         }
         return DeleteHandler.objectOf(envelope.body(), json).filter(object -> isOnActorsServer(object, actor));
+    }
+
+    /**
+     * An ID on the actor's server for an activity that came without one, which is only taken from its signer. It's the same
+     * for the same body, so a repeat is dropped as one. Handlers that take these have to process repeats, since pinning a
+     * status again sends the same body as the first time.
+     */
+    private static String anonymousId(ActivityEnvelope envelope) {
+        return envelope.actor() + "#" + envelope.type().toLowerCase(Locale.ROOT) + "/"
+                + Digests.sha256Hex(envelope.body());
     }
 
     /**

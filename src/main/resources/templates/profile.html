@@ -17,6 +17,10 @@
             </th:block>
         </dl>
         <p>Joined <span th:text="${joined}"></span></p>
+        <section th:if="${!#lists.isEmpty(pinned)}" aria-labelledby="pinned-heading">
+            <h2 id="pinned-heading">Pinned</h2>
+            <th:block th:each="view : ${pinned}" th:insert="~{status-card :: card(${view})}"></th:block>
+        </section>
         <p th:if="${#lists.isEmpty(statuses)}">No posts to show.</p>
         <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>
         <p th:if="${olderThan != null}">

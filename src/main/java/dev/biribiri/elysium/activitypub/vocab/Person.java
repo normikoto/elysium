@@ -18,6 +18,7 @@ import java.util.List;
  * @param summary    the bio as HTML, left out if there isn't one
  * @param attachment the profile's fields, as Mastodon sends them
  * @param tag        the hashtags in the bio, as Mastodon sends them, left out if there are none
+ * @param featured   the collection of pinned statuses, left out while the actor is suspended, since it can't be read then
  * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
  * @param suspended  true if the actor is suspended. Otherwise this is left out, as other servers treat a missing one as false.
@@ -35,6 +36,7 @@ public record Person(
         URI outbox,
         URI followers,
         URI following,
+        URI featured,
         Endpoints endpoints,
         PublicKey publicKey,
         Image icon,
@@ -77,6 +79,13 @@ public record Person(
         return URI.create(actor.uri() + "/following");
     }
 
+    /**
+     * @return the collection of a local actor's pinned statuses, at the path Mastodon uses
+     */
+    public static URI featuredOf(Actor actor) {
+        return URI.create(actor.uri() + "/collections/featured");
+    }
+
     public static Person from(Actor actor, Profile profile, InstanceProperties instance) {
         var hashtags = profile.hashtags();
         return new Person(
@@ -92,6 +101,7 @@ public record Person(
                 actor.outboxUri(),
                 followersOf(actor),
                 followingOf(actor),
+                featuredOf(actor),
                 new Endpoints(instance.sharedInboxUri()),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
                 Image.of(profile.avatar(), instance),
@@ -113,19 +123,20 @@ public record Person(
      * saying this, and so that the actor is still there to come back. Its profile isn't shown, as Mastodon does.
      */
     public static Person suspended(Actor actor, InstanceProperties instance) {
-        return from(actor, Profile.EMPTY, instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, true);
+        return from(actor, Profile.EMPTY, instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, true);
     }
 
     /**
      * This document as part of an activity, which has the {@code @context} for both.
      */
     Person withoutContext() {
-        return with(null, suspended);
+        return with(null, featured, suspended);
     }
 
-    private Person with(List<?> context, Boolean suspended) {
+    private Person with(List<?> context, URI featured, Boolean suspended) {
         return new Person(
-                context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, endpoints,
+                context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, featured,
+                endpoints,
                 publicKey, icon, image, attachment, tag, manuallyApprovesFollowers, published, updated, suspended);
     }
 }

@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.web;
 
 import dev.biribiri.elysium.activitypub.inbound.InboxLimitProperties;
+import dev.biribiri.elysium.content.StatusPinService;
 
 import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ACTIVITY_JSON;
 import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON;
@@ -50,6 +51,12 @@ final class FederationDocs {
              `orderedItems`, newest first, and a `next` page if there may be more. A status is a `Create` that embeds \
             its `Note`, and a boost an `Announce` of the boosted status's ID. Followers-only and direct posts and boosts \
             are left out.\s""" + DOCUMENT + " " + UNSIGNED;
+
+    static final String FEATURED = """
+            An `OrderedCollection` of the user's pinned public and unlisted posts, as embedded `Note`s in \
+            `orderedItems`, the most recently pinned first, with `totalItems`. It isn't paged, since a user can pin at \
+            most\s""" + StatusPinService.MAX_PER_ACCOUNT + """
+             posts. Pinned followers-only posts are left out.\s""" + DOCUMENT + " " + UNSIGNED;
 
     static final String USERNAME = "The username, matched case-insensitively.";
 

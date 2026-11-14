@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Pinned posts, as on Mastodon. People can pin up to 5 of their own public, unlisted, or followers-only posts with
+  `POST /api/v1/statuses/:id/pin`, and they're listed with `GET /api/v1/accounts/:id/statuses?pinned=true` and at the top
+  of the profile page. Pins are federated as Mastodon does, with the actor's `featured` collection and `Add` and `Remove`
+  activities, and pins from other servers are shown too. See `docs/api.md` and `FEDERATION.md`.
 - A limit of 30 app registrations an hour from each address, since `POST /api/v1/apps` needs no login. Behind a
   reverse proxy it needs the same setup as the other limits, and `elysium.rate-limit.enabled=false` turns it off. See `docs/accounts.md` and `docs/api.md`.
 - Apps that nobody has authorized a day after they register are removed, since anyone can register one without logging
