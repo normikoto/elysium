@@ -239,8 +239,66 @@ class OAuthIntegrationTests {
 
     @Test
     void rejectsJsonTokenRequestsThatAreNotObjects() throws Exception {
-        for (var body : List.of("{\"grant_type\": ", "[\"client_credentials\"]", "", "x".repeat(70_000))) {
+        for (var body : List.of("{\"grant_type\": ", "[\"client_credentials\"]")) {
             mockMvc.perform(post("/oauth/token").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("invalid_request"))
+                    .andExpect(jsonPath("$.error_description").value("The request body must be a JSON object."));
+        }
+    }
+
+    @Test
+    void rejectsJsonTokenRequestsOver64Kb() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
+                                 "padding": "%s"}""".formatted(app.clientId(), app.clientSecret(), "x".repeat(70_000))))
+                .andExpect(status().isContentTooLarge())
+                .andExpect(jsonPath("$.error").value("invalid_request"))
+                .andExpect(jsonPath("$.error_description").value("The request body is too large."));
+    }
+
+    @Test
+    void treatsAnEmptyJsonBodyAsHavingNoParameters() throws Exception {
+        mockMvc.perform(post("/oauth/token").contentType(MediaType.APPLICATION_JSON).content(""))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("invalid_client"));
+    }
+
+    @Test
+    void rejectsRepeatedJsonKeys() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
+                                 "scope": "read", "scope": "write"}""".formatted(app.clientId(), app.clientSecret())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_request"));
+    }
+
+    @Test
+    void readsJsonInTheDeclaredCharset() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        mockMvc.perform(post("/oauth/token")
+                        .contentType("application/json; charset=ISO-8859-1")
+                        .content("""
+                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
+                                 "client_name": "Café"}""".formatted(app.clientId(), app.clientSecret())
+                                .getBytes(StandardCharsets.ISO_8859_1)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void leavesWildcardContentTypesToTheFormReader() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        for (var contentType : List.of("*/*", "application/*")) {
+            mockMvc.perform(post("/oauth/token")
+                            .contentType(contentType)
+                            .content("{\"grant_type\": \"client_credentials\"}")
+                            .with(httpBasic(app.clientId(), app.clientSecret())))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value("invalid_request"));
         }

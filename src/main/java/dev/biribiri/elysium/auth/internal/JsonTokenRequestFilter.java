@@ -12,7 +12,9 @@ import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
@@ -30,6 +32,9 @@ import static org.springframework.security.web.servlet.util.matcher.PathPatternR
  * one, and Spring only reads form parameters, so it would find no client credentials and answer {@code invalid_client}.
  * The body's fields become request parameters, which client authentication, the grants, and revocation all read.
  *
+ * <p>Its limits and its fallback to parameters for an empty body match {@code api.web.JsonBodies}, which {@code auth}
+ * can't use, so that a client sees the same behavior on every endpoint that takes JSON.
+ *
  * <p>Not a bean, because Spring Boot would then also run it outside of the security filter chains.
  */
 class JsonTokenRequestFilter extends OncePerRequestFilter {
@@ -43,30 +48,44 @@ class JsonTokenRequestFilter extends OncePerRequestFilter {
             pathPattern(HttpMethod.POST, SecurityConfig.TOKEN_PATH),
             pathPattern(HttpMethod.POST, SecurityConfig.REVOKE_PATH));
 
-    private final JsonMapper json;
+    /**
+     * Refuses a repeated key, since a form field given twice is refused, and otherwise the last value would silently win,
+     * such as a second {@code client_id} or {@code scope}.
+     */
+    private final ObjectReader json;
     private final OAuthResponses responses;
 
     JsonTokenRequestFilter(JsonMapper json, OAuthResponses responses) {
-        this.json = json;
+        this.json = json.reader().with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
         this.responses = responses;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !TOKEN_REQUESTS.matches(request) || !isJson(request.getContentType());
+        return !TOKEN_REQUESTS.matches(request) || jsonType(request.getContentType()) == null;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        var body = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
-        if (body.length > MAX_BODY_BYTES) {
-            responses.invalidRequest(response, "The request body is too large.");
+        if (request.getContentLengthLong() > MAX_BODY_BYTES) {
+            responses.bodyTooLarge(response);
             return;
         }
+        var body = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
+        if (body.length > MAX_BODY_BYTES) {
+            responses.bodyTooLarge(response);
+            return;
+        }
+        if (body.length == 0) {
+            chain.doFilter(request, response);
+            return;
+        }
+        var charset = jsonType(request.getContentType()).getCharset();
         JsonNode root;
         try {
-            root = json.readTree(body);
+            // Without a declared charset, Jackson detects the UTF encoding from the bytes.
+            root = charset == null ? json.readTree(body) : json.readTree(new String(body, charset));
         } catch (JacksonException e) {
             root = null;
         }
@@ -99,14 +118,19 @@ class JsonTokenRequestFilter extends OncePerRequestFilter {
         return Collections.unmodifiableMap(result);
     }
 
-    private static boolean isJson(String contentType) {
+    /**
+     * @return the content type if it's JSON, or else null. A wildcard such as {@code *}{@code /*} isn't JSON, so its
+     * body is left to Spring.
+     */
+    private static MediaType jsonType(String contentType) {
         if (contentType == null) {
-            return false;
+            return null;
         }
         try {
-            return MediaType.APPLICATION_JSON.isCompatibleWith(MediaType.parseMediaType(contentType));
+            var type = MediaType.parseMediaType(contentType);
+            return MediaType.APPLICATION_JSON.equalsTypeAndSubtype(type) ? type : null;
         } catch (InvalidMediaTypeException e) {
-            return false;
+            return null;
         }
     }
 

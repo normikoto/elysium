@@ -8,6 +8,9 @@ differs from Mastodon in these ways:
 - `force_login`, `prompt`, `lang`, `/oauth/userinfo`, and `POST /api/v1/accounts` aren't implemented.
 - Each authorization issues a new token rather than reusing the application's existing one.
 - Revoking an unknown token succeeds, rather than returning the 403 that Mastodon documents.
+- A JSON body for `/oauth/token` or `/oauth/revoke` can be at most 64 KB, and a larger one gets a 413. A field that's
+  an array, or a key given twice, gets a 400 `invalid_request`, as a repeated form field does. Fields that are objects or
+  null are ignored.
 - `POST /api/v1/apps` allows 30 registrations an hour from one address, not counting ones that get a 422, and then
   returns a 429 with a `Retry-After` header.
 - An application that isn't approved or issued a token within a day of registering is removed. Its credentials then stop

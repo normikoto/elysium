@@ -59,8 +59,10 @@ class OAuthApiDocs {
             The client authenticates with `client_id` and `client_secret` in the body, or with HTTP Basic. The body \
             can be form-encoded or a JSON object.""";
 
-    private static final String JSON_BODY_ERROR =
-            "A JSON body that isn't an object, or is over 64 KB, is also `invalid_request`.";
+    private static final String JSON_BODY_ERROR = """
+            A JSON body that isn't an object, repeats a key, or has a field that's an array is also `invalid_request`.             Fields that are objects or null are ignored.""";
+
+    private static final String JSON_BODY_TOO_LARGE = "`invalid_request`: a JSON body is over 64 KB.";
 
     @Bean
     OpenApiCustomizer oauthApiDocs(InstanceProperties instance) {
@@ -251,7 +253,8 @@ class OAuthApiDocs {
                                 `invalid_grant`, `invalid_request`, `invalid_scope`, or `unsupported_grant_type`. \
                                 `invalid_scope` includes scopes the application didn't register for. """
                                 + JSON_BODY_ERROR))
-                        .addApiResponse("401", error("`invalid_client`: the client's credentials are missing or wrong.")));
+                        .addApiResponse("401", error("`invalid_client`: the client's credentials are missing or wrong."))
+                        .addApiResponse("413", error(JSON_BODY_TOO_LARGE)));
     }
 
     private static Operation revoke() {
@@ -274,7 +277,8 @@ class OAuthApiDocs {
                                 .content(json(new ObjectSchema())))
                         .addApiResponse("400", error("`invalid_request`, such as a missing `token`. " + JSON_BODY_ERROR))
                         .addApiResponse("401", error("`invalid_client`: the client's credentials are missing or wrong."))
-                        .addApiResponse("403", error("`unauthorized_client`: the token belongs to another client.")));
+                        .addApiResponse("403", error("`unauthorized_client`: the token belongs to another client."))
+                        .addApiResponse("413", error(JSON_BODY_TOO_LARGE)));
     }
 
     private static Operation metadata() {
