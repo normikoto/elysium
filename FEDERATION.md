@@ -1,15 +1,7 @@
 # Federation
 
-Elysium is an early work in progress, and this file only describes what's implemented today. Other servers can find and
-follow its users, and fetch their actors, statuses, outboxes, and collections. Its users can follow accounts on other servers,
-whose recent posts are then fetched from their outbox, and like, boost, and block them. Their statuses and edits to them, edits to their profiles, and suspensions and deletions of their accounts
-are sent to their followers. Statuses from other servers are stored, along with their edits and deletions, when they're for a local user,
-reply to a status that's stored here, or are boosted by an actor that a local user follows. Likes and boosts of local
-statuses are counted. Their images, video, and audio are sent and read as attachments, and other servers' are
-downloaded and served from here for a while. Its users can quote statuses, and quotes from other servers are shown once
-the quoted author has approved them, as FEP-044f has it. Reports of local accounts from other servers are passed to
-admins, and its users can have their reports of remote accounts sent on. Polls are sent and read as `Question`s, and
-votes in them are counted and sent as Mastodon does.
+Elysium implements enough of the ActivityPub specification for basic interaction with Mastodon and other common implementations of the standard.
+The extent of this support and its limitations are what's described in the rest of this document.
 
 ## Supported federation protocols and standards
 
