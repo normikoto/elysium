@@ -73,6 +73,7 @@ public class MediaRejections {
     @ApplicationModuleListener
     public void on(DomainMediaAllowed event) {
         attachments.allowForDomain(event.domain());
+        emojis.allowForDomain(event.domain());
     }
 
     @ApplicationModuleListener

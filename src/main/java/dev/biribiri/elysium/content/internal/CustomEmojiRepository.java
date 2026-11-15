@@ -40,12 +40,7 @@ public class CustomEmojiRepository {
             WHERE name IS NOT NULL
             ON CONFLICT DO NOTHING""";
 
-    /**
-     * A domain as domain blocks have it covers its subdomains, and an actor's domain can have a port.
-     */
-    private static final String ON_DOMAIN = """
-            (regexp_replace(e.domain, ':[0-9]+$', '') = :domain
-             OR right(regexp_replace(e.domain, ':[0-9]+$', ''), length(:domain) + 1) = '.' || :domain)""";
+    private static final String ON_DOMAIN = DomainSql.covers(":domain", "e.domain");
 
     private static final int BATCH_SIZE = 1000;
 
@@ -148,22 +143,24 @@ public class CustomEmojiRepository {
     /**
      * What storing another server's emoji did.
      *
-     * @param changed whether it's new, or its image changed, so that it has to be downloaded
+     * @param needsDownload whether it's new, its image changed, or it hasn't been downloaded and could be, so that a
+     *                      download is queued, which does nothing if one already is
      */
-    public record Stored(UUID id, boolean changed) {
+    public record Stored(UUID id, boolean needsDownload) {
     }
 
     /**
-     * Stores another server's emoji, or marks it as used if it's stored already, which also locks it until the
-     * transaction ends, so that it can't be removed as unused before what uses it is stored. A different image replaces
-     * the one kept, unless its server says it's older, as an old status that's fetched again can name an old image.
+     * Stores another server's emoji, or marks it as used if it's stored already. Its row is held until the transaction
+     * ends, so that it can't be removed as unused before what uses it is stored. {@code seen_at} is only rewritten when it's
+     * an hour old, since an emoji that's used often is used by many statuses at once, and each write would make the next
+     * one wait. A different image replaces the one kept, unless its server says it's older, as an old status that's
+     * fetched again can name an old image.
      */
     public Stored upsertRemote(UUID newId, String shortcode, String domain, URI uri, URI url, Instant updated) {
-        var row = jdbc.sql("""
+        var inserted = jdbc.sql("""
                         INSERT INTO custom_emoji (id, shortcode, domain, uri, remote_url, remote_updated)
                         VALUES (:id, :shortcode, :domain, :uri, :url, :updated)
-                        ON CONFLICT (shortcode, domain) DO UPDATE SET seen_at = now()
-                        RETURNING id, (xmax = 0) AS inserted, remote_url, remote_updated
+                        ON CONFLICT (shortcode, domain) DO NOTHING
                         """)
                 .param("id", newId)
                 .param("shortcode", shortcode)
@@ -171,21 +168,33 @@ public class CustomEmojiRepository {
                 .param("uri", uri.toString())
                 .param("url", url.toString())
                 .param("updated", updated == null ? null : updated.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE)
+                .update() == 1;
+        if (inserted) {
+            return new Stored(newId, true);
+        }
+        // Concurrently removed as unused, which leaves nothing to lock, so the caller's job runs again.
+        var row = jdbc.sql("""
+                        SELECT id, remote_url, remote_updated, image_name, cache_given_up FROM custom_emoji
+                        WHERE shortcode = :shortcode AND domain = :domain
+                        FOR KEY SHARE
+                        """)
+                .param("shortcode", shortcode)
+                .param("domain", domain)
                 .query((rs, rowNum) -> new UpsertRow(
                         rs.getObject("id", UUID.class),
-                        rs.getBoolean("inserted"),
                         rs.getString("remote_url"),
-                        instant(rs, "remote_updated")))
+                        instant(rs, "remote_updated"),
+                        rs.getString("image_name") == null && !rs.getBoolean("cache_given_up")))
                 .single();
-        if (row.inserted()) {
-            return new Stored(row.id(), true);
-        }
+        jdbc.sql("UPDATE custom_emoji SET seen_at = now() WHERE id = :id AND seen_at < now() - interval '1 hour'")
+                .param("id", row.id())
+                .update();
         if (updated != null && row.updated() != null && updated.isBefore(row.updated())) {
-            return new Stored(row.id(), false);
+            return new Stored(row.id(), row.uncached());
         }
         var newer = updated != null && (row.updated() == null || updated.isAfter(row.updated()));
         if (!newer && url.toString().equals(row.url())) {
-            return new Stored(row.id(), false);
+            return new Stored(row.id(), row.uncached());
         }
         jdbc.sql("""
                         WITH old AS (
@@ -208,7 +217,10 @@ public class CustomEmojiRepository {
         return new Stored(row.id(), true);
     }
 
-    private record UpsertRow(UUID id, boolean inserted, String url, Instant updated) {
+    /**
+     * @param uncached whether it has no copy, and one can still be downloaded
+     */
+    private record UpsertRow(UUID id, String url, Instant updated, boolean uncached) {
     }
 
     public Optional<RemoteEmojiSource> findForDownload(UUID id) {
@@ -299,9 +311,29 @@ public class CustomEmojiRepository {
     }
 
     /**
-     * Removes one batch of other servers' emoji that no status has used for a while. Marking an emoji as used changes
-     * {@code seen_at}, which PostgreSQL checks again on a row that changed while this waited for it, so an emoji that's
-     * being stored as used isn't removed.
+     * Lets one batch of a server's emoji be downloaded again, for when an admin stops rejecting its media, unless another
+     * block still rejects it. Each is downloaded the next time something uses it.
+     *
+     * @return how many were changed
+     */
+    public int allowForDomain(String domain) {
+        return jdbc.sql("""
+                        UPDATE custom_emoji SET cache_given_up = false
+                        WHERE id IN (
+                            SELECT e.id FROM custom_emoji e
+                            WHERE e.domain IS NOT NULL AND e.cache_given_up AND e.image_name IS NULL AND %s AND NOT %s
+                            LIMIT :limit
+                        )
+                        """.formatted(ON_DOMAIN, DomainSql.mediaRejected("e.domain")))
+                .param("domain", domain)
+                .param("limit", BATCH_SIZE)
+                .update();
+    }
+
+    /**
+     * Removes one batch of other servers' emoji that no status has used for a while. Marking an emoji as used rewrites a
+     * {@code seen_at} that's old enough for this to take, which PostgreSQL checks again on a row that changed while this
+     * waited for it, so an emoji that's being stored as used isn't removed.
      *
      * @return how many were removed
      */
@@ -326,13 +358,20 @@ public class CustomEmojiRepository {
                 .single();
     }
 
+    /**
+     * Emoji that have been removed meanwhile are left out, rather than failing what uses them: each is held while it's
+     * linked, which waits for a removal that's under way.
+     */
     public void insertForStatus(UUID statusId, Collection<UUID> emojiIds) {
         if (emojiIds.isEmpty()) {
             return;
         }
         jdbc.sql("""
+                        WITH held AS (
+                            SELECT id FROM custom_emoji WHERE id = ANY (CAST(:ids AS uuid[])) ORDER BY id FOR KEY SHARE
+                        )
                         INSERT INTO status_emoji (status_id, emoji_id)
-                        SELECT :statusId, e.id FROM unnest(CAST(:ids AS uuid[])) AS e (id)
+                        SELECT :statusId, id FROM held
                         ON CONFLICT DO NOTHING
                         """)
                 .param("statusId", statusId)

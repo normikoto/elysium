@@ -25,10 +25,9 @@ public class LikeRepository {
      * that only limits a server, such as by rejecting its media, doesn't hide it.
      */
     static String eligible(String actor) {
-        var host = "regexp_replace(" + actor + ".domain, ':[0-9]+$', '')";
         return actor + ".suspended_at IS NULL AND " + actor + ".deleted_at IS NULL AND (" + actor
-                + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE b.severity = 'suspend' AND (" + host
-                + " = b.domain OR right(" + host + ", length(b.domain) + 1) = '.' || b.domain)))";
+                + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE b.severity = 'suspend' AND "
+                + DomainSql.covers("b.domain", actor + ".domain") + "))";
     }
 
     private final JdbcClient jdbc;

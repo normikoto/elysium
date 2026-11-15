@@ -15,11 +15,13 @@ import org.springframework.util.unit.DataSize;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
@@ -45,10 +47,13 @@ public class CustomEmojis {
     private final InstanceProperties instance;
     private final ApplicationEventPublisher events;
     private final CustomEmojiProperties properties;
+    private final AttachmentProperties attachmentProperties;
 
     CustomEmojis(CustomEmojiRepository emojis, Images images, MediaAttachments attachments, InstanceProperties instance,
-                 ApplicationEventPublisher events, CustomEmojiProperties properties) {
+                 ApplicationEventPublisher events, CustomEmojiProperties properties,
+                 AttachmentProperties attachmentProperties) {
         this.properties = properties;
+        this.attachmentProperties = attachmentProperties;
         this.emojis = emojis;
         this.images = images;
         this.attachments = attachments;
@@ -199,25 +204,31 @@ public class CustomEmojis {
 
     /**
      * Stores the emoji that another server's status or activity uses, under the domain of the actor that used them, so
-     * that a server can't change another's. Those that are new, or whose image changed, are downloaded. Has to run in the
-     * transaction that stores what uses them.
+     * that a server can't change another's. Those that have no copy yet are downloaded, which includes one whose image
+     * changed, and one that couldn't be downloaded for a while, such as when its server had used up its budget. Has to
+     * run in the transaction that stores what uses them. They're stored in order of shortcode, so that two transactions
+     * storing the same emoji hold them in the same order, and can't deadlock.
      *
      * @param domain the actor's domain, as actors have it
      * @return their IDs, by shortcode
      */
     public Map<String, UUID> storeRemote(String domain, Collection<RemoteEmoji> remote) {
+        var first = new TreeMap<String, RemoteEmoji>();
+        remote.forEach(emoji -> first.putIfAbsent(emoji.shortcode(), emoji));
         var ids = new LinkedHashMap<String, UUID>();
-        for (var emoji : remote) {
-            if (ids.containsKey(emoji.shortcode())) {
-                continue;
-            }
+        var downloads = new ArrayList<UUID>();
+        for (var emoji : first.values()) {
             var uri = emoji.uri() == null ? emoji.url() : emoji.uri();
             var stored = emojis.upsertRemote(Ids.timeOrdered(Instant.now()), emoji.shortcode(), domain, uri,
                     emoji.url(), emoji.updated());
-            if (stored.changed()) {
-                events.publishEvent(new RemoteEmojiAdded(stored.id()));
+            if (stored.needsDownload()) {
+                downloads.add(stored.id());
             }
             ids.put(emoji.shortcode(), stored.id());
+        }
+        // With copies turned off, nothing is ever downloaded, so this would only queue events for nothing.
+        if (!downloads.isEmpty() && attachmentProperties.remoteCacheEnabled()) {
+            events.publishEvent(new RemoteEmojiAdded(downloads));
         }
         return ids;
     }
@@ -274,6 +285,16 @@ public class CustomEmojis {
             // Each batch commits by itself.
         }
         attachments.processDeletions();
+    }
+
+    /**
+     * Lets a server's emoji be downloaded again, unless another block still rejects its media, for when an admin stops
+     * rejecting it. Each is downloaded the next time something uses it.
+     */
+    public void allowForDomain(String domain) {
+        while (emojis.allowForDomain(domain) > 0) {
+            // Each batch commits by itself.
+        }
     }
 
     /**

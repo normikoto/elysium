@@ -225,7 +225,7 @@ same hourly limit. Its image has to be within 256 KB by default, which an admin
 [can change](docs/configuration.md), and is kept as WebP. One that's too large or isn't an image is
 linked to instead. A later status or `Update` that gives an emoji with the same shortcode a different image, or an
 `updated` later than the one kept, replaces it, unless its `updated` is earlier than the one kept. Emoji that no status
-here uses are removed a day later. Emoji aren't read from actor documents, since profiles from other servers aren't
+here uses any more are removed. Emoji aren't read from actor documents, since profiles from other servers aren't
 stored yet.
 
 ### Inboxes

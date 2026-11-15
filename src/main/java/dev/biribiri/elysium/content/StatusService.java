@@ -781,7 +781,8 @@ public class StatusService {
         var stored = statuses.findByUriForAuthor(edit.uri(), edit.authorId());
         var domain = actors.findById(edit.authorId()).map(Actor::domain).orElse(null);
         if (stored.isPresent() && isSameVersion(stored.get(), html, edit, tags, poll)) {
-            // An emoji's image can change with nothing else, which isn't a new version.
+            // Emoji aren't part of a version, since the same text shows the same shortcodes, and statuses from before the
+            // upgrade that added them have none stored. An image can change with nothing else, too.
             if (domain != null) {
                 transaction.executeWithoutResult(tx -> emojis.replaceForStatus(
                         stored.get().id(), emojis.storeRemote(domain, edit.emojis()).values()));
@@ -860,11 +861,6 @@ public class StatusService {
             return false;
         }
         if (!Set.copyOf(tags).equals(Set.copyOf(statuses.findTags(List.of(status.id())).getOrDefault(status.id(), List.of())))) {
-            return false;
-        }
-        var shortcodes = edit.emojis().stream().map(RemoteEmoji::shortcode).collect(Collectors.toSet());
-        if (!shortcodes.equals(emojis.findForStatus(status.id()).stream().map(CustomEmoji::shortcode)
-                .collect(Collectors.toSet()))) {
             return false;
         }
         var current = attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of());
@@ -1393,6 +1389,10 @@ public class StatusService {
     /**
      * Another server's tags are only checked here, so that what counts as a tag is decided in one place.
      */
+    private static Collection<String> remoteTags(Collection<String> names) {
+        return Hashtags.parseAll(names);
+    }
+
     /**
      * This server's emoji that a local status names, in its text, its content warning, or its poll's options.
      */
@@ -1402,10 +1402,6 @@ public class StatusService {
         texts.add(spoilerText);
         texts.addAll(pollOptions);
         return emojis.findLocalIn(texts).values().stream().map(CustomEmoji::id).toList();
-    }
-
-    private static Collection<String> remoteTags(Collection<String> names) {
-        return Hashtags.parseAll(names);
     }
 
     /**

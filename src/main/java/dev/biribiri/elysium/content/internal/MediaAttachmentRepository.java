@@ -440,9 +440,7 @@ public class MediaAttachmentRepository {
     /**
      * Matches an actor on a domain or its subdomains, ignoring a port, as domain blocks do.
      */
-    private static final String ON_DOMAIN = """
-            (regexp_replace(a.domain, ':[0-9]+$', '') = :domain
-             OR right(regexp_replace(a.domain, ':[0-9]+$', ''), length(:domain) + 1) = '.' || :domain)""";
+    private static final String ON_DOMAIN = DomainSql.covers(":domain", "a.domain");
 
     /**
      * Rejects the attachments of a server's actors, and removes the copies of them, in one batch.
@@ -488,10 +486,7 @@ public class MediaAttachmentRepository {
      * Whether an actor is still covered by a block that rejects its server's media. A narrower block and a broader one
      * can both cover it, so lifting one doesn't lift the other.
      */
-    private static final String STILL_REJECTED_BY_A_BLOCK = """
-            EXISTS (SELECT 1 FROM domain_block b WHERE (b.severity = 'suspend' OR b.reject_media)
-                AND (regexp_replace(a.domain, ':[0-9]+$', '') = b.domain
-                     OR right(regexp_replace(a.domain, ':[0-9]+$', ''), length(b.domain) + 1) = '.' || b.domain))""";
+    private static final String STILL_REJECTED_BY_A_BLOCK = DomainSql.mediaRejected("a.domain");
 
     /**
      * Stops rejecting a server's actors' attachments, other than those of actors whose own are rejected, or that another

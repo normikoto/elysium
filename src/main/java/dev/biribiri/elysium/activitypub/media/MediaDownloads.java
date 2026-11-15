@@ -109,11 +109,18 @@ public class MediaDownloads {
         }
     }
 
+    /**
+     * An emoji is queued each time a status uses it until it's downloaded, which doesn't queue a second job while one is
+     * waiting.
+     */
     @ApplicationModuleListener
     public void on(RemoteEmojiAdded event) {
-        if (properties.remoteCacheEnabled()) {
-            Jobs.schedule(scheduler, EMOJI_TASK, new EmojiDownloadJob(event.emojiId(), Instant.now()),
-                    event.emojiId().toString());
+        if (!properties.remoteCacheEnabled()) {
+            return;
+        }
+        var now = Instant.now();
+        for (var id : event.emojiIds()) {
+            Jobs.schedule(scheduler, EMOJI_TASK, new EmojiDownloadJob(id, now), id.toString());
         }
     }
 
@@ -179,69 +186,122 @@ public class MediaDownloads {
         }
     }
 
-    private CompletionHandler<EmojiDownloadJob> downloadEmoji(EmojiDownloadJob job, URI url, String host, String server) {
-        var id = job.emojiId();
-        var limit = emojis.maxImageSize().toBytes();
-        var probe = budget.tryAcquire(server);
-        if (probe.isEmpty()) {
-            log.debug("Not downloading {}, since {} has had as much downloaded as it can for now", url, server);
-            emojis.giveUpCaching(id);
-            return Jobs.done();
-        }
-        probe.get().release();
-        if (!hostRequests.tryStartFetch(host)) {
-            return Jobs.rescheduleAt(Instant.now().plus(WAIT_FOR_ROOM));
-        }
-        FederationHttpClient.Download<byte[]> downloaded;
-        try {
-            downloaded = http.download(url, limit, DEADLINE, MAX_REDIRECTS, (contentType, body) -> body.readAllBytes());
-        } catch (BlockedTargetException | ResponseTooLargeException e) {
-            log.debug("Not downloading {}: {}", url, e.getMessage());
-            emojis.giveUpCaching(id);
-            return Jobs.done();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Couldn't download " + url, e);
-        } finally {
-            hostRequests.finishFetch(host);
-        }
-        var status = downloaded.status();
-        if (status >= 500 || status == 408 || status == 429) {
-            throw new IllegalStateException("Downloading " + url + " returned " + status);
-        }
-        if (downloaded.body() == null) {
-            log.debug("Not downloading {}, which returned {}", url, status);
-            emojis.giveUpCaching(id);
-            return Jobs.done();
-        }
-        if (budget.tryAcquire(server, Math.max(1, downloaded.body().length)).isEmpty()) {
-            log.debug("Not keeping {}, since {} has had as much downloaded as it can for now", url, server);
-            emojis.giveUpCaching(id);
-            return Jobs.done();
-        }
-        emojis.cacheRemote(id, url, downloaded.body());
-        return Jobs.done();
+    /**
+     * What's done with a download, which is where attachments and emoji differ.
+     *
+     * @param <T> what the body is read into
+     */
+    private interface Target<T> {
+
+        long maxBytes();
+
+        FederationHttpClient.BodyReader<T> reader();
+
+        long size(T body);
+
+        /**
+         * It can't or mustn't be downloaded, so it stays a link, and isn't tried again.
+         */
+        void giveUp();
+
+        /**
+         * Its server has had as much downloaded as it can for now.
+         */
+        void overBudget();
+
+        void keep(T body);
+
+        /**
+         * Called for every body read, whether or not it's kept.
+         */
+        void release(T body);
     }
 
     private CompletionHandler<MediaDownloadJob> download(MediaDownloadJob job, URI url, String host, String server) {
         var id = job.attachmentId();
+        return download(url, host, server, new Target<ReceivedMedia>() {
+            public long maxBytes() {
+                return properties.largest().toBytes();
+            }
+
+            public FederationHttpClient.BodyReader<ReceivedMedia> reader() {
+                return (contentType, body) -> attachments.receive(body);
+            }
+
+            public long size(ReceivedMedia body) {
+                return body.size();
+            }
+
+            public void giveUp() {
+                attachments.giveUpCaching(id);
+            }
+
+            // An attachment belongs to one status, which is shown with a link to it from then on.
+            public void overBudget() {
+                attachments.giveUpCaching(id);
+            }
+
+            public void keep(ReceivedMedia body) {
+                attachments.cacheRemote(id, body);
+            }
+
+            public void release(ReceivedMedia body) {
+                body.close();
+            }
+        });
+    }
+
+    private CompletionHandler<EmojiDownloadJob> downloadEmoji(EmojiDownloadJob job, URI url, String host, String server) {
+        var id = job.emojiId();
+        return download(url, host, server, new Target<byte[]>() {
+            public long maxBytes() {
+                return emojis.maxImageSize().toBytes();
+            }
+
+            public FederationHttpClient.BodyReader<byte[]> reader() {
+                return (contentType, body) -> body.readAllBytes();
+            }
+
+            public long size(byte[] body) {
+                return body.length;
+            }
+
+            public void giveUp() {
+                emojis.giveUpCaching(id);
+            }
+
+            // An emoji is shared by many statuses, so it's tried again the next time one uses it, rather than linked for
+            // good.
+            public void overBudget() {
+            }
+
+            public void keep(byte[] body) {
+                emojis.cacheRemote(id, url, body);
+            }
+
+            public void release(byte[] body) {
+            }
+        });
+    }
+
+    private <J, T> CompletionHandler<J> download(URI url, String host, String server, Target<T> target) {
         // Checked before downloading too, so that a server past its budget isn't fetched from at all.
         var probe = budget.tryAcquire(server);
         if (probe.isEmpty()) {
             log.debug("Not downloading {}, since {} has had as much downloaded as it can for now", url, server);
-            attachments.giveUpCaching(id);
+            target.overBudget();
             return Jobs.done();
         }
         probe.get().release();
         if (!hostRequests.tryStartFetch(host)) {
             return Jobs.rescheduleAt(Instant.now().plus(WAIT_FOR_ROOM));
         }
-        FederationHttpClient.Download<ReceivedMedia> downloaded;
+        FederationHttpClient.Download<T> downloaded;
         try {
-            downloaded = http.download(url, properties.largest().toBytes(), DEADLINE, MAX_REDIRECTS,
-                    (contentType, body) -> attachments.receive(body));
+            downloaded = http.download(url, target.maxBytes(), DEADLINE, MAX_REDIRECTS, target.reader());
         } catch (BlockedTargetException | ResponseTooLargeException | InvalidMediaAttachmentException e) {
             log.debug("Not downloading {}: {}", url, e.getMessage());
-            attachments.giveUpCaching(id);
+            target.giveUp();
             return Jobs.done();
         } catch (IOException e) {
             throw new UncheckedIOException("Couldn't download " + url, e);
@@ -255,16 +315,19 @@ public class MediaDownloads {
         }
         if (downloaded.body() == null) {
             log.debug("Not downloading {}, which returned {}", url, status);
-            attachments.giveUpCaching(id);
+            target.giveUp();
             return Jobs.done();
         }
-        try (var file = downloaded.body()) {
-            if (budget.tryAcquire(server, Math.max(1, file.size())).isEmpty()) {
+        var body = downloaded.body();
+        try {
+            if (budget.tryAcquire(server, Math.max(1, target.size(body))).isEmpty()) {
                 log.debug("Not keeping {}, since {} has had as much downloaded as it can for now", url, server);
-                attachments.giveUpCaching(id);
+                target.overBudget();
                 return Jobs.done();
             }
-            attachments.cacheRemote(id, file);
+            target.keep(body);
+        } finally {
+            target.release(body);
         }
         return Jobs.done();
     }

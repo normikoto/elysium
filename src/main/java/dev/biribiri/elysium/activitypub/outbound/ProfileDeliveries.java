@@ -5,7 +5,6 @@ import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileUpdated;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -28,21 +27,18 @@ public class ProfileDeliveries {
     private final FollowService follows;
     private final ActivityDeliveries deliveries;
     private final JsonMapper json;
-    private final InstanceProperties instance;
 
     ProfileDeliveries(
             ActorService actors,
             Persons persons,
             FollowService follows,
             ActivityDeliveries deliveries,
-            JsonMapper json,
-            InstanceProperties instance) {
+            JsonMapper json) {
         this.actors = actors;
         this.persons = persons;
         this.follows = follows;
         this.deliveries = deliveries;
         this.json = json;
-        this.instance = instance;
     }
 
     /**

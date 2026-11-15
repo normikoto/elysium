@@ -1,9 +1,14 @@
 package dev.biribiri.elysium.content;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
- * Another server's custom emoji was stored, or its image changed, to be downloaded.
+ * Other servers' custom emoji were stored, or used, with no copy here, to be downloaded.
  */
-public record RemoteEmojiAdded(UUID emojiId) {
+public record RemoteEmojiAdded(List<UUID> emojiIds) {
+
+    public RemoteEmojiAdded {
+        emojiIds = List.copyOf(emojiIds);
+    }
 }
