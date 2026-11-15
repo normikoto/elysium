@@ -8,7 +8,6 @@ import dev.biribiri.elysium.content.LikeStats;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -144,17 +143,15 @@ record StatusResponse(
     }
 
     /**
-     * A status from another server links to the page it gave. Web pages here always read as an anonymous viewer, so a local
-     * status that anyone can't see has no page to link to.
+     * A status from another server links to the page it gave. Clients such as Enafore parse {@code url} without checking
+     * for null, as Mastodon only leaves it out of boosts, so a status with no page of its own, such as a local
+     * followers-only one, which web pages here never show, still links to its URI.
      */
     private static String pageUrl(Status status) {
         if (status.isReblog()) {
             return null;
         }
-        if (status.url() != null) {
-            return status.url().toString();
-        }
-        return status.isVisibleTo(Optional.empty()) ? status.uri().toString() : null;
+        return (status.url() != null ? status.url() : status.uri()).toString();
     }
 
     private static String string(UUID id) {

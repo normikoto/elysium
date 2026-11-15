@@ -304,6 +304,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     so move them there or set their paths in your config.
 ### Fixed
 
+- Enafore shows timelines and threads with followers-only posts and direct messages in them. Before, it showed nothing,
+  because those posts had no link of their own. Apps now get a link for every post but a boost, as on Mastodon, and
+  links to posts that aren't public lead to a page saying they weren't found.
 - Apps that send JSON to `/oauth/token` and `/oauth/revoke`, such as Moshidon, can now log in and out. Before, they got
   an `invalid_client` error after the user approved them, and logging out left their token working.
 - Deleting a followers-only post now tells every server it was sent to, including those whose followers have unfollowed, or
