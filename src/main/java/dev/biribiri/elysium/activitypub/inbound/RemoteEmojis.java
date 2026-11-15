@@ -56,7 +56,13 @@ final class RemoteEmojis {
         return emojis;
     }
 
-    private static Optional<URI> iconUrl(JsonNode icon) {
+    /**
+     * Reads an {@code icon} or {@code image}, which can be a URL, an {@code Image} whose {@code url} is one or a
+     * {@code Link}, or an array of those, of which the first is taken.
+     *
+     * @return the URL, if it's HTTPS
+     */
+    static Optional<URI> iconUrl(JsonNode icon) {
         var image = icon.isArray() ? icon.path(0) : icon;
         var url = image.isObject() ? image.path("url") : image;
         var href = url.isObject() ? ActivityJson.text(url.path("href")) : ActivityJson.text(url);

@@ -12,6 +12,8 @@ import dev.biribiri.elysium.activitypub.inbound.ServerActivityLimits;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.actor.RemoteProfileImageAdded;
 import dev.biribiri.elysium.content.AttachmentProperties;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.InvalidMediaAttachmentException;
@@ -34,12 +36,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.function.Function;
 
 /**
- * Downloads other servers' attachments, so that they're served from here, and people's browsers don't fetch them from
+ * Downloads other servers' attachments, emoji, avatars and headers, so that they're served from here, and people's browsers don't fetch them from
  * those servers. One that can't be downloaded stays a link to its server's copy.
  *
  * <p>Downloads are large and slow compared with documents, so only a few run at once on each node, and only one to each
@@ -54,6 +57,8 @@ public class MediaDownloads {
 
     static final TaskDescriptor<MediaDownloadJob> TASK = TaskDescriptor.of("media-download", MediaDownloadJob.class);
     static final TaskDescriptor<EmojiDownloadJob> EMOJI_TASK = TaskDescriptor.of("emoji-download", EmojiDownloadJob.class);
+    static final TaskDescriptor<ProfileImageDownloadJob> PROFILE_IMAGE_TASK =
+            TaskDescriptor.of("profile-image-download", ProfileImageDownloadJob.class);
 
     private static final Logger log = LoggerFactory.getLogger(MediaDownloads.class);
 
@@ -73,6 +78,7 @@ public class MediaDownloads {
     private final MediaRejections rejections;
     private final CustomEmojis emojis;
     private final DomainBlocks blocks;
+    private final ProfileService profiles;
     private final Semaphore running = new Semaphore(MAX_RUNNING);
     private final Set<String> hostsDownloading = ConcurrentHashMap.newKeySet();
 
@@ -81,7 +87,8 @@ public class MediaDownloads {
      */
     MediaDownloads(@Lazy SchedulerClient scheduler, MediaAttachments attachments, ActorService actors,
                    FederationHttpClient http, HostRequests hostRequests, AttachmentProperties properties,
-                   MediaRejections rejections, CustomEmojis emojis, DomainBlocks blocks) {
+                   MediaRejections rejections, CustomEmojis emojis, DomainBlocks blocks, ProfileService profiles) {
+        this.profiles = profiles;
         this.rejections = rejections;
         this.emojis = emojis;
         this.blocks = blocks;
@@ -122,6 +129,30 @@ public class MediaDownloads {
         for (var id : event.emojiIds()) {
             Jobs.schedule(scheduler, EMOJI_TASK, new EmojiDownloadJob(id, now), id.toString());
         }
+    }
+
+    /**
+     * An image is queued each time its profile is refreshed until it's downloaded, which doesn't queue a second job while
+     * one is waiting. The job's ID includes the image's URL, so that a job parked for an image the profile no longer has
+     * doesn't keep its replacement from being queued.
+     */
+    @ApplicationModuleListener
+    public void on(RemoteProfileImageAdded event) {
+        if (!properties.remoteCacheEnabled()) {
+            return;
+        }
+        if (event.avatar()) {
+            scheduleProfileImage(event.actorId(), false);
+        }
+        if (event.header()) {
+            scheduleProfileImage(event.actorId(), true);
+        }
+    }
+
+    private void scheduleProfileImage(UUID actorId, boolean header) {
+        profiles.findImageToDownload(actorId, header).ifPresent(url -> Jobs.schedule(scheduler, PROFILE_IMAGE_TASK,
+                new ProfileImageDownloadJob(actorId, header, Instant.now()),
+                actorId.toString(), header ? "header" : "avatar", url.toString()));
     }
 
     CompletionHandler<MediaDownloadJob> run(MediaDownloadJob job) {
@@ -167,6 +198,27 @@ public class MediaDownloads {
             return Jobs.done();
         }
         return withRoom(url, host -> downloadEmoji(job, url, host, ServerActivityLimits.serverKey(server)));
+    }
+
+    /**
+     * Avatars and headers are fetched as attachments are, sharing the same slots and each server's budget.
+     */
+    CompletionHandler<ProfileImageDownloadJob> run(ProfileImageDownloadJob job) {
+        if (!properties.remoteCacheEnabled()) {
+            return Jobs.done();
+        }
+        var url = profiles.findImageToDownload(job.actorId(), job.header());
+        var actor = actors.findById(job.actorId()).filter(Actor::isActive);
+        if (url.isEmpty() || actor.isEmpty() || url.get().getHost() == null) {
+            return Jobs.done();
+        }
+        // A filter added since the profile was stored. Its job removes copies already kept.
+        if (rejections.isRejected(actor.get().id(), actor.get().uri())) {
+            profiles.giveUpCaching(job.actorId(), job.header(), url.get());
+            return Jobs.done();
+        }
+        var server = ServerActivityLimits.serverKey(actor.get().uri());
+        return withRoom(url.get(), host -> downloadProfileImage(job, url.get(), host, server));
     }
 
     private <J> CompletionHandler<J> withRoom(URI url, Function<String, CompletionHandler<J>> download) {
@@ -277,6 +329,38 @@ public class MediaDownloads {
 
             public void keep(byte[] body) {
                 emojis.cacheRemote(id, url, body);
+            }
+
+            public void release(byte[] body) {
+            }
+        });
+    }
+
+    private CompletionHandler<ProfileImageDownloadJob> downloadProfileImage(
+            ProfileImageDownloadJob job, URI url, String host, String server) {
+        return download(url, host, server, new Target<byte[]>() {
+            public long maxBytes() {
+                return profiles.maxImageSize().toBytes();
+            }
+
+            public FederationHttpClient.BodyReader<byte[]> reader() {
+                return (contentType, body) -> body.readAllBytes();
+            }
+
+            public long size(byte[] body) {
+                return body.length;
+            }
+
+            public void giveUp() {
+                profiles.giveUpCaching(job.actorId(), job.header(), url);
+            }
+
+            // Tried again the next time the profile is refreshed, rather than linked for good.
+            public void overBudget() {
+            }
+
+            public void keep(byte[] body) {
+                profiles.cacheRemoteImage(job.actorId(), job.header(), url, body);
             }
 
             public void release(byte[] body) {

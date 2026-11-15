@@ -5,6 +5,10 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileChange;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.actor.RemoteProfile;
+import dev.biribiri.elysium.content.CustomEmojis;
+import dev.biribiri.elysium.content.RemoteEmoji;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,17 +21,22 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -70,9 +79,16 @@ class ProfileIntegrationTests {
     private ActorService actors;
     @Autowired
     private ProfileService profiles;
+    @Autowired
+    private CustomEmojis emojis;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    private TransactionTemplate transaction;
 
     @BeforeEach
     void setUp() throws Exception {
+        transaction = new TransactionTemplate(transactionManager);
         TestAccounts.makeSureAnAccountExists(actors);
         token("alice");
         var alice = account("alice");
@@ -273,6 +289,64 @@ class ProfileIntegrationTests {
     }
 
     // Pages and documents
+
+    // Accounts on other servers
+
+    @Test
+    void showsTheProfileOfAnAccountOnAnotherServer() throws Exception {
+        var host = "r" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/bob");
+        var avatar = URI.create("https://media." + host + "/avatar.png");
+        var header = URI.create("https://media." + host + "/header.png");
+        var profile = new RemoteProfile(
+                "Bob :blob:", "Hello", "<p>Hello</p>", avatar, header,
+                List.of(new RemoteProfile.Field("Site", "bob.test", "<a href=\"https://bob.test\">bob.test</a>")),
+                true, true, false, Instant.parse("2020-03-04T05:06:07Z"), URI.create("https://" + host + "/@bob"));
+        var bob = transaction.execute(status -> {
+            var stored = actors.upsertRemote(new RemoteActorProfile(uri, "bob", host, URI.create(uri + "/inbox"), null,
+                    null, null, null, null, profile));
+            var ids = emojis.storeRemote(host, List.of(
+                    new RemoteEmoji("blob", null, URI.create("https://media." + host + "/blob.png"), null),
+                    new RemoteEmoji("unused", null, URI.create("https://media." + host + "/unused.png"), null)));
+            emojis.replaceForRemoteProfile(stored.id(), ids.values());
+            return stored;
+        });
+        assertThat(profiles.cacheRemoteImage(bob.id(), true, header, TestImages.png(64, 32))).isTrue();
+
+        mockMvc.perform(get("/api/v1/accounts/" + bob.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.acct").value("bob@" + host))
+                .andExpect(jsonPath("$.display_name").value("Bob :blob:"))
+                .andExpect(jsonPath("$.note").value("<p>Hello</p>"))
+                .andExpect(jsonPath("$.locked").value(true))
+                .andExpect(jsonPath("$.bot").value(true))
+                .andExpect(jsonPath("$.group").value(false))
+                .andExpect(jsonPath("$.created_at").value("2020-03-04T00:00:00Z"))
+                .andExpect(jsonPath("$.url").value("https://" + host + "/@bob"))
+                .andExpect(jsonPath("$.uri").value(uri.toString()))
+                // Not downloaded yet, so it's its server's copy.
+                .andExpect(jsonPath("$.avatar").value(avatar.toString()))
+                .andExpect(jsonPath("$.avatar_static").value(avatar.toString()))
+                .andExpect(jsonPath("$.header").value(startsWith("https://profiles.example/media/")))
+                .andExpect(jsonPath("$.fields", hasSize(1)))
+                .andExpect(jsonPath("$.fields[0].value").value("<a href=\"https://bob.test\">bob.test</a>"))
+                .andExpect(jsonPath("$.fields[0].verified_at").isEmpty())
+                .andExpect(jsonPath("$.emojis", hasSize(1)))
+                .andExpect(jsonPath("$.emojis[0].shortcode").value("blob"));
+    }
+
+    @Test
+    void anAccountOnAnotherServerWithNoNameShowsItsUsername() throws Exception {
+        var host = "r" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/bob");
+        var bob = actors.upsertRemote(new RemoteActorProfile(uri, "bob", host, URI.create(uri + "/inbox"), null, null, null));
+
+        mockMvc.perform(get("/api/v1/accounts/" + bob.id()))
+                .andExpect(jsonPath("$.display_name").value("bob"))
+                .andExpect(jsonPath("$.note").value(""))
+                .andExpect(jsonPath("$.avatar").value(endsWith("/images/missing.png")))
+                .andExpect(jsonPath("$.url").value(uri.toString()));
+    }
 
     @Test
     void showsTheProfileOnItsPageAndInItsActorDocument() throws Exception {

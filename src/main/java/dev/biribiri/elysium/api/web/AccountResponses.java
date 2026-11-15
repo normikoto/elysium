@@ -78,7 +78,7 @@ class AccountResponses {
      * @return a response for each account, by its ID
      */
     Map<UUID, AccountResponse> byId(Collection<Actor> found) {
-        return byId(found, profiles.findAll(found.stream().filter(actors::isLocal).map(Actor::id).toList()));
+        return byId(found, profiles.findAll(found.stream().map(Actor::id).toList()));
     }
 
     private Map<UUID, AccountResponse> byId(Collection<Actor> found, Map<UUID, Profile> profilesById) {
@@ -88,19 +88,29 @@ class AccountResponses {
         var hiding = actors.hidingCollections(ids);
         var named = new HashMap<UUID, Set<String>>();
         profilesById.forEach((id, profile) -> named.put(id, Shortcodes.names(profile.texts())));
-        var localEmojis = emojis.findLocal(named.values().stream().flatMap(Set::stream).collect(Collectors.toSet()));
+        var localIds = found.stream().filter(actors::isLocal).map(Actor::id).collect(Collectors.toSet());
+        var localEmojis = emojis.findLocal(named.entrySet().stream()
+                .filter(entry -> localIds.contains(entry.getKey()))
+                .flatMap(entry -> entry.getValue().stream())
+                .collect(Collectors.toSet()));
+        var remoteEmojis = emojis.findForRemoteProfiles(
+                ids.stream().filter(id -> !localIds.contains(id)).toList());
         var responses = new HashMap<UUID, AccountResponse>();
         for (var actor : found) {
-            var local = actors.isLocal(actor);
-            var accountEmojis = !local ? List.<CustomEmojiResponse>of() : named.getOrDefault(actor.id(), Set.of()).stream()
-                    .map(localEmojis::get)
-                    .filter(Objects::nonNull)
+            var local = localIds.contains(actor.id());
+            var shortcodes = named.getOrDefault(actor.id(), Set.of());
+            // Only those the profile names, as Mastodon shows them, since an actor document can list any.
+            var accountEmojis = (local
+                    ? shortcodes.stream().map(localEmojis::get).filter(Objects::nonNull)
+                    : remoteEmojis.getOrDefault(actor.id(), List.of()).stream()
+                            .filter(emoji -> shortcodes.contains(emoji.shortcode())))
                     .map(emoji -> CustomEmojiResponse.of(emoji, instance))
                     .toList();
             responses.put(actor.id(), AccountResponse.from(
                     actor,
+                    local,
                     local ? actor.username() : actor.username() + "@" + actor.domain(),
-                    local ? profilesById.getOrDefault(actor.id(), Profile.EMPTY) : null,
+                    profilesById.getOrDefault(actor.id(), Profile.EMPTY),
                     stats.get(actor.id()),
                     counts.get(actor.id()),
                     local ? hiding.contains(actor.id()) : null,

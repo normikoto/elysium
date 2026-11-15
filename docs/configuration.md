@@ -15,7 +15,7 @@ Set these in your `application.properties`:
 | `elysium.rate-limit.enabled`       | Optional. Set to `false` to turn off the limits on logins, sign-ups, and app registrations, if you enforce your own elsewhere. Defaults to `true`. See [Rate limits](accounts.md#rate-limits). |
 | `elysium.statuses.max-characters`  | Optional. The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Defaults to `5000`. Lowering it doesn't affect existing statuses. |
 | `elysium.profiles.max-fields`      | Optional. How many fields each profile can have, from 0 to 50. Defaults to `4`, as on Mastodon. Lowering it doesn't remove any, but a profile with more can't save its fields until it has few enough. |
-| `elysium.profiles.max-image-size`  | Optional. The largest avatar or header that can be uploaded, such as `4MB`. Defaults to `8MB`. |
+| `elysium.profiles.max-image-size`  | Optional. The largest avatar or header that can be uploaded, or downloaded from another server, such as `4MB`. Defaults to `8MB`. Larger ones from other servers are linked to their server. |
 | `elysium.custom-emojis.max-image-size` | Optional. The largest image a [custom emoji](accounts.md#custom-emoji) can have, before it's re-encoded, for those admins add and those downloaded from other servers. Defaults to `256KB`, as on Mastodon. Other servers' emoji with larger images are linked to their server. |
 | `elysium.attachments.max-image-size` | Optional. The largest image that can be attached to a post, before it's re-encoded. Defaults to `16MB`. |
 | `elysium.attachments.max-video-size` | Optional. The largest video that can be attached to a post. Defaults to `100MB`. |
@@ -57,6 +57,10 @@ removed after `remote-cache-retention`, and the attachment is linked to its serv
 have `remote-download-budget` downloaded in an hour, and past that its attachments are linked. These copies can take a
 lot of space on a server that follows many accounts, so lower the retention, or turn copies off, if you're short of
 disk.
+
+Avatars and headers of accounts on other servers are copied the same way, and count toward the same hourly limit. Their
+copies aren't removed after `remote-cache-retention`, but they're replaced when the account changes its image, and removed
+when its server is blocked or its media is rejected.
 
 ## Inbox limits
 Each other server can only deliver so many activities, and so much data, before it gets a `429` and has to try again

@@ -15,8 +15,8 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 /**
- * Mastodon's Account entity. Profiles of remote accounts aren't stored yet, so theirs show the username and no more.
- * Clients need real image URLs, so a missing image is a bundled placeholder. Build these with {@link AccountResponses}.
+ * Mastodon's Account entity. Clients need real image URLs, so a missing image is a bundled placeholder. Build these with
+ * {@link AccountResponses}.
  *
  * @param followersCount for a remote account, only its followers on this server
  * @param followingCount for a remote account, only the accounts on this server it follows
@@ -24,16 +24,16 @@ import java.util.List;
  *                        server decides
  */
 @Schema(name = "Account", description = """
-        Mastodon's Account entity. Profiles of accounts on other servers aren't stored yet, so for those `display_name` \
-        is the username, `note`, `fields` and `emojis` are empty, the images are a placeholder, and `locked` is false. \
-        `bot`, `group`, and `discoverable` are false.""")
+        Mastodon's Account entity. An account on another server shows the profile from its actor document, as of when \
+        it was last fetched. Its avatar and header are links to its server until they're downloaded, and stay links if \
+        they can't be, or its media is rejected. An account with no name shows its username as `display_name`. \
+        `discoverable` is always false.""")
 record AccountResponse(
         String id,
         String username,
         String acct,
         @JsonProperty("display_name") String displayName,
-        @Schema(description = """
-                Whether the account approves its followers by hand. Always false for an account on another server.""")
+        @Schema(description = "Whether the account approves its followers by hand.")
         boolean locked,
         boolean bot,
         boolean group,
@@ -65,8 +65,9 @@ record AccountResponse(
     /**
      * Mastodon's Field entity.
      *
-     * @param value      HTML, with any link marked {@code rel="me"}
-     * @param verifiedAt when the page the value links to was found to link back to the profile, or null
+     * @param value      HTML, with any link marked {@code rel="me"} for a local account
+     * @param verifiedAt when the page the value links to was found to link back to the profile, or null. Fields of
+     *                   accounts on other servers aren't checked, so theirs is always null.
      */
     @Schema(name = "Field")
     record Field(String name, String value, @JsonProperty("verified_at") String verifiedAt) {
@@ -78,12 +79,13 @@ record AccountResponse(
     }
 
     /**
+     * @param local   whether the account is on this server
      * @param acct    the username for a local account, and the username and domain for a remote one
-     * @param profile null for a remote account, whose profile isn't stored
      * @param emojis  the custom emoji the profile names
      */
     static AccountResponse from(
             Actor actor,
+            boolean local,
             String acct,
             Profile profile,
             AccountStats stats,
@@ -92,25 +94,26 @@ record AccountResponse(
             List<CustomEmojiResponse> emojis,
             InstanceProperties instance) {
         var placeholder = instance.resolve(PLACEHOLDER_IMAGE_PATH).toString();
-        var shown = profile == null ? Profile.EMPTY : profile;
+        var remote = profile.remote();
         return new AccountResponse(
                 actor.id().toString(),
                 actor.username(),
                 acct,
-                // Mastodon sends an empty display name as it is, and clients show the username instead.
-                profile == null ? actor.username() : profile.displayName(),
-                shown.manuallyApprovesFollowers(),
+                // Mastodon sends a local account's empty display name as it is, and clients show the username instead.
+                // An account on another server without one has always been shown with its username here.
+                !local && profile.displayName().isEmpty() ? actor.username() : profile.displayName(),
+                profile.manuallyApprovesFollowers(),
+                remote != null && remote.bot(),
+                remote != null && remote.group(),
                 false,
-                false,
-                false,
-                actor.createdAt().toString(),
-                shown.noteHtml(instance.baseUrl()),
+                createdAt(actor, remote),
+                profile.noteHtml(instance.baseUrl()),
+                remote != null && remote.url() != null ? remote.url().toString() : actor.uri().toString(),
                 actor.uri().toString(),
-                actor.uri().toString(),
-                url(shown.avatar(), false, placeholder, instance),
-                url(shown.avatar(), true, placeholder, instance),
-                url(shown.header(), false, placeholder, instance),
-                url(shown.header(), true, placeholder, instance),
+                url(profile.avatar(), false, placeholder, instance),
+                url(profile.avatar(), true, placeholder, instance),
+                url(profile.header(), false, placeholder, instance),
+                url(profile.header(), true, placeholder, instance),
                 follows.followers(),
                 follows.following(),
                 stats.statusesCount(),
@@ -118,7 +121,7 @@ record AccountResponse(
                         ? null
                         : LocalDate.ofInstant(stats.lastStatusAt(), ZoneOffset.UTC).toString(),
                 emojis,
-                shown.fields().stream().map(field -> Field.of(field, field.valueHtml())).toList(),
+                profile.fields().stream().map(field -> Field.of(field, field.valueHtml())).toList(),
                 hideCollections);
     }
 
@@ -126,6 +129,16 @@ record AccountResponse(
         if (image == null) {
             return placeholder;
         }
-        return instance.resolve(still ? image.staticPath() : image.path()).toString();
+        return image.url(instance, still).toString();
+    }
+
+    /**
+     * Mastodon shows when an account on another server says it was created, at midnight, as it does for its own.
+     */
+    private static String createdAt(Actor actor, Profile.Remote remote) {
+        if (remote == null || remote.published() == null) {
+            return actor.createdAt().toString();
+        }
+        return LocalDate.ofInstant(remote.published(), ZoneOffset.UTC).atStartOfDay().toInstant(ZoneOffset.UTC).toString();
     }
 }

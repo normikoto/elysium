@@ -11,7 +11,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.unit.DataSize;
 
 import java.net.URI;
 import java.time.Instant;
@@ -20,11 +23,14 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Profiles of local accounts. Remote ones aren't stored yet, so they're always {@link Profile#EMPTY}.
+ * Profiles of local accounts, which their owners edit, and of accounts on other servers, which are copied from their actor
+ * documents whenever those are fetched.
  */
 @Service
 public class ProfileService {
@@ -43,6 +49,8 @@ public class ProfileService {
     private final ProfileProperties properties;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate transaction;
+
+    private static final int REMOVAL_BATCH = 500;
 
     ProfileService(
             ProfileRepository profiles,
@@ -76,16 +84,179 @@ public class ProfileService {
                 Collectors.mapping(ProfileService::field, Collectors.toList())));
         var found = new HashMap<UUID, Profile>();
         for (var row : profiles.find(actorIds)) {
+            var remote = row.remote();
             found.put(row.actorId(), new Profile(
                     row.displayName(),
                     row.note(),
-                    image(row.avatar()),
-                    image(row.header()),
+                    image(row.avatar(), remote == null ? null : remote.avatarUrl()),
+                    image(row.header(), remote == null ? null : remote.headerUrl()),
                     fields.getOrDefault(row.actorId(), List.of()),
                     row.manuallyApprovesFollowers(),
-                    row.updatedAt()));
+                    row.updatedAt(),
+                    remote == null ? null : new Profile.Remote(
+                            remote.noteHtml(), remote.url(), remote.bot(), remote.group(), remote.published())));
         }
         return found;
+    }
+
+    /**
+     * Replaces what's stored about an account on another server's profile with what its actor document says now. An image
+     * whose URL is unchanged keeps its copy, and one that changed loses it once this commits, and is downloaded again
+     * through {@link RemoteProfileImageAdded}. Nothing is sent anywhere, as {@link ProfileUpdated} would be.
+     *
+     * <p>The caller checks that the actor is active and on another server, in the same transaction.
+     *
+     * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void replaceRemote(UUID actorId, RemoteProfile profile) {
+        var old = profiles.lock(actorId);
+        var oldRemote = old.remote();
+        var removed = new ArrayList<StoredImage>();
+        var avatar = keptImage(old.avatar(), oldRemote == null ? null : oldRemote.avatarUrl(), profile.avatarUrl(), removed);
+        var header = keptImage(old.header(), oldRemote == null ? null : oldRemote.headerUrl(), profile.headerUrl(), removed);
+        var row = new ProfileRepository.Row(
+                actorId,
+                profile.displayName(),
+                profile.note(),
+                avatar,
+                header,
+                profile.manuallyApprovesFollowers(),
+                old.updatedAt(),
+                new ProfileRepository.Remote(
+                        profile.noteHtml(),
+                        profile.avatarUrl(),
+                        givenUp(oldRemote, false, profile.avatarUrl()),
+                        profile.headerUrl(),
+                        givenUp(oldRemote, true, profile.headerUrl()),
+                        profile.url(),
+                        profile.bot(),
+                        profile.group(),
+                        profile.published()));
+        if (!row.equals(old)) {
+            profiles.saveRemote(row);
+        }
+        var fields = new ArrayList<ProfileRepository.FieldRow>();
+        for (var i = 0; i < profile.fields().size(); i++) {
+            var field = profile.fields().get(i);
+            fields.add(new ProfileRepository.FieldRow(actorId, i, field.name(), field.value(), null, field.valueHtml()));
+        }
+        if (!fields.equals(profiles.findFields(List.of(actorId)))) {
+            profiles.replaceFields(actorId, fields);
+        }
+        if (!removed.isEmpty()) {
+            afterCommit(() -> removed.forEach(images::delete));
+        }
+        var downloadAvatar = needsDownload(row.avatar(), row.remote().avatarUrl(), row.remote().avatarGivenUp());
+        var downloadHeader = needsDownload(row.header(), row.remote().headerUrl(), row.remote().headerGivenUp());
+        // Published each time until it's kept, so that an image whose server was over its budget is tried again.
+        if (downloadAvatar || downloadHeader) {
+            events.publishEvent(new RemoteProfileImageAdded(actorId, downloadAvatar, downloadHeader));
+        }
+    }
+
+    /**
+     * @param header whether it's the header rather than the avatar
+     * @return where to download an account on another server's image from, if it isn't kept here and should be
+     */
+    public Optional<URI> findImageToDownload(UUID actorId, boolean header) {
+        return profiles.findImageToDownload(actorId, header);
+    }
+
+    /**
+     * Keeps a downloaded avatar or header of an account on another server, re-encoded as an upload would be.
+     *
+     * @param url where it was downloaded from, so that an image the profile no longer has isn't kept
+     * @return whether it's kept. One that isn't an image that can be used, or is too large, stays a link
+     */
+    public boolean cacheRemoteImage(UUID actorId, boolean header, URI url, byte[] image) {
+        StoredImage stored;
+        try {
+            stored = images.store(image, header ? ImageKind.HEADER : ImageKind.AVATAR, properties.maxImageSize());
+        } catch (InvalidImageException e) {
+            profiles.giveUpCaching(actorId, header, url);
+            return false;
+        }
+        boolean kept;
+        try {
+            kept = profiles.cacheImage(actorId, header, url, stored);
+        } catch (RuntimeException e) {
+            images.delete(stored);
+            throw e;
+        }
+        if (!kept) {
+            images.delete(stored);
+        }
+        return kept;
+    }
+
+    /**
+     * Links to an image of an account on another server from then on, until its URL changes.
+     */
+    public void giveUpCaching(UUID actorId, boolean header, URI url) {
+        profiles.giveUpCaching(actorId, header, url);
+    }
+
+    /**
+     * The largest avatar or header that's kept, which a download can stop at.
+     */
+    public DataSize maxImageSize() {
+        return properties.maxImageSize();
+    }
+
+    /**
+     * Removes the copies of an account on another server's images, which are linked to from then on, for when its media
+     * is rejected. Safe to repeat.
+     */
+    public void uncacheRemoteImages(UUID actorId) {
+        var uncached = transaction.execute(status -> profiles.uncacheImages(actorId));
+        uncached.images().forEach(images::delete);
+    }
+
+    /**
+     * Like {@link #uncacheRemoteImages(UUID)}, for all of a server's accounts. Safe to stop partway, and to repeat.
+     *
+     * @param domain as actors have it
+     */
+    public void uncacheRemoteImagesForDomain(String domain) {
+        ProfileRepository.Uncached batch;
+        do {
+            batch = transaction.execute(status -> profiles.uncacheImagesForDomain(domain, REMOVAL_BATCH));
+            batch.images().forEach(images::delete);
+        } while (batch.profiles() > 0);
+    }
+
+    /**
+     * Lets an account on another server's images be downloaded again, the next time it's fetched, for when its media stops
+     * being rejected.
+     */
+    public void allowRemoteImages(UUID actorId) {
+        profiles.allowImages(actorId);
+    }
+
+    /**
+     * Like {@link #allowRemoteImages(UUID)}, for all of a server's accounts.
+     *
+     * @param domain as actors have it
+     */
+    public void allowRemoteImagesForDomain(String domain) {
+        while (profiles.allowImagesForDomain(domain, REMOVAL_BATCH) > 0) {
+            // Each batch commits by itself.
+        }
+    }
+
+    /**
+     * Removes the profiles of a server's accounts and their images, for when it's blocked. Safe to stop partway, and to
+     * repeat.
+     *
+     * @param domain as actors have it
+     */
+    public void removeForDomain(String domain) {
+        List<ProfileRepository.Row> batch;
+        do {
+            batch = profiles.deleteBatchForDomain(domain, REMOVAL_BATCH);
+            batch.forEach(this::deleteImages);
+        } while (!batch.isEmpty());
     }
 
     /**
@@ -196,12 +367,51 @@ public class ProfileService {
      * Removes a profile and its images, for an account that's deleted. This is safe to repeat.
      */
     public void removeAll(UUID actorId) {
-        profiles.delete(actorId).ifPresent(row -> {
-            if (row.avatar() != null) {
-                images.delete(row.avatar());
-            }
-            if (row.header() != null) {
-                images.delete(row.header());
+        profiles.delete(actorId).ifPresent(this::deleteImages);
+    }
+
+    private void deleteImages(ProfileRepository.Row row) {
+        if (row.avatar() != null) {
+            images.delete(row.avatar());
+        }
+        if (row.header() != null) {
+            images.delete(row.header());
+        }
+    }
+
+    /**
+     * @param removed gets the old copy, if the image's URL changed
+     * @return the copy that's still the image at {@code newUrl}, or null
+     */
+    private static StoredImage keptImage(StoredImage old, URI oldUrl, URI newUrl, List<StoredImage> removed) {
+        if (old == null || Objects.equals(oldUrl, newUrl)) {
+            return old;
+        }
+        removed.add(old);
+        return null;
+    }
+
+    /**
+     * Giving up lasts until the image's URL changes, which is a new image.
+     */
+    private static boolean givenUp(ProfileRepository.Remote old, boolean header, URI newUrl) {
+        if (old == null) {
+            return false;
+        }
+        return header
+                ? old.headerGivenUp() && Objects.equals(old.headerUrl(), newUrl)
+                : old.avatarGivenUp() && Objects.equals(old.avatarUrl(), newUrl);
+    }
+
+    private static boolean needsDownload(StoredImage copy, URI url, boolean givenUp) {
+        return copy == null && url != null && !givenUp;
+    }
+
+    private static void afterCommit(Runnable action) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
             }
         });
     }
@@ -298,12 +508,18 @@ public class ProfileService {
         return uploaded;
     }
 
-    private static ProfileImage image(StoredImage image) {
-        return image == null ? null : new ProfileImage(Images.pathOf(image.name()), Images.pathOf(image.staticName()));
+    /**
+     * @param remoteUrl where an account on another server has the image, or null
+     */
+    private static ProfileImage image(StoredImage image, URI remoteUrl) {
+        if (image == null) {
+            return remoteUrl == null ? null : new ProfileImage(null, null, remoteUrl);
+        }
+        return new ProfileImage(Images.pathOf(image.name()), Images.pathOf(image.staticName()), remoteUrl);
     }
 
     private static ProfileField field(ProfileRepository.FieldRow row) {
-        return new ProfileField(row.name(), row.value(), row.verifiedAt());
+        return new ProfileField(row.name(), row.value(), row.verifiedAt(), row.valueHtml());
     }
 
     /**

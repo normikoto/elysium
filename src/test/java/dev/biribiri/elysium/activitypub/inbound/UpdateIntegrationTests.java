@@ -7,7 +7,10 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.CustomEmoji;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,6 +70,12 @@ class UpdateIntegrationTests {
     private StatusService statuses;
     @Autowired
     private MediaAttachments attachments;
+    @Autowired
+    private ProfileService profiles;
+    @Autowired
+    private CustomEmojis emojis;
+    @Autowired
+    private ActorRefetch refetch;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -374,6 +383,102 @@ class UpdateIntegrationTests {
         var refreshed = actors.findByUri(author.uri()).orElseThrow();
         assertThat(refreshed.inboxUri()).hasToString(author.uri() + "/new-inbox");
         assertThat(refreshed.publicKeyPem()).isEqualTo("new-key");
+    }
+
+    @Test
+    void anActorsUpdateReplacesItsProfile() throws Exception {
+        var document = new HashMap<>(actorDocument(author.uri(), "/inbox", "key"));
+        document.put("type", "Service");
+        document.put("name", "Sam :wave:");
+        document.put("summary", "<p>Hello <script>x</script>there</p>");
+        document.put("attachment", List.of(
+                Map.of("type", "PropertyValue", "name", "Site", "value", "<a href=\"https://sam.test\">sam.test</a>")));
+        document.put("tag", List.of(Map.of("type", "Emoji", "name", ":wave:",
+                "icon", Map.of("type", "Image", "url", "https://" + host + "/emoji/wave.png"))));
+        document.put("manuallyApprovesFollowers", true);
+        when(documents.fetch(eq(author.uri()))).thenReturn(json.readTree(json.writeValueAsString(document)));
+
+        handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
+
+        var profile = profiles.find(author.id());
+        assertThat(profile.displayName()).isEqualTo("Sam :wave:");
+        assertThat(profile.noteHtml(URI.create("https://create.example/"))).isEqualTo("<p>Hello there</p>");
+        assertThat(profile.manuallyApprovesFollowers()).isTrue();
+        assertThat(profile.remote().bot()).isTrue();
+        assertThat(profile.fields()).singleElement().satisfies(field -> {
+            assertThat(field.name()).isEqualTo("Site");
+            assertThat(field.valueHtml()).contains("https://sam.test");
+        });
+        assertThat(emojis.findForRemoteProfiles(List.of(author.id())).get(author.id()))
+                .extracting(CustomEmoji::shortcode).containsExactly("wave");
+        // A profile keeps its emoji from being removed as unused.
+        makeEmojiOld();
+        emojis.removeUnused();
+        assertThat(emojis.findRemote("wave", host)).isPresent();
+
+        // The next version replaces all of it, and the emoji it no longer lists aren't kept for it.
+        when(documents.fetch(eq(author.uri())))
+                .thenReturn(json.readTree(json.writeValueAsString(actorDocument(author.uri(), "/inbox", "key"))));
+        handler.handle(updateOf(author.uri() + "#updates/2", author.uri(), "\"" + author.uri() + "\""));
+
+        var replaced = profiles.find(author.id());
+        assertThat(replaced.displayName()).isEmpty();
+        assertThat(replaced.noteHtml(URI.create("https://create.example/"))).isEmpty();
+        assertThat(replaced.fields()).isEmpty();
+        assertThat(replaced.manuallyApprovesFollowers()).isFalse();
+        assertThat(replaced.remote().bot()).isFalse();
+        assertThat(emojis.findForRemoteProfiles(List.of(author.id()))).isEmpty();
+        makeEmojiOld();
+        emojis.removeUnused();
+        assertThat(emojis.findRemote("wave", host)).isEmpty();
+    }
+
+    private void makeEmojiOld() {
+        jdbc.sql("UPDATE custom_emoji SET seen_at = now() - interval '30 days' WHERE domain = :domain")
+                .param("domain", host)
+                .update();
+    }
+
+    @Test
+    void anActorsDocumentIsFetchedAgainLaterInCaseItsServerServedAnOldCopy() throws Exception {
+        var stale = new HashMap<>(actorDocument(author.uri(), "/inbox", "key"));
+        stale.put("name", "Old");
+        var current = new HashMap<>(stale);
+        current.put("name", "New");
+        when(documents.fetch(eq(author.uri())))
+                .thenReturn(json.readTree(json.writeValueAsString(stale)))
+                .thenReturn(json.readTree(json.writeValueAsString(current)));
+        var before = Instant.now();
+
+        handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
+
+        assertThat(profiles.find(author.id()).displayName()).isEqualTo("Old");
+        var job = jdbc.sql("""
+                        SELECT execution_time FROM scheduled_tasks
+                        WHERE task_name = 'actor-refetch' AND convert_from(task_data, 'UTF8') LIKE :uri
+                        """)
+                .param("uri", "%" + author.uri() + "%")
+                .query(Timestamp.class)
+                .single();
+        assertThat(job.toInstant()).isAfterOrEqualTo(before.plus(ActorRefetch.DELAY));
+
+        refetch.run(new ActorRefetchJob(author.uri().toString(), Instant.now()));
+
+        assertThat(profiles.find(author.id()).displayName()).isEqualTo("New");
+    }
+
+    @Test
+    void aSuspendedActorsProfileIsLeftAlone() throws Exception {
+        var document = new HashMap<>(actorDocument(author.uri(), "/inbox", "key"));
+        document.put("name", "Changed");
+        when(documents.fetch(eq(author.uri()))).thenAnswer(invocation -> {
+            jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", author.id()).update();
+            return json.readTree(json.writeValueAsString(document));
+        });
+
+        handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
+
+        assertThat(profiles.find(author.id()).displayName()).isEmpty();
     }
 
     @Test

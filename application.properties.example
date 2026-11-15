@@ -34,7 +34,7 @@ spring.datasource.password=
 # How many fields each profile can have. Lowering this doesn't remove any, but a profile with more can't save its fields
 # until it has few enough.
 #elysium.profiles.max-fields=4
-# The largest avatar or header that can be uploaded.
+# The largest avatar or header that can be uploaded, or downloaded from another server.
 #elysium.profiles.max-image-size=8MB
 
 # How many streaming connections clients can have open at once, all together. Past that, new ones are refused.

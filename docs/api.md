@@ -49,7 +49,7 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   posted or edited, so one an admin adds later isn't shown on statuses that named it before. The `emojis` of its `poll`
   are those its options name. Shortcodes are matched with case, and a status has at most 100. Images are WebP, and
   `static_url` is the first frame of an animated one. An account's `emojis` are those its display name, note, and
-  fields name, and are empty for an account on another server, since those profiles aren't stored yet.
+  fields name. For an account on another server, they're the ones its server listed that those name.
   `GET /api/v1/custom_emojis` lists every emoji an admin has added, including those hidden from the picker, and has no
   disabled ones, since an admin removes an emoji instead.
 - A hashtag needs a letter, and can be up to 100 characters. Tags are matched without regard to case or Unicode
@@ -353,10 +353,12 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   `PATCH update_credentials`, `DELETE /api/v1/profile/avatar` and `/api/v1/profile/header`, `GET /api/v1/follow_requests`,
   `POST /api/v1/follow_requests/:account_id/authorize` and `/reject`, `GET /api/v1/blocks` and `/api/v1/mutes`,
   `GET`, `POST`, and `DELETE /api/v1/domain_blocks`, and `GET /api/v2/search` exist.
-- Profiles of accounts on other servers aren't stored yet, so theirs have the username as `display_name`, an empty `note`
-  and `fields`, and placeholder images. For an account on another server, `followers_count` and `following_count` only
-  count accounts on this server, `hide_collections` is null, and `locked` is false, even when that server approves its
-  followers by hand.
+- An account on another server shows its profile as of when this server last fetched it, so a change can take a while
+  to show if its server doesn't announce it. One with no name has its username as `display_name`, where
+  Mastodon sends an empty one. Its `avatar` and `header` are links to its server until they're downloaded, and stay links
+  if they can't be, or an admin rejects its server's or its media, so they can be on another host. Its `fields` never
+  have a `verified_at`. `followers_count` and `following_count` only count accounts on this server, and
+  `hide_collections` is null. `discoverable` is always false.
 - `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`,
   `hide_collections`, and `source[quote_policy]`. `bot`, `discoverable`, `indexable`, and the rest of `source` are
   accepted only with the values the account already has: false, and `public` for `source[privacy]`. Any other value for them, or any other field with a value, gets a 422 naming

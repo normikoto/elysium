@@ -7,12 +7,15 @@ import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorMediaAllowed;
 import dev.biribiri.elysium.actor.ActorMediaRejected;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.DomainMediaAllowed;
 import dev.biribiri.elysium.moderation.DomainMediaRejected;
+import dev.biribiri.elysium.moderation.DomainName;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -20,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -27,7 +31,8 @@ import java.util.UUID;
  * rejected, which shows them as links, and the copies of them are removed. New attachments from them are stored as
  * rejected to begin with. It's a job, because a server can have a lot stored.
  *
- * <p>Allowing media again only marks them as not rejected. They stay links, since copies aren't downloaded again.
+ * <p>Allowing media again only marks them as not rejected. They stay links, since copies aren't downloaded again. Avatars
+ * and headers are the exception, as they're downloaded again the next time their profile is fetched.
  */
 @Service
 public class MediaRejections {
@@ -44,12 +49,16 @@ public class MediaRejections {
     private final DomainBlocks blocks;
     private final ActorService actors;
     private final CustomEmojis emojis;
+    private final ProfileService profiles;
+    private final FollowService follows;
 
     /**
      * @param scheduler lazy like everywhere else it's used, so that this doesn't affect when the scheduler is created
      */
     MediaRejections(@Lazy SchedulerClient scheduler, MediaAttachments attachments, DomainBlocks blocks,
-                    ActorService actors, CustomEmojis emojis) {
+                    ActorService actors, CustomEmojis emojis, ProfileService profiles, FollowService follows) {
+        this.profiles = profiles;
+        this.follows = follows;
         this.emojis = emojis;
         this.scheduler = scheduler;
         this.attachments = attachments;
@@ -74,11 +83,18 @@ public class MediaRejections {
     public void on(DomainMediaAllowed event) {
         attachments.allowForDomain(event.domain());
         emojis.allowForDomain(event.domain());
+        accountDomainsUnder(event.domain()).stream()
+                .filter(domain -> DomainName.normalizeHost(domain).filter(blocks::rejectsMedia).isEmpty())
+                .forEach(profiles::allowRemoteImagesForDomain);
     }
 
     @ApplicationModuleListener
     public void on(ActorMediaAllowed event) {
         attachments.allowForAccount(event.actorId());
+        // Unless a block on its server still rejects its media, as for its attachments.
+        actors.findById(event.actorId())
+                .filter(actor -> !blocks.rejectsMedia(actor.uri().getHost()))
+                .ifPresent(actor -> profiles.allowRemoteImages(actor.id()));
     }
 
     /**
@@ -102,11 +118,27 @@ public class MediaRejections {
                         attachments.rejectForDomain(block.domain());
                         // Emoji belong to a server rather than an account, so only a block rejects them.
                         emojis.rejectForDomain(block.domain());
+                        accountDomainsUnder(block.domain()).forEach(profiles::uncacheRemoteImagesForDomain);
                     });
         } else if (job.actorId() != null && actors.isMediaRejected(job.actorId())) {
             attachments.rejectForAccount(job.actorId());
+            profiles.uncacheRemoteImages(job.actorId());
         }
         return Jobs.done();
+    }
+
+    /**
+     * Profiles are matched by actors' domains, exactly, so this finds those that a block's domain covers.
+     *
+     * @param blockDomain a domain as blocks have it
+     * @return each domain as actors have it
+     */
+    private List<String> accountDomainsUnder(String blockDomain) {
+        return follows.remoteDomains().stream()
+                .filter(domain -> DomainName.normalizeHost(domain)
+                        .filter(host -> DomainName.suffixes(host).contains(blockDomain))
+                        .isPresent())
+                .toList();
     }
 
     /**

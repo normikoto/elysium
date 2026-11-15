@@ -105,6 +105,9 @@ record RemoteNote(
      */
     private static final Duration CLOCK_SKEW = Duration.ofHours(1);
 
+    private static final Instant EARLIEST_TIMESTAMP = Instant.parse("0001-01-01T00:00:00Z");
+    private static final Instant LATEST_TIMESTAMP = Instant.parse("9999-12-31T23:59:59Z");
+
     RemoteNote {
         attributedTo = List.copyOf(attributedTo);
         mentions = List.copyOf(mentions);
@@ -413,13 +416,18 @@ record RemoteNote(
                 .orElse(null);
     }
 
+    /**
+     * @return null if it isn't a date, or is one outside the years 1 to 9999. PostgreSQL refuses some dates that Java can
+     * parse, which would fail the whole transaction storing what has it, such as an actor and its profile.
+     */
     static Instant timestamp(JsonNode node) {
         var text = ActivityJson.text(node);
         if (text == null) {
             return null;
         }
         try {
-            return OffsetDateTime.parse(text).toInstant();
+            var parsed = OffsetDateTime.parse(text).toInstant();
+            return parsed.isBefore(EARLIEST_TIMESTAMP) || parsed.isAfter(LATEST_TIMESTAMP) ? null : parsed;
         } catch (DateTimeParseException e) {
             return null;
         }
