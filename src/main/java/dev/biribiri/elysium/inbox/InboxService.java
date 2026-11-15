@@ -82,6 +82,10 @@ public class InboxService {
         return conversations.page(viewer, page);
     }
 
+    public Optional<Conversation> conversation(UUID viewer, UUID id) {
+        return conversations.find(viewer, id);
+    }
+
     @Transactional
     public Optional<Conversation> readConversation(UUID viewer, UUID id) {
         notifications.lock();

@@ -73,8 +73,7 @@ public class InstanceController {
                     `configuration.statuses.max_characters`, and defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS
                     + """
                      rather than 500. `version` is a Mastodon version followed by `(compatible; Elysium)`, for \
-                    clients that check it to decide what to use. The streaming API isn't implemented, though \
-                    `urls.streaming_api` is set. `configuration.accounts.max_profile_fields` says how many fields a \
+                    clients that check it to decide what to use. `configuration.accounts.max_profile_fields` says how many fields a \
                     profile can have, which Mastodon doesn't send.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v1"),
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
@@ -123,8 +122,7 @@ public class InstanceController {
                      rather than 500. `api_versions.mastodon` is\s""" + MASTODON_API_VERSION + """
                     , which is when Mastodon added quotes, though some of what Mastodon added in the versions before it \
                     isn't here, as `docs/api.md` lists. There's no thumbnail, icon, contact account, or rules, and \
-                    `usage.users.active_month` counts every local account. The streaming API and push notifications \
-                    aren't implemented, though `configuration.urls.streaming` is set.""",
+                    `usage.users.active_month` counts every local account. Push notifications aren't implemented.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v2"),
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
     public InstanceV2Response instanceV2() {

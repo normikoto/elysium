@@ -56,8 +56,8 @@ public class NotificationRepository {
         jdbc.sql("SELECT last_id FROM inbox_sequence WHERE singleton FOR UPDATE").query(UUID.class).single();
     }
 
-    public void insert(UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow) {
-        insert(recipient, sender, type, source, status, follow, null, null, null);
+    public Optional<UUID> insert(UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow) {
+        return insert(recipient, sender, type, source, status, follow, null, null, null);
     }
 
     /**
@@ -97,49 +97,51 @@ public class NotificationRepository {
     /**
      * @param sender the reporter, which for a report from another server is whoever sent it there
      */
-    public void insertReport(UUID recipient, UUID sender, UUID report) {
-        insert(recipient, sender, ADMIN_REPORT, report, null, null, null, null, report);
+    public Optional<UUID> insertReport(UUID recipient, UUID sender, UUID report) {
+        return insert(recipient, sender, ADMIN_REPORT, report, null, null, null, null, report);
     }
 
-    public void insertFavourite(UUID recipient, UUID sender, UUID like, UUID status) {
-        insert(recipient, sender, "favourite", like, status, null, like, null, null);
+    public Optional<UUID> insertFavourite(UUID recipient, UUID sender, UUID like, UUID status) {
+        return insert(recipient, sender, "favourite", like, status, null, like, null, null);
     }
 
     /**
      * @param reblog the boost, which takes its notification with it when it's removed
      * @param status the status it boosts
      */
-    public void insertReblog(UUID recipient, UUID sender, UUID reblog, UUID status) {
-        insert(recipient, sender, "reblog", reblog, status, null, null, reblog, null);
+    public Optional<UUID> insertReblog(UUID recipient, UUID sender, UUID reblog, UUID status) {
+        return insert(recipient, sender, "reblog", reblog, status, null, null, reblog, null);
     }
 
     /**
      * @param status the quote
      */
-    public void insertQuote(UUID recipient, UUID sender, UUID status) {
-        insert(recipient, sender, "quote", status, status, null, null, null, null);
+    public Optional<UUID> insertQuote(UUID recipient, UUID sender, UUID status) {
+        return insert(recipient, sender, "quote", status, status, null, null, null, null);
     }
 
     /**
      * @param source what identifies this edit of the quoted status, so that a repeat adds nothing
      * @param status the recipient's quote
      */
-    public void insertQuotedUpdate(UUID recipient, UUID sender, UUID source, UUID status) {
-        insert(recipient, sender, "quoted_update", source, status, null, null, null, null);
+    public Optional<UUID> insertQuotedUpdate(UUID recipient, UUID sender, UUID source, UUID status) {
+        return insert(recipient, sender, "quoted_update", source, status, null, null, null, null);
     }
 
     /**
      * @param status the poll's status, which is also what identifies this, since a poll ends once
      */
-    public void insertPoll(UUID recipient, UUID sender, UUID status) {
-        insert(recipient, sender, "poll", status, status, null, null, null, null);
+    public Optional<UUID> insertPoll(UUID recipient, UUID sender, UUID status) {
+        return insert(recipient, sender, "poll", status, status, null, null, null, null);
     }
 
     /**
      * Nothing is added from a sender the recipient hides notifications from, as on Mastodon, so ending a mute doesn't bring
      * back what was sent during it.
+     *
+     * @return the new notification, or empty if nothing was added
      */
-    private void insert(
+    private Optional<UUID> insert(
             UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog,
             UUID report) {
         if (jdbc.sql("""
@@ -147,7 +149,7 @@ public class NotificationRepository {
                         WHERE recipient_id = :recipient AND type = :type AND source_id = :source)
                         """).param("recipient", recipient).param("type", type).param("source", source)
                 .query(Boolean.class).single() || (!type.equals(ADMIN_REPORT) && isHidden(recipient, sender))) {
-            return;
+            return Optional.empty();
         }
         var previous = jdbc.sql("SELECT last_id FROM inbox_sequence WHERE singleton").query(UUID.class).single();
         var now = Instant.now();
@@ -164,7 +166,7 @@ public class NotificationRepository {
                             """).param("recipient", recipient).param("hour", hour).query(Long.class).single();
             group = "follow-" + start;
         }
-        jdbc.sql("""
+        var inserted = jdbc.sql("""
                         INSERT INTO inbox_notification
                         (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, reblog_id,
                          report_id, created_at, group_key)
@@ -174,7 +176,11 @@ public class NotificationRepository {
                         """).param("id", id).param("recipient", recipient).param("sender", sender).param("type", type)
                 .param("source", source).param("status", status, Types.OTHER).param("follow", follow, Types.OTHER)
                 .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("report", report, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
+        if (inserted == 0) {
+            return Optional.empty();
+        }
         jdbc.sql("UPDATE inbox_sequence SET last_id = :id WHERE singleton").param("id", id).update();
+        return Optional.of(id);
     }
 
     public List<Notification> page(UUID viewer, NotificationFilter filter, InboxPage page) {

@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.Following;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -31,6 +32,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Repository
@@ -82,16 +84,26 @@ public class StatusRepository {
     private static final String HAS_MEDIA =
             " AND EXISTS (SELECT 1 FROM media_attachment m WHERE m.status_id = s.id)";
 
-    private static final String MENTIONS_VIEWER =
-            " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = :viewer)";
+    private static final String MENTIONS_VIEWER = mentions(":viewer");
 
     /**
      * Leaves out what's hidden from the viewer: statuses by accounts it has blocked, muted, or blocked the server of, or that
      * block it, and boosts of their statuses.
      */
-    private static final String NOT_HIDDEN = " AND " + HiddenAccounts.visibleInTimelines("author")
-            + " AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status ho JOIN actor hoa ON hoa.id = ho.actor_id"
-            + " WHERE ho.id = s.reblog_of_id AND " + HiddenAccounts.visibleInTimelines("hoa") + "))";
+    private static final String NOT_HIDDEN = notHidden(":viewer");
+
+    /**
+     * @param viewer the viewer's ID, as SQL
+     */
+    private static String mentions(String viewer) {
+        return " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = " + viewer + ")";
+    }
+
+    private static String notHidden(String viewer) {
+        return " AND " + HiddenAccounts.visibleInTimelines("author", viewer)
+                + " AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status ho JOIN actor hoa ON hoa.id = ho.actor_id"
+                + " WHERE ho.id = s.reblog_of_id AND " + HiddenAccounts.visibleInTimelines("hoa", viewer) + "))";
+    }
 
     /**
      * Leaves out boosts of statuses hidden from the viewer, as {@link #NOT_HIDDEN} does.
@@ -676,15 +688,37 @@ public class StatusRepository {
      * @param viewer who's looking, from whom what they've hidden is left out, or null
      */
     public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia, UUID viewer) {
+        return findPage(publicFilter(origin, onlyMedia, viewer), page);
+    }
+
+    /**
+     * Whether {@link #findPublic} would list this status, so that a stream shows what the timeline does.
+     */
+    public boolean inPublic(UUID statusId, StatusOrigin origin, boolean onlyMedia, UUID viewer) {
+        return matches(publicFilter(origin, onlyMedia, viewer), statusId);
+    }
+
+    private static Filter publicFilter(StatusOrigin origin, boolean onlyMedia, UUID viewer) {
         var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + origin(origin)
                 + (onlyMedia ? HAS_MEDIA : "") + (viewer == null ? "" : NOT_HIDDEN);
-        return findPage(filter, viewer == null ? Map.of() : Map.of("viewer", viewer), page);
+        return new Filter(filter, viewer == null ? Map.of() : Map.of("viewer", viewer));
     }
 
     /**
      * Replies are listed too, as on Mastodon, since someone following a tag wants every status that uses it.
      */
     public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, UUID viewer) {
+        return findPage(taggedFilter(tags, origin, onlyMedia, viewer), page);
+    }
+
+    /**
+     * Whether {@link #findTagged} would list this status.
+     */
+    public boolean inTagged(UUID statusId, TagFilter tags, StatusOrigin origin, boolean onlyMedia, UUID viewer) {
+        return matches(taggedFilter(tags, origin, onlyMedia, viewer), statusId);
+    }
+
+    private static Filter taggedFilter(TagFilter tags, StatusOrigin origin, boolean onlyMedia, UUID viewer) {
         var filter = new StringBuilder("""
                 s.visibility = 'public' AND s.reblog_of_id IS NULL
                 AND EXISTS (SELECT 1 FROM status_tag t WHERE t.status_id = s.id AND t.name = ANY (CAST(:any AS text[])))""");
@@ -711,7 +745,7 @@ public class StatusRepository {
             filter.append(NOT_HIDDEN);
             parameters.put("viewer", viewer);
         }
-        return findPage(filter.toString(), parameters, page);
+        return new Filter(filter.toString(), parameters);
     }
 
     private static String origin(StatusOrigin origin) {
@@ -728,17 +762,52 @@ public class StatusRepository {
      * @param followedIds the accounts the viewer follows, which can be empty
      */
     public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
-        var filter = """
-                (s.actor_id = :viewer
-                 OR (s.actor_id = ANY (CAST(:followed AS uuid[]))
-                     AND ((s.visibility IN ('public', 'unlisted', 'private')
-                           AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = :viewer
-                                OR s.in_reply_to_account_id = ANY (CAST(:followed AS uuid[]))))
-                          OR (s.visibility = 'direct' AND""" + MENTIONS_VIEWER + "))))" + NOT_HIDDEN
-                + " AND " + HiddenAccounts.visibleInTimelinesById("s.in_reply_to_account_id");
-        // One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
-        var followed = followedIds.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
-        return findPage(filter, Map.of("viewer", viewerId, "followed", followed), page);
+        return findPage(homeFilter(viewerId, followedIds), page);
+    }
+
+    /**
+     * Which of these accounts {@link #findHome} would list this status for, checked in one query, since a status can
+     * have to be checked for everyone who's streaming their home timeline.
+     */
+    public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        var filter = home("v.id", followed -> Following.accepted("v.id", followed));
+        return jdbc.sql("SELECT v.id FROM unnest(CAST(:candidates AS uuid[])) AS v (id) WHERE EXISTS (SELECT 1 "
+                        + FROM_ACTIVE + "WHERE s.id = :statusId AND " + filter + ")")
+                .param("candidates", array(candidates))
+                .param("statusId", statusId)
+                .query(UUID.class)
+                .list();
+    }
+
+    private static Filter homeFilter(UUID viewerId, Collection<UUID> followedIds) {
+        var filter = home(":viewer", followed -> followed + " = ANY (CAST(:followed AS uuid[]))");
+        return new Filter(filter, Map.of("viewer", viewerId, "followed", array(followedIds)));
+    }
+
+    /**
+     * The home timeline's condition, for one viewer bound as a parameter or for each of several in one query.
+     *
+     * @param viewer   the viewer's ID, as SQL
+     * @param follows  the condition that the viewer follows the account with the ID given as SQL
+     */
+    private static String home(String viewer, Function<String, String> follows) {
+        return "(s.actor_id = " + viewer
+                + " OR (" + follows.apply("s.actor_id")
+                + " AND ((s.visibility IN ('public', 'unlisted', 'private')"
+                + " AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = " + viewer
+                + " OR " + follows.apply("s.in_reply_to_account_id") + "))"
+                + " OR (s.visibility = 'direct' AND" + mentions(viewer) + "))))" + notHidden(viewer)
+                + " AND " + HiddenAccounts.visibleInTimelinesById("s.in_reply_to_account_id", viewer);
+    }
+
+    /**
+     * One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
+     */
+    private static String array(Collection<UUID> ids) {
+        return ids.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
     }
 
     /**
@@ -1016,6 +1085,27 @@ public class StatusRepository {
                         """)
                 .query(Long.class)
                 .single();
+    }
+
+    /**
+     * A timeline's condition on {@code s} and its author, kept in one place so that a page of the timeline and a check of
+     * one status always agree.
+     */
+    private record Filter(String sql, Map<String, ?> parameters) {
+    }
+
+    private List<Status> findPage(Filter filter, StatusPage page) {
+        return findPage(filter.sql(), filter.parameters(), page);
+    }
+
+    private boolean matches(Filter filter, UUID statusId) {
+        var parameters = new HashMap<String, Object>(filter.parameters());
+        parameters.put("statusId", statusId);
+        return Boolean.TRUE.equals(jdbc.sql("SELECT EXISTS (SELECT 1 " + FROM_ACTIVE + "WHERE " + filter.sql()
+                        + " AND s.id = :statusId)")
+                .params(parameters)
+                .query(Boolean.class)
+                .single());
     }
 
     private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page) {

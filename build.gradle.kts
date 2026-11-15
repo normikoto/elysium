@@ -32,6 +32,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-session-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("org.springframework.boot:spring-boot-starter-websocket")
     implementation("com.github.ben-manes.caffeine:caffeine")
     // Spring Boot doesn't manage these versions. Both need their Spring Boot 4 artifacts, not the ones without "4" in the name.
     implementation("com.github.kagkarlsson:db-scheduler-spring-boot-4-starter:17.0.0")

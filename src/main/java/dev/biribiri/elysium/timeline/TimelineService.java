@@ -8,6 +8,7 @@ import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,5 +45,27 @@ public class TimelineService {
     public List<Status> tagTimeline(
             TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
         return statuses.findTagged(tags, origin, page, onlyMedia, viewer);
+    }
+
+    /**
+     * Which of these accounts would see the status in their home timeline, so that a stream shows only what the timeline
+     * would.
+     */
+    public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
+        return statuses.homeViewers(statusId, candidates);
+    }
+
+    /**
+     * Whether {@link #publicTimeline} would list this status.
+     */
+    public boolean inPublic(UUID statusId, StatusOrigin origin, boolean onlyMedia, Optional<UUID> viewer) {
+        return statuses.inPublic(statusId, origin, onlyMedia, viewer);
+    }
+
+    /**
+     * Whether {@link #tagTimeline} would list this status.
+     */
+    public boolean inTag(UUID statusId, TagFilter tags, StatusOrigin origin, boolean onlyMedia, Optional<UUID> viewer) {
+        return statuses.inTagged(statusId, tags, origin, onlyMedia, viewer);
     }
 }

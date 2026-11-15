@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The streaming API, as on Mastodon, so apps see new posts, notifications, and direct messages as they happen, rather
+  than checking every so often. Apps connect with a WebSocket or server-sent events at `/api/v1/streaming`, and
+  `elysium.streaming.max-connections` limits how many connections can be open at once. Lists aren't streamed, since they
+  aren't implemented. See `docs/api.md`.
+
+  **Upgrading:** behind nginx, add a `location /api/v1/streaming` block that passes on WebSocket upgrades, as
+  `docs/configuration.md` shows, or apps can't stream. Tokens can now appear in the URLs of streaming requests, so check
+  what your proxy logs. Streaming only works fully with one copy of the server.
 - A page at `/settings/password`, linked from settings, where people can change their own password by typing their
   current one. It logs them out of every other browser and revokes their apps' access. See `docs/accounts.md`.
 - Pinned posts, as on Mastodon. People can pin up to 5 of their own public, unlisted, or followers-only posts with

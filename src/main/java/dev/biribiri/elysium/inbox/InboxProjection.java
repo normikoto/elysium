@@ -19,6 +19,7 @@ import dev.biribiri.elysium.inbox.internal.ConversationRepository;
 import dev.biribiri.elysium.inbox.internal.NotificationRepository;
 import dev.biribiri.elysium.moderation.ReportFiled;
 import dev.biribiri.elysium.moderation.Reports;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +28,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
@@ -39,10 +41,12 @@ public class InboxProjection {
     private final Reports reports;
     private final AccountActions accounts;
     private final PollService polls;
+    private final ApplicationEventPublisher events;
 
     InboxProjection(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
-                    Reports reports, AccountActions accounts, PollService polls) {
+                    Reports reports, AccountActions accounts, PollService polls, ApplicationEventPublisher events) {
         this.polls = polls;
+        this.events = events;
         this.conversations = conversations;
         this.notifications = notifications;
         this.quotes = quotes;
@@ -61,7 +65,7 @@ public class InboxProjection {
         notifications.lock();
         for (var admin : accounts.activeAdmins()) {
             if (!admin.equals(report.get().reporterId())) {
-                notifications.insertReport(admin, report.get().reporterId(), report.get().id());
+                notified(admin, notifications.insertReport(admin, report.get().reporterId(), report.get().id()));
             }
         }
     }
@@ -103,9 +107,9 @@ public class InboxProjection {
         conversations.holdActors(people(List.copyOf(quoting.values()), editorId));
         quoting.forEach((quoteId, authorId) -> {
             conversations.holdSource(quoteId).filter(source -> source.authorId().equals(authorId))
-                    .ifPresent(source -> notifications.insertQuotedUpdate(authorId, editorId,
+                    .ifPresent(source -> notified(authorId, notifications.insertQuotedUpdate(authorId, editorId,
                             UUID.nameUUIDFromBytes((quoteId + "\n" + editedAt.toEpochMilli())
-                                    .getBytes(StandardCharsets.UTF_8)), quoteId));
+                                    .getBytes(StandardCharsets.UTF_8)), quoteId)));
         });
     }
 
@@ -119,7 +123,7 @@ public class InboxProjection {
         notifications.lock();
         conversations.holdActors(List.of(event.authorId(), event.quotedAuthorId()));
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
-                .ifPresent(source -> notifications.insertQuote(event.quotedAuthorId(), event.authorId(), source.id()));
+                .ifPresent(source -> notified(event.quotedAuthorId(), notifications.insertQuote(event.quotedAuthorId(), event.authorId(), source.id())));
     }
 
     /**
@@ -137,7 +141,7 @@ public class InboxProjection {
         conversations.holdActors(people(told, event.authorId()));
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
                 .ifPresent(source -> told.forEach(
-                        recipient -> notifications.insertPoll(recipient, event.authorId(), source.id())));
+                        recipient -> notified(recipient, notifications.insertPoll(recipient, event.authorId(), source.id()))));
     }
 
     /**
@@ -156,14 +160,15 @@ public class InboxProjection {
         conversations.holdSource(statusId).ifPresent(source -> {
             for (var recipient : conversations.localRecipients(mentioned)) {
                 if (!recipient.equals(source.authorId()) && told.test(recipient)) {
-                    notifications.insert(recipient, source.authorId(), "mention", source.id(), source.id(), null);
+                    notified(recipient, notifications.insert(recipient, source.authorId(), "mention", source.id(), source.id(), null));
                 }
             }
             if (source.direct()) {
                 for (var recipient : conversations.localRecipients(people)) {
                     if (told.test(recipient)
                             && (recipient.equals(source.authorId()) || !notifications.isHidden(recipient, source.authorId()))) {
-                        conversations.add(source, recipient, people);
+                        conversations.add(source, recipient, people).ifPresent(conversation ->
+                                events.publishEvent(new ConversationUpdated(conversation, recipient)));
                     }
                 }
             }
@@ -177,6 +182,10 @@ public class InboxProjection {
         var here = conversations.localRecipients(people(mentioned, source.get().authorId()));
         return source.get().direct() ? !here.isEmpty()
                 : here.stream().anyMatch(id -> mentioned.contains(id) && !id.equals(source.get().authorId()));
+    }
+
+    private void notified(UUID recipient, Optional<UUID> notification) {
+        notification.ifPresent(id -> events.publishEvent(new NotificationAdded(id, recipient)));
     }
 
     private static List<UUID> people(List<UUID> mentioned, UUID author) {
@@ -196,7 +205,7 @@ public class InboxProjection {
         conversations.holdActors(List.of(event.followerId(), event.followedId()));
         notifications.deleteFollowRequest(event.followId());
         if (conversations.currentFollow(event.followId(), event.followerId(), event.followedId())) {
-            notifications.insert(event.followedId(), event.followerId(), "follow", event.followId(), null, event.followId());
+            notified(event.followedId(), notifications.insert(event.followedId(), event.followerId(), "follow", event.followId(), null, event.followId()));
         }
     }
 
@@ -205,8 +214,8 @@ public class InboxProjection {
         notifications.lock();
         conversations.holdActors(List.of(event.followerId(), event.followedId()));
         if (conversations.currentFollowRequest(event.followId(), event.followerId(), event.followedId())) {
-            notifications.insert(
-                    event.followedId(), event.followerId(), "follow_request", event.followId(), null, event.followId());
+            notified(event.followedId(), notifications.insert(
+                    event.followedId(), event.followerId(), "follow_request", event.followId(), null, event.followId()));
         }
     }
 
@@ -229,7 +238,7 @@ public class InboxProjection {
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
                 .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
                 .filter(source -> conversations.currentLike(event.likeId(), event.actorId(), event.statusId()))
-                .ifPresent(source -> notifications.insertFavourite(event.authorId(), event.actorId(), event.likeId(), source.id()));
+                .ifPresent(source -> notified(event.authorId(), notifications.insertFavourite(event.authorId(), event.actorId(), event.likeId(), source.id())));
     }
 
     @ApplicationModuleListener
@@ -241,7 +250,7 @@ public class InboxProjection {
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
                 .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
                 .filter(source -> conversations.currentReblog(event.boostId(), event.actorId(), event.statusId()))
-                .ifPresent(source -> notifications.insertReblog(event.authorId(), event.actorId(), event.boostId(), source.id()));
+                .ifPresent(source -> notified(event.authorId(), notifications.insertReblog(event.authorId(), event.actorId(), event.boostId(), source.id())));
     }
 
     /**

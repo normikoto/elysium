@@ -1166,6 +1166,7 @@ public class StatusService {
         var attached = boosted.map(status -> media.findByStatusAndLock(status.id())).orElse(List.of());
         var deleted = statuses.deleteRemote(uri, authorUri);
         if (deleted) {
+            boosted.ifPresent(status -> events.publishEvent(new RemoteStatusDeleted(status.id())));
             media.removeDetached(attached.stream().map(MediaAttachment::id).toList());
             // Only once it's known to be the author's, since anyone can name any status.
             boosted.ifPresent(status -> localBoosts.forEach(boost ->
@@ -1377,6 +1378,27 @@ public class StatusService {
      */
     public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
         return statuses.findHome(viewerId, followedIds, page);
+    }
+
+    /**
+     * Which of these accounts {@link #findHome} would list this status for.
+     */
+    public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
+        return statuses.homeViewers(statusId, candidates);
+    }
+
+    /**
+     * Whether {@link #findPublic(StatusOrigin, StatusPage, boolean, Optional)} would list this status.
+     */
+    public boolean inPublic(UUID statusId, StatusOrigin origin, boolean onlyMedia, Optional<UUID> viewer) {
+        return statuses.inPublic(statusId, origin, onlyMedia, viewer.orElse(null));
+    }
+
+    /**
+     * Whether {@link #findTagged(TagFilter, StatusOrigin, StatusPage, boolean, Optional)} would list this status.
+     */
+    public boolean inTagged(UUID statusId, TagFilter tags, StatusOrigin origin, boolean onlyMedia, Optional<UUID> viewer) {
+        return statuses.inTagged(statusId, tags, origin, onlyMedia, viewer.orElse(null));
     }
 
     /**
