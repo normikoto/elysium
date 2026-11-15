@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.InvalidProfileException;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.InvalidMediaAttachmentException;
+import dev.biribiri.elysium.content.InvalidPostFilterException;
 import dev.biribiri.elysium.content.InvalidStatusException;
 import dev.biribiri.elysium.content.InvalidVoteException;
 import dev.biribiri.elysium.inbox.MarkerConflictException;
@@ -37,6 +38,8 @@ import java.util.Map;
         AdminReportsController.class,
         ReportsController.class,
         DomainBlocksController.class,
+        FiltersController.class,
+        V1FiltersController.class,
         ProfileController.class,
         SearchController.class,
         StatusesController.class,
@@ -57,6 +60,12 @@ class StatusApiErrors {
 
     @ExceptionHandler({InvalidStatusException.class, InvalidVoteException.class})
     ResponseEntity<Map<String, String>> invalidStatus(RuntimeException e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(Map.of("error", "Validation failed: " + e.getMessage()));
+    }
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> invalidFilter(InvalidPostFilterException e) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .body(Map.of("error", "Validation failed: " + e.getMessage()));
     }

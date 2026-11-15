@@ -214,7 +214,8 @@ class ApiDocsIntegrationTests {
         var schemas = document().get("components").get("schemas");
         assertThat(schemas.propertyNames()).contains(
                 "Account", "CredentialAccount", "Status", "Relationship", "Application", "Instance", "Search", "Tag",
-                "AdminAccount", "AdminDomainBlock", "Error", "Poll");
+                "AdminAccount", "AdminDomainBlock", "Error", "Poll", "Filter", "FilterKeyword", "FilterStatus",
+                "FilterResult", "V1_Filter");
     }
 
     @Test

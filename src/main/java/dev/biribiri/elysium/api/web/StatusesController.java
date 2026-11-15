@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.QuotePolicy;
@@ -56,6 +57,8 @@ public class StatusesController {
     /**
      * The most a character can take up in JSON, as an escaped surrogate pair like {@code \ud83d\ude00}.
      */
+    private static final Optional<PostFilter.Context> THREAD = Optional.of(PostFilter.Context.THREAD);
+
     private static final long MAX_BYTES_PER_CHARACTER = 12;
 
     /**
@@ -335,8 +338,8 @@ public class StatusesController {
                 .flatMap(boosts::original)
                 .flatMap(statusId -> statuses.findContext(statusId, RequestParameters.viewer(token)))
                 .map(context -> new ContextResponse(
-                        responses.list(context.ancestors(), RequestParameters.viewer(token)),
-                        responses.list(context.descendants(), RequestParameters.viewer(token))))
+                        responses.list(context.ancestors(), RequestParameters.viewer(token), THREAD),
+                        responses.list(context.descendants(), RequestParameters.viewer(token), THREAD)))
                 .orElseThrow(RecordNotFoundException::new);
     }
 
@@ -553,7 +556,7 @@ public class StatusesController {
                 .orElseThrow(RecordNotFoundException::new);
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         return responses.page("/api/v1/statuses/" + status.id() + "/quotes", Map.of(), page,
-                quotes.findAccepted(status.id(), viewer, page), Optional.of(viewer));
+                quotes.findAccepted(status.id(), viewer, page), Optional.of(viewer), Optional.empty());
     }
 
     @PostMapping("/{id}/quotes/{quotingId}/revoke")

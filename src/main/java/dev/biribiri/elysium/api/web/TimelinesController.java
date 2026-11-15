@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.TagFilter;
@@ -89,7 +90,8 @@ public class TimelinesController {
             @RequestParam(required = false) String local) {
         var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
-        return responses.page(HOME_PATH, Map.of(), page, timelines.homeTimeline(viewer, page), Optional.of(viewer));
+        return responses.page(HOME_PATH, Map.of(), page, timelines.homeTimeline(viewer, page), Optional.of(viewer),
+                Optional.of(PostFilter.Context.HOME));
     }
 
     @GetMapping("/public")
@@ -136,7 +138,8 @@ public class TimelinesController {
         if (RequestParameters.flag(onlyMedia)) {
             filters.put("only_media", "true");
         }
-        return responses.page(PUBLIC_PATH, filters, page, found, RequestParameters.viewer(token));
+        return responses.page(PUBLIC_PATH, filters, page, found, RequestParameters.viewer(token),
+                Optional.of(PostFilter.Context.PUBLIC));
     }
 
     /**
@@ -215,7 +218,8 @@ public class TimelinesController {
             filters.put("only_media", "true");
         }
         var path = TAG_PATH + Hashtags.parse(hashtag).orElseThrow();
-        return responses.page(path, filters, page, found, RequestParameters.viewer(token));
+        return responses.page(path, filters, page, found, RequestParameters.viewer(token),
+                Optional.of(PostFilter.Context.PUBLIC));
     }
 
     private static List<String> first(List<String> names) {

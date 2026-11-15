@@ -11,6 +11,10 @@ import dev.biribiri.elysium.content.LikeStats;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.PollService;
+import dev.biribiri.elysium.content.PostFilter;
+import dev.biribiri.elysium.content.PostFilterMatch;
+import dev.biribiri.elysium.content.PostFilterMatcher;
+import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
@@ -27,6 +31,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,11 +59,13 @@ class StatusResponses {
     private final BlockService blocks;
     private final PollService polls;
     private final StatusPinService pins;
+    private final PostFilters filters;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
             StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments,
-            QuoteService quotes, BlockService blocks, PollService polls, StatusPinService pins) {
+            QuoteService quotes, BlockService blocks, PollService polls, StatusPinService pins, PostFilters filters) {
+        this.filters = filters;
         this.polls = polls;
         this.pins = pins;
         this.quotes = quotes;
@@ -77,6 +84,21 @@ class StatusResponses {
      */
     StatusResponse one(Status status, Optional<UUID> viewer) {
         return only(build(List.of(status), false, viewer, Map.of()));
+    }
+
+    /**
+     * A status rendered for a stream, and the contexts in which the viewer's filters hide it.
+     */
+    record Streamed(StatusResponse response, Set<PostFilter.Context> hiddenIn) {
+    }
+
+    /**
+     * @return empty if the status's author can't be loaded
+     */
+    Optional<Streamed> streamed(Status status, Optional<UUID> viewer) {
+        return build(List.of(status), false, viewer, Map.of()).stream().findFirst()
+                .map(built -> new Streamed(built.response(), Arrays.stream(PostFilter.Context.values())
+                        .filter(built::hiddenIn).collect(Collectors.toUnmodifiableSet())));
     }
 
     /**
@@ -104,9 +126,12 @@ class StatusResponses {
 
     /**
      * Leaves out statuses whose author can't be loaded, like {@link #page}.
+     *
+     * @param context where the statuses are listed, which leaves out those the viewer's filters hide there, or empty to
+     *                leave none out for that
      */
-    List<StatusResponse> list(List<Status> found, Optional<UUID> viewer) {
-        return build(found, false, viewer, Map.of());
+    List<StatusResponse> list(List<Status> found, Optional<UUID> viewer, Optional<PostFilter.Context> context) {
+        return shown(build(found, false, viewer, Map.of()), context);
     }
 
     /**
@@ -126,32 +151,47 @@ class StatusResponses {
                 .toList();
     }
 
-    private static StatusResponse only(List<StatusResponse> built) {
-        return built.stream().findFirst().orElseThrow(RecordNotFoundException::new);
+    private static StatusResponse only(List<Built> built) {
+        return built.stream().findFirst().map(Built::response).orElseThrow(RecordNotFoundException::new);
+    }
+
+    private static List<StatusResponse> shown(List<Built> built, Optional<PostFilter.Context> context) {
+        return built.stream().filter(status -> context.filter(status::hiddenIn).isEmpty()).map(Built::response).toList();
+    }
+
+    /**
+     * @param matches the viewer's filters that the status matches, which for a boost are the boosted status's
+     */
+    private record Built(StatusResponse response, List<PostFilterMatch> matches) {
+
+        boolean hiddenIn(PostFilter.Context context) {
+            return matches.stream().anyMatch(match -> match.hidesIn(context));
+        }
     }
 
     /**
      * Builds a page of statuses, with a {@code Link} header pointing to the pages around it. The links come from every
      * status found, so paging still works if {@link #build} leaves some out.
      *
-     * @param filters the request's parameters to repeat in those links, leaving out the page cursors
+     * @param parameters the request's parameters to repeat in those links, leaving out the page cursors
+     * @param context    as for {@link #list}
      */
     ResponseEntity<List<StatusResponse>> page(
-            String path, Map<String, ?> filters, StatusPage page, List<Status> found, Optional<UUID> viewer) {
+            String path, Map<String, ?> parameters, StatusPage page, List<Status> found, Optional<UUID> viewer,
+            Optional<PostFilter.Context> context) {
         var response = ResponseEntity.ok();
-        PageLinks.addTo(response, instance, path, filters, page.limit(), found.stream().map(Status::id).toList());
-        return response.body(build(found, false, viewer, Map.of()));
+        PageLinks.addTo(response, instance, path, parameters, page.limit(), found.stream().map(Status::id).toList());
+        return response.body(shown(build(found, false, viewer, Map.of()), context));
     }
 
     /**
      * Leaves out statuses whose author can't be loaded, such as when the account was suspended or deleted after the
      * statuses were read, so that one of them doesn't fail the whole response. A boost is left out the same way when the
      * status it boosts can't be shown to the viewer.
-     */
-    /**
+     *
      * @param knownMedia attachments to use for statuses that can't be found by them any more
      */
-    private List<StatusResponse> build(
+    private List<Built> build(
             List<Status> found, boolean includeText, Optional<UUID> viewer, Map<UUID, List<MediaAttachment>> knownMedia) {
         var originalIds = found.stream().filter(Status::isReblog).map(Status::reblogOfId).distinct().toList();
         var originals = visible(originalIds, viewer).stream()
@@ -180,6 +220,17 @@ class StatusResponses {
         var quoteCounts = quotes.acceptedCounts(ids);
         var pollsById = polls.findAll(ids, viewer);
         var pinned = pins.pinnedIds(all, viewer);
+        var matcher = viewer.map(filters::matcher).orElse(PostFilterMatcher.NONE);
+        var byId = all.stream().collect(Collectors.toMap(Status::id, Function.identity(), (a, b) -> a));
+        var matches = new HashMap<UUID, List<PostFilterMatch>>();
+        // A boost has no text of its own, so its keywords are matched in what it boosts, as on Mastodon.
+        Function<Status, List<PostFilterMatch>> matchesOf = status -> matcher.isEmpty() ? List.of()
+                : matches.computeIfAbsent(status.id(), id -> {
+                    var proper = status.isReblog() ? byId.get(status.reblogOfId()) : status;
+                    var text = proper == null ? null : PostFilterMatcher.searchableText(
+                            proper, pollsById.get(proper.id()), media.getOrDefault(proper.id(), List.of()));
+                    return matcher.match(status, text);
+                });
         var now = Instant.now();
         var localAuthors = authors.values().stream().filter(actors::isLocal).map(Actor::id).collect(Collectors.toSet());
         var decisions = quotes.decide(all.stream().filter(status -> !status.isReblog()).distinct().toList(), localAuthors, viewer);
@@ -207,7 +258,9 @@ class StatusResponses {
                 approval.apply(status),
                 status.isReblog() ? 0 : quoteCounts.getOrDefault(status.id(), 0L),
                 Optional.ofNullable(pollsById.get(status.id())).map(poll -> PollResponse.from(poll, now)).orElse(null),
-                pinned.contains(status.id()));
+                pinned.contains(status.id()),
+                viewer.isEmpty() ? null
+                        : matchesOf.apply(status).stream().map(FilterResponse.ResultResponse::from).toList());
         // A status that's quoted only shows what it quotes in turn by ID, as on Mastodon, so that quotes don't nest.
         Function<Status, StatusResponse> nested = status -> basic.apply(status, null,
                 Optional.ofNullable(quoteRows.get(status.id())).map(StatusResponses::shallow).orElse(null));
@@ -223,13 +276,13 @@ class StatusResponses {
                 .filter(status -> authors.containsKey(status.actorId()))
                 .flatMap(status -> {
                     if (!status.isReblog()) {
-                        return Stream.of(full.apply(status));
+                        return Stream.of(new Built(full.apply(status), matchesOf.apply(status)));
                     }
                     var original = originals.get(status.reblogOfId());
                     if (original == null || !authors.containsKey(original.actorId())) {
                         return Stream.empty();
                     }
-                    return Stream.of(basic.apply(status, full.apply(original), null));
+                    return Stream.of(new Built(basic.apply(status, full.apply(original), null), matchesOf.apply(status)));
                 })
                 .toList();
     }

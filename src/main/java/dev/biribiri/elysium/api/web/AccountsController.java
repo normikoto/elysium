@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.PostingDefaults;
@@ -678,7 +679,7 @@ public class AccountsController {
             var listed = page.maxId() != null || page.sinceId() != null || page.minId() != null
                     ? List.<Status>of()
                     : pins.findPinned(actorId, viewer).stream().limit(page.limit()).toList();
-            return ResponseEntity.ok(responses.list(listed, viewer));
+            return ResponseEntity.ok(responses.list(listed, viewer, Optional.of(PostFilter.Context.ACCOUNT)));
         }
         var nothingToReturn = tagged != null && !tagged.isEmpty();
         List<Status> found = nothingToReturn
@@ -696,7 +697,8 @@ public class AccountsController {
         if (RequestParameters.flag(onlyMedia)) {
             filters.put("only_media", "true");
         }
-        return responses.page("/api/v1/accounts/" + actorId + "/statuses", filters, page, found, RequestParameters.viewer(token));
+        return responses.page("/api/v1/accounts/" + actorId + "/statuses", filters, page, found,
+                RequestParameters.viewer(token), Optional.of(PostFilter.Context.ACCOUNT));
     }
 
     /**

@@ -111,6 +111,9 @@ public final class StreamConnection {
         this.onClose = onClose;
     }
 
+    /**
+     * @param payload null for an event that has none
+     */
     public void send(StreamKey key, String event, String payload) {
         offer(new Message.Event(event, key.wireName(), payload));
     }

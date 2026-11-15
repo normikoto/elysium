@@ -60,7 +60,11 @@ record StatusResponse(
                 only its ID in `quoted_status_id`, for a status that's itself quoted. Null if it doesn't quote one.""")
         Object quote,
         @JsonProperty("quote_approval") QuoteApprovalResponse quoteApproval,
-        @JsonProperty("quotes_count") long quotesCount
+        @JsonProperty("quotes_count") long quotesCount,
+        @Schema(description = """
+                The viewer's unexpired filters that the status matches, whatever their contexts, as on Mastodon. Left \
+                out without a user.""")
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<FilterResponse.ResultResponse> filtered
 ) {
 
     /**
@@ -89,12 +93,14 @@ record StatusResponse(
 
     /**
      * @param reblog the boosted status, for a boost, or null
-     * @param pinned whether the viewer pinned it, which only its author can have
+     * @param pinned   whether the viewer pinned it, which only its author can have
+     * @param filtered the viewer's filters that it matches, or null if there's no viewer
      */
     static StatusResponse from(
             Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
             List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
-            Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll, boolean pinned) {
+            Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll, boolean pinned,
+            List<FilterResponse.ResultResponse> filtered) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -128,7 +134,8 @@ record StatusResponse(
                 pinned,
                 quote,
                 quoteApproval,
-                quotesCount);
+                quotesCount,
+                filtered);
     }
 
     /**
