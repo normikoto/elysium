@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
+import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.RemoteAttachment;
 import dev.biribiri.elysium.content.RemoteStatus;
@@ -77,6 +78,8 @@ class AccountCleanupIntegrationTests {
     private MediaAttachments attachments;
     @Autowired
     private MediaProperties media;
+    @Autowired
+    private AccountLists lists;
 
     private Actor local;
 
@@ -170,6 +173,24 @@ class AccountCleanupIntegrationTests {
                 SELECT (SELECT count(*) FROM account_block WHERE account_id = :id OR target_id = :id)
                      + (SELECT count(*) FROM account_mute WHERE account_id = :id OR target_id = :id)
                      + (SELECT count(*) FROM account_domain_block WHERE account_id = :id)""", local.id()) == 0);
+    }
+
+    @Test
+    void deletingAnAccountRemovesItsListsAndItFromOthers() {
+        var other = newLocal();
+        follow(local, other);
+        follow(other, local);
+        var own = lists.create(local.id(), "Own", null, null);
+        assertThat(lists.addMembers(local.id(), own.id(), List.of(other.id()))).isTrue();
+        var theirs = lists.create(other.id(), "Theirs", null, null);
+        assertThat(lists.addMembers(other.id(), theirs.id(), List.of(local.id()))).isTrue();
+
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM account_list WHERE owner_id = :id", local.id()) == 0);
+        assertThat(count("SELECT count(*) FROM account_list_member WHERE target_id = :id OR account_id = :id", local.id()))
+                .isZero();
+        assertThat(lists.find(other.id(), theirs.id())).isPresent();
     }
 
     @Test

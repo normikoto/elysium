@@ -9,7 +9,9 @@ import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.Following;
+import dev.biribiri.elysium.graph.ListMembers;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -757,7 +759,8 @@ public class StatusRepository {
     }
 
     /**
-     * Replies to accounts the viewer has hidden are left out as well as their own statuses, as on Mastodon.
+     * Replies to accounts the viewer has hidden are left out as well as their own statuses, as on Mastodon, and so is
+     * what's by members of the viewer's exclusive lists.
      *
      * @param followedIds the accounts the viewer follows, which can be empty
      */
@@ -795,12 +798,58 @@ public class StatusRepository {
      */
     private static String home(String viewer, Function<String, String> follows) {
         return "(s.actor_id = " + viewer
-                + " OR (" + follows.apply("s.actor_id")
+                + " OR (" + follows.apply("s.actor_id") + " AND NOT " + ListMembers.inExclusiveList(viewer, "s.actor_id")
                 + " AND ((s.visibility IN ('public', 'unlisted', 'private')"
                 + " AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = " + viewer
                 + " OR " + follows.apply("s.in_reply_to_account_id") + "))"
                 + " OR (s.visibility = 'direct' AND" + mentions(viewer) + "))))" + notHidden(viewer)
                 + " AND " + HiddenAccounts.visibleInTimelinesById("s.in_reply_to_account_id", viewer);
+    }
+
+    /**
+     * Lists what the home timeline would of the list's members, as on Mastodon, except for direct statuses, which
+     * Mastodon doesn't add to lists, and with replies chosen by the list's policy. Members whose follow request hasn't
+     * been accepted are left out, since the owner couldn't see their followers-only statuses.
+     */
+    public List<Status> findList(AccountList list, StatusPage page) {
+        return findPage(new Filter(list(":viewer", ":list", ":policy"), Map.of("viewer", list.ownerId(), "list",
+                list.id(), "policy", list.repliesPolicy().value())), page);
+    }
+
+    /**
+     * Which of these lists {@link #findList} would list this status in, checked in one query, as {@link #homeViewers}
+     * does.
+     */
+    public List<UUID> listsShowing(UUID statusId, Collection<AccountList> lists) {
+        if (lists.isEmpty()) {
+            return List.of();
+        }
+        var all = List.copyOf(lists);
+        return jdbc.sql("SELECT v.list_id FROM unnest(CAST(:lists AS uuid[]), CAST(:owners AS uuid[]),"
+                        + " CAST(:policies AS text[])) AS v (list_id, owner_id, policy) WHERE EXISTS (SELECT 1 "
+                        + FROM_ACTIVE + "WHERE s.id = :statusId AND " + list("v.owner_id", "v.list_id", "v.policy") + ")")
+                .param("lists", array(all.stream().map(AccountList::id).toList()))
+                .param("owners", array(all.stream().map(AccountList::ownerId).toList()))
+                .param("policies", all.stream().map(list -> list.repliesPolicy().value()).toArray(String[]::new))
+                .param("statusId", statusId)
+                .query(UUID.class)
+                .list();
+    }
+
+    /**
+     * A list's condition. A reply to the owner is always listed, as on Mastodon.
+     *
+     * @param owner  the list owner's ID, as SQL
+     * @param list   the list's ID, as SQL
+     * @param policy its replies policy's value, as SQL
+     */
+    private static String list(String owner, String list, String policy) {
+        return "(" + ListMembers.inList(list, "s.actor_id") + " AND " + Following.accepted(owner, "s.actor_id")
+                + " AND s.visibility IN ('public', 'unlisted', 'private')"
+                + " AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = " + owner
+                + " OR (" + policy + " = 'followed' AND " + Following.accepted(owner, "s.in_reply_to_account_id") + ")"
+                + " OR (" + policy + " = 'list' AND " + ListMembers.inList(list, "s.in_reply_to_account_id") + ")))"
+                + notHidden(owner) + " AND " + HiddenAccounts.visibleInTimelinesById("s.in_reply_to_account_id", owner);
     }
 
     /**

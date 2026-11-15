@@ -57,15 +57,16 @@ class StreamingApiDocs {
                 .addTagsItem("Streaming")
                 .summary("Stream over a WebSocket")
                 .description(StreamingController.DIFFERENCES + """
-                        A subscription to `list` is refused as an unknown stream, since lists aren't implemented. A \
-                        connection can have up to 50 subscriptions.
+                        A connection can have up to 50 subscriptions.
 
                         Upgrade to a WebSocket here. Subscribe with `{"type": "subscribe", "stream": "…"}`, adding \
-                        `"tag"` for a hashtag stream, and unsubscribe with `"type": "unsubscribe"`. The streams are \
-                        `user`, `user:notification`, `direct`, `public`, `public:local`, `public:remote`, each of the \
-                        last three with `:media`, `hashtag`, and `hashtag:local`. `user`, `user:notification`, and \
-                        `direct` need a user token with the scopes their REST endpoints need, and the others work \
-                        without a token.
+                        `"tag"` for a hashtag stream or `"list"` for a list's, and unsubscribe with \
+                        `"type": "unsubscribe"`. The streams are `user`, `user:notification`, `direct`, `list`, \
+                        `public`, `public:local`, `public:remote`, each of the last three with `:media`, `hashtag`, \
+                        and `hashtag:local`. `user`, `user:notification`, `direct`, and `list` need a user token with \
+                        the scopes their REST endpoints need, except that `list` needs `read:statuses`, as on \
+                        Mastodon, and the others work without a token. A list that isn't the user's is refused with \
+                        401, as on Mastodon.
 
                         Each event is a message such as `{"stream": ["user"], "event": "update", "payload": "…"}`, \
                         whose payload is the entity as a JSON string, or the status ID for `delete`. A message that \
@@ -82,6 +83,8 @@ class StreamingApiDocs {
                                 + "sent and the connection closed."))
                 .addParametersItem(new Parameter().in("query").name("tag").schema(new StringSchema())
                         .description("The tag for `stream`, if it's a hashtag stream."))
+                .addParametersItem(new Parameter().in("query").name("list").schema(new StringSchema())
+                        .description("The list's ID for `stream`, if it's a list stream."))
                 .addParametersItem(new Parameter().in("query").name("access_token").schema(new StringSchema())
                         .description("The token, for a client that can't send the `Authorization` header."))
                 .addSecurityItem(new SecurityRequirement())

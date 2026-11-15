@@ -36,6 +36,7 @@ public class TimelinesController {
     private static final String PUBLIC_PATH = "/api/v1/timelines/public";
     private static final String HOME_PATH = "/api/v1/timelines/home";
     private static final String TAG_PATH = "/api/v1/timelines/tag/";
+    private static final String LIST_PATH = "/api/v1/timelines/list/";
 
     /**
      * How many tags each of {@code any[]}, {@code all[]} and {@code none[]} can name, as on Mastodon, which ignores the
@@ -67,7 +68,8 @@ public class TimelinesController {
                     Lists all of the user's own statuses, visible statuses of accounts they follow, and direct \
                     statuses from followed accounts that address the user. A followed account's reply is only listed \
                     when it's to its author, to the user, \
-                    or to an account they follow.
+                    or to an account they follow. Statuses by members of the user's exclusive lists are left out, \
+                    other than the user's own.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#home"),
@@ -91,6 +93,49 @@ public class TimelinesController {
         var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         return responses.page(HOME_PATH, Map.of(), page, timelines.homeTimeline(viewer, page), Optional.of(viewer),
+                Optional.of(PostFilter.Context.HOME));
+    }
+
+    @GetMapping("/list/{listId}")
+    @PreAuthorize("hasAuthority('SCOPE_read:lists')")
+    @Operation(
+            operationId = "getListTimeline",
+            summary = "View statuses from a list's members",
+            description = """
+                    Lists what the home timeline would of the members' statuses and boosts, apart from direct \
+                    statuses, as on Mastodon. A member's reply to themselves or to the user is always listed, and \
+                    other replies by `replies_policy`: to anyone the user follows for `followed`, to another member \
+                    for `list`, and none for `none`. Members whose follow request is still waiting aren't listed. \
+                    Filters for `home` apply, as on Mastodon.
+
+                    Differences from Mastodon: the timeline is read from the statuses stored here each time, as the \
+                    home timeline is, so a newly added member's older statuses show straight away.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#list"),
+            parameters = {
+                    @Parameter(name = "listId", description = ApiDocs.ID),
+                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                            + StatusPage.MAX_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT))
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public ResponseEntity<List<StatusResponse>> listTimeline(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @PathVariable String listId,
+            @RequestParam(required = false) String limit,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            @RequestParam(name = "since_id", required = false) String sinceId,
+            @RequestParam(name = "min_id", required = false) String minId) {
+        var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
+        var id = RequestParameters.uuid(listId).orElseThrow(RecordNotFoundException::new);
+        var page = RequestParameters.page(limit, maxId, sinceId, minId);
+        var found = timelines.listTimeline(viewer, id, page).orElseThrow(RecordNotFoundException::new);
+        return responses.page(LIST_PATH + id, Map.of(), page, found, Optional.of(viewer),
                 Optional.of(PostFilter.Context.HOME));
     }
 

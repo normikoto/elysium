@@ -151,6 +151,14 @@ class StreamEvents {
                 .flatMap(connection -> connection.viewer().stream())
                 .collect(Collectors.toSet());
         var home = homeCandidates.isEmpty() ? Set.<UUID>of() : new HashSet<>(timelines.homeViewers(statusId, homeCandidates));
+        // Each list was checked to be its viewer's when it was subscribed to.
+        var listIds = connections.stream()
+                .filter(connection -> connection.viewer().isPresent())
+                .flatMap(connection -> connection.subscriptions().stream())
+                .filter(key -> key.kind() == StreamKey.Kind.LIST)
+                .map(StreamKey::listId)
+                .collect(Collectors.toSet());
+        var lists = timelines.listsShowing(statusId, listIds);
         // Whether anyone at all could see it there decides most connections with one query, before each viewer's own.
         var anyone = new HashMap<StreamKey, Boolean>();
         var viewers = new HashMap<ViewerKey, Boolean>();
@@ -161,6 +169,7 @@ class StreamEvents {
             for (var key : connection.subscriptions()) {
                 var listed = switch (key.kind()) {
                     case USER -> viewer.isPresent() && home.contains(viewer.get());
+                    case LIST -> viewer.isPresent() && lists.contains(key.listId());
                     case PUBLIC, HASHTAG -> anyone.computeIfAbsent(key, k -> listed(statusId, k, Optional.empty()))
                             && (viewer.isEmpty() || viewers.computeIfAbsent(new ViewerKey(key, viewer.get()),
                             k -> listed(statusId, key, viewer)));
@@ -190,10 +199,11 @@ class StreamEvents {
     }
 
     /**
-     * The filter context of the timeline that a stream of statuses follows.
+     * The filter context of the timeline that a stream of statuses follows. Mastodon's {@code home} covers lists.
      */
     private static PostFilter.Context context(StreamKey key) {
-        return key.kind() == StreamKey.Kind.USER ? PostFilter.Context.HOME : PostFilter.Context.PUBLIC;
+        return key.kind() == StreamKey.Kind.USER || key.kind() == StreamKey.Kind.LIST
+                ? PostFilter.Context.HOME : PostFilter.Context.PUBLIC;
     }
 
     private boolean listed(UUID statusId, StreamKey key, Optional<UUID> viewer) {

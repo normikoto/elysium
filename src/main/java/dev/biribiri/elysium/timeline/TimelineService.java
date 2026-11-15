@@ -5,12 +5,14 @@ import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
+import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Service;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -18,10 +20,12 @@ public class TimelineService {
 
     private final StatusService statuses;
     private final FollowService follows;
+    private final AccountLists lists;
 
-    TimelineService(StatusService statuses, FollowService follows) {
+    TimelineService(StatusService statuses, FollowService follows, AccountLists lists) {
         this.statuses = statuses;
         this.follows = follows;
+        this.lists = lists;
     }
 
     /**
@@ -30,6 +34,22 @@ public class TimelineService {
      */
     public List<Status> homeTimeline(UUID viewerId, StatusPage page) {
         return statuses.findHome(viewerId, follows.followedIds(viewerId), page);
+    }
+
+    /**
+     * @return empty if the owner has no such list
+     */
+    public Optional<List<Status>> listTimeline(UUID ownerId, UUID listId, StatusPage page) {
+        return lists.find(ownerId, listId).map(list -> statuses.findList(list, page));
+    }
+
+    /**
+     * Which of these lists' timelines would list the status, so that a stream shows only what the timeline would. Lists
+     * that have since been deleted are left out.
+     */
+    public Set<UUID> listsShowing(UUID statusId, Collection<UUID> listIds) {
+        if (listIds.isEmpty()) return Set.of();
+        return Set.copyOf(statuses.listsShowing(statusId, lists.findByIds(listIds)));
     }
 
     /**

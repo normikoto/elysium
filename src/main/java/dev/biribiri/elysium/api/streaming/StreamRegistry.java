@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.api.streaming;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.graph.AccountLists;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,12 +41,14 @@ public class StreamRegistry {
     private final AtomicInteger count = new AtomicInteger();
     private final int maxConnections;
     private final OpaqueTokenIntrospector introspector;
+    private final AccountLists lists;
     private final ScheduledExecutorService heartbeats = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().name("stream-heartbeat").daemon().factory());
 
-    StreamRegistry(StreamingProperties properties, OpaqueTokenIntrospector introspector) {
+    StreamRegistry(StreamingProperties properties, OpaqueTokenIntrospector introspector, AccountLists lists) {
         this.maxConnections = properties.maxConnections();
         this.introspector = introspector;
+        this.lists = lists;
         heartbeats.scheduleWithFixedDelay(this::beat, HEARTBEAT.toMillis(), HEARTBEAT.toMillis(), TimeUnit.MILLISECONDS);
     }
 
@@ -87,13 +90,16 @@ public class StreamRegistry {
     /**
      * Subscribes a connection to a stream, which it can already be subscribed to.
      *
-     * @return why the connection's token can't read it, if it can't
+     * @return why the connection's token can't read it, if it can't, or that a list isn't the viewer's
      * @throws StreamKey.InvalidStreamException if the connection has as many subscriptions as it can
      */
     public Optional<StreamKey.Refusal> subscribe(StreamConnection connection, StreamKey key) {
         var refusal = key.refusal(connection.viewer(), connection.scopes(), connection.isAnonymous());
         if (refusal.isPresent()) {
             return refusal;
+        }
+        if (key.kind() == StreamKey.Kind.LIST && lists.find(connection.viewer().orElseThrow(), key.listId()).isEmpty()) {
+            return Optional.of(StreamKey.Refusal.LIST);
         }
         if (!connection.subscriptions().contains(key) && connection.subscriptionCount() >= MAX_SUBSCRIPTIONS) {
             throw new StreamKey.InvalidStreamException("Too many subscriptions");
