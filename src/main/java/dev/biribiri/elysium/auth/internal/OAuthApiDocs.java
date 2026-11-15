@@ -56,8 +56,13 @@ class OAuthApiDocs {
     private static final String METADATA_SCHEMA = "AuthorizationServerMetadata";
 
     private static final String CLIENT_AUTHENTICATION = """
-            The client authenticates with `client_id` and `client_secret` in the body, or with HTTP Basic. \
-            Only form-encoded bodies are accepted, not JSON.""";
+            The client authenticates with `client_id` and `client_secret` in the body, or with HTTP Basic. The body \
+            can be form-encoded or a JSON object.""";
+
+    private static final String JSON_BODY_ERROR = """
+            A JSON body that isn't an object, repeats a key, or has a field that's an array is also `invalid_request`.             Fields that are objects or null are ignored.""";
+
+    private static final String JSON_BODY_TOO_LARGE = "`invalid_request`: a JSON body is over 64 KB.";
 
     @Bean
     OpenApiCustomizer oauthApiDocs(InstanceProperties instance) {
@@ -237,7 +242,7 @@ class OAuthApiDocs {
                 .summary("Get a token")
                 .description("Issues a token for a user, with `authorization_code`, or for the application itself, "
                         + "with `client_credentials`. Tokens don't expire. " + CLIENT_AUTHENTICATION)
-                .requestBody(new RequestBody().required(true).content(form(body)))
+                .requestBody(formOrJson(body))
                 .responses(new ApiResponses()
                         .addApiResponse("200", new ApiResponse()
                                 .description("The token.")
@@ -246,8 +251,10 @@ class OAuthApiDocs {
                                 .content(json(ref(TOKEN_SCHEMA))))
                         .addApiResponse("400", error("""
                                 `invalid_grant`, `invalid_request`, `invalid_scope`, or `unsupported_grant_type`. \
-                                `invalid_scope` includes scopes the application didn't register for."""))
-                        .addApiResponse("401", error("`invalid_client`: the client's credentials are missing or wrong.")));
+                                `invalid_scope` includes scopes the application didn't register for. """
+                                + JSON_BODY_ERROR))
+                        .addApiResponse("401", error("`invalid_client`: the client's credentials are missing or wrong."))
+                        .addApiResponse("413", error(JSON_BODY_TOO_LARGE)));
     }
 
     private static Operation revoke() {
@@ -263,14 +270,15 @@ class OAuthApiDocs {
                 .summary("Revoke a token")
                 .description("Revokes a token issued to the client. Revoking an unknown token succeeds, rather than "
                         + "returning the 403 that Mastodon documents. " + CLIENT_AUTHENTICATION)
-                .requestBody(new RequestBody().required(true).content(form(body)))
+                .requestBody(formOrJson(body))
                 .responses(new ApiResponses()
                         .addApiResponse("200", new ApiResponse()
                                 .description("An empty object, whether or not the token existed.")
                                 .content(json(new ObjectSchema())))
-                        .addApiResponse("400", error("`invalid_request`, such as a missing `token`."))
+                        .addApiResponse("400", error("`invalid_request`, such as a missing `token`. " + JSON_BODY_ERROR))
                         .addApiResponse("401", error("`invalid_client`: the client's credentials are missing or wrong."))
-                        .addApiResponse("403", error("`unauthorized_client`: the token belongs to another client.")));
+                        .addApiResponse("403", error("`unauthorized_client`: the token belongs to another client."))
+                        .addApiResponse("413", error(JSON_BODY_TOO_LARGE)));
     }
 
     private static Operation metadata() {
@@ -356,6 +364,10 @@ class OAuthApiDocs {
 
     private static Content form(Schema<?> schema) {
         return new Content().addMediaType(FORM, new MediaType().schema(schema));
+    }
+
+    private static RequestBody formOrJson(Schema<?> schema) {
+        return new RequestBody().required(true).content(form(schema).addMediaType(JSON, new MediaType().schema(schema)));
     }
 
     private static Content html() {

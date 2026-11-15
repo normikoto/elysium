@@ -30,6 +30,7 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.authentication.preauth.AbstractPreAuthenticatedProcessingFilter;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
@@ -37,6 +38,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.Set;
@@ -150,10 +152,12 @@ class SecurityConfig {
             OAuthResponses responses,
             AdminAccess adminAccess,
             ActorService actors,
-            LocalAccounts accounts) {
+            LocalAccounts accounts,
+            JsonMapper json) {
         return http
                 .securityMatcher(authorizationServerRequests())
                 .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
+                .addFilterBefore(new JsonTokenRequestFilter(json, responses), AbstractPreAuthenticatedProcessingFilter.class)
                 .cors(cors -> cors.configurationSource(clientCors()))
                 .oauth2AuthorizationServer(server -> configure(server, instance, responses, adminAccess))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())

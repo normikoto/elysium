@@ -147,6 +147,15 @@ class OAuthResponses {
         writeError(response, HttpStatus.BAD_REQUEST, new OAuth2Error(code));
     }
 
+    void invalidRequest(HttpServletResponse response, String description) throws IOException {
+        writeError(response, HttpStatus.BAD_REQUEST, new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST, description, null));
+    }
+
+    void bodyTooLarge(HttpServletResponse response) throws IOException {
+        writeError(response, HttpStatus.CONTENT_TOO_LARGE,
+                new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST, "The request body is too large.", null));
+    }
+
     void invalidToken(HttpServletResponse response) throws IOException {
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
         writeJson(response, HttpStatus.UNAUTHORIZED, Map.of("error", "The access token is invalid"));
