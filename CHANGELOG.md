@@ -253,6 +253,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The page of a followers-only or direct post now shows it to whoever is logged in to the server's website and can see
+  it: its author, the author's followers for a followers-only post, and the accounts it mentions. Anyone else still gets
+  a page saying it wasn't found. Profiles and the front page still only show public and unlisted posts.
+
 - An avatar or header that's too large now gets a 422 with the reason, rather than a 413, since the server takes
   larger files for posts.
 

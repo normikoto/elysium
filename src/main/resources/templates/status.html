@@ -5,6 +5,8 @@
         <p th:if="${parent != null}">
             In reply to <a th:href="@{${parent.url}}" th:text="${parent.authorName}"></a>
         </p>
+        <p th:if="${visibility == 'private'}">Only visible to followers and mentioned accounts</p>
+        <p th:if="${visibility == 'direct'}">Only visible to mentioned accounts</p>
         <th:block th:insert="~{status-card :: card(${view})}"></th:block>
         <p><a th:href="@{${view.authorUrl}}" th:text="|More from ${view.authorName}|"></a></p>
     </div>
