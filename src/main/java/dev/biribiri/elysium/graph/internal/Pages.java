@@ -8,6 +8,7 @@ import java.net.URI;
 import java.util.HashMap;
 import java.util.UUID;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Pages through a local account's list of blocks or mutes, newest first, in the same way as follows: by when each was made,
@@ -23,10 +24,19 @@ final class Pages {
      * @param extra more conditions on the row, joined as {@code r}, or an empty string
      */
     static List<FollowEntry> find(JdbcClient jdbc, String table, String extra, UUID accountId, FollowPage page) {
+        return find(jdbc, table, extra, Map.of(), accountId, page);
+    }
+
+    /**
+     * @param extraParameters what {@code extra} binds
+     */
+    static List<FollowEntry> find(JdbcClient jdbc, String table, String extra, Map<String, ?> extraParameters,
+                                  UUID accountId, FollowPage page) {
         var sql = new StringBuilder("SELECT r.id, a.id AS other_id, a.uri AS other_uri FROM ").append(table)
                 .append(" r JOIN actor a ON a.id = r.target_id WHERE r.account_id = :account")
                 .append(" AND a.suspended_at IS NULL AND a.deleted_at IS NULL").append(extra);
         var parameters = new HashMap<String, Object>();
+        parameters.putAll(extraParameters);
         parameters.put("account", accountId);
         var cursor = " (SELECT created_at, id FROM " + table + " WHERE id = ";
         if (page.maxId() != null) {

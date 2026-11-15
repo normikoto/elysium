@@ -1,5 +1,5 @@
 /**
- * Relationships between actors: follows, blocks, and mutes.
+ * Relationships between actors: follows, blocks, mutes, and the lists that users sort the accounts they follow into.
  */
 @ApplicationModule(allowedDependencies = "actor")
 package dev.biribiri.elysium.graph;

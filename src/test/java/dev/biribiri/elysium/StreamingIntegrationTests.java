@@ -20,6 +20,7 @@ import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.timeline.TimelineService;
@@ -86,6 +87,7 @@ class StreamingIntegrationTests {
     @Autowired JdbcClient jdbc;
     @Autowired PostFilters filters;
     @Autowired PostFilterCache filterCache;
+    @Autowired AccountLists lists;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final List<Client> clients = new ArrayList<>();
@@ -103,6 +105,7 @@ class StreamingIntegrationTests {
         jdbc.sql("DELETE FROM inbox_notification").update();
         jdbc.sql("DELETE FROM inbox_conversation").update();
         jdbc.sql("DELETE FROM post_filter").update();
+        jdbc.sql("DELETE FROM account_list").update();
         filterCache.clear();
         TestAccounts.makeSureAnAccountExists(actors);
         aliceToken = token("streamalice");
@@ -175,6 +178,34 @@ class StreamingIntegrationTests {
         assertThat(JsonPath.<List<String>>read(message, "$.stream")).containsExactly("user");
         assertThat(message).doesNotContain("payload");
         bobStream.expectNothing();
+    }
+
+    @Test
+    void aListStreamCarriesItsMembersAndOnlyForItsOwner() throws Exception {
+        follows.follow(alice, bob);
+        var list = lists.create(alice.id(), "Friends", null, true);
+        assertThat(lists.addMembers(alice.id(), list.id(), List.of(bob.id()))).isTrue();
+        var stream = webSocket("?stream=list&list=" + list.id(), aliceToken);
+        var home = webSocket("?stream=user", aliceToken);
+
+        var status = post(bob, "to the list", Visibility.PUBLIC);
+        var update = stream.next(event("update"));
+        assertThat(JsonPath.<List<String>>read(update, "$.stream")).containsExactly("list", list.id().toString());
+        assertThat(JsonPath.<String>read((String) JsonPath.read(update, "$.payload"), "$.id"))
+                .isEqualTo(status.id().toString());
+        // An exclusive list's members are left out of home.
+        home.expectNothing();
+
+        var refused = webSocket("", bobToken);
+        refused.send("{\"type\":\"subscribe\",\"stream\":\"list\",\"list\":\"" + list.id() + "\"}");
+        var error = refused.next(found -> true);
+        assertThat(JsonPath.<String>read(error, "$.error")).isEqualTo("Not authorized to stream this list");
+        assertThat(JsonPath.<Integer>read(error, "$.status")).isEqualTo(401);
+        refused.send("{\"type\":\"subscribe\",\"stream\":\"list\"}");
+        assertThat(JsonPath.<String>read(refused.next(found -> true), "$.error"))
+                .isEqualTo("Missing list name parameter");
+        assertThat(get("/api/v1/streaming/list?list=" + list.id() + "&access_token=" + bobToken).statusCode())
+                .isEqualTo(401);
     }
 
     @Test
@@ -265,7 +296,7 @@ class StreamingIntegrationTests {
         var refused = stream.next(found -> true);
         assertThat(JsonPath.<Integer>read(refused, "$.status")).isEqualTo(401);
 
-        stream.send("{\"type\":\"subscribe\",\"stream\":\"list\",\"list\":\"1\"}");
+        stream.send("{\"type\":\"subscribe\",\"stream\":\"lists\"}");
         var unknown = stream.next(found -> true);
         assertThat(JsonPath.<String>read(unknown, "$.error")).isEqualTo("Unknown stream type");
         assertThat(JsonPath.<Integer>read(unknown, "$.status")).isEqualTo(400);
@@ -341,7 +372,8 @@ class StreamingIntegrationTests {
         assertThat(fromEventSource.statusCode()).isEqualTo(400);
         assertThat(JsonPath.<String>read(fromEventSource.body(), "$.error")).isEqualTo("Missing tag name parameter");
         assertThat(get("/api/v1/streaming/user").statusCode()).isEqualTo(401);
-        assertThat(get("/api/v1/streaming/list?list=1&access_token=" + aliceToken).statusCode()).isEqualTo(404);
+        assertThat(get("/api/v1/streaming/list?access_token=" + aliceToken).statusCode()).isEqualTo(400);
+        assertThat(get("/api/v1/streaming/list?list=1&access_token=" + aliceToken).statusCode()).isEqualTo(401);
     }
 
     @Test

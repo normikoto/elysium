@@ -60,7 +60,7 @@ class StreamingWebSocketHandler extends TextWebSocketHandler {
         var query = query(session);
         var stream = query.get("stream");
         if (stream != null) {
-            if (!subscribe(connection, stream, query.get("tag"))) {
+            if (!subscribe(connection, stream, query.get("tag"), query.get("list"))) {
                 connection.close();
             }
         }
@@ -83,13 +83,14 @@ class StreamingWebSocketHandler extends TextWebSocketHandler {
         var type = text(body, "type");
         var stream = text(body, "stream");
         var tag = text(body, "tag");
+        var list = text(body, "list");
         switch (type == null ? "" : type) {
-            case "subscribe" -> subscribe(connection, stream, tag);
+            case "subscribe" -> subscribe(connection, stream, tag, list);
             case "unsubscribe" -> {
                 try {
-                    registry.unsubscribe(connection, StreamKey.parse(stream, tag));
+                    registry.unsubscribe(connection, StreamKey.parse(stream, tag, list));
                 } catch (StreamKey.InvalidStreamException e) {
-                    connection.error(e.getMessage(), 400);
+                    connection.error(e.getMessage(), e.status());
                 }
             }
             default -> connection.error("Unknown message type", 400);
@@ -99,13 +100,13 @@ class StreamingWebSocketHandler extends TextWebSocketHandler {
     /**
      * @return whether it subscribed
      */
-    private boolean subscribe(StreamConnection connection, String stream, String tag) {
+    private boolean subscribe(StreamConnection connection, String stream, String tag, String list) {
         try {
-            var refusal = registry.subscribe(connection, StreamKey.parse(stream, tag));
+            var refusal = registry.subscribe(connection, StreamKey.parse(stream, tag, list));
             refusal.ifPresent(reason -> connection.error(reason.message(), reason.status()));
             return refusal.isEmpty();
         } catch (StreamKey.InvalidStreamException e) {
-            connection.error(e.getMessage(), 400);
+            connection.error(e.getMessage(), e.status());
             return false;
         }
     }

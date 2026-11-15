@@ -13,6 +13,7 @@ import dev.biribiri.elysium.content.internal.QuoteRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
+import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.text.Hashtags;
@@ -1385,6 +1386,17 @@ public class StatusService {
      */
     public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
         return statuses.homeViewers(statusId, candidates);
+    }
+
+    public List<Status> findList(AccountList list, StatusPage page) {
+        return statuses.findList(list, page);
+    }
+
+    /**
+     * Which of these lists {@link #findList} would list this status in.
+     */
+    public List<UUID> listsShowing(UUID statusId, Collection<AccountList> lists) {
+        return statuses.listsShowing(statusId, lists);
     }
 
     /**

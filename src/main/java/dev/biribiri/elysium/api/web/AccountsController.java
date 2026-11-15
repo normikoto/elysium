@@ -12,6 +12,7 @@ import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowNotAllowedException;
@@ -96,6 +97,7 @@ public class AccountsController {
     private final ProfileService profiles;
     private final PostingDefaults postingDefaults;
     private final StatusPinService pins;
+    private final AccountLists lists;
 
     AccountsController(
             ActorService actors,
@@ -111,7 +113,9 @@ public class AccountsController {
             InstanceProperties instance,
             ProfileService profiles,
             PostingDefaults postingDefaults,
-            StatusPinService pins) {
+            StatusPinService pins,
+            AccountLists lists) {
+        this.lists = lists;
         this.pins = pins;
         this.profiles = profiles;
         this.postingDefaults = postingDefaults;
@@ -541,6 +545,25 @@ public class AccountsController {
     @ExceptionHandler
     ResponseEntity<Map<String, String>> notAllowed(FollowNotAllowedException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This action is not allowed"));
+    }
+
+    @GetMapping("/{id}/lists")
+    @PreAuthorize("hasAuthority('SCOPE_read:lists')")
+    @Operation(
+            operationId = "getAccountLists",
+            summary = "List the user's lists that have an account",
+            description = "Oldest first. A suspended or deleted account gets a 404.\n\n" + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#lists"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The lists."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public List<ListResponse> lists(@AuthenticationPrincipal TokenPrincipal token,
+                                    @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
+        var account = activeAccount(id);
+        return lists.containing(viewer, account.id()).stream().map(ListResponse::from).toList();
     }
 
     @GetMapping("/{id}/followers")

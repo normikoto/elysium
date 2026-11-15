@@ -87,8 +87,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   never answers `206`, and an account's stored statuses show as soon as it's followed, older ones too. A followed
   account's reply is only listed when it's to its author, to the user, or to someone they follow, as on Mastodon, and one
   to a status that isn't stored here is left out. Direct messages addressed to the user are included only when they
-  follow the author. The user's own statuses and replies are always listed. `local` has no effect. List timelines aren't implemented, and
-  followed hashtags don't add statuses to it.
+  follow the author. The user's own statuses and replies are always listed. Statuses and boosts by members of the user's
+  exclusive lists are left out, as on Mastodon. `local` has no effect, and followed hashtags don't add statuses to it.
 - `GET /api/v1/timelines/public` lists public statuses from other servers too, as on Mastodon. With both `local` and
   `remote`, `local` wins. Boosts aren't listed there, as on Mastodon.
 - `GET /api/v1/timelines/tag/:hashtag` lists public statuses with the tag, replies included, from this server and others,
@@ -264,19 +264,36 @@ Filters follow [Mastodon's filters API](https://docs.joinmastodon.org/methods/fi
 - Deleting a v1 filter removes its keyword, and also its v2 filter if nothing else is left in it, where Mastodon keeps an
   empty filter.
 
+Lists follow [Mastodon's lists API](https://docs.joinmastodon.org/methods/lists/), with
+`GET /api/v1/timelines/list/:list_id` and `GET /api/v1/accounts/:id/lists`:
+
+- A user can have up to 50 lists, as on Mastodon, and a title can be up to 256 characters, which Mastodon doesn't limit.
+  Going over either gets a 422. Lists are listed oldest first.
+- An account can be added once the user follows it or has asked to, as on Mastodon. Adding one they don't follow, or one
+  that's suspended, deleted, or unknown, gets a 404, and one that's already in the list a 422. Either way, none of the
+  accounts are added. Unfollowing or blocking an account takes it out of the user's lists, as on Mastodon.
+- `GET /api/v1/lists/:id/accounts` pages by when each account was added, newest first, and the cursors are the IDs in the
+  `Link` header, not account IDs. `limit=0` lists all of them, as on Mastodon. Suspended and deleted accounts are left out.
+- A list's timeline is worked out from the statuses stored here each time, as the home timeline is, so a newly added
+  member's older statuses show straight away. It lists what the home timeline would of its members' statuses and boosts,
+  apart from direct statuses, and nothing from a member whose follow request is still waiting. A member's reply to
+  themselves or to the user is always listed, and other replies by `replies_policy`. Filters for `home` apply to it, as
+  on Mastodon.
+- `exclusive` leaves the members' statuses and boosts out of the home timeline and the `user` stream.
+
 Streaming follows [Mastodon's streaming API](https://docs.joinmastodon.org/methods/streaming/), over a WebSocket at
 `/api/v1/streaming`, which `urls.streaming_api` points to, and as server-sent events at its other paths. These are the
 differences:
 
-- Lists aren't implemented, so `list` gets an "Unknown stream type" error, and `/api/v1/streaming/list` a 404. There are no
-  `announcement`, `announcement.reaction`, `announcement.delete`, `notifications_merged`, or `encrypted_message` events.
+- There are no `announcement`, `announcement.reaction`, `announcement.delete`, `notifications_merged`, or `encrypted_message` events.
   `filters_changed` is sent on `user`, as on Mastodon, with no payload: the WebSocket message has no `payload`, and the
   event stream's `data` is empty. An edit that makes a status match a filter that hides it there is sent as a `delete`.
-- A stream carries what its timeline would list: `user` what the home timeline would, and `public` and `hashtag` what the
-  public and hashtag timelines would, including leaving out what the user has hidden or their filters hide. A status from
+- A stream carries what its timeline would list: `user` what the home timeline would, `list` what the list's timeline
+  would, and `public` and `hashtag` what the public and hashtag timelines would, including leaving out what the user has hidden or their filters hide. A status from
   another server only arrives once it's stored here.
 - `public`, `public:local`, `public:remote`, their `:media` forms, `hashtag`, and `hashtag:local` work without a token, as
-  their timelines do. With one, they need `read:statuses`. `user` and `direct` need `read:statuses` and
+  their timelines do. With one, they need `read:statuses`. `user`, `direct`, and `list` need `read:statuses`, as on
+  Mastodon, though a list's timeline needs `read:lists`, and
   `user:notification` needs `read:notifications`, with a user token, and `user` only has notifications if the token can
   read them.
 - `delete` goes to every stream that carries statuses, whether or not it carried that status.
@@ -286,8 +303,9 @@ differences:
   stays open. A stream given in the URL that can't be subscribed to gets the error, and the connection is closed.
 - The token can be in the `Authorization` header, the `access_token` query parameter, or the `Sec-WebSocket-Protocol`, but
   the last two only work for streaming.
-- An event stream with a missing or invalid `tag` gets a 400, and one with an app token for a stream that needs a user
-  gets a 422.
+- An event stream with a missing or invalid `tag`, or a missing `list`, gets a 400, and one with an app token for a stream
+  that needs a user gets a 422. A `list` that isn't the user's, or doesn't exist, gets a 401 with "Not authorized to
+  stream this list", as on Mastodon, on a WebSocket too.
 - The server limits how many streaming connections can be open at once, from all clients together. Past that, a WebSocket
   is closed with code 1013, and an event stream gets a 503.
 - A connection is closed within about 30 seconds of its token being revoked or expiring, or its account being suspended.

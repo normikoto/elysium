@@ -42,10 +42,10 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `ratelimit`                   |
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
-| `graph`       | Follows, blocks, and mutes                 | `actor`                                        |
+| `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
 | `moderation`  | Domain blocks and reports                  | `actor`, `content`                             |
 | `inbox`       | Notifications, conversations, read markers | `actor`, `auth`, `content`, `graph`, `moderation` |
-| `timeline`    | Home and public feeds                      | `actor`, `content`, `graph`                    |
+| `timeline`    | Home, list, and public feeds               | `actor`, `content`, `graph`                    |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `inbox`, `moderation`, `text`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `content`, `text`                     |
 | `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `inbox`, `moderation`, `ratelimit`, `text` |

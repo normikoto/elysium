@@ -196,12 +196,32 @@ class StreamingController {
         return stream(authentication, StreamKey.parse("hashtag:local", tag));
     }
 
+    @GetMapping(path = "/list", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("hasAuthority('SCOPE_read:statuses')")
+    @Operation(operationId = "streamList", summary = "Stream a list's timeline",
+            description = DIFFERENCES + "\n\nCarries what the list's timeline would list. It needs "
+                    + "`read:statuses`, as on Mastodon, though the list's timeline needs `read:lists`. " + EVENTS + " "
+                    + TOKEN + "\n\n" + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#list"),
+            parameters = @Parameter(name = "list", description = "The list's ID.", required = true),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = OPEN),
+                    @ApiResponse(responseCode = "400", description = "`list` is missing."),
+                    @ApiResponse(responseCode = "401", description = """
+                            The list isn't the user's, or doesn't exist, or its ID isn't a UUID, as on Mastodon."""),
+                    @ApiResponse(responseCode = "422", description = "The token has no user."),
+                    @ApiResponse(responseCode = "503", description = TOO_MANY)
+            })
+    ResponseEntity<SseEmitter> list(Authentication authentication, @RequestParam(required = false) String list) {
+        return stream(authentication, StreamKey.parse("list", null, list));
+    }
+
     // Each error names its content type, since an EventSource only accepts text/event-stream, which a JSON body
     // couldn't otherwise be written as.
 
     @ExceptionHandler
     ResponseEntity<Map<String, String>> invalidStream(StreamKey.InvalidStreamException e) {
-        return error(HttpStatus.BAD_REQUEST, e.getMessage());
+        return error(HttpStatus.valueOf(e.status()), e.getMessage());
     }
 
     @ExceptionHandler
@@ -225,8 +245,9 @@ class StreamingController {
         var refusal = registry.subscribe(connection, key);
         if (refusal.isPresent()) {
             connection.closeNow();
-            // Scopes were already checked, so the only refusal left is a token with no user.
-            throw InvalidRequestException.requiresUser();
+            // Scopes were already checked, so what's left is a token with no user, or someone else's list.
+            if (refusal.get() == StreamKey.Refusal.USER) throw InvalidRequestException.requiresUser();
+            throw new StreamKey.InvalidStreamException(refusal.get().message(), refusal.get().status());
         }
         emitter.onCompletion(connection::closeNow);
         emitter.onTimeout(connection::closeNow);
