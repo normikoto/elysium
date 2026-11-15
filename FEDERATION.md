@@ -682,8 +682,9 @@ described with those.
 An `Update`'s `object` can be an ID, an embedded object, or an array of one of those.
 
 - **Actors:** an `Update` whose `object` has the `actor`'s own `id` makes this server fetch the actor's document again,
-  signed as the [instance actor](#instance-actor), however recently it was fetched. The embedded object isn't read,
-  since not every server says when an actor changed, so the document's server is the only one that knows what's current.
+  signed as the [instance actor](#instance-actor), however recently it was fetched, and again 5 minutes later, since
+  Mastodon serves actor documents from a cache for 3 minutes. The embedded object isn't read, since not every server
+  says when an actor changed, so the document's server is the only one that knows what's current.
   What's stored is [what a `Follow` stores](#follows): the username, inboxes, `followers` collection, key, and
   [profile](#profiles-from-other-servers). A key
   that the new document has dropped, or has with a different value, isn't used for signatures from then on, and is

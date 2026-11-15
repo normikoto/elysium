@@ -74,6 +74,8 @@ class UpdateIntegrationTests {
     private ProfileService profiles;
     @Autowired
     private CustomEmojis emojis;
+    @Autowired
+    private ActorRefetch refetch;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -435,6 +437,34 @@ class UpdateIntegrationTests {
         jdbc.sql("UPDATE custom_emoji SET seen_at = now() - interval '30 days' WHERE domain = :domain")
                 .param("domain", host)
                 .update();
+    }
+
+    @Test
+    void anActorsDocumentIsFetchedAgainLaterInCaseItsServerServedAnOldCopy() throws Exception {
+        var stale = new HashMap<>(actorDocument(author.uri(), "/inbox", "key"));
+        stale.put("name", "Old");
+        var current = new HashMap<>(stale);
+        current.put("name", "New");
+        when(documents.fetch(eq(author.uri())))
+                .thenReturn(json.readTree(json.writeValueAsString(stale)))
+                .thenReturn(json.readTree(json.writeValueAsString(current)));
+        var before = Instant.now();
+
+        handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
+
+        assertThat(profiles.find(author.id()).displayName()).isEqualTo("Old");
+        var job = jdbc.sql("""
+                        SELECT execution_time FROM scheduled_tasks
+                        WHERE task_name = 'actor-refetch' AND convert_from(task_data, 'UTF8') LIKE :uri
+                        """)
+                .param("uri", "%" + author.uri() + "%")
+                .query(Timestamp.class)
+                .single();
+        assertThat(job.toInstant()).isAfterOrEqualTo(before.plus(ActorRefetch.DELAY));
+
+        refetch.run(new ActorRefetchJob(author.uri().toString(), Instant.now()));
+
+        assertThat(profiles.find(author.id()).displayName()).isEqualTo("New");
     }
 
     @Test

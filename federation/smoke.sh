@@ -1109,7 +1109,7 @@ expect_follower() {
 # Passing means that Elysium took the other server's Update of the lab user, fetched its actor again, and stored its new
 # display name. This runs while alice follows the lab user, because servers send these to followers.
 rename_lab() {
-    local domain=$1 before found
+    local domain=$1 tries=60 before found
     before=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
         "SELECT updated_at FROM actor WHERE domain = '$domain' AND username = 'lab'")
     [[ -n $before ]] || fail "Elysium has no lab@$domain"
@@ -1128,8 +1128,11 @@ rename_lab() {
             misskey_api i/update '{"name": "Renamed lab"}' >/dev/null
             ;;
     esac
+    # Mastodon serves its actor documents from a cache for 3 minutes, so the new name only arrives with the fetch that
+    # Elysium makes again 5 minutes after the Update.
+    [[ $domain == mastodon.test ]] && tries=240
     echo "Waiting for Elysium to fetch lab@$domain again"
-    for _ in $(seq 1 60); do
+    for _ in $(seq 1 "$tries"); do
         found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
             "SELECT count(*) FROM actor a JOIN profile p ON p.actor_id = a.id
              WHERE a.domain = '$domain' AND a.username = 'lab' AND a.updated_at > '$before'
