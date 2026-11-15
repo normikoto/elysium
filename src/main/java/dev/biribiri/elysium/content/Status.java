@@ -58,6 +58,15 @@ public record Status(
     }
 
     /**
+     * The page to link to: the one another server gave, or else the URI, which serves this server's page for a local
+     * status. A local followers-only or direct status has no page, since pages are for anonymous viewers, but still links
+     * to its URI, as Mastodon gives every status but a boost a link, and clients such as Enafore rely on it.
+     */
+    public URI link() {
+        return url == null ? uri : url;
+    }
+
+    /**
      * Whether a viewer can see this status without knowing who follows whom. Use {@link StatusService#isVisible}, which also
      * lets followers see followers-only statuses, unless the viewer is anonymous or is the author.
      */

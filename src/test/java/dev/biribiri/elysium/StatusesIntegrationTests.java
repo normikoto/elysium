@@ -317,16 +317,34 @@ class StatusesIntegrationTests {
     // Reading
 
     @Test
-    void onlyLinksToStatusPagesThatExist() throws Exception {
-        for (var visibility : List.of("public", "unlisted")) {
-            mockMvc.perform(createRequest(alice(), "Text").param("visibility", visibility))
-                    .andExpect(jsonPath("$.url").value(containsString("https://elysium.example/users/alice/statuses/")));
-        }
-        for (var visibility : List.of("private", "direct")) {
+    void linksEveryStatusWhateverItsVisibility() throws Exception {
+        for (var visibility : List.of("public", "unlisted", "private", "direct")) {
             mockMvc.perform(createRequest(alice(), "Text").param("visibility", visibility))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.url").value(nullValue()));
+                    .andExpect(jsonPath("$.url").value(containsString("https://elysium.example/users/alice/statuses/")));
         }
+    }
+
+    @Test
+    void linksARemoteStatusThatGaveNoPageToItsUri() throws Exception {
+        var authorId = remoteAuthor();
+        var uri = URI.create(actors.findById(authorId).orElseThrow().uri() + "/notes/" + UUID.randomUUID());
+        var id = statuses.storeRemote(new RemoteStatus(
+                uri, null, authorId, "<p>Hi</p>", null, null, Visibility.DIRECT, false, null, Instant.now(), null,
+                Map.of(UUID.fromString(bobId()), true))).orElseThrow();
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").value(uri.toString()));
+    }
+
+    @Test
+    void givesABoostNoLinkOfItsOwn() throws Exception {
+        var id = create(alice(), "Hello");
+        var boost = expectCreated(withToken(post("/api/v1/statuses/" + id + "/reblog"), bob()));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + boost), bob()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").value(nullValue()))
+                .andExpect(jsonPath("$.reblog.url").value(containsString("https://elysium.example/users/alice/statuses/" + id)));
     }
 
     @Test

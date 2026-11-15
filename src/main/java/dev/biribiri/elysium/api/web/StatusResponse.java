@@ -8,7 +8,6 @@ import dev.biribiri.elysium.content.LikeStats;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -17,7 +16,8 @@ import java.util.UUID;
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Cards don't exist yet, so `card` is always null. A boost has the boosted status in `reblog`, and no content of its own. \
+        Mastodon's Status entity. Cards don't exist yet, so `card` is always null. `url` is null only for a boost, and \
+        for a followers-only or direct status from this server it leads to a page that says it wasn't found. A boost has the boosted status in `reblog`, and no content of its own. \
         `reblogs_count`, `favourites_count` and `quotes_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
         edited, or null if it never was.""")
@@ -143,18 +143,8 @@ record StatusResponse(
                 new ReactionResponse.Pleroma(reactions));
     }
 
-    /**
-     * A status from another server links to the page it gave. Web pages here always read as an anonymous viewer, so a local
-     * status that anyone can't see has no page to link to.
-     */
     private static String pageUrl(Status status) {
-        if (status.isReblog()) {
-            return null;
-        }
-        if (status.url() != null) {
-            return status.url().toString();
-        }
-        return status.isVisibleTo(Optional.empty()) ? status.uri().toString() : null;
+        return status.isReblog() ? null : status.link().toString();
     }
 
     private static String string(UUID id) {
