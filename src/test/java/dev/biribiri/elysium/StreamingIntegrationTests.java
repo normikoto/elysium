@@ -9,6 +9,7 @@ import dev.biribiri.elysium.api.streaming.StreamRegistry;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.PostFilter;
+import dev.biribiri.elysium.content.PostFilterCache;
 import dev.biribiri.elysium.content.PostFilterChange;
 import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.RemoteStatus;
@@ -84,6 +85,7 @@ class StreamingIntegrationTests {
     @Autowired StreamRegistry registry;
     @Autowired JdbcClient jdbc;
     @Autowired PostFilters filters;
+    @Autowired PostFilterCache filterCache;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final List<Client> clients = new ArrayList<>();
@@ -101,6 +103,7 @@ class StreamingIntegrationTests {
         jdbc.sql("DELETE FROM inbox_notification").update();
         jdbc.sql("DELETE FROM inbox_conversation").update();
         jdbc.sql("DELETE FROM post_filter").update();
+        filterCache.clear();
         TestAccounts.makeSureAnAccountExists(actors);
         aliceToken = token("streamalice");
         bobToken = token("streambob");

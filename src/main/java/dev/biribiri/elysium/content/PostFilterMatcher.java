@@ -1,8 +1,11 @@
 package dev.biribiri.elysium.content;
 
+import java.time.Instant;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -24,9 +27,19 @@ public final class PostFilterMatcher {
     private static final Pattern WORD_CHARACTER = Pattern.compile("\\w", FLAGS);
 
     private final List<Compiled> filters;
+    private final Instant validUntil;
 
     PostFilterMatcher(List<PostFilter> filters) {
         this.filters = filters.stream().map(Compiled::of).toList();
+        this.validUntil = filters.stream().map(PostFilter::expiresAt).filter(Objects::nonNull).min(Comparator.naturalOrder())
+                .orElse(null);
+    }
+
+    /**
+     * @return when the first of its filters expires, after which it no longer matches what applies, or null if none do
+     */
+    Instant validUntil() {
+        return validUntil;
     }
 
     public boolean isEmpty() {

@@ -251,6 +251,8 @@ Filters follow [Mastodon's filters API](https://docs.joinmastodon.org/methods/fi
   and keywords up to 512. Mastodon has no limit on how many there are, and going over these gets a 422.
 - Adding a status to a filter needs a status the user can see, or the answer is a 404. A status that's deleted is taken
   out of the filters it was in.
+- Where more than one copy of the server runs, a change to a user's filters can take up to a minute to apply to what the
+  other copies list.
 - `keywords_attributes` can be a list or an object keyed by position in JSON. In a form, it can be
   `keywords_attributes[][keyword]`, where the nth value of each field makes the nth keyword, or numbered, as
   `keywords_attributes[0][keyword]`. A keyword's `id` that isn't one of the filter's gets a 404, and nothing changes.

@@ -3,6 +3,7 @@ package dev.biribiri.elysium;
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.PostFilterCache;
 import dev.biribiri.elysium.content.PostFilters;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,11 +57,14 @@ class FiltersIntegrationTests {
     private ActorService actors;
     @Autowired
     private PostFilters filters;
+    @Autowired
+    private PostFilterCache cache;
 
     @BeforeEach
     void setUp() {
         TestAccounts.makeSureAnAccountExists(actors);
         jdbc.sql("DELETE FROM post_filter").update();
+        cache.clear();
         jdbc.sql("DELETE FROM status").update();
         jdbc.sql("DELETE FROM follow").update();
         jdbc.sql("DELETE FROM inbox_notification").update();
@@ -469,6 +473,7 @@ class FiltersIntegrationTests {
         mockMvc.perform(withToken(get("/api/v1/timelines/home"), alice)).andExpect(jsonPath("$", hasSize(0)));
 
         jdbc.sql("UPDATE post_filter SET expires_at = now() - interval '1 minute'").update();
+        cache.clear();
         mockMvc.perform(withToken(get("/api/v1/timelines/home"), alice))
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].filtered", hasSize(0)));

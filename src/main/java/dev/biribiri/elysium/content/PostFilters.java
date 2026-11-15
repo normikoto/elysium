@@ -38,8 +38,11 @@ public class PostFilters {
     private final PostFilterRepository repository;
     private final StatusService statuses;
     private final ApplicationEventPublisher events;
+    private final PostFilterCache cache;
 
-    PostFilters(PostFilterRepository repository, StatusService statuses, ApplicationEventPublisher events) {
+    PostFilters(PostFilterRepository repository, StatusService statuses, ApplicationEventPublisher events,
+                PostFilterCache cache) {
+        this.cache = cache;
         this.repository = repository;
         this.statuses = statuses;
         this.events = events;
@@ -60,8 +63,7 @@ public class PostFilters {
      * The account's filters that apply now, for matching statuses shown to it.
      */
     public PostFilterMatcher matcher(UUID accountId) {
-        var active = repository.findActiveByAccount(accountId, Instant.now());
-        return active.isEmpty() ? PostFilterMatcher.NONE : new PostFilterMatcher(active);
+        return cache.get(accountId, account -> repository.findActiveByAccount(account, Instant.now()));
     }
 
     /**
@@ -332,6 +334,7 @@ public class PostFilters {
      */
     public void removeForActor(UUID accountId) {
         repository.deleteForAccount(accountId);
+        cache.forget(accountId);
     }
 
     /**
@@ -395,6 +398,7 @@ public class PostFilters {
     }
 
     private void changed(UUID accountId) {
+        cache.forget(accountId);
         events.publishEvent(new FiltersChanged(accountId));
     }
 }
