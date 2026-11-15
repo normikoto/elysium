@@ -117,7 +117,9 @@ class ApiDocsIntegrationTests {
                 .andExpect(jsonPath("$.paths['/oauth/token'].post.responses['200'].content['application/json'].schema"
                         + "['$ref']").value("#/components/schemas/Token"))
                 .andExpect(jsonPath(requestBody + "['application/x-www-form-urlencoded']").exists())
-                .andExpect(jsonPath(requestBody + "['application/json']").doesNotExist())
+                .andExpect(jsonPath(requestBody + "['application/json']").exists())
+                .andExpect(jsonPath("$.paths['/oauth/revoke'].post.requestBody.content['application/json']")
+                        .exists())
                 .andExpect(jsonPath("$.paths['/oauth/revoke'].post.responses['403']").exists());
     }
 

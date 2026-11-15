@@ -200,6 +200,65 @@ class OAuthIntegrationTests {
     }
 
     @Test
+    void acceptsJsonTokenRequests() throws Exception {
+        var app = registerApp("read write", REDIRECT_URI);
+        mockMvc.perform(post("/oauth/token")
+                        .contentType("application/json; charset=utf-8")
+                        .content("""
+                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
+                                 "scope": "write"}""".formatted(app.clientId(), app.clientSecret())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("write"));
+    }
+
+    @Test
+    void completesTheCodeFlowWithAJsonTokenRequest() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        var code = authorizationCode(app, "read");
+        mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type": "authorization_code", "client_id": "%s", "client_secret": "%s",
+                                 "code": "%s", "redirect_uri": "%s", "scope": "read"}"""
+                                .formatted(app.clientId(), app.clientSecret(), code, REDIRECT_URI)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("read"));
+    }
+
+    @Test
+    void rejectsBadClientCredentialsInJson() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "wrong"}"""
+                                .formatted(app.clientId())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("invalid_client"));
+    }
+
+    @Test
+    void rejectsJsonTokenRequestsThatAreNotObjects() throws Exception {
+        for (var body : List.of("{\"grant_type\": ", "[\"client_credentials\"]", "", "x".repeat(70_000))) {
+            mockMvc.perform(post("/oauth/token").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("invalid_request"));
+        }
+    }
+
+    @Test
+    void rejectsRepeatedJsonFields() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        mockMvc.perform(post("/oauth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
+                                 "scope": ["read", "write"]}""".formatted(app.clientId(), app.clientSecret())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_request"));
+    }
+
+    @Test
     void appVerifyCredentialsNeverReturnsTheSecret() throws Exception {
         var app = registerApp("read", REDIRECT_URI);
         var token = appToken(app);
@@ -673,6 +732,22 @@ class OAuthIntegrationTests {
                     .andExpect(status().isOk())
                     .andExpect(content().json("{}"));
         }
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void revokesTokensWithAJsonRequest() throws Exception {
+        var app = registerApp("read", REDIRECT_URI);
+        var token = userToken(app, "read");
+        mockMvc.perform(post("/oauth/revoke")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"client_id": "%s", "client_secret": "%s", "token": "%s"}"""
+                                .formatted(app.clientId(), app.clientSecret(), token)))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{}"));
 
         mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), token))
                 .andExpect(status().isUnauthorized());
