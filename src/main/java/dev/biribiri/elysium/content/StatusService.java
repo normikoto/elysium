@@ -1381,10 +1381,10 @@ public class StatusService {
     }
 
     /**
-     * Whether {@link #findHome} would list this status for the viewer.
+     * Which of these accounts {@link #findHome} would list this status for.
      */
-    public boolean inHome(UUID viewerId, Collection<UUID> followedIds, UUID statusId) {
-        return statuses.inHome(viewerId, followedIds, statusId);
+    public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
+        return statuses.homeViewers(statusId, candidates);
     }
 
     /**

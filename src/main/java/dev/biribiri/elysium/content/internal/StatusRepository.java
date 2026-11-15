@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.Following;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -31,6 +32,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Repository
@@ -82,16 +84,26 @@ public class StatusRepository {
     private static final String HAS_MEDIA =
             " AND EXISTS (SELECT 1 FROM media_attachment m WHERE m.status_id = s.id)";
 
-    private static final String MENTIONS_VIEWER =
-            " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = :viewer)";
+    private static final String MENTIONS_VIEWER = mentions(":viewer");
 
     /**
      * Leaves out what's hidden from the viewer: statuses by accounts it has blocked, muted, or blocked the server of, or that
      * block it, and boosts of their statuses.
      */
-    private static final String NOT_HIDDEN = " AND " + HiddenAccounts.visibleInTimelines("author")
-            + " AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status ho JOIN actor hoa ON hoa.id = ho.actor_id"
-            + " WHERE ho.id = s.reblog_of_id AND " + HiddenAccounts.visibleInTimelines("hoa") + "))";
+    private static final String NOT_HIDDEN = notHidden(":viewer");
+
+    /**
+     * @param viewer the viewer's ID, as SQL
+     */
+    private static String mentions(String viewer) {
+        return " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = " + viewer + ")";
+    }
+
+    private static String notHidden(String viewer) {
+        return " AND " + HiddenAccounts.visibleInTimelines("author", viewer)
+                + " AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status ho JOIN actor hoa ON hoa.id = ho.actor_id"
+                + " WHERE ho.id = s.reblog_of_id AND " + HiddenAccounts.visibleInTimelines("hoa", viewer) + "))";
+    }
 
     /**
      * Leaves out boosts of statuses hidden from the viewer, as {@link #NOT_HIDDEN} does.
@@ -754,24 +766,48 @@ public class StatusRepository {
     }
 
     /**
-     * Whether {@link #findHome} would list this status.
+     * Which of these accounts {@link #findHome} would list this status for, checked in one query, since a status can
+     * have to be checked for everyone who's streaming their home timeline.
      */
-    public boolean inHome(UUID viewerId, Collection<UUID> followedIds, UUID statusId) {
-        return matches(homeFilter(viewerId, followedIds), statusId);
+    public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        var filter = home("v.id", followed -> Following.accepted("v.id", followed));
+        return jdbc.sql("SELECT v.id FROM unnest(CAST(:candidates AS uuid[])) AS v (id) WHERE EXISTS (SELECT 1 "
+                        + FROM_ACTIVE + "WHERE s.id = :statusId AND " + filter + ")")
+                .param("candidates", array(candidates))
+                .param("statusId", statusId)
+                .query(UUID.class)
+                .list();
     }
 
     private static Filter homeFilter(UUID viewerId, Collection<UUID> followedIds) {
-        var filter = """
-                (s.actor_id = :viewer
-                 OR (s.actor_id = ANY (CAST(:followed AS uuid[]))
-                     AND ((s.visibility IN ('public', 'unlisted', 'private')
-                           AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = :viewer
-                                OR s.in_reply_to_account_id = ANY (CAST(:followed AS uuid[]))))
-                          OR (s.visibility = 'direct' AND""" + MENTIONS_VIEWER + "))))" + NOT_HIDDEN
-                + " AND " + HiddenAccounts.visibleInTimelinesById("s.in_reply_to_account_id");
-        // One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
-        var followed = followedIds.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
-        return new Filter(filter, Map.of("viewer", viewerId, "followed", followed));
+        var filter = home(":viewer", followed -> followed + " = ANY (CAST(:followed AS uuid[]))");
+        return new Filter(filter, Map.of("viewer", viewerId, "followed", array(followedIds)));
+    }
+
+    /**
+     * The home timeline's condition, for one viewer bound as a parameter or for each of several in one query.
+     *
+     * @param viewer   the viewer's ID, as SQL
+     * @param follows  the condition that the viewer follows the account with the ID given as SQL
+     */
+    private static String home(String viewer, Function<String, String> follows) {
+        return "(s.actor_id = " + viewer
+                + " OR (" + follows.apply("s.actor_id")
+                + " AND ((s.visibility IN ('public', 'unlisted', 'private')"
+                + " AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = " + viewer
+                + " OR " + follows.apply("s.in_reply_to_account_id") + "))"
+                + " OR (s.visibility = 'direct' AND" + mentions(viewer) + "))))" + notHidden(viewer)
+                + " AND " + HiddenAccounts.visibleInTimelinesById("s.in_reply_to_account_id", viewer);
+    }
+
+    /**
+     * One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
+     */
+    private static String array(Collection<UUID> ids) {
+        return ids.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
     }
 
     /**

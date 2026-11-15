@@ -49,12 +49,10 @@ public class TimelineService {
 
     /**
      * Which of these accounts would see the status in their home timeline, so that a stream shows only what the timeline
-     * would. Each one is checked on its own, which is fine for the accounts connected to one server.
+     * would.
      */
     public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
-        return candidates.stream()
-                .filter(viewer -> statuses.inHome(viewer, follows.followedIds(viewer), statusId))
-                .toList();
+        return statuses.homeViewers(statusId, candidates);
     }
 
     /**
