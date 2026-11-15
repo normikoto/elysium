@@ -166,7 +166,7 @@ These don't belong to one milestone, but each has a point where it stops being o
 | Work | When it matters | Source |
 | --- | --- | --- |
 | Extend `federation/smoke.sh` with each milestone's check, on all three servers | Every milestone | The lab found problems that unit tests couldn't on PR #57 |
-| Keep `FEDERATION.md` and `CHANGELOG.md` accurate in the same PR | Every milestone | `CLAUDE.md` |
+| Keep `FEDERATION.md` and `CHANGELOG.md` accurate in the same PR | Every milestone | `../AGENTS.md` |
 | Check real delivery on a public deployment, not only the lab | Before any public server | Comment on #39 |
 | Limit inbox requests that don't start a key fetch, or document relying on a proxy | Before any public server | PR #57 known limits |
 | Stop each anonymous visit to a page with a form storing a login session, which has no limit | Before any public server | Code review of PR #84, and `docs/accounts.md` |
