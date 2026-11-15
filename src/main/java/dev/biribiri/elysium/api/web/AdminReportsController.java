@@ -255,7 +255,7 @@ public class AdminReportsController {
         var accountMap = accounts.byId(actors.findByIds(
                 found.stream().flatMap(Report::accountIds).distinct().toList()));
         var statusIds = found.stream().flatMap(report -> report.statusIds().stream()).distinct().toList();
-        var statusMap = statusResponses.list(statuses.findForReport(statusIds), Optional.empty()).stream()
+        var statusMap = statusResponses.list(statuses.findForReport(statusIds), Optional.empty(), Optional.empty()).stream()
                 .collect(Collectors.toMap(status -> UUID.fromString(status.id()), Function.identity()));
         return found.stream()
                 .filter(report -> accountMap.containsKey(report.reporterId()) && accountMap.containsKey(report.targetId()))

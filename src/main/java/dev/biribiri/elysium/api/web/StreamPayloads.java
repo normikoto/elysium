@@ -1,11 +1,13 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.inbox.InboxService;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -29,9 +31,15 @@ public class StreamPayloads {
         this.inboxResponses = inboxResponses;
     }
 
-    public Optional<Object> status(UUID statusId, Optional<UUID> viewer) {
+    /**
+     * A status, and the contexts in which the viewer's filters hide it, whose streams mustn't send it.
+     */
+    public record StreamedStatus(Object payload, Set<PostFilter.Context> hiddenIn) {
+    }
+
+    public Optional<StreamedStatus> status(UUID statusId, Optional<UUID> viewer) {
         return statuses.findVisible(statusId, viewer)
-                .flatMap(status -> first(statusResponses.list(List.of(status), viewer)));
+                .flatMap(status -> statusResponses.streamed(status, viewer));
     }
 
     public Optional<Object> notification(UUID notificationId, UUID viewer) {

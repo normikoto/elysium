@@ -38,16 +38,17 @@ class StreamingController {
 
     static final String EVENTS = """
             Each event is sent as it happens, with Mastodon's names and payloads: `update` and `status.update` with a \
-            Status, `delete` with a status ID, `notification` with a Notification, and `conversation` with a \
-            Conversation. A comment is sent every 30 seconds so that the connection doesn't look idle. Events can \
-            arrive out of order, or more than once.""";
+            Status, `delete` with a status ID, `notification` with a Notification, `conversation` with a \
+            Conversation, and `filters_changed` with none, on `user` only. A status that the viewer's filters hide in \
+            the timeline's context isn't sent. A comment is sent every 30 seconds so that the connection doesn't look \
+            idle. Events can arrive out of order, or more than once.""";
 
     static final String DIFFERENCES = """
             Differences from Mastodon: a stream only carries what its timeline would list at the time, so a status \
-            from another server only arrives once it's been stored here. There are no `filters_changed`, \
-            `announcement`, or `notifications_merged` events. A `delete` goes to every stream that carries statuses, \
-            whether or not it carried that status. The connection closes once its token is revoked or expires, within \
-            about 30 seconds. """;
+            from another server only arrives once it's been stored here. There are no `announcement` or \
+            `notifications_merged` events. A `delete` goes to every stream that carries statuses, whether or not it \
+            carried that status. The connection closes once its token is revoked or expires, within about 30 \
+            seconds. """;
 
     private static final String TOKEN = """
             The token can also be given as the `access_token` query parameter, since a browser's `EventSource` can't \
@@ -244,7 +245,7 @@ class StreamingController {
 
         @Override
         public void event(String event, List<String> stream, String payload) throws IOException {
-            emitter.send(SseEmitter.event().name(event).data(payload, MediaType.TEXT_PLAIN));
+            emitter.send(SseEmitter.event().name(event).data(payload == null ? "" : payload, MediaType.TEXT_PLAIN));
         }
 
         @Override

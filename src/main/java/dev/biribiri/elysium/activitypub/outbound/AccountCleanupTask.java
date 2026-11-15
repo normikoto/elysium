@@ -11,6 +11,7 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.PollService;
+import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;
 import dev.biribiri.elysium.graph.BlockService;
@@ -22,11 +23,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses, attachments, follows, blocks, mutes, profile, and the reports by and about it, and who its followers-only
- * statuses were sent to, and a suspended remote actor's follows, which would otherwise give it a
- * way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that they come back
- * if the suspension is undone. A suspended local account keeps everything, for the same reason. This
- * looks at the actor's state now, so it's safe to run again, and does nothing for a suspension that's since ended.
+ * Removes a deleted account's statuses, attachments, follows, blocks, mutes, filters, profile, and the reports by and
+ * about it, and who its followers-only statuses were sent to, and a suspended remote actor's follows, which would otherwise
+ * give it a way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that
+ * they come back if the suspension is undone. A suspended local account keeps everything, for the same reason. This looks
+ * at the actor's state now, so it's safe to run again, and does nothing for a suspension that's since ended.
  */
 @Configuration(proxyBeanMethods = false)
 class AccountCleanupTask {
@@ -46,11 +47,14 @@ class AccountCleanupTask {
     private final Reports reports;
     private final PollService polls;
     private final StatusPinService pins;
+    private final PostFilters filters;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
                        LikeService likes, MediaAttachments attachments, FollowersOnlyRecipients followersOnly,
-                       PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins) {
+                       PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
+                       PostFilters filters) {
+        this.filters = filters;
         this.pins = pins;
         this.polls = polls;
         this.reports = reports;
@@ -89,6 +93,7 @@ class AccountCleanupTask {
                 domainBlocks.removeForAccount(actor.id());
                 profiles.removeAll(actor.id());
                 postingDefaults.removeFor(actor.id());
+                filters.removeForActor(actor.id());
                 inbox.removeForActor(actor.id());
                 reports.removeForActor(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {

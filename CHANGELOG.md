@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Filters, as on Mastodon, so people can hide or get a warning about posts with words they choose, or particular posts,
+  in their home timeline, notifications, public timelines, threads, or profiles. Apps manage them with Mastodon's v2
+  filters API, and with its older v1 one, which some apps such as Enafore still use. A person can have up to 100
+  filters. See `docs/api.md`.
 - The streaming API, as on Mastodon, so apps see new posts, notifications, and direct messages as they happen, rather
   than checking every so often. Apps connect with a WebSocket or server-sent events at `/api/v1/streaming`, and
   `elysium.streaming.max-connections` limits how many connections can be open at once. Lists aren't streamed, since they

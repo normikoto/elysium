@@ -1,6 +1,8 @@
 package dev.biribiri.elysium.api.streaming;
 
 import dev.biribiri.elysium.api.web.StreamPayloads;
+import dev.biribiri.elysium.content.FiltersChanged;
+import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.RemoteStatusDeleted;
 import dev.biribiri.elysium.content.RemoteStatusEdited;
 import dev.biribiri.elysium.content.StatusDeleted;
@@ -109,6 +111,23 @@ class StreamEvents {
         });
     }
 
+    /**
+     * Mastodon only tells the {@code user} stream, and sends no payload.
+     */
+    @ApplicationModuleListener
+    void on(FiltersChanged event) {
+        safely(() -> {
+            for (var connection : registry.connections()) {
+                if (!connection.viewer().equals(Optional.of(event.accountId()))) continue;
+                for (var key : connection.subscriptions()) {
+                    if (key.kind() == StreamKey.Kind.USER) {
+                        connection.send(key, "filters_changed", null);
+                    }
+                }
+            }
+        });
+    }
+
     @ApplicationModuleListener
     void on(ConversationUpdated event) {
         safely(() -> {
@@ -135,7 +154,7 @@ class StreamEvents {
         // Whether anyone at all could see it there decides most connections with one query, before each viewer's own.
         var anyone = new HashMap<StreamKey, Boolean>();
         var viewers = new HashMap<ViewerKey, Boolean>();
-        var rendered = new HashMap<Optional<UUID>, Optional<String>>();
+        var rendered = new HashMap<Optional<UUID>, Optional<Rendered>>();
 
         for (var connection : connections) {
             var viewer = connection.viewer();
@@ -148,14 +167,33 @@ class StreamEvents {
                     case NOTIFICATIONS, DIRECT -> false;
                 };
                 if (listed) {
-                    rendered.computeIfAbsent(viewer, v -> payloads.status(statusId, v).map(this::write))
-                            .ifPresent(payload -> connection.send(key, event, payload));
+                    rendered.computeIfAbsent(viewer, v -> payloads.status(statusId, v)
+                                    .map(status -> new Rendered(write(status.payload()), status.hiddenIn())))
+                            .ifPresent(status -> {
+                                if (!status.hiddenIn().contains(context(key))) {
+                                    connection.send(key, event, status.payload());
+                                } else if (event.equals("status.update")) {
+                                    // An edit can make a status the client already has match, and it can't be left
+                                    // showing the old text.
+                                    connection.send(key, "delete", statusId.toString());
+                                }
+                            });
                 }
             }
         }
     }
 
     private record ViewerKey(StreamKey key, UUID viewer) {
+    }
+
+    private record Rendered(String payload, Set<PostFilter.Context> hiddenIn) {
+    }
+
+    /**
+     * The filter context of the timeline that a stream of statuses follows.
+     */
+    private static PostFilter.Context context(StreamKey key) {
+        return key.kind() == StreamKey.Kind.USER ? PostFilter.Context.HOME : PostFilter.Context.PUBLIC;
     }
 
     private boolean listed(UUID statusId, StreamKey key, Optional<UUID> viewer) {

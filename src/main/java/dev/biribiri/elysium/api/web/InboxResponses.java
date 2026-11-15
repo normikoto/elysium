@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.inbox.Conversation;
 import dev.biribiri.elysium.inbox.Notification;
@@ -23,6 +24,9 @@ import java.util.stream.Collectors;
 
 @Component
 class InboxResponses {
+
+    private static final Optional<PostFilter.Context> NOTIFICATIONS = Optional.of(PostFilter.Context.NOTIFICATIONS);
+
     private final ActorService actors;
     private final AccountResponses accounts;
     private final StatusService statuses;
@@ -42,7 +46,8 @@ class InboxResponses {
 
     List<NotificationResponse> notifications(UUID viewer, List<Notification> found) {
         var accountMap = accounts(found.stream().map(Notification::accountId).toList());
-        var statusMap = statuses(viewer, found.stream().map(Notification::statusId).filter(Objects::nonNull).toList());
+        var statusMap = statuses(viewer, found.stream().map(Notification::statusId).filter(Objects::nonNull).toList(),
+                NOTIFICATIONS);
         var reportMap = reports(found.stream().map(Notification::reportId).filter(Objects::nonNull).toList());
         return found.stream().filter(n -> accountMap.containsKey(n.accountId()))
                 .filter(n -> n.statusId() == null || statusMap.containsKey(n.statusId()))
@@ -55,7 +60,8 @@ class InboxResponses {
 
     GroupedNotificationsResponse groups(UUID viewer, List<NotificationGroup> found, boolean partial) {
         var accountMap = accounts(found.stream().flatMap(g -> g.sampleAccountIds().stream()).distinct().toList());
-        var statusMap = statuses(viewer, found.stream().map(NotificationGroup::statusId).filter(Objects::nonNull).distinct().toList());
+        var statusMap = statuses(viewer,
+                found.stream().map(NotificationGroup::statusId).filter(Objects::nonNull).distinct().toList(), NOTIFICATIONS);
         var reportMap = reports(found.stream().map(NotificationGroup::reportId).filter(Objects::nonNull).distinct().toList());
         var visible = found.stream().filter(g -> g.statusId() == null || statusMap.containsKey(g.statusId()))
                 .filter(g -> g.reportId() == null || reportMap.containsKey(g.reportId()))
@@ -81,7 +87,7 @@ class InboxResponses {
         found.forEach(c -> ids.addAll(c.accountIds()));
         ids.add(viewer);
         var accountMap = accounts(ids);
-        var statusMap = statuses(viewer, found.stream().map(Conversation::lastStatusId).toList());
+        var statusMap = statuses(viewer, found.stream().map(Conversation::lastStatusId).toList(), Optional.empty());
         return found.stream().filter(c -> statusMap.containsKey(c.lastStatusId())).map(c -> {
             var people = c.accountIds().stream().map(accountMap::get).filter(Objects::nonNull).toList();
             if (people.isEmpty() && accountMap.containsKey(viewer)) people = List.of(accountMap.get(viewer));
@@ -111,8 +117,12 @@ class InboxResponses {
                 .collect(Collectors.toMap(r -> r.id(), r -> ReportResponse.from(r, targets.get(r.targetId()))));
     }
 
-    private Map<UUID, StatusResponse> statuses(UUID viewer, Collection<UUID> ids) {
+    /**
+     * A notification about a status that the viewer's filters hide is left out with it.
+     */
+    private Map<UUID, StatusResponse> statuses(UUID viewer, Collection<UUID> ids, Optional<PostFilter.Context> context) {
         var found = statuses.findVisible(ids, viewer);
-        return statusResponses.list(found, Optional.of(viewer)).stream().collect(Collectors.toMap(s -> UUID.fromString(s.id()), Function.identity()));
+        return statusResponses.list(found, Optional.of(viewer), context).stream()
+                .collect(Collectors.toMap(s -> UUID.fromString(s.id()), Function.identity()));
     }
 }

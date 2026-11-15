@@ -232,16 +232,49 @@ Timeline positions follow [Mastodon's markers API](https://docs.joinmastodon.org
   Missing or other users' notification and conversation IDs receive 404. These endpoints require user tokens; an app
   token receives 422.
 
+Filters follow [Mastodon's filters API](https://docs.joinmastodon.org/methods/filters/), in both its v2 form at
+`/api/v2/filters` and its deprecated v1 form at `/api/v1/filters`, which some clients still use:
+
+- Statuses have Mastodon's `filtered`, listing the user's unexpired filters that they match in any context, as on
+  Mastodon. It's left out without a user token. A boost matches by the status it boosts. The user's own statuses, and
+  boosts of them, never match, as Mastodon's own app treats them, so notifications about them aren't hidden either.
+- Keywords are matched without regard to case, in a status's content warning, its text, its poll's options, and its
+  media descriptions. A whole-word keyword only needs a word boundary at an end that's a letter, digit, or underscore, so
+  `#tag` doesn't match `#tagged` but does match `#tag!`. For a status from another server, its text is what its HTML
+  shows.
+- A filter whose action is `hide`, or a v1 filter that's `irreversible`, leaves what it matches out of the lists in its
+  contexts: the home timeline for `home`, notifications about those statuses for `notifications`, the public and hashtag
+  timelines for `public`, a status's context for `thread`, an account's statuses for `account`, and the streams of those
+  timelines. Pages can then have fewer statuses than `limit`, but their `Link` headers still work. A status that's
+  fetched by itself is always given, with `filtered`. `warn` and `blur` filters are left to clients.
+- A user can have up to 100 filters, each with up to 100 keywords and 1000 statuses. Titles can be up to 256 characters,
+  and keywords up to 512. Mastodon has no limit on how many there are, and going over these gets a 422.
+- Adding a status to a filter needs a status the user can see, or the answer is a 404. A status that's deleted is taken
+  out of the filters it was in.
+- Where more than one copy of the server runs, a change to a user's filters can take up to a minute to apply to what the
+  other copies list.
+- `keywords_attributes` can be a list or an object keyed by position in JSON. In a form, it can be
+  `keywords_attributes[][keyword]`, where the nth value of each field makes the nth keyword, or numbered, as
+  `keywords_attributes[0][keyword]`. A keyword's `id` that isn't one of the filter's gets a 404, and nothing changes.
+- A new keyword's `whole_word` defaults to true in v2, as on Mastodon, and to false in v1, as Mastodon documents.
+- Each v1 filter is one keyword of a v2 filter, with the keyword's ID. Creating one makes a filter named after the phrase.
+  The context, `irreversible`, and expiry of a filter with more than one keyword can't be changed through v1, as on
+  Mastodon, but unlike Mastodon its keywords' phrases and `whole_word` can. `phrase` and `context` aren't required when
+  updating. A `blur` filter is shown as not `irreversible`, and making it not `irreversible` leaves it as it is.
+- Deleting a v1 filter removes its keyword, and also its v2 filter if nothing else is left in it, where Mastodon keeps an
+  empty filter.
+
 Streaming follows [Mastodon's streaming API](https://docs.joinmastodon.org/methods/streaming/), over a WebSocket at
 `/api/v1/streaming`, which `urls.streaming_api` points to, and as server-sent events at its other paths. These are the
 differences:
 
 - Lists aren't implemented, so `list` gets an "Unknown stream type" error, and `/api/v1/streaming/list` a 404. There are no
-  `filters_changed`, `announcement`, `announcement.reaction`, `announcement.delete`, `notifications_merged`, or
-  `encrypted_message` events.
+  `announcement`, `announcement.reaction`, `announcement.delete`, `notifications_merged`, or `encrypted_message` events.
+  `filters_changed` is sent on `user`, as on Mastodon, with no payload: the WebSocket message has no `payload`, and the
+  event stream's `data` is empty. An edit that makes a status match a filter that hides it there is sent as a `delete`.
 - A stream carries what its timeline would list: `user` what the home timeline would, and `public` and `hashtag` what the
-  public and hashtag timelines would, including leaving out what the user has hidden. A status from another server only
-  arrives once it's stored here.
+  public and hashtag timelines would, including leaving out what the user has hidden or their filters hide. A status from
+  another server only arrives once it's stored here.
 - `public`, `public:local`, `public:remote`, their `:media` forms, `hashtag`, and `hashtag:local` work without a token, as
   their timelines do. With one, they need `read:statuses`. `user` and `direct` need `read:statuses` and
   `user:notification` needs `read:notifications`, with a user token, and `user` only has notifications if the token can

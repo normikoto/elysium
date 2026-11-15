@@ -153,7 +153,9 @@ class StreamingWebSocketHandler extends TextWebSocketHandler {
             var message = new LinkedHashMap<String, Object>();
             message.put("stream", stream);
             message.put("event", event);
-            message.put("payload", payload);
+            if (payload != null) {
+                message.put("payload", payload);
+            }
             session.sendMessage(new TextMessage(json.writeValueAsString(message)));
         }
 

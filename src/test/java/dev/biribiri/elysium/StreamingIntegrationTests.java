@@ -8,10 +8,15 @@ import dev.biribiri.elysium.api.streaming.StreamConnection;
 import dev.biribiri.elysium.api.streaming.StreamRegistry;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.PostFilter;
+import dev.biribiri.elysium.content.PostFilterCache;
+import dev.biribiri.elysium.content.PostFilterChange;
+import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
@@ -43,6 +48,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -78,6 +84,8 @@ class StreamingIntegrationTests {
     @Autowired TimelineService timelines;
     @Autowired StreamRegistry registry;
     @Autowired JdbcClient jdbc;
+    @Autowired PostFilters filters;
+    @Autowired PostFilterCache filterCache;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final List<Client> clients = new ArrayList<>();
@@ -94,6 +102,8 @@ class StreamingIntegrationTests {
         jdbc.sql("DELETE FROM account_block").update();
         jdbc.sql("DELETE FROM inbox_notification").update();
         jdbc.sql("DELETE FROM inbox_conversation").update();
+        jdbc.sql("DELETE FROM post_filter").update();
+        filterCache.clear();
         TestAccounts.makeSureAnAccountExists(actors);
         aliceToken = token("streamalice");
         bobToken = token("streambob");
@@ -122,6 +132,49 @@ class StreamingIntegrationTests {
         statuses.delete(status.id(), bob.id());
         var delete = stream.next(event("delete"));
         assertThat(JsonPath.<String>read(delete, "$.payload")).isEqualTo(status.id().toString());
+    }
+
+    @Test
+    void filtersHideStatusesFromTheStreamsOfTheirContexts() throws Exception {
+        follows.follow(alice, bob);
+        filters.create(alice.id(), new PostFilterChange("Hidden", Set.of(PostFilter.Context.HOME),
+                PostFilter.Action.HIDE, null, List.of(new PostFilterChange.KeywordEdit(null, "secret", null, false))));
+        settled();
+        var home = webSocket("?stream=user", aliceToken);
+        var everything = webSocket("?stream=public:local", aliceToken);
+
+        var hidden = post(bob, "a secret", Visibility.PUBLIC);
+        var message = everything.next(event("update"));
+        String payload = JsonPath.read(message, "$.payload");
+        assertThat(JsonPath.<String>read(payload, "$.id")).isEqualTo(hidden.id().toString());
+        assertThat(JsonPath.<List<String>>read(payload, "$.filtered[*].keyword_matches[*]")).containsExactly("secret");
+        home.expectNothing();
+    }
+
+    @Test
+    void anEditThatAFilterHidesDeletesTheStatusFromTheStream() throws Exception {
+        follows.follow(alice, bob);
+        filters.create(alice.id(), new PostFilterChange("Hidden", Set.of(PostFilter.Context.HOME),
+                PostFilter.Action.HIDE, null, List.of(new PostFilterChange.KeywordEdit(null, "secret", null, false))));
+        var home = webSocket("?stream=user", aliceToken);
+        var status = post(bob, "nothing yet", Visibility.PUBLIC);
+        home.next(event("update"));
+
+        statuses.edit(status.id(), bob.id(), new StatusEdit("now a secret", null, null, null));
+        var delete = home.next(event("delete"));
+        assertThat(JsonPath.<String>read(delete, "$.payload")).isEqualTo(status.id().toString());
+    }
+
+    @Test
+    void changingFiltersIsStreamedToTheirOwner() throws Exception {
+        var aliceStream = webSocket("?stream=user", aliceToken);
+        var bobStream = webSocket("?stream=user", bobToken);
+        filters.create(alice.id(), new PostFilterChange("New", Set.of(PostFilter.Context.HOME), null, null, List.of()));
+
+        var message = aliceStream.next(event("filters_changed"));
+        assertThat(JsonPath.<List<String>>read(message, "$.stream")).containsExactly("user");
+        assertThat(message).doesNotContain("payload");
+        bobStream.expectNothing();
     }
 
     @Test
