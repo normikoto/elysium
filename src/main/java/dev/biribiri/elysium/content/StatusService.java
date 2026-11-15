@@ -1364,6 +1364,19 @@ public class StatusService {
     }
 
     /**
+     * Finds statuses by their words, as {@link StatusRepository#search} explains. Only a status's text and content warning
+     * are searched, as whole words in any language.
+     *
+     * @param query     words, in quotes for a phrase, with {@code OR} between alternatives and {@code -} before what
+     *                  mustn't be there
+     * @param accountId only find this account's statuses, if it's given
+     * @param offset    how many matches to skip, after the page's cursors
+     */
+    public List<Status> search(UUID viewer, String query, Optional<UUID> accountId, StatusPage page, int offset) {
+        return statuses.search(viewer, query, accountId.orElse(null), page, offset);
+    }
+
+    /**
      * How much each hashtag was used on each of the last {@code days} days, today first, counting public statuses stored
      * here. A day it wasn't used has zeros.
      */

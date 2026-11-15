@@ -183,7 +183,8 @@ class RemoteActorDocumentTests {
     void readsTheProfileAsMastodonSendsIt() {
         var profile = RemoteActorDocument.read(ACTOR, document("""
                 ,"name":"Bob :blob:","summary":"<p>Hi <script>alert(1)</script><a href=\\"https://bob.test\\">there</a></p>",
-                 "url":"https://remote.test/@bob","manuallyApprovesFollowers":true,"published":"2020-03-04T05:06:07Z",
+                 "url":"https://remote.test/@bob","manuallyApprovesFollowers":true,"indexable":true,
+                 "published":"2020-03-04T05:06:07Z",
                  "icon":{"type":"Image","mediaType":"image/png","url":"https://media.remote.test/a.png"},
                  "image":{"type":"Image","url":"https://media.remote.test/h.png"},
                  "attachment":[{"type":"PropertyValue","name":"Site","value":"<a href=\\"https://bob.test\\">bob.test</a>"},
@@ -194,6 +195,7 @@ class RemoteActorDocumentTests {
         assertThat(profile.note()).isEqualTo("Hi there");
         assertThat(profile.url()).hasToString("https://remote.test/@bob");
         assertThat(profile.manuallyApprovesFollowers()).isTrue();
+        assertThat(profile.indexable()).isTrue();
         assertThat(profile.published()).hasToString("2020-03-04T05:06:07Z");
         assertThat(profile.avatarUrl()).hasToString("https://media.remote.test/a.png");
         assertThat(profile.headerUrl()).hasToString("https://media.remote.test/h.png");

@@ -38,6 +38,10 @@ record AccountResponse(
         boolean bot,
         boolean group,
         boolean discoverable,
+        @Schema(description = """
+                Whether the account lets anyone's search find its public statuses. For an account on another server, \
+                it's what its server last said.""")
+        boolean indexable,
         @JsonProperty("created_at") String createdAt,
         String note,
         String url,
@@ -106,6 +110,7 @@ record AccountResponse(
                 remote != null && remote.bot(),
                 remote != null && remote.group(),
                 false,
+                profile.indexable(),
                 createdAt(actor, remote),
                 profile.noteHtml(instance.baseUrl()),
                 remote != null && remote.url() != null ? remote.url().toString() : actor.uri().toString(),

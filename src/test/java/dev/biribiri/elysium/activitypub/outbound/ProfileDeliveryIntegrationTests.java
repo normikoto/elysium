@@ -80,6 +80,18 @@ class ProfileDeliveryIntegrationTests {
     }
 
     @Test
+    void tellsFollowersWhenTheAccountBecomesIndexable() {
+        follow(remote(), local);
+
+        profiles.update(local.id(), ProfileChange.NONE.withIndexable(true));
+
+        await().atMost(WAIT).until(() -> !activities(local, "%#profile/%").isEmpty());
+        var update = json.readTree(activities(local, "%#profile/%").getFirst());
+        assertThat(update.get("@context").get(2).get("indexable").asString()).isEqualTo("toot:indexable");
+        assertThat(update.get("object").get("indexable").asBoolean()).isTrue();
+    }
+
+    @Test
     void sendsNothingWhenNothingChanged() {
         follow(remote(), local);
         profiles.update(local.id(), ProfileChange.NONE.withDisplayName("Same"));

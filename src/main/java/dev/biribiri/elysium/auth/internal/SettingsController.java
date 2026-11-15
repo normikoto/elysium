@@ -54,7 +54,7 @@ class SettingsController {
                 .map(field -> new FieldRow(field.name(), field.value(), field.verifiedAt() != null))
                 .toList();
         show(model, accountId, profile, profile.displayName(), profile.note(), rows, actors.hidesCollections(accountId),
-                profile.manuallyApprovesFollowers());
+                profile.manuallyApprovesFollowers(), profile.indexable());
         model.addAttribute("saved", saved != null);
         return "settings";
     }
@@ -79,8 +79,9 @@ class SettingsController {
         var fields = ProfileChange.NewField.zip(names, values);
         var hideCollections = "true".equals(form.getFirst("hideCollections"));
         var manuallyApprovesFollowers = "true".equals(form.getFirst("manuallyApprovesFollowers"));
+        var indexable = "true".equals(form.getFirst("indexable"));
         // Only what the form has a control for is changed, as a form with no rows for fields has none to send.
-        var change = ProfileChange.NONE.withManuallyApprovesFollowers(manuallyApprovesFollowers);
+        var change = ProfileChange.NONE.withManuallyApprovesFollowers(manuallyApprovesFollowers).withIndexable(indexable);
         if (displayName != null) {
             change = change.withDisplayName(displayName);
         }
@@ -109,7 +110,7 @@ class SettingsController {
             var rows = fields.stream().map(field -> new FieldRow(field.name(), field.value(), false)).toList();
             var saved = profiles.find(accountId);
             show(model, accountId, saved, change.displayName().orElse(saved.displayName()), change.note().orElse(saved.note()),
-                    rows, hideCollections, manuallyApprovesFollowers);
+                    rows, hideCollections, manuallyApprovesFollowers, indexable);
             model.addAttribute("error", e.getMessage().replaceFirst("^Validation failed: ", ""));
             return "settings";
         }
@@ -131,7 +132,8 @@ class SettingsController {
             String note,
             List<FieldRow> fields,
             boolean hideCollections,
-            boolean manuallyApprovesFollowers) {
+            boolean manuallyApprovesFollowers,
+            boolean indexable) {
         var rows = new ArrayList<>(fields);
         while (rows.size() < profiles.maxFields()) {
             rows.add(new FieldRow("", "", false));
@@ -149,6 +151,7 @@ class SettingsController {
         model.addAttribute("maxFieldValue", ProfileService.MAX_FIELD_VALUE);
         model.addAttribute("hideCollections", hideCollections);
         model.addAttribute("manuallyApprovesFollowers", manuallyApprovesFollowers);
+        model.addAttribute("indexable", indexable);
     }
 
     /**

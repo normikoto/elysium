@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.text.Hashtags;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -22,17 +23,20 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * Searches for accounts and hashtags. Statuses can't be searched yet, so that list is always empty.
+ * Searches for accounts, statuses, and hashtags.
  *
  * <p>A query that's an address, {@code username@domain}, or an {@code https} URL finds that one account. Only a signed-in
  * user's request with {@code resolve} can make this server ask another one about it. Any other query matches the start of
- * usernames this server knows, and of the hashtags its public statuses use.
+ * usernames this server knows, and of the hashtags its public statuses use, and the words of statuses a signed-in user is
+ * allowed to find. Statuses are only searched for a user, as on Mastodon, which needs to know whose statuses they can find.
  */
 @RestController
-@Tag(name = "Search", description = "Finding accounts and hashtags.",
+@Tag(name = "Search", description = "Finding accounts, statuses, and hashtags.",
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "search/"))
 public class SearchController {
 
@@ -47,19 +51,27 @@ public class SearchController {
      */
     private static final int MAX_TAG_OFFSET = 200;
 
+    /**
+     * How far {@code offset} can page through statuses. PostgreSQL finds every match before it skips any, so a deep page
+     * costs a whole search. {@code max_id} pages through the rest.
+     */
+    private static final int MAX_STATUS_OFFSET = 200;
+
     private final ActorService actors;
     private final AccountLookup lookup;
     private final AccountResponses accounts;
     private final StatusService statuses;
+    private final StatusResponses statusResponses;
     private final TagResponses tags;
 
     SearchController(
             ActorService actors, AccountLookup lookup, AccountResponses accounts, StatusService statuses,
-            TagResponses tags) {
+            StatusResponses statusResponses, TagResponses tags) {
         this.actors = actors;
         this.lookup = lookup;
         this.accounts = accounts;
         this.statuses = statuses;
+        this.statusResponses = statusResponses;
         this.tags = tags;
     }
 
@@ -67,11 +79,19 @@ public class SearchController {
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:search')")
     @Operation(
             operationId = "search",
-            summary = "Search for accounts and hashtags",
+            summary = "Search for accounts, statuses, and hashtags",
             description = """
                     Differences from Mastodon:
 
-                    - Statuses can't be found. `statuses` is always empty, and a `type` of `statuses` returns nothing.
+                    - Statuses are found by whole words in their text and content warning, in any language, with no \
+                    stemming. Words in quotes are a phrase, `OR` is between alternatives, and a word after `-` \
+                    mustn't be there. Mastodon's operators, such as `from:` and `has:`, aren't supported, and poll \
+                    options and media descriptions aren't searched. A status's URL doesn't find it.
+                    - Only a signed-in user finds statuses: those they wrote, favourited, or are mentioned in, and \
+                    public statuses by accounts whose `indexable` is true, newest first. Of those, only what they can \
+                    see is found, leaving out accounts they block or mute. Their filters don't leave statuses out, \
+                    but are given in `filtered`. Only the first\s""" + MAX_STATUS_OFFSET + """
+                     statuses can be paged through with `offset`. `max_id` and `min_id` page through statuses only.
                     - Hashtags are found by the start of their name, from those that public statuses stored here use, \
                     most used first. A query that's a valid tag name, with or without its `#`, is also found when \
                     nothing uses it, as the first result. Only the first\s""" + MAX_TAG_OFFSET + """
@@ -83,16 +103,21 @@ public class SearchController {
                      of those lookups a minute, and then gets a 429.
                     - Only the first\s""" + AccountFilter.MAX_LIMIT + """
                      matches can be paged through with `offset`, and an `offset` past them returns no accounts.
-                    - `following`, `account_id`, `exclude_unreviewed`, `min_id`, and `max_id` are ignored.
+                    - `following` and `exclude_unreviewed` are ignored.
 
                     Suspended accounts are left out.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "search/#v2"),
             parameters = {
                     @Parameter(name = "q", description = """
-                            A username, or the start of one, a `username@domain`, an `https` URL, or the start of a \
-                            hashtag. A missing or blank query returns nothing."""),
-                    @Parameter(name = "type", description = "Only `accounts` or `hashtags` returns anything.",
+                            A username, or the start of one, a `username@domain`, an `https` URL, the start of a \
+                            hashtag, or words in statuses. A missing or blank query returns nothing."""),
+                    @Parameter(name = "type", description = "Only search for this type.",
                             schema = @Schema(allowableValues = {"accounts", "statuses", "hashtags"})),
+                    @Parameter(name = "account_id", description = """
+                            Only find this account's statuses. Accounts and hashtags are still searched. An ID that \
+                            isn't valid finds no statuses."""),
+                    @Parameter(name = "max_id", description = "Only find statuses older than this one."),
+                    @Parameter(name = "min_id", description = "Only find statuses newer than this one."),
                     @Parameter(name = "resolve", description = """
                             Whether to ask another server about an address or URL this server doesn't know, or hasn't \
                             refreshed for a while. Only works for a signed-in user.\s""" + ApiDocs.FLAG),
@@ -103,8 +128,9 @@ public class SearchController {
                             schema = @Schema(type = "integer", defaultValue = "0"))
             },
             responses = {
-                    @ApiResponse(responseCode = "200", description = "The accounts and hashtags found."),
-                    @ApiResponse(responseCode = "422", description = "`limit` or `offset` isn't a number."),
+                    @ApiResponse(responseCode = "200", description = "The accounts, statuses, and hashtags found."),
+                    @ApiResponse(responseCode = "422", description = """
+                            `limit` or `offset` isn't a number, or `max_id` or `min_id` isn't a valid ID."""),
                     @ApiResponse(responseCode = "429", description = "The user has made too many lookups.")
             })
     public SearchResponse search(
@@ -112,26 +138,35 @@ public class SearchController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String resolve,
+            @RequestParam(name = "account_id", required = false) String accountId,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            @RequestParam(name = "min_id", required = false) String minId,
             @RequestParam(required = false) String limit,
             @RequestParam(required = false) String offset) {
         var anyType = type == null || type.isEmpty();
         var searchAccounts = anyType || type.equals("accounts");
+        var searchStatuses = anyType || type.equals("statuses");
         var searchTags = anyType || type.equals("hashtags");
-        if (q == null || q.isBlank() || !(searchAccounts || searchTags)) {
+        // Read before anything else, so that a malformed request is refused whatever it searches for.
+        var pageSize = Math.clamp(RequestParameters.number("limit", limit, DEFAULT_LIMIT), 1, MAX_LIMIT);
+        var page = RequestParameters.page(String.valueOf(pageSize), maxId, null, minId);
+        // Only the first results can be paged through, and an offset past them gets an empty page, so that a client paging
+        // by offset sees the end rather than the last page again.
+        var requestedOffset = Math.max(RequestParameters.number("offset", offset, 0), 0);
+        if (q == null || q.isBlank() || !(searchAccounts || searchStatuses || searchTags)) {
             return SearchResponse.EMPTY;
         }
         var viewer = RequestParameters.viewer(token);
         var shouldResolve = RequestParameters.flag(resolve);
         var query = q.strip();
-        var pageSize = Math.clamp(RequestParameters.number("limit", limit, DEFAULT_LIMIT), 1, MAX_LIMIT);
-        // Only the first results can be paged through, and an offset past them gets an empty page, so that a client paging
-        // by offset sees the end rather than the last page again.
-        var requestedOffset = Math.max(RequestParameters.number("offset", offset, 0), 0);
         var skipped = Math.min(requestedOffset, AccountFilter.MAX_LIMIT);
 
         var foundTags = searchTags ? tags(query, pageSize, requestedOffset, viewer.isPresent()) : List.<TagResponse>of();
+        var foundStatuses = searchStatuses && viewer.isPresent()
+                ? statuses(viewer.get(), query, accountId, page, requestedOffset)
+                : List.<StatusResponse>of();
         if (!searchAccounts) {
-            return new SearchResponse(List.of(), List.of(), foundTags);
+            return new SearchResponse(List.of(), foundStatuses, foundTags);
         }
 
         List<Actor> found;
@@ -144,7 +179,27 @@ public class SearchController {
         } else {
             found = List.of();
         }
-        return new SearchResponse(accounts.build(found), List.of(), foundTags);
+        return new SearchResponse(accounts.build(found), foundStatuses, foundTags);
+    }
+
+    /**
+     * An address or URL names one account, and its words would find statuses that mention it by chance. The viewer's
+     * filters only mark what they match, since hiding what someone searched for would leave them wondering where it went.
+     */
+    private List<StatusResponse> statuses(UUID viewer, String query, String accountId, StatusPage page, int skipped) {
+        var isAccount = query.regionMatches(true, 0, "https://", 0, "https://".length()) || ACCT.matcher(query).matches();
+        if (isAccount || skipped >= MAX_STATUS_OFFSET) {
+            return List.of();
+        }
+        Optional<UUID> account = Optional.empty();
+        if (accountId != null && !accountId.isEmpty()) {
+            account = RequestParameters.uuid(accountId);
+            if (account.isEmpty()) {
+                return List.of();
+            }
+        }
+        var found = statuses.search(viewer, query, account, page, skipped);
+        return statusResponses.list(found, Optional.of(viewer), Optional.empty());
     }
 
     /**
@@ -176,8 +231,8 @@ public class SearchController {
      * Mastodon's Search entity.
      */
     @JsonInclude(JsonInclude.Include.ALWAYS)
-    @Schema(name = "Search", description = "Mastodon's Search entity. `statuses` is always empty.")
-    record SearchResponse(List<AccountResponse> accounts, List<Object> statuses, List<TagResponse> hashtags) {
+    @Schema(name = "Search", description = "Mastodon's Search entity. `statuses` is empty for a request with no user.")
+    record SearchResponse(List<AccountResponse> accounts, List<StatusResponse> statuses, List<TagResponse> hashtags) {
 
         static final SearchResponse EMPTY = new SearchResponse(List.of(), List.of(), List.of());
     }

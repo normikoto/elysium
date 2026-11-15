@@ -23,13 +23,14 @@ public record RemoteProfile(
         URI headerUrl,
         List<Field> fields,
         boolean manuallyApprovesFollowers,
+        boolean indexable,
         boolean bot,
         boolean group,
         Instant published,
         URI url) {
 
     public static final RemoteProfile EMPTY =
-            new RemoteProfile("", "", "", null, null, List.of(), false, false, false, null, null);
+            new RemoteProfile("", "", "", null, null, List.of(), false, false, false, false, null, null);
 
     /**
      * @param value     as text

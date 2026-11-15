@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Searching posts, from apps, as on Mastodon. People can find the posts they wrote, favourited, or are mentioned in, and
+  public posts by accounts that let anyone's search find them, which people choose at `/settings` or from an app. Posts
+  are found by whole words, in any language. The search uses PostgreSQL, so there's nothing more to run. See
+  `docs/accounts.md` and `docs/api.md`.
+
+  **Upgrading:** the upgrade builds a search index over every post stored, which can take a while on a large server
+  before it starts. Every account starts out not letting anyone's search find its posts, and accounts on other servers
+  keep that until they're fetched again.
 - Profiles of accounts on other servers: their display names, bios, fields, avatars, headers, and custom emoji are shown
   in apps, along with whether they approve followers by hand, are bots or groups, and when they were created. Avatars and
   headers are downloaded and kept here as attachments are, and count toward the same hourly limit, and each can be up to

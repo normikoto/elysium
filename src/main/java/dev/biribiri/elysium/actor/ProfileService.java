@@ -92,6 +92,7 @@ public class ProfileService {
                     image(row.header(), remote == null ? null : remote.headerUrl()),
                     fields.getOrDefault(row.actorId(), List.of()),
                     row.manuallyApprovesFollowers(),
+                    row.indexable(),
                     row.updatedAt(),
                     remote == null ? null : new Profile.Remote(
                             remote.noteHtml(), remote.url(), remote.bot(), remote.group(), remote.published())));
@@ -122,6 +123,7 @@ public class ProfileService {
                 avatar,
                 header,
                 profile.manuallyApprovesFollowers(),
+                profile.indexable(),
                 old.updatedAt(),
                 new ProfileRepository.Remote(
                         profile.noteHtml(),
@@ -305,6 +307,7 @@ public class ProfileService {
                         choose(change.avatar(), avatar, old.avatar(), removed),
                         choose(change.header(), header, old.header(), removed),
                         change.manuallyApprovesFollowers().orElse(old.manuallyApprovesFollowers()),
+                        change.indexable().orElse(old.indexable()),
                         old.updatedAt());
                 var oldFields = fields.isPresent() ? profiles.findFields(List.of(actorId)) : List.<ProfileRepository.FieldRow>of();
                 var newFields = fields.map(list -> keepVerification(list, actorId, oldFields));

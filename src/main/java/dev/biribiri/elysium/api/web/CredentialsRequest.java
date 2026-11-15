@@ -34,8 +34,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
      */
     private static final Map<String, Object> FIXED = Map.of(
             "bot", false,
-            "discoverable", false,
-            "indexable", false);
+            "discoverable", false);
 
     private static final Map<String, Object> FIXED_SOURCE = Map.of(
             "privacy", "public",
@@ -109,6 +108,11 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                 case "locked" -> {
                     if (!isEmpty(value)) {
                         change = change.withManuallyApprovesFollowers(RequestParameters.flag(values, key));
+                    }
+                }
+                case "indexable" -> {
+                    if (!isEmpty(value)) {
+                        change = change.withIndexable(RequestParameters.flag(values, key));
                     }
                 }
                 case "avatar", "header" -> {

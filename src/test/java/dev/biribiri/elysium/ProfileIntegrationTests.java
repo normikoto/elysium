@@ -224,6 +224,41 @@ class ProfileIntegrationTests {
     }
 
     @Test
+    void changesWhetherAnyonesSearchCanFindTheAccountsStatuses() throws Exception {
+        var alice = account("alice");
+        mockMvc.perform(get("/api/v1/accounts/" + alice.id())).andExpect(jsonPath("$.indexable").value(false));
+
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("indexable", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.indexable").value(true));
+        mockMvc.perform(get("/users/alice").accept("application/activity+json"))
+                .andExpect(jsonPath("$.indexable").value(true))
+                .andExpect(jsonPath("$['@context'][2].indexable").value("toot:indexable"));
+
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON).content("{\"indexable\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.indexable").value(false));
+        assertThat(profiles.find(alice.id()).indexable()).isFalse();
+    }
+
+    @Test
+    void theSettingsPageChangesWhetherTheAccountIsIndexable() throws Exception {
+        var session = TestOAuth.logIn(mockMvc, "alice", PASSWORD);
+        mockMvc.perform(get("/settings").session(session))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("name=\"indexable\"")));
+
+        mockMvc.perform(post("/settings").session(session).with(csrf()).param("indexable", "true"))
+                .andExpect(redirectedUrl("/settings?saved"));
+        assertThat(profiles.find(account("alice").id()).indexable()).isTrue();
+
+        mockMvc.perform(post("/settings").session(session).with(csrf()))
+                .andExpect(redirectedUrl("/settings?saved"));
+        assertThat(profiles.find(account("alice").id()).indexable()).isFalse();
+    }
+
+    @Test
     void uploadsReplacesAndRemovesImages() throws Exception {
         var first = uploadAvatar(TestImages.png(64, 64));
         assertThat(first).startsWith("https://profiles.example/media/").endsWith(".webp");
@@ -301,7 +336,7 @@ class ProfileIntegrationTests {
         var profile = new RemoteProfile(
                 "Bob :blob:", "Hello", "<p>Hello</p>", avatar, header,
                 List.of(new RemoteProfile.Field("Site", "bob.test", "<a href=\"https://bob.test\">bob.test</a>")),
-                true, true, false, Instant.parse("2020-03-04T05:06:07Z"), URI.create("https://" + host + "/@bob"));
+                true, false, true, false, Instant.parse("2020-03-04T05:06:07Z"), URI.create("https://" + host + "/@bob"));
         var bob = transaction.execute(status -> {
             var stored = actors.upsertRemote(new RemoteActorProfile(uri, "bob", host, URI.create(uri + "/inbox"), null,
                     null, null, null, null, profile));

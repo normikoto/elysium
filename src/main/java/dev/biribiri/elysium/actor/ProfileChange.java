@@ -10,6 +10,7 @@ import java.util.Optional;
  *
  * @param fields all the fields the profile should have, in order, replacing the ones it has
  * @param manuallyApprovesFollowers whether requests to follow the account should wait for its approval
+ * @param indexable whether anyone's search should find its public statuses
  */
 public record ProfileChange(
         Optional<String> displayName,
@@ -17,10 +18,11 @@ public record ProfileChange(
         Optional<List<NewField>> fields,
         Image avatar,
         Image header,
-        Optional<Boolean> manuallyApprovesFollowers) {
+        Optional<Boolean> manuallyApprovesFollowers,
+        Optional<Boolean> indexable) {
 
     public static final ProfileChange NONE = new ProfileChange(
-            Optional.empty(), Optional.empty(), Optional.empty(), Image.KEEP, Image.KEEP, Optional.empty());
+            Optional.empty(), Optional.empty(), Optional.empty(), Image.KEEP, Image.KEEP, Optional.empty(), Optional.empty());
 
     public ProfileChange {
         Objects.requireNonNull(displayName);
@@ -29,6 +31,7 @@ public record ProfileChange(
         Objects.requireNonNull(avatar);
         Objects.requireNonNull(header);
         Objects.requireNonNull(manuallyApprovesFollowers);
+        Objects.requireNonNull(indexable);
     }
 
     public record NewField(String name, String value) {
@@ -74,27 +77,33 @@ public record ProfileChange(
     }
 
     public ProfileChange withDisplayName(String value) {
-        return new ProfileChange(Optional.of(value), note, fields, avatar, header, manuallyApprovesFollowers);
+        return new ProfileChange(Optional.of(value), note, fields, avatar, header, manuallyApprovesFollowers, indexable);
     }
 
     public ProfileChange withNote(String value) {
-        return new ProfileChange(displayName, Optional.of(value), fields, avatar, header, manuallyApprovesFollowers);
+        return new ProfileChange(
+                displayName, Optional.of(value), fields, avatar, header, manuallyApprovesFollowers, indexable);
     }
 
     public ProfileChange withFields(List<NewField> value) {
-        return new ProfileChange(displayName, note, Optional.of(value), avatar, header, manuallyApprovesFollowers);
+        return new ProfileChange(
+                displayName, note, Optional.of(value), avatar, header, manuallyApprovesFollowers, indexable);
     }
 
     public ProfileChange withAvatar(Image value) {
-        return new ProfileChange(displayName, note, fields, value, header, manuallyApprovesFollowers);
+        return new ProfileChange(displayName, note, fields, value, header, manuallyApprovesFollowers, indexable);
     }
 
     public ProfileChange withHeader(Image value) {
-        return new ProfileChange(displayName, note, fields, avatar, value, manuallyApprovesFollowers);
+        return new ProfileChange(displayName, note, fields, avatar, value, manuallyApprovesFollowers, indexable);
     }
 
     public ProfileChange withManuallyApprovesFollowers(boolean value) {
-        return new ProfileChange(displayName, note, fields, avatar, header, Optional.of(value));
+        return new ProfileChange(displayName, note, fields, avatar, header, Optional.of(value), indexable);
+    }
+
+    public ProfileChange withIndexable(boolean value) {
+        return new ProfileChange(displayName, note, fields, avatar, header, manuallyApprovesFollowers, Optional.of(value));
     }
 
     public boolean isEmpty() {

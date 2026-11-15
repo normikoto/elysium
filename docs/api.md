@@ -360,11 +360,12 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   Mastodon sends an empty one. Its `avatar` and `header` are links to its server until they're downloaded, and stay links
   if they can't be, or an admin rejects its server's or its media, so they can be on another host. Its `fields` never
   have a `verified_at`. `followers_count` and `following_count` only count accounts on this server, and
-  `hide_collections` is null. `discoverable` is always false.
-- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`,
-  `hide_collections`, and `source[quote_policy]`. `bot`, `discoverable`, `indexable`, and the rest of `source` are
-  accepted only with the values the account already has: false, and `public` for `source[privacy]`. Any other value for them, or any other field with a value, gets a 422 naming
-  it, and then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it, as
+  `hide_collections` is null. `discoverable` is always false. `indexable` is what the account's actor document said when
+  this server last fetched it.
+- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`, `indexable`,
+  `hide_collections`, and `source[quote_policy]`. `bot`, `discoverable`, and the rest of `source` are accepted only with
+  the values the account already has: false, and `public` for `source[privacy]`. Any other value for them, or any other
+  field with a value, gets a 422 naming it, and then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it, as
   on Mastodon.
 - `fields_attributes` replaces all of the fields. It can be a list or an object keyed by position, in JSON or in a form
   (`fields_attributes[0][name]` or `fields_attributes[][name]`). Fields with an empty name and value are left out. How many
@@ -402,18 +403,28 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   statuses by those accounts and boosts of them, and the home timeline also leaves out replies to them. Threads leave them
   out, apart from the status asked for. An account that blocks the user, or the user's server, shows them no statuses, and
   its statuses get a 404. Unlike on Mastodon, the home timeline still shows statuses that only mention those accounts, and
-  search isn't filtered.
+  searching for accounts and hashtags isn't filtered. Searching for statuses is.
 - A suspended account gets a 404 from `GET /api/v1/accounts/:id` and the lists, and is left out of `relationships`, even
   with `with_suspended`, and of followers and following. An account can still be unfollowed while it's suspended.
 - `:id/followers` and `:id/following` page by the follow, so a cursor from a follow that's since been removed gives an empty
   page. If the account hides them, anyone else gets an empty list.
 - `lookup` and `search` only ask another server about an account for a signed-in user, and `search` only when `resolve` is
   true. Each user can make 30 of those lookups a minute, and then gets a 429.
-- `search` finds accounts and hashtags. `statuses` is always empty, and a `type` of `statuses` returns nothing.
-  A query that's a `username@domain` or an `https` URL finds that one account. Any other query matches the start of the
-  usernames this server knows. Only the first 200 matches can be paged through with `offset`, and an `offset` past them
-  returns no accounts. `following`, `account_id`, `exclude_unreviewed`,
-  `min_id`, and `max_id` are ignored.
+- `search` finds a query that's a `username@domain` or an `https` URL as that one account. Any other query matches the
+  start of the usernames this server knows. Only the first 200 matches can be paged through with `offset`, and an `offset`
+  past them returns no accounts. `following` and `exclude_unreviewed` are ignored.
+- `search` only finds statuses for a signed-in user. As on Mastodon, those are the statuses they wrote, favourited, or are
+  mentioned in, and public statuses by accounts whose `indexable` is true, newest first. It only finds what the user can
+  see, and leaves out accounts they block or mute. Unlike Mastodon:
+  - It matches whole words of a status's text and content warning, in any language, with no stemming, so `cats` doesn't
+    find `cat`. Words in quotes are a phrase, `OR` goes between alternatives, and `-` before a word leaves out statuses
+    that have it. Mastodon's operators, such as `from:`, `has:`, and `before:`, aren't supported, and are read as words.
+  - Poll options and media descriptions aren't searched, and there are no bookmarks to search.
+  - A status's URL doesn't find it, even with `resolve`, and a `username@domain` or `https` query finds no statuses.
+  - The user's filters don't leave statuses out, but are given in `filtered`.
+  - Only the first 200 statuses can be paged through with `offset`, and `max_id` and `min_id` page through the rest.
+    They don't apply to accounts and hashtags. An `account_id` that isn't a valid ID finds no statuses.
+  - An account on another server is only indexable once this server has fetched its actor since `indexable` was set.
 - `search` finds hashtags by the start of their name, from those that public statuses stored here use, most used first.
   A query that's a valid name, with or without its `#`, also finds that tag when nothing uses it, as the first result,
   as on Mastodon. Only the first 200 can be paged through with `offset`.

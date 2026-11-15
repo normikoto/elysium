@@ -117,6 +117,7 @@ final class RemoteActorDocument {
                 RemoteEmojis.iconUrl(document.path("image")).orElse(null),
                 fields(document.path("attachment")),
                 ActivityJson.flag(document.path("manuallyApprovesFollowers")),
+                ActivityJson.flag(document.path("indexable")),
                 types.stream().anyMatch(BOT_TYPES::contains),
                 types.contains("Group"),
                 RemoteNote.timestamp(document.path("published")),

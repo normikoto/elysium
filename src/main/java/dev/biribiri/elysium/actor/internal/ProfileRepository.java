@@ -33,6 +33,7 @@ public class ProfileRepository {
             StoredImage avatar,
             StoredImage header,
             boolean manuallyApprovesFollowers,
+            boolean indexable,
             Instant updatedAt,
             Remote remote) {
 
@@ -43,8 +44,9 @@ public class ProfileRepository {
                 StoredImage avatar,
                 StoredImage header,
                 boolean manuallyApprovesFollowers,
+                boolean indexable,
                 Instant updatedAt) {
-            this(actorId, displayName, note, avatar, header, manuallyApprovesFollowers, updatedAt, null);
+            this(actorId, displayName, note, avatar, header, manuallyApprovesFollowers, indexable, updatedAt, null);
         }
     }
 
@@ -78,7 +80,7 @@ public class ProfileRepository {
 
     private static final String COLUMNS = """
             actor_id, display_name, note, avatar, avatar_static, header, header_static, manually_approves_followers,
-            updated_at, note_html, avatar_remote_url, avatar_cache_given_up, header_remote_url, header_cache_given_up, url,
+            indexable, updated_at, note_html, avatar_remote_url, avatar_cache_given_up, header_remote_url, header_cache_given_up, url,
             bot, group_actor, published""";
 
     private final JdbcClient jdbc;
@@ -150,7 +152,7 @@ public class ProfileRepository {
         return jdbc.sql("""
                         UPDATE profile SET display_name = :displayName, note = :note, avatar = :avatar,
                             avatar_static = :avatarStatic, header = :header, header_static = :headerStatic,
-                            manually_approves_followers = :manuallyApprovesFollowers, updated_at = clock_timestamp()
+                            manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, updated_at = clock_timestamp()
                         WHERE actor_id = :actorId
                         RETURNING updated_at
                         """)
@@ -162,6 +164,7 @@ public class ProfileRepository {
                 .param("header", row.header() == null ? null : row.header().name())
                 .param("headerStatic", row.header() == null ? null : row.header().staticName())
                 .param("manuallyApprovesFollowers", row.manuallyApprovesFollowers())
+                .param("indexable", row.indexable())
                 .query(OffsetDateTime.class)
                 .single()
                 .toInstant();
@@ -192,7 +195,7 @@ public class ProfileRepository {
         jdbc.sql("""
                         UPDATE profile SET display_name = :displayName, note = :note, avatar = :avatar,
                             avatar_static = :avatarStatic, header = :header, header_static = :headerStatic,
-                            manually_approves_followers = :manuallyApprovesFollowers, note_html = :noteHtml,
+                            manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, note_html = :noteHtml,
                             avatar_remote_url = :avatarUrl, avatar_cache_given_up = :avatarGivenUp,
                             header_remote_url = :headerUrl, header_cache_given_up = :headerGivenUp, url = :url, bot = :bot,
                             group_actor = :group, published = :published, updated_at = clock_timestamp()
@@ -206,6 +209,7 @@ public class ProfileRepository {
                 .param("header", row.header() == null ? null : row.header().name())
                 .param("headerStatic", row.header() == null ? null : row.header().staticName())
                 .param("manuallyApprovesFollowers", row.manuallyApprovesFollowers())
+                .param("indexable", row.indexable())
                 .param("noteHtml", remote.noteHtml())
                 .param("avatarUrl", string(remote.avatarUrl()))
                 .param("avatarGivenUp", remote.avatarGivenUp())
@@ -423,6 +427,7 @@ public class ProfileRepository {
                 image(rs.getString("avatar"), rs.getString("avatar_static")),
                 image(rs.getString("header"), rs.getString("header_static")),
                 rs.getBoolean("manually_approves_followers"),
+                rs.getBoolean("indexable"),
                 instant(rs.getObject("updated_at", OffsetDateTime.class)),
                 remote);
     }

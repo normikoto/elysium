@@ -145,6 +145,11 @@ also choose to approve followers by hand, there or from an app, and then approve
 request that's waiting doesn't make someone a follower, so they don't see followers-only posts. Turning it off approves
 every request that's waiting, and turning it on keeps the followers they already have.
 
+People can choose, at `/settings` or from an app, whether anyone can find their public posts by searching. It's off at
+first, as on Mastodon. Either way, people here can find posts they wrote, favourited, or are mentioned in. Other servers
+are told about the choice and decide what their own search does with it. Posts on other servers are only found when their
+author has made the same choice there.
+
 ## Profiles
 People can change their profile at `/settings`, or from an app: a display name of up to 30 characters, a bio of up to 500,
 an avatar, a header, and up to 4 fields, each a name and a value. You can change how many fields there can be with
