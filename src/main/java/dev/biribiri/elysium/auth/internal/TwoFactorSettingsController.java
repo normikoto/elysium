@@ -10,8 +10,6 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -98,7 +96,7 @@ class TwoFactorSettingsController {
         // Only for the session that typed the password, since this page shows the secret again after a wrong code, and
         // finishing setup gives out recovery codes.
         var secret = twoFactor.pendingSecret(account.id()).filter(found -> PendingSetup.isFor(request, account.id(), found));
-        var generation = generationOf(request);
+        var generation = LoginGenerationFilter.generationOf(request);
         if (secret.isEmpty() || generation.isEmpty()) {
             // Such as when it was turned on or set up again in another tab, or the form was sent twice.
             return "redirect:" + SecurityConfig.TWO_FACTOR_SETTINGS_PATH;
@@ -124,7 +122,7 @@ class TwoFactorSettingsController {
                 // If the session's generation ended, ActiveAccountFilter logs it out there.
                 return "redirect:" + SecurityConfig.TWO_FACTOR_SETTINGS_PATH;
             }
-            startNewSession(authentication, confirmed.get().loginGeneration(), request, response);
+            LoginGenerationFilter.startNewSession(authentication, confirmed.get().loginGeneration(), request, response);
             return recoveryCodesPage(confirmed.get().recoveryCodes(), true, model, response);
         } catch (RuntimeException e) {
             limits.loginNotCounted(request);
@@ -165,13 +163,6 @@ class TwoFactorSettingsController {
             return failed(HttpStatus.CONFLICT, "Two-factor login is off.", account, model, response);
         }
         return recoveryCodesPage(codes.get(), false, model, response);
-    }
-
-    private static Optional<Long> generationOf(HttpServletRequest request) {
-        var session = request.getSession(false);
-        return session != null && LoginGenerationFilter.generationOf(session) instanceof Long generation
-                ? Optional.of(generation)
-                : Optional.empty();
     }
 
     private Actor account(Authentication authentication) {
@@ -273,24 +264,5 @@ class TwoFactorSettingsController {
         private static String hash(byte[] secret) {
             return SecretCodes.hash(Base32.encode(secret));
         }
-    }
-
-    /**
-     * Moves this browser to a new session, once turning two-factor login on has ended all of the account's sessions, this one
-     * included. The new one belongs to the account's new generation: see {@link LoginGenerationFilter}.
-     */
-    private static void startNewSession(
-            Authentication authentication, long generation, HttpServletRequest request, HttpServletResponse response) {
-        var session = request.getSession(false);
-        if (session != null) {
-            session.invalidate();
-        }
-        request.getSession(true);
-        var context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(authentication);
-        SecurityContextHolder.setContext(context);
-        new HttpSessionSecurityContextRepository().saveContext(context, request, response);
-        LoginGenerationFilter.loggingIn(request, generation);
-        LoginGenerationFilter.loggedIn(request);
     }
 }
