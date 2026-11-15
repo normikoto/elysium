@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-15
+
 ### Added
 
 - Searching posts, from apps, as on Mastodon. People can find the posts they wrote, favourited, or are mentioned in, and
@@ -326,3 +328,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   made after upgrading. Edits of a followers-only post now also reach followers who followed again since it was posted.
   Undoing a followers-only boost now reaches the same servers its boost was sent to, in the same way. Followers who
   followed again can also fetch a followers-only post they were sent.
+
+[Unreleased]: https://github.com/normikoto/elysium/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/normikoto/elysium/releases/tag/v0.1.0
