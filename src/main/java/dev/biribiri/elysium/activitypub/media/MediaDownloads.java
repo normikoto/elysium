@@ -36,6 +36,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.function.Function;
@@ -132,22 +133,26 @@ public class MediaDownloads {
 
     /**
      * An image is queued each time its profile is refreshed until it's downloaded, which doesn't queue a second job while
-     * one is waiting.
+     * one is waiting. The job's ID includes the image's URL, so that a job parked for an image the profile no longer has
+     * doesn't keep its replacement from being queued.
      */
     @ApplicationModuleListener
     public void on(RemoteProfileImageAdded event) {
         if (!properties.remoteCacheEnabled()) {
             return;
         }
-        var now = Instant.now();
         if (event.avatar()) {
-            Jobs.schedule(scheduler, PROFILE_IMAGE_TASK, new ProfileImageDownloadJob(event.actorId(), false, now),
-                    event.actorId().toString(), "avatar");
+            scheduleProfileImage(event.actorId(), false);
         }
         if (event.header()) {
-            Jobs.schedule(scheduler, PROFILE_IMAGE_TASK, new ProfileImageDownloadJob(event.actorId(), true, now),
-                    event.actorId().toString(), "header");
+            scheduleProfileImage(event.actorId(), true);
         }
+    }
+
+    private void scheduleProfileImage(UUID actorId, boolean header) {
+        profiles.findImageToDownload(actorId, header).ifPresent(url -> Jobs.schedule(scheduler, PROFILE_IMAGE_TASK,
+                new ProfileImageDownloadJob(actorId, header, Instant.now()),
+                actorId.toString(), header ? "header" : "avatar", url.toString()));
     }
 
     CompletionHandler<MediaDownloadJob> run(MediaDownloadJob job) {

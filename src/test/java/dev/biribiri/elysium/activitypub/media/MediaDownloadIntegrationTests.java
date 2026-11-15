@@ -60,7 +60,7 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * Downloads other servers' attachments from a server on the loopback address. No job worker runs, so jobs are run
- * directly, apart from the one test that checks one is queued.
+ * directly, apart from the tests that check they're queued.
  */
 @Import({TestcontainersConfiguration.class, MediaDownloadIntegrationTests.Config.class})
 @SpringBootTest(properties = {
@@ -610,6 +610,26 @@ class MediaDownloadIntegrationTests {
                 .param("id", "%" + attachment.id() + "%")
                 .query(Long.class)
                 .single() == 1);
+    }
+
+    @Test
+    void aNewAvatarIsQueuedWhileTheOldOnesJobIsStillWaiting() {
+        withImages(fileUrl("/stuck.png"), null);
+        awaitProfileImageJobs(1);
+
+        // The old job never runs, as one parked after its host kept failing wouldn't.
+        withImages(fileUrl("/fresh.png"), null);
+        awaitProfileImageJobs(2);
+    }
+
+    private void awaitProfileImageJobs(long count) {
+        await().atMost(Duration.ofSeconds(10)).until(() -> jdbc.sql("""
+                        SELECT count(*) FROM scheduled_tasks
+                        WHERE task_name = 'profile-image-download' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + author.id() + "%")
+                .query(Long.class)
+                .single() == count);
     }
 
     private MediaAttachment attach(String path, String mediaType) {

@@ -333,7 +333,8 @@ public class ProfileRepository {
     }
 
     /**
-     * Like {@link #allowImages(UUID)}, for a batch of a server's accounts.
+     * Like {@link #allowImages(UUID)}, for a batch of a server's accounts, other than those whose own media is still
+     * rejected.
      *
      * @param domain as actors have it
      * @return how many were changed
@@ -343,8 +344,8 @@ public class ProfileRepository {
                         UPDATE profile SET avatar_cache_given_up = false, header_cache_given_up = false
                         WHERE actor_id IN (
                             SELECT p.actor_id FROM profile p JOIN actor a ON a.id = p.actor_id
-                            WHERE a.domain = :domain AND NOT a.is_local AND p.note_html IS NOT NULL
-                              AND (p.avatar_cache_given_up OR p.header_cache_given_up)
+                            WHERE a.domain = :domain AND NOT a.is_local AND a.media_rejected_at IS NULL
+                              AND p.note_html IS NOT NULL AND (p.avatar_cache_given_up OR p.header_cache_given_up)
                             LIMIT :limit
                         )
                         """)

@@ -91,7 +91,10 @@ public class MediaRejections {
     @ApplicationModuleListener
     public void on(ActorMediaAllowed event) {
         attachments.allowForAccount(event.actorId());
-        profiles.allowRemoteImages(event.actorId());
+        // Unless a block on its server still rejects its media, as for its attachments.
+        actors.findById(event.actorId())
+                .filter(actor -> !blocks.rejectsMedia(actor.uri().getHost()))
+                .ifPresent(actor -> profiles.allowRemoteImages(actor.id()));
     }
 
     /**
