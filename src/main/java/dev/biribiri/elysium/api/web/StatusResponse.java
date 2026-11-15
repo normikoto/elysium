@@ -17,7 +17,7 @@ import java.util.UUID;
  */
 @Schema(name = "Status", description = """
         Mastodon's Status entity. Cards don't exist yet, so `card` is always null. `url` is null only for a boost, and \
-        for a followers-only or direct status from this server it leads to a page that says it wasn't found. A boost has the boosted status in `reblog`, and no content of its own. \
+        for a followers-only or direct status from this server it leads to a page that's only shown to someone logged in to this server's website who can see the status. A boost has the boosted status in `reblog`, and no content of its own. \
         `reblogs_count`, `favourites_count` and `quotes_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
         edited, or null if it never was.""")

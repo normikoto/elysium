@@ -2,12 +2,15 @@ package dev.biribiri.elysium;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.BlockService;
+import dev.biribiri.elysium.graph.FollowService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +21,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
@@ -63,6 +67,15 @@ class WebPagesIntegrationTests {
 
     @Autowired
     private StatusPinService pins;
+
+    @Autowired
+    private FollowService follows;
+
+    @Autowired
+    private BlockService blocks;
+
+    @Autowired
+    private BoostService boosts;
 
     private Actor wanda;
     private Actor walt;
@@ -275,12 +288,83 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void aLoginSessionDoesNotRevealPrivateStatuses() throws Exception {
-        var status = post(wanda, "hidden text", Visibility.PRIVATE);
+    void showsAFollowersOnlyStatusToItsAuthorFollowersAndMentionedAccounts() throws Exception {
+        var petra = account("petra");
+        var fern = account("fern");
+        follows.follow(fern, petra);
+        var status = post(petra, "@walt followers text", Visibility.PRIVATE);
 
-        mockMvc.perform(get(path(wanda, status)).with(user("wanda")))
-                .andExpect(status().isNotFound());
-        mockMvc.perform(get("/users/wanda").with(user("wanda")))
+        for (var viewer : new Actor[]{petra, fern, walt}) {
+            mockMvc.perform(get(path(petra, status)).with(loggedIn(viewer)))
+                    .andExpect(status().isOk())
+                    // Spring Security's default, which keeps a page that depends on who's logged in out of shared caches.
+                    .andExpect(header().string("Cache-Control", containsString("no-store")))
+                    .andExpect(content().string(containsString("followers text")))
+                    .andExpect(content().string(containsString("Only visible to followers")));
+        }
+        mockMvc.perform(get(path(petra, status)).with(loggedIn(wanda))).andExpect(status().isNotFound());
+        mockMvc.perform(get(path(petra, status))).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void showsADirectStatusOnlyToItsAuthorAndMentionedAccounts() throws Exception {
+        var petra = account("petra");
+        var fern = account("fern");
+        follows.follow(fern, petra);
+        var status = post(petra, "@walt direct text", Visibility.DIRECT);
+
+        for (var viewer : new Actor[]{petra, walt}) {
+            mockMvc.perform(get(path(petra, status)).with(loggedIn(viewer)))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(containsString("direct text")))
+                    .andExpect(content().string(containsString("Only visible to mentioned accounts")));
+        }
+        for (var viewer : new Actor[]{fern, wanda}) {
+            mockMvc.perform(get(path(petra, status)).with(loggedIn(viewer))).andExpect(status().isNotFound());
+        }
+        mockMvc.perform(get(path(petra, status))).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aBoostOfAFollowersOnlyStatusLeadsToItForAFollower() throws Exception {
+        var petra = account("petra");
+        var fern = account("fern");
+        follows.follow(fern, petra);
+        var status = post(petra, "followers text", Visibility.PRIVATE);
+        var boost = boosts.reblog(status.id(), petra.id(), Visibility.PUBLIC).orElseThrow();
+
+        mockMvc.perform(get(path(petra, boost)).with(loggedIn(fern)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", status.uri().toString()));
+        mockMvc.perform(get(path(petra, boost))).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aPublicStatusPageHasNoVisibilityNotice() throws Exception {
+        var status = post(wanda, "visible text", Visibility.PUBLIC);
+
+        mockMvc.perform(get(path(wanda, status)).with(loggedIn(wanda)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("Only visible to"))));
+    }
+
+    @Test
+    void hidesAStatusFromAFollowerItMentionsWhomItsAuthorBlocks() throws Exception {
+        // Accounts of its own, since a block outlasts the test and would stop the others following.
+        var pia = account("pia");
+        var finn = account("finn");
+        follows.follow(finn, pia);
+        var status = post(pia, "@finn followers text", Visibility.PRIVATE);
+        blocks.block(pia, finn);
+
+        mockMvc.perform(get(path(pia, status)).with(loggedIn(finn))).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aLoginSessionDoesNotRevealPrivateStatusesOnTheProfile() throws Exception {
+        post(wanda, "hidden text", Visibility.PRIVATE);
+
+        mockMvc.perform(get("/users/wanda").with(loggedIn(wanda)))
                 .andExpect(content().string(not(containsString("hidden text"))));
     }
 
@@ -320,6 +404,17 @@ class WebPagesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("In reply to"))))
                 .andExpect(content().string(not(containsString(parent.id().toString()))));
+    }
+
+    @Test
+    void linksToAParentTheViewerCanSee() throws Exception {
+        var parent = post(wanda, "hidden text", Visibility.PRIVATE);
+        var reply = reply(wanda, "reply to myself", parent);
+
+        mockMvc.perform(get(path(wanda, reply)).with(loggedIn(wanda)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("In reply to")))
+                .andExpect(content().string(containsString("href=\"" + path(wanda, parent) + "\"")));
     }
 
     // Followers
@@ -684,6 +779,13 @@ class WebPagesIntegrationTests {
 
     private Status reply(Actor author, String text, Status parent) {
         return statuses.create(author.id(), new NewStatus(text, null, null, Visibility.PUBLIC, false, parent.id()));
+    }
+
+    /**
+     * A login session, whose name is the account's ID, as a real login's is.
+     */
+    private static RequestPostProcessor loggedIn(Actor actor) {
+        return user(actor.id().toString());
     }
 
     private static String path(Actor author, Status status) {

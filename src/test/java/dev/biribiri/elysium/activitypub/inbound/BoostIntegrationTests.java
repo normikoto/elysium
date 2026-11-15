@@ -420,7 +420,7 @@ class BoostIntegrationTests {
                 .andExpect(content().string(containsString("remote")));
         var path = "/users/boostbob/statuses/" + boost.id();
         mvc.perform(get(path).accept(MediaType.TEXT_HTML))
-                .andExpect(status().is3xxRedirection()).andExpect(redirectedUrl(post.uri().getPath()));
+                .andExpect(status().is3xxRedirection()).andExpect(redirectedUrl(post.uri().toString()));
         mvc.perform(get("/users/boostbob/statuses/" + remoteBoost.id()).accept(MediaType.TEXT_HTML))
                 .andExpect(status().is3xxRedirection()).andExpect(redirectedUrlPattern("https://r*.test/users/remote/posts/*"));
         mvc.perform(get("/users/boostalice/statuses/" + boost.id()).accept(MediaType.TEXT_HTML))

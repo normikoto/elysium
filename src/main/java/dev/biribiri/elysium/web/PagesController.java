@@ -45,8 +45,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Pages always read as an anonymous viewer, even with a login session, because that session only exists for approving
- * OAuth applications.
+ * Pages read as an anonymous viewer, even with a login session, so that a page someone shares shows everyone the same.
+ * A status's own page is the exception: it's where apps link every status but a boost, so it shows the logged-in account
+ * what it could see in the API.
  */
 @Controller
 class PagesController {
@@ -142,17 +143,22 @@ class PagesController {
      * produces.
      */
     @GetMapping("/users/{username}/statuses/{id}")
-    String status(@PathVariable String username, @PathVariable String id, Model model, HttpServletRequest request)
-            throws HttpMediaTypeNotAcceptableException {
+    String status(
+            @PathVariable String username,
+            @PathVariable String id,
+            Principal principal,
+            Model model,
+            HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
-        var found = Ids.parse(id).flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS));
+        var viewer = viewer(principal);
+        var found = Ids.parse(id).flatMap(statusId -> statuses.findVisible(statusId, viewer));
         var boost = found.filter(Status::isReblog);
         if (boost.isPresent()) {
             // A boost has no page of its own, so its link leads to what it boosts, as on Mastodon.
             return boost.filter(status -> actors.findLocalById(status.actorId())
                             .filter(booster -> booster.username().equalsIgnoreCase(username)).isPresent())
-                    .flatMap(status -> profileViews(List.of(status), null).stream().findFirst())
-                    .map(view -> "redirect:" + view.url())
+                    .flatMap(status -> statuses.findVisible(status.reblogOfId(), viewer))
+                    .map(original -> "redirect:" + original.link())
                     .orElseThrow(PagesController::notFound);
         }
         var view = found
@@ -163,7 +169,7 @@ class PagesController {
 
         model.addAttribute("view", view);
         model.addAttribute("parent", Optional.ofNullable(view.status().inReplyToId())
-                .flatMap(parentId -> statuses.findVisible(parentId, ANONYMOUS))
+                .flatMap(parentId -> statuses.findVisible(parentId, viewer))
                 .flatMap(this::view)
                 .orElse(null));
         return "status";
@@ -191,13 +197,14 @@ class PagesController {
     }
 
     @GetMapping({"/users/{username}/statuses/{id}/likes", "/users/{username}/statuses/{id}/shares"})
-    String collection(@PathVariable String username, @PathVariable String id, HttpServletRequest request)
+    String collection(
+            @PathVariable String username, @PathVariable String id, Principal principal, HttpServletRequest request)
             throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
         var author = actors.findAnyLocalByUsername(username).filter(actor -> !actor.isDeleted())
                 .orElseThrow(PagesController::notFound);
         if (author.isSuspended()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        var found = Ids.parse(id).flatMap(statusId -> statuses.findVisible(statusId, ANONYMOUS))
+        var found = Ids.parse(id).flatMap(statusId -> statuses.findVisible(statusId, viewer(principal)))
                 .filter(status -> !status.isReblog() && status.actorId().equals(author.id()))
                 .orElseThrow(PagesController::notFound);
         return "redirect:" + found.uri();
@@ -290,6 +297,14 @@ class PagesController {
      * A profile field, as HTML that's safe to show.
      */
     record FieldView(String name, String value, boolean verified) {
+    }
+
+    /**
+     * The logged-in account, whose name is its actor ID. A session that outlived its account has already been ended by the
+     * time this runs.
+     */
+    private static Optional<UUID> viewer(Principal principal) {
+        return Optional.ofNullable(principal).map(Principal::getName).flatMap(Ids::parse);
     }
 
     private static StatusPage firstPage(UUID maxId) {
