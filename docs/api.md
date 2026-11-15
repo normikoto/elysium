@@ -142,6 +142,28 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   or not, and gets a 404 for a status that doesn't quote it. Revoking a quote from a server that can't ask for approval
   only hides it here.
 
+Emoji reactions follow [Pleroma's API](https://docs.akkoma.dev/stable/development/API/pleroma_api/#emoji-reactions),
+since Mastodon has none:
+
+- `PUT /api/v1/pleroma/statuses/:id/reactions/:emoji` reacts to a status, and `DELETE` with the same path removes the
+  reaction. Both need `write:favourites` or `write:statuses`, return the status, and do nothing more when repeated. A
+  boost's ID stands for the status it boosts. `GET /api/v1/pleroma/statuses/:id/reactions`, and the same with
+  `/:emoji`, list them with their `accounts`, and need no token for a status anyone can see.
+- `:emoji` is one Unicode emoji, the shortcode of one of this server's custom emoji, with or without colons, or
+  `shortcode@domain` for another server's emoji that this server has from a post or a reaction. Anything else, including
+  text and two emoji, gets a 422.
+- An account can react to a status with up to 20 different emoji, and a 21st gets a 422. A reaction isn't a favourite,
+  so it doesn't change `favourited` or `favourites_count`.
+- A status's reactions are in `pleroma.emoji_reactions`, each with `name`, `count`, and `me`, and `url` and `static_url`
+  for a custom emoji, in the order each emoji was first used. A custom emoji's `name` is its shortcode, followed by `@` and
+  its server's domain for another server's. A listing's `accounts` has up to 40 of each emoji's accounts, the most recent
+  first. Reactions from other servers are only known for this server's statuses, so another server's status only shows
+  this server's accounts' reactions.
+- The author gets a `pleroma:emoji_reaction` notification, with the emoji in `emoji`, and a custom emoji's image in
+  `emoji_url`. In grouped notifications, each reaction is a group of its own, and has neither field. Reactions aren't
+  streamed, as favourites aren't.
+- NodeInfo's `metadata.features` lists `pleroma_emoji_reactions` and `custom_emoji_reactions`, which clients look for.
+
 Polls follow [Mastodon's polls API](https://docs.joinmastodon.org/methods/polls/), with these differences:
 
 - A poll's `id` is its status's.
@@ -193,9 +215,10 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
 - V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`, `poll`, and `admin.report`
-  notifications are generated. A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a
-  status that a user quoted. A `poll` arrives within about a minute of a poll ending, for its author if they're a local
+- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`, `poll`, `admin.report`,
+  and `pleroma:emoji_reaction` notifications are generated, the last as Pleroma has it, which emoji reactions above
+  describe. A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user
+  quoted. A `poll` arrives within about a minute of a poll ending, for its author if they're a local
   user, and for each local user who voted in it, and its `account` is the poll's author. `admin.report` goes to each admin, except one who filed the report, and only admins see
   them: an account that stops being an admin stops seeing them, in lists and counts, until it's an admin again. Its
   `account` is the reporter, which for a report from another server is whoever sent it there, usually that server's

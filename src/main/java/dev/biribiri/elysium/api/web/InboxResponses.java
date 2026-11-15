@@ -2,7 +2,12 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.CustomEmoji;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.PostFilter;
+import dev.biribiri.elysium.content.ReactionService;
+import dev.biribiri.elysium.content.StatusReaction;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.inbox.Conversation;
 import dev.biribiri.elysium.inbox.Notification;
@@ -33,9 +38,16 @@ class InboxResponses {
     private final StatusResponses statusResponses;
     private final DomainBlocks blocks;
     private final Reports reports;
+    private final ReactionService reactions;
+    private final CustomEmojis emojis;
+    private final InstanceProperties instance;
 
     InboxResponses(ActorService actors, AccountResponses accounts, StatusService statuses,
-                   StatusResponses statusResponses, DomainBlocks blocks, Reports reports) {
+                   StatusResponses statusResponses, DomainBlocks blocks, Reports reports, ReactionService reactions,
+                   CustomEmojis emojis, InstanceProperties instance) {
+        this.reactions = reactions;
+        this.emojis = emojis;
+        this.instance = instance;
         this.reports = reports;
         this.actors = actors;
         this.accounts = accounts;
@@ -49,13 +61,23 @@ class InboxResponses {
         var statusMap = statuses(viewer, found.stream().map(Notification::statusId).filter(Objects::nonNull).toList(),
                 NOTIFICATIONS);
         var reportMap = reports(found.stream().map(Notification::reportId).filter(Objects::nonNull).toList());
+        var reactionMap = reactions.findAll(found.stream().map(Notification::reactionId).filter(Objects::nonNull).toList());
+        var emojiMap = emojis.findAll(reactionMap.values().stream().map(StatusReaction::emojiId).filter(Objects::nonNull)
+                .distinct().toList()).stream().collect(Collectors.toMap(CustomEmoji::id, Function.identity()));
         return found.stream().filter(n -> accountMap.containsKey(n.accountId()))
                 .filter(n -> n.statusId() == null || statusMap.containsKey(n.statusId()))
                 .filter(n -> n.reportId() == null || reportMap.containsKey(n.reportId()))
-                .map(n -> new NotificationResponse(n.id().toString(), n.type(), ApiTimestamps.format(n.createdAt()),
-                        accountMap.get(n.accountId()), statusMap.get(n.statusId()),
-                        n.groupKey() == null ? "ungrouped-" + n.id() : n.groupKey(),
-                        n.reportId() == null ? null : reportMap.get(n.reportId()))).toList();
+                .filter(n -> n.reactionId() == null || reactionMap.containsKey(n.reactionId()))
+                .map(n -> {
+                    var reaction = n.reactionId() == null ? null : reactionMap.get(n.reactionId());
+                    var emoji = reaction == null || reaction.emojiId() == null ? null : emojiMap.get(reaction.emojiId());
+                    return new NotificationResponse(n.id().toString(), n.type(), ApiTimestamps.format(n.createdAt()),
+                            accountMap.get(n.accountId()), statusMap.get(n.statusId()),
+                            n.groupKey() == null ? "ungrouped-" + n.id() : n.groupKey(),
+                            n.reportId() == null ? null : reportMap.get(n.reportId()),
+                            reaction == null ? null : ReactionService.nameOf(reaction.name(), emoji),
+                            emoji == null ? null : emoji.url(instance).toString());
+                }).toList();
     }
 
     GroupedNotificationsResponse groups(UUID viewer, List<NotificationGroup> found, boolean partial) {

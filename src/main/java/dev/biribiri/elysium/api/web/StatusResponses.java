@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.LikeStats;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -63,12 +64,14 @@ class StatusResponses {
     private final StatusPinService pins;
     private final PostFilters filters;
     private final CustomEmojis emojis;
+    private final ReactionService reactions;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
             StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments,
             QuoteService quotes, BlockService blocks, PollService polls, StatusPinService pins, PostFilters filters,
-            CustomEmojis emojis) {
+            CustomEmojis emojis, ReactionService reactions) {
+        this.reactions = reactions;
         this.filters = filters;
         this.emojis = emojis;
         this.polls = polls;
@@ -220,6 +223,7 @@ class StatusResponses {
         var media = new HashMap<>(attachments.findByStatuses(ids));
         media.putAll(knownMedia);
         var likeStats = likes.stats(ids, viewer);
+        var reactionsById = reactions.summaries(ids, viewer);
         var boostStats = boosts.stats(ids, viewer);
         var quoteCounts = quotes.acceptedCounts(ids);
         var pollsById = polls.findAll(ids, viewer);
@@ -269,7 +273,10 @@ class StatusResponses {
                         .orElse(null),
                 pinned.contains(status.id()),
                 viewer.isEmpty() ? null
-                        : matchesOf.apply(status).stream().map(FilterResponse.ResultResponse::from).toList());
+                        : matchesOf.apply(status).stream().map(FilterResponse.ResultResponse::from).toList(),
+                status.isReblog() ? List.of() : reactionsById.getOrDefault(status.id(), List.of()).stream()
+                        .map(summary -> ReactionResponse.of(summary, instance, null))
+                        .toList());
         // A status that's quoted only shows what it quotes in turn by ID, as on Mastodon, so that quotes don't nest.
         Function<Status, StatusResponse> nested = status -> basic.apply(status, null,
                 Optional.ofNullable(quoteRows.get(status.id())).map(StatusResponses::shallow).orElse(null));

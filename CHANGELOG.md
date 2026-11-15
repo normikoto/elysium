@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Emoji reactions, as Pleroma, Akkoma, and Misskey have them. People can react to a post with Unicode emoji and custom
+  emoji, up to 20 different ones each, from apps that support Pleroma's reactions API, and get a notification when
+  someone reacts to theirs. Reactions are sent to and received from other servers, and Misskey's reactions, which it
+  sends as likes, are shown as reactions rather than favourites. See `docs/api.md` and `FEDERATION.md`.
 - Custom emoji, as on Mastodon. Admins add them at `/admin/custom-emojis`, and people use them by writing their
   shortcode between colons, such as `:blobcat:`, in posts, display names, bios, and profile fields. Apps list them with
   `GET /api/v1/custom_emojis`, and they're shown in apps and on this server's pages, and sent to other servers. Emoji in

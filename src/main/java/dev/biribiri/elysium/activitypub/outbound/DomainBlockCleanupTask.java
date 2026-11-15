@@ -7,6 +7,7 @@ import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.graph.BlockService;
@@ -28,6 +29,7 @@ class DomainBlockCleanupTask {
 
     private final InboxService inbox;
     private final LikeService likes;
+    private final ReactionService reactions;
     private final DomainBlocks blocks;
     private final FollowService follows;
     private final BlockService accountBlocks;
@@ -39,7 +41,8 @@ class DomainBlockCleanupTask {
     private final CustomEmojis emojis;
 
     DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, BlockService accountBlocks, StatusService statuses,
-                           InboxService inbox, LikeService likes, FollowersOnlyRecipients followersOnly,
+                           InboxService inbox, LikeService likes, ReactionService reactions,
+                           FollowersOnlyRecipients followersOnly,
                            Reports reports, PollService polls, StatusPinService pins, CustomEmojis emojis) {
         this.pins = pins;
         this.emojis = emojis;
@@ -49,6 +52,7 @@ class DomainBlockCleanupTask {
         this.accountBlocks = accountBlocks;
         this.inbox = inbox;
         this.likes = likes;
+        this.reactions = reactions;
         this.blocks = blocks;
         this.follows = follows;
         this.statuses = statuses;
@@ -69,6 +73,7 @@ class DomainBlockCleanupTask {
         }
         blocks.blockedHosts(follows.remoteDomains()).forEach(domain -> {
             likes.removeForDomain(domain);
+            reactions.removeForDomain(domain);
             pins.removeForDomain(domain);
             polls.removeForDomain(domain);
             follows.removeForDomain(domain);

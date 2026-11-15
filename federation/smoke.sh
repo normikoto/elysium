@@ -7,7 +7,8 @@
 # Elysium's pins, which it only does when it refreshes an actor. Elysium fetches a post that a followed account
 # boosts, and it backfills a followed account's older post from its outbox. Elysium quotes the other server's post, and
 # Mastodon and Misskey quote Elysium's, with Mastodon's approvals and a revocation checked on both sides. Each server
-# forwards a report to the other. On Mastodon, each server shows the other's custom emoji.
+# forwards a report to the other. On Mastodon, each server shows the other's custom emoji, and on Misskey, each server
+# shows the other's emoji reactions.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -1324,6 +1325,12 @@ check_likes() {
     jq -e '(.favourited | not) and .favourites_count == 0' <<<"$body" >/dev/null || fail "Unfavourite failed: $body"
     expect_peer_likes "$remote_uri" 0
 
+    # Misskey sends every reaction as a Like with an emoji, which Elysium takes as a reaction, so check_reactions checks
+    # those.
+    if [[ $target == misskey ]]; then
+        echo "Elysium sent $target signed Likes and Undos"
+        return
+    fi
     for uri in "$public_uri" "$private_uri"; do
         like_from_peer "$uri" favourite
         expect_elysium_likes "$uri" 1 "$read_token"
@@ -1343,6 +1350,65 @@ check_likes() {
         expect_elysium_likes "$uri" 0 "$read_token"
     done
     echo "$target and Elysium exchanged signed Likes and Undos, with counts, notifications, and a public likes collection"
+}
+
+# Misskey reacts to alice's statuses, which it sends as Likes with an emoji, and Elysium has to show reactions rather than
+# favourites, and notify her. alice reacts to the lab user's note, and Misskey has to show it, then both are withdrawn.
+check_reactions() {
+    local server=$1 read_token write_token remote_uri remote_id body uri note id
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write:favourites)
+    for uri in "$public_uri" "$private_uri"; do
+        like_from_peer "$uri" favourite
+        for _ in $(seq 1 60); do
+            body=$(driver curl -fsS "https://elysium.test/api/v1/statuses/${uri##*/}" -H "Authorization: Bearer $read_token")
+            jq -e '.pleroma.emoji_reactions | any(.name == "👍" and .count == 1)' <<<"$body" >/dev/null && break
+            sleep 2
+        done
+        jq -e '(.pleroma.emoji_reactions | any(.name == "👍" and .count == 1)) and .favourites_count == 0' \
+            <<<"$body" >/dev/null || fail "Elysium doesn't show $target's reaction to $uri: $body"
+        for _ in $(seq 1 30); do
+            body=$(driver curl -fsS "https://elysium.test/api/v1/notifications" -H "Authorization: Bearer $read_token")
+            jq -e --arg uri "$uri" 'any(.[]; .type == "pleroma:emoji_reaction" and .status.uri == $uri and .emoji == "👍")' \
+                <<<"$body" >/dev/null && break
+            sleep 2
+        done
+        jq -e --arg uri "$uri" 'any(.[]; .type == "pleroma:emoji_reaction" and .status.uri == $uri)' <<<"$body" >/dev/null \
+            || fail "No reaction notification for $uri"
+        like_from_peer "$uri" unfavourite
+        for _ in $(seq 1 60); do
+            body=$(driver curl -fsS "https://elysium.test/api/v1/statuses/${uri##*/}" -H "Authorization: Bearer $read_token")
+            jq -e '.pleroma.emoji_reactions | length == 0' <<<"$body" >/dev/null && break
+            sleep 2
+        done
+        jq -e '.pleroma.emoji_reactions | length == 0' <<<"$body" >/dev/null \
+            || fail "Elysium still shows $target's withdrawn reaction to $uri: $body"
+    done
+
+    remote_uri=$(mentioned_status_uri "$server")
+    [[ -n $remote_uri ]] || fail "No remote lab post to react to"
+    remote_id=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT id FROM status WHERE uri = '$remote_uri'")
+    body=$(driver curl -fsS -X PUT "https://elysium.test/api/v1/pleroma/statuses/$remote_id/reactions/%F0%9F%8E%89" \
+        -H "Authorization: Bearer $write_token")
+    jq -e '.pleroma.emoji_reactions | any(.name == "🎉" and .me)' <<<"$body" >/dev/null || fail "Reacting failed: $body"
+    id=${remote_uri##*/notes/}
+    for _ in $(seq 1 60); do
+        note=$(misskey_api notes/show "$(jq -cn --arg id "$id" '{noteId: $id}')")
+        jq -e '.reactions["🎉"] == 1' <<<"$note" >/dev/null && break
+        sleep 2
+    done
+    jq -e '.reactions["🎉"] == 1' <<<"$note" >/dev/null || fail "Misskey doesn't show alice's reaction: $note"
+    body=$(driver curl -fsS -X DELETE "https://elysium.test/api/v1/pleroma/statuses/$remote_id/reactions/%F0%9F%8E%89" \
+        -H "Authorization: Bearer $write_token")
+    jq -e '.pleroma.emoji_reactions | length == 0' <<<"$body" >/dev/null || fail "Removing the reaction failed: $body"
+    for _ in $(seq 1 60); do
+        note=$(misskey_api notes/show "$(jq -cn --arg id "$id" '{noteId: $id}')")
+        jq -e '.reactions["🎉"] == null' <<<"$note" >/dev/null && break
+        sleep 2
+    done
+    jq -e '.reactions["🎉"] == null' <<<"$note" >/dev/null || fail "Misskey still shows alice's reaction: $note"
+    echo "$target and Elysium exchanged reactions and their Undos, with a notification"
 }
 
 # Pins alice's public status, which the other server has, and the lab user's status that mentions alice, which Elysium has.
@@ -2391,6 +2457,7 @@ case "$target" in
         post_from_elysium
         misskey_expect_statuses
         check_likes misskey.test
+        check_reactions misskey.test
         check_boosts misskey.test
         check_pins misskey.test
         check_quotes misskey.test

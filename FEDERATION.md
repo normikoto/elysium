@@ -5,9 +5,10 @@ The extent of this support and its limitations are what's described in the rest 
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `Announce`, and `Block`
-  and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note` or a
-  `Question`, `Update` of an actor, a `Note`, or a `Question`, `Delete`, and `Flag`, and sending `Follow`, `Like`, `Announce`, and `Block` and their
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `EmojiReact`,
+  `Announce`, and `Block` and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note` or a
+  `Question`, `Update` of an actor, a `Note`, or a `Question`, `Delete`, and `Flag`, and sending `Follow`, `Like`, `EmojiReact`,
+  `Announce`, and `Block` and their
   `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, `Delete`, and `Flag`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
@@ -17,6 +18,8 @@ The extent of this support and its limitations are what's described in the rest 
 - [FEP-044f: Consent-respecting quote posts](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as
   [Quotes](#quotes) describes
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
+- [FEP-c0e0: Emoji reactions](https://codeberg.org/fediverse/fep/src/branch/main/fep/c0e0/fep-c0e0.md), as
+  [Emoji reactions](#emoji-reactions) describes
 - [FEP-e232: Object Links](https://codeberg.org/fediverse/fep/src/branch/main/fep/e232/fep-e232.md), only for quotes
 - [FEP-f1d5: NodeInfo in Fediverse Software](https://codeberg.org/fediverse/fep/src/branch/main/fep/f1d5/fep-f1d5.md)
 
@@ -743,6 +746,47 @@ with. It's served with the same media types as the `Note`, and any origin can re
 accepts HTML is redirected to the status's page, and any signature is ignored. Only public and unlisted statuses have one, and others get a 404, or a
 403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if the suspension ends.
 
+### Emoji reactions
+
+When a local user reacts to a status from another server, an `EmojiReact` signed as the user is sent to the author's
+`inbox`, and addressed only to them, as Pleroma and Akkoma send it. Its `id` is `{actor-uri}#reactions/{uuid}`, which is
+new each time. `content` is the Unicode emoji, or a custom emoji's shortcode between colons, with an `Emoji` in `tag`
+[as a `Note` has one](#custom-emoji). The `@context` defines `EmojiReact` in LitePub's namespace. Reacting to a local
+status sends nothing.
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams",
+    {"toot": "http://joinmastodon.org/ns#", "Emoji": "toot:Emoji", "EmojiReact": "http://litepub.social/ns#EmojiReact"}],
+  "id": "https://elysium.example/users/alice#reactions/5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+  "type": "EmojiReact",
+  "actor": "https://elysium.example/users/alice",
+  "object": "https://remote.example/users/bob/statuses/1",
+  "content": "👍",
+  "to": ["https://remote.example/users/bob"]
+}
+```
+
+A user can react to a status with up to 20 different emoji, each sent as an `EmojiReact` of its own. Removing a reaction
+cancels its `EmojiReact` if it hasn't been sent, and sends an `Undo` either way, with the `id` `{reaction-id}/undo` and the
+`EmojiReact` embedded. A reaction isn't a [like](#likes), and isn't sent as one.
+
+These are accepted as reactions to a local status that their actor can see, as likes are:
+
+- An `EmojiReact` whose `content` is one Unicode emoji, or a shortcode between colons with an `Emoji` for it in `tag`.
+- A `Like` with an emoji in `content`, or in Misskey's `_misskey_reaction`, as Misskey sends every reaction, its default
+  one included. It's taken as a reaction rather than a like, as Akkoma takes it. A `Like` with neither is a like.
+
+A custom emoji belongs to the reacting actor's server, and is [downloaded](#receiving-custom-emoji) as one in a status is.
+Misskey names one from a third server as `:shortcode@host:`, which is matched with the `Emoji` named by its shortcode. An
+`EmojiReact` whose emoji can't be read is ignored, and so is a reaction to anything but a local status. An actor's 20 first
+different emoji on a status are kept, and a repeat of one counts once.
+
+An `Undo` removes a reaction if its `object` names the `EmojiReact` or `Like` by `id`, or embeds it with one. Only the actor
+that signed it can undo it. An `Undo` that arrives first stops the reaction it names from counting if that's processed
+later, for about 34 days. A reaction can't be undone without its `id`, which every server that sends reactions includes.
+Reactions aren't listed in any collection.
+
 ### Boosts
 
 When a local user boosts a public or unlisted status they can see, or one of their own followers-only statuses, an `Announce`
@@ -1252,8 +1296,8 @@ doesn't cover emoji, since they belong to the server. A suspension rejects media
   actors isn't stored.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
-- **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, boosts of
-  their statuses, its custom emoji, and reports by or about them. Its actors are kept.
+- **Existing data:** Follows to and from its actors are removed, and so are their likes, reactions, boosts, and statuses,
+  boosts of their statuses, its custom emoji, and reports by or about them. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, and that server isn't sent a `Delete` for a followers-only
   status it was sent before the block, so it keeps any copy it has.
@@ -1314,7 +1358,8 @@ from any origin through CORS. The documents match, except that only 2.1 includes
 `activitypub` as the protocol, even though federation isn't complete yet. Their usage statistics include the total number
 of local users and `localPosts`, which counts replies but not direct messages. Active user counts and `localComments`
 aren't reported. `openRegistrations` is `true` when anyone can ask for an account, even if an admin has to approve it, as
-on Mastodon.
+on Mastodon. `metadata.features` lists Pleroma's `pleroma_emoji_reactions` and `custom_emoji_reactions`, since some
+clients look for them before they offer [emoji reactions](#emoji-reactions).
 
 ## Additional documentation
 

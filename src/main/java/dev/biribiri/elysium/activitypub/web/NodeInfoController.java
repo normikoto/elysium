@@ -34,7 +34,8 @@ public class NodeInfoController {
     private static final String USAGE = """
             Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the number of \
             local users, and `localPosts`, which counts replies but not direct statuses. Active user counts and \
-            `localComments` aren't reported.""";
+            `localComments` aren't reported. `metadata.features` has Pleroma's `pleroma_emoji_reactions` and \
+            `custom_emoji_reactions`, for clients that look for them before they offer reactions.""";
 
     private static final URI REPOSITORY = URI.create("https://github.com/normikoto/elysium");
 
@@ -100,6 +101,11 @@ public class NodeInfoController {
                 new NodeInfo.Services(List.of(), List.of()),
                 registration.acceptsUninvited(),
                 new NodeInfo.Usage(new NodeInfo.Users(actors.countLocal()), statuses.countLocal()),
-                Map.of());
+                Map.of("features", FEATURES));
     }
+
+    /**
+     * Pleroma's names for what it supports, which clients read to decide whether to offer emoji reactions.
+     */
+    private static final List<String> FEATURES = List.of("pleroma_emoji_reactions", "custom_emoji_reactions");
 }

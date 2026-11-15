@@ -308,7 +308,8 @@ public class CustomEmojis {
     }
 
     /**
-     * Removes other servers' emoji that no status uses any more, and their files. Safe to stop partway, and to repeat.
+     * Removes other servers' emoji that no status or reaction uses any more, and their files. Safe to stop partway, and to
+     * repeat.
      */
     public void removeUnused() {
         var before = Instant.now().minus(UNUSED_RETENTION);

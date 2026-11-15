@@ -331,9 +331,9 @@ public class CustomEmojiRepository {
     }
 
     /**
-     * Removes one batch of other servers' emoji that no status has used for a while. Marking an emoji as used rewrites a
-     * {@code seen_at} that's old enough for this to take, which PostgreSQL checks again on a row that changed while this
-     * waited for it, so an emoji that's being stored as used isn't removed.
+     * Removes one batch of other servers' emoji that no status or reaction has used for a while. Marking an emoji as used
+     * rewrites a {@code seen_at} that's old enough for this to take, which PostgreSQL checks again on a row that changed
+     * while this waited for it, so an emoji that's being stored as used isn't removed.
      *
      * @return how many were removed
      */
@@ -344,6 +344,7 @@ public class CustomEmojiRepository {
                                 SELECT e.id FROM custom_emoji e
                                 WHERE e.domain IS NOT NULL AND e.seen_at < :seenBefore
                                   AND NOT EXISTS (SELECT 1 FROM status_emoji s WHERE s.emoji_id = e.id)
+                                  AND NOT EXISTS (SELECT 1 FROM status_reaction r WHERE r.emoji_id = e.id)
                                 LIMIT :limit
                             ) AND seen_at < :seenBefore
                             RETURNING image_name, static_name
