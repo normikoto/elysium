@@ -304,6 +304,42 @@ class LocalAccounts implements UserDetailsService {
     }
 
     /**
+     * Replaces the password of someone who's logged in, ends their login sessions, and revokes their applications' access, as
+     * {@link #resetPassword} does, since the old password may be how someone else got in. The browser that asked has to start a
+     * new session with the generation this returns.
+     *
+     * <p>The session asking has to belong to the account's current generation, compared in the same statement, since the new
+     * session takes over whatever generation comes next. Otherwise a password reset or suspension that commits just before this
+     * would end the session, and this would give it a new one anyway.
+     *
+     * @param loginGeneration the generation of the session asking: see {@link LoginGenerationFilter}
+     * @return the account's new generation, or empty if the session's generation has ended
+     * @throws IllegalArgumentException     if the password isn't valid
+     * @throws PasswordHashingBusyException if too many passwords are being hashed already
+     */
+    Optional<Long> changePassword(UUID actorId, String password, long loginGeneration) {
+        requireValidPassword(password);
+        var hash = passwordEncoder.encode(password);
+        return transaction.execute(status -> {
+            var changed = jdbc.sql("""
+                            UPDATE account_credential
+                            SET password_hash = :hash, updated_at = now()
+                            WHERE actor_id = :actorId AND login_generation = :generation
+                            """)
+                    .param("actorId", actorId)
+                    .param("hash", hash)
+                    .param("generation", loginGeneration)
+                    .update() > 0;
+            if (!changed) {
+                return Optional.<Long>empty();
+            }
+            var generation = endSessions(actorId);
+            revokeGrants(actorId);
+            return generation;
+        });
+    }
+
+    /**
      * Logs an account out of every browser, in the caller's transaction, including any login that's in progress, which is why this
      * also moves on its generation: see {@link LoginGenerationFilter}. A session's principal name is the actor ID: see
      * {@link #loadUserByUsername}. Attributes go with it through the foreign key.

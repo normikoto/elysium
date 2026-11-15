@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A page at `/settings/password`, linked from settings, where people can change their own password by typing their
+  current one. It logs them out of every other browser and revokes their apps' access. See `docs/accounts.md`.
 - Pinned posts, as on Mastodon. People can pin up to 5 of their own public, unlisted, or followers-only posts with
   `POST /api/v1/statuses/:id/pin`, and they're listed with `GET /api/v1/accounts/:id/statuses?pinned=true` and at the top
   of the profile page. Pins are federated as Mastodon does, with the actor's `featured` collection and `Add` and `Remove`

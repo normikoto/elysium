@@ -33,8 +33,9 @@ systemd-run --pty --wait --collect --uid=elysium --gid=elysium \
 
 With Docker Compose, some JVM startup messages are printed around the command's output. They don't mean anything went wrong.
 
-People can't change their own passwords yet. To replace someone's password, run `reset-password alice`. This also logs them
-out everywhere and revokes their applications' access, so they'll need to authorize them again.
+People can change their own password at `/settings/password`, linked from their settings, by typing their current one. This
+logs them out of every other browser and revokes their applications' access, so they'll need to authorize them again. To
+replace someone's password for them, run `reset-password alice`, which does the same and logs them out of every browser.
 
 ## Sign-ups
 Once the first account exists, people can create their own at `/signup`. Who can depends on
@@ -302,7 +303,8 @@ These limits only slow down abuse from a small number of addresses. To stop peop
 ## Login sessions
 Login sessions are stored in the database, so restarting doesn't log anyone out, and with more than one copy of the server,
 any of them can serve any browser. A session ends after 30 minutes without a request, which you can change with
-`server.servlet.session.timeout`. To end someone's sessions, use `reset-password`.
+`server.servlet.session.timeout`. To end someone's sessions, use `reset-password`. People can end their other sessions
+themselves by changing their password.
 
 Only a hash of each session's ID is stored, so the database or a backup can't be used to take over a session. If you log
 PostgreSQL statements with their parameters, those logs do contain session IDs, so keep them private. Visitors who

@@ -6,6 +6,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -78,6 +81,33 @@ class LoginGenerationFilter extends OncePerRequestFilter {
      */
     static Object generationOf(HttpSession session) {
         return session.getAttribute(SESSION_ATTRIBUTE);
+    }
+
+    /**
+     * @return the generation that this request's session's login belongs to, if it has a session with one
+     */
+    static Optional<Long> generationOf(HttpServletRequest request) {
+        var session = request.getSession(false);
+        return session != null && generationOf(session) instanceof Long generation ? Optional.of(generation) : Optional.empty();
+    }
+
+    /**
+     * Moves this browser to a new session, once something it did has ended all of the account's sessions, this one included.
+     * The new one belongs to the account's new generation.
+     */
+    static void startNewSession(
+            Authentication authentication, long generation, HttpServletRequest request, HttpServletResponse response) {
+        var session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        request.getSession(true);
+        var context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        new HttpSessionSecurityContextRepository().saveContext(context, request, response);
+        loggingIn(request, generation);
+        loggedIn(request);
     }
 
     /**
