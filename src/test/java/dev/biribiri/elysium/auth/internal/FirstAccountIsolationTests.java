@@ -54,7 +54,12 @@ class FirstAccountIsolationTests {
 
     private void awaitSomethingWaitingForALock() {
         var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-        while (jdbc.sql("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")
+        // pg_locks covers the whole server, which other contexts' databases share.
+        while (jdbc.sql("""
+                        SELECT count(*) FROM pg_locks
+                        WHERE locktype = 'advisory' AND NOT granted
+                          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+                        """)
                 .query(Long.class)
                 .single() == 0) {
             assertThat(System.nanoTime()).as("Nothing waited for the lock").isLessThan(deadline);

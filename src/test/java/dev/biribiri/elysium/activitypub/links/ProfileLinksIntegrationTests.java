@@ -9,7 +9,6 @@ import dev.biribiri.elysium.actor.ProfileField;
 import dev.biribiri.elysium.actor.ProfileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Answers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -31,9 +30,11 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Runs the real scheduler, with the pages that fields link to served by a mock client, since the real one only fetches
@@ -59,6 +60,8 @@ class ProfileLinksIntegrationTests {
 
     @BeforeEach
     void setUp() {
+        PAGES.clear();
+        clearInvocations(http);
         var name = "l" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         actors.createLocalIfAbsent(name, actor -> {
         });
@@ -114,19 +117,20 @@ class ProfileLinksIntegrationTests {
     }
 
     /**
-     * Answers from {@link #PAGES} rather than stubbing the mock in each test. A test's last profile update leaves a check
-     * running after it ends, and Mockito's stubbing isn't safe while another thread calls the mock, so stubbing for the next
-     * test could attach a page to that call instead.
+     * Stubbed once, before any thread can call it, and answered from {@link #PAGES} rather than stubbing the mock in each
+     * test. A test's last profile update leaves a check running after it ends, and Mockito's stubbing isn't safe while
+     * another thread calls the mock, so stubbing for the next test could attach a page to that call instead.
      */
     @TestConfiguration(proxyBeanMethods = false)
     static class Pages {
 
         @Bean
         @Primary
-        FederationHttpClient pagesHttpClient() {
-            return mock(FederationHttpClient.class, invocation -> invocation.getMethod().getName().equals("get")
-                    ? PAGES.getOrDefault(invocation.<URI>getArgument(0), NOT_FOUND)
-                    : Answers.RETURNS_DEFAULTS.answer(invocation));
+        FederationHttpClient pagesHttpClient() throws IOException {
+            var http = mock(FederationHttpClient.class);
+            when(http.get(any(), anyString(), any()))
+                    .thenAnswer(invocation -> PAGES.getOrDefault(invocation.<URI>getArgument(0), NOT_FOUND));
+            return http;
         }
     }
 }
