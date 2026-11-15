@@ -1,6 +1,8 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.content.CustomEmoji;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.content.Focus;
 import dev.biribiri.elysium.content.MediaAttachment;
@@ -69,6 +71,8 @@ class CreateIntegrationTests {
     private StatusService statuses;
     @Autowired
     private MediaAttachments attachments;
+    @Autowired
+    private CustomEmojis emojis;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -118,6 +122,43 @@ class CreateIntegrationTests {
         assertThat(row.get("url")).isEqualTo("https://" + host + "/@s/1");
         assertThat(((Timestamp) row.get("published_at")).toInstant()).hasToString("2026-01-02T03:04:05Z");
         assertThat(row.get("reply")).isEqualTo(false);
+    }
+
+    @Test
+    void storesTheCustomEmojiInItsTagUnderItsAuthorsDomain() {
+        var noteId = noteId();
+        var note = new HashMap<>(note(noteId, List.of(PUBLIC), List.of(followers)));
+        note.put("content", "<p>Hi :blob: :cat:</p>");
+        note.put("tag", List.of(
+                Map.of("type", "Emoji", "id", "https://" + host + "/emojis/1", "name", ":blob:",
+                        "icon", Map.of("type", "Image", "url", "https://" + host + "/blob.png")),
+                Map.of("type", "Emoji", "name", ":cat:", "icon", Map.of("url", "https://" + host + "/cat.png"))));
+
+        handler.handle(create(note));
+
+        var stored = emojis.findForStatus(statusId(noteId));
+        assertThat(stored).extracting(CustomEmoji::shortcode).containsExactlyInAnyOrder("blob", "cat");
+        assertThat(stored).allSatisfy(emoji -> {
+            assertThat(emoji.domain()).isEqualTo(host);
+            assertThat(emoji.imageName()).isNull();
+        });
+        assertThat(stored).filteredOn(emoji -> emoji.shortcode().equals("blob")).singleElement().satisfies(emoji -> {
+            assertThat(emoji.uri()).hasToString("https://" + host + "/emojis/1");
+            assertThat(emoji.remoteUrl()).hasToString("https://" + host + "/blob.png");
+        });
+
+        // Another status that uses the same emoji shares it.
+        var second = noteId();
+        var again = new HashMap<>(note(second, List.of(PUBLIC), List.of(followers)));
+        again.put("tag", List.of(Map.of("type", "Emoji", "name", ":blob:",
+                "icon", Map.of("url", "https://" + host + "/blob.png"))));
+        handler.handle(create(again));
+        assertThat(emojis.findForStatus(statusId(second))).extracting(CustomEmoji::id)
+                .containsExactly(stored.stream().filter(emoji -> emoji.shortcode().equals("blob")).findFirst()
+                        .orElseThrow().id());
+
+        emojis.removeForDomain(host);
+        assertThat(emojis.findRemote("blob", host)).isEmpty();
     }
 
     @Test

@@ -31,8 +31,9 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   future, because other servers are sent whole seconds.
 - `GET /api/v1/statuses/:id/history` only has the versions of a status from another server that were sent here, so it
   can lack some that its server shows, and it has no versions from before the upgrade that added it. Only the latest 50
-  versions of a status are kept. Only the current version has `media_attachments`, and earlier ones have none. Entries
-  have empty `emojis`. Their `poll` only has the `title` of each option that version's poll had, and is null for a version
+  versions of a status are kept. Only the current version has `media_attachments`, and earlier ones have none. An
+  entry's `emojis` leaves out emoji that have been removed since, and is empty for a version from before the upgrade
+  that added custom emoji. Their `poll` only has the `title` of each option that version's poll had, and is null for a version
   with no poll, or from before the upgrade that added polls.
 - URLs, mentions, and hashtags in a status are linked. A mention of an account on another server is looked
   up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
@@ -42,6 +43,13 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   it's longer than 2048 characters, in which case it counts at its full length. URLs can save at most 4096 characters
   per status, and any URLs after that also count at their full length. A mention counts without its domain, as in
   Mastodon, and the domains can save at most 4096 characters per status.
+- A status's `emojis` are this server's custom emoji that its text, content warning, or poll options name when it's
+  posted or edited, so one an admin adds later isn't shown on statuses that named it before. The `emojis` of its `poll`
+  are those its options name. Shortcodes are matched with case, and a status has at most 100. Images are WebP, and
+  `static_url` is the first frame of an animated one. An account's `emojis` are those its display name, note, and
+  fields name, and are empty for an account on another server, since those profiles aren't stored yet.
+  `GET /api/v1/custom_emojis` lists every emoji an admin has added, including those hidden from the picker, and has no
+  disabled ones, since an admin removes an emoji instead.
 - A hashtag needs a letter, and can be up to 100 characters. Tags are matched without regard to case or Unicode
   composition, and `tags[].name` is the normalized form: lowercase, in Unicode's NFKC form. A status keeps at most 100
   tags. `tags[].url` is this server's page for the tag, even on a status from another server, as on Mastodon. Statuses
@@ -71,7 +79,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   followed here. When a local account starts following someone, up to 40 of their recent public and unlisted statuses are
   fetched as well, and these are ordered by when they were posted, so a client that's already loaded newer statuses
   won't be given them as new. Other older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
-  can differ from what the other server shows, and they never have `emojis`. Their `media_attachments` are
+  can differ from what the other server shows. Their `emojis` are the ones their server listed, which are copied here as
+  their attachments are, and link to their server until then. Their `media_attachments` are
   copied here shortly after they arrive, as Mastodon does, and until then, or if they can't be, `url` and an image's
   `preview_url` are the same as `remote_url`. A copy is checked like an upload, so its type is what the file is, and a
   file that isn't an accepted format is `unknown`. Copies are removed after 30 days by default, and aren't fetched
@@ -133,6 +142,28 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   or not, and gets a 404 for a status that doesn't quote it. Revoking a quote from a server that can't ask for approval
   only hides it here.
 
+Emoji reactions follow [Pleroma's API](https://docs.akkoma.dev/stable/development/API/pleroma_api/#emoji-reactions),
+since Mastodon has none:
+
+- `PUT /api/v1/pleroma/statuses/:id/reactions/:emoji` reacts to a status, and `DELETE` with the same path removes the
+  reaction. Both need `write:favourites` or `write:statuses`, return the status, and do nothing more when repeated. A
+  boost's ID stands for the status it boosts. `GET /api/v1/pleroma/statuses/:id/reactions`, and the same with
+  `/:emoji`, list them with their `accounts`, and need no token for a status anyone can see.
+- `:emoji` is one Unicode emoji, the shortcode of one of this server's custom emoji, with or without colons, or
+  `shortcode@domain` for another server's emoji that this server has from a post or a reaction. Anything else, including
+  text and two emoji, gets a 422.
+- An account can react to a status with up to 20 different emoji, and a 21st gets a 422. A reaction isn't a favourite,
+  so it doesn't change `favourited` or `favourites_count`.
+- A status's reactions are in `pleroma.emoji_reactions`, each with `name`, `count`, and `me`, and `url` and `static_url`
+  for a custom emoji, in the order each emoji was first used. A custom emoji's `name` is its shortcode, followed by `@` and
+  its server's domain for another server's. A listing's `accounts` has up to 40 of each emoji's accounts, the most recent
+  first. Reactions from other servers are only known for this server's statuses, so another server's status only shows
+  this server's accounts' reactions.
+- The author gets a `pleroma:emoji_reaction` notification, with the emoji in `emoji`, and a custom emoji's image in
+  `emoji_url`. In grouped notifications, each reaction is a group of its own, and has neither field. Reactions aren't
+  streamed, as favourites aren't.
+- NodeInfo's `metadata.features` lists `pleroma_emoji_reactions` and `custom_emoji_reactions`, which clients look for.
+
 Polls follow [Mastodon's polls API](https://docs.joinmastodon.org/methods/polls/), with these differences:
 
 - A poll's `id` is its status's.
@@ -184,9 +215,10 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
 - V2 implements `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`, `poll`, and `admin.report`
-  notifications are generated. A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a
-  status that a user quoted. A `poll` arrives within about a minute of a poll ending, for its author if they're a local
+- Only `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`, `poll`, `admin.report`,
+  and `pleroma:emoji_reaction` notifications are generated, the last as Pleroma has it, which emoji reactions above
+  describe. A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user
+  quoted. A `poll` arrives within about a minute of a poll ending, for its author if they're a local
   user, and for each local user who voted in it, and its `account` is the poll's author. `admin.report` goes to each admin, except one who filed the report, and only admins see
   them: an account that stops being an admin stops seeing them, in lists and counts, until it's an admin again. Its
   `account` is the reporter, which for a report from another server is whoever sent it there, usually that server's

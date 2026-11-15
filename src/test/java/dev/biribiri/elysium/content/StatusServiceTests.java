@@ -76,7 +76,8 @@ class StatusServiceTests {
                 mock(QuoteRepository.class),
                 mock(QuoteRules.class),
                 postingDefaults,
-                mock(PollRepository.class));
+                mock(PollRepository.class),
+                mock(CustomEmojis.class));
     }
 
     private static Actor actor(String username, String domain) {

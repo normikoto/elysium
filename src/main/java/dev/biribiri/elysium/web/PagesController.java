@@ -6,6 +6,8 @@ import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
+import dev.biribiri.elysium.content.CustomEmoji;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.Status;
@@ -16,6 +18,7 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.text.Hashtags;
 import jakarta.servlet.http.HttpServletRequest;
+import dev.biribiri.elysium.text.EmojiHtml;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
@@ -32,6 +35,7 @@ import java.security.Principal;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.time.Instant;
 import java.util.Optional;
@@ -58,6 +62,7 @@ class PagesController {
     private final MediaAttachments attachments;
     private final PollService polls;
     private final StatusPinService pins;
+    private final CustomEmojis emojis;
 
     PagesController(
             ActorService actors,
@@ -68,8 +73,10 @@ class PagesController {
             ProfileService profiles,
             MediaAttachments attachments,
             PollService polls,
-            StatusPinService pins) {
+            StatusPinService pins,
+            CustomEmojis emojis) {
         this.pins = pins;
+        this.emojis = emojis;
         this.attachments = attachments;
         this.polls = polls;
         this.actors = actors;
@@ -110,7 +117,14 @@ class PagesController {
         var profile = profiles.find(actor.id());
         model.addAttribute("actor", actor);
         model.addAttribute("profile", profile);
-        model.addAttribute("bio", profile.noteHtml(instance.baseUrl()));
+        var profileEmojis = new HashMap<String, String>();
+        emojis.findLocalIn(profile.texts()).forEach((shortcode, emoji) ->
+                profileEmojis.put(shortcode, emoji.url(instance).toString()));
+        model.addAttribute("bio", EmojiHtml.render(profile.noteHtml(instance.baseUrl()), profileEmojis));
+        model.addAttribute("fields", profile.fields().stream().map(field -> new FieldView(
+                EmojiHtml.renderText(field.name(), profileEmojis),
+                EmojiHtml.render(field.valueHtml(), profileEmojis),
+                field.verifiedAt() != null)).toList());
         model.addAttribute("name", profile.displayName().isEmpty() ? "@" + actor.username() : profile.displayName());
         model.addAttribute("avatar", profile.avatar() == null ? null : instance.resolve(profile.avatar().path()));
         model.addAttribute("header", profile.header() == null ? null : instance.resolve(profile.header().path()));
@@ -213,8 +227,12 @@ class PagesController {
         var ids = views.stream().map(view -> view.status().id()).distinct().toList();
         var found = attachments.findByStatuses(ids);
         var foundPolls = polls.findAll(ids, Optional.empty());
+        var foundEmojis = emojis.findForStatuses(ids);
         var now = Instant.now();
         return views.stream()
+                .map(view -> view.withEmojis(foundEmojis.getOrDefault(view.status().id(), List.of()).stream()
+                        .collect(Collectors.toMap(CustomEmoji::shortcode, emoji -> emoji.url(instance).toString(),
+                                (first, second) -> first))))
                 .map(view -> view.withAttachments(found.getOrDefault(view.status().id(), List.of()).stream()
                         .map(attachment -> AttachmentView.of(attachment, instance))
                         .toList()))
@@ -266,6 +284,12 @@ class PagesController {
                 .filter(status -> authors.containsKey(status.actorId()))
                 .map(status -> StatusView.from(status, authors.get(status.actorId())))
                 .collect(Collectors.collectingAndThen(Collectors.toList(), this::withAttachments));
+    }
+
+    /**
+     * A profile field, as HTML that's safe to show.
+     */
+    record FieldView(String name, String value, boolean verified) {
     }
 
     private static StatusPage firstPage(UUID maxId) {

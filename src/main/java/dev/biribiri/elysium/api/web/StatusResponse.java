@@ -46,7 +46,7 @@ record StatusResponse(
         @JsonProperty("media_attachments") List<MediaAttachmentResponse> mediaAttachments,
         List<MentionResponse> mentions,
         List<StatusTagResponse> tags,
-        List<Object> emojis,
+        List<CustomEmojiResponse> emojis,
         Object card,
         @Schema(nullable = true, description = "Its poll, or null if it has none. A boost has none of its own.")
         PollResponse poll,
@@ -64,7 +64,11 @@ record StatusResponse(
         @Schema(description = """
                 The viewer's unexpired filters that the status matches, whatever their contexts, as on Mastodon. The \
                 viewer's own statuses never match. Left out without a user.""")
-        @JsonInclude(JsonInclude.Include.NON_NULL) List<FilterResponse.ResultResponse> filtered
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<FilterResponse.ResultResponse> filtered,
+        @Schema(description = """
+                Pleroma's extensions, which only have `emoji_reactions`, the status's reactions in the order each emoji \
+                was first used. A boost has none of its own.""")
+        ReactionResponse.Pleroma pleroma
 ) {
 
     /**
@@ -98,9 +102,9 @@ record StatusResponse(
      */
     static StatusResponse from(
             Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
-            List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
+            List<CustomEmojiResponse> emojis, List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
             Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll, boolean pinned,
-            List<FilterResponse.ResultResponse> filtered) {
+            List<FilterResponse.ResultResponse> filtered, List<ReactionResponse> reactions) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -124,7 +128,7 @@ record StatusResponse(
                 mediaAttachments,
                 mentions,
                 tags,
-                List.of(),
+                emojis,
                 null,
                 poll,
                 likes.favourited(),
@@ -135,7 +139,8 @@ record StatusResponse(
                 quote,
                 quoteApproval,
                 quotesCount,
-                filtered);
+                filtered,
+                new ReactionResponse.Pleroma(reactions));
     }
 
     /**

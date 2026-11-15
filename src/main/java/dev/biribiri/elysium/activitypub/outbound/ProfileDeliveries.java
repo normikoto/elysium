@@ -3,11 +3,8 @@ package dev.biribiri.elysium.activitypub.outbound;
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
-import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.actor.InstanceProperties;
-import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.ProfileUpdated;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -26,25 +23,22 @@ import tools.jackson.databind.json.JsonMapper;
 public class ProfileDeliveries {
 
     private final ActorService actors;
-    private final ProfileService profiles;
+    private final Persons persons;
     private final FollowService follows;
     private final ActivityDeliveries deliveries;
     private final JsonMapper json;
-    private final InstanceProperties instance;
 
     ProfileDeliveries(
             ActorService actors,
-            ProfileService profiles,
+            Persons persons,
             FollowService follows,
             ActivityDeliveries deliveries,
-            JsonMapper json,
-            InstanceProperties instance) {
+            JsonMapper json) {
         this.actors = actors;
-        this.profiles = profiles;
+        this.persons = persons;
         this.follows = follows;
         this.deliveries = deliveries;
         this.json = json;
-        this.instance = instance;
     }
 
     /**
@@ -53,7 +47,7 @@ public class ProfileDeliveries {
     @ApplicationModuleListener
     public void on(ProfileUpdated event) {
         actors.findLocalById(event.actorId()).ifPresent(actor -> {
-            var update = Update.of(Person.from(actor, profiles.find(actor.id()), instance), "profile", event.at());
+            var update = Update.of(persons.of(actor), "profile", event.at());
             deliveries.enqueue(
                     new OutboundActivity(update.id().toString(), actor.id(), json.writeValueAsString(update), WhileSuspended.DROP),
                     follows.followerInboxes(actor.id()));

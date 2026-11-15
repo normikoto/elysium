@@ -6,7 +6,10 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.BoostStats;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.CustomEmoji;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.LikeStats;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -60,12 +63,17 @@ class StatusResponses {
     private final PollService polls;
     private final StatusPinService pins;
     private final PostFilters filters;
+    private final CustomEmojis emojis;
+    private final ReactionService reactions;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
             StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments,
-            QuoteService quotes, BlockService blocks, PollService polls, StatusPinService pins, PostFilters filters) {
+            QuoteService quotes, BlockService blocks, PollService polls, StatusPinService pins, PostFilters filters,
+            CustomEmojis emojis, ReactionService reactions) {
+        this.reactions = reactions;
         this.filters = filters;
+        this.emojis = emojis;
         this.polls = polls;
         this.pins = pins;
         this.quotes = quotes;
@@ -139,9 +147,12 @@ class StatusResponses {
         var media = attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of()).stream()
                 .map(attachment -> MediaAttachmentResponse.from(attachment, instance))
                 .toList();
+        var emojiById = emojis.findAll(versions.stream().flatMap(version -> version.emojiIds().stream()).distinct().toList())
+                .stream().collect(Collectors.toMap(CustomEmoji::id, emoji -> CustomEmojiResponse.of(emoji, instance)));
         var last = versions.size() - 1;
         return IntStream.range(0, versions.size())
-                .mapToObj(i -> StatusEditResponse.from(versions.get(i), account, i == last ? media : List.of()))
+                .mapToObj(i -> StatusEditResponse.from(versions.get(i), account, i == last ? media : List.of(),
+                        versions.get(i).emojiIds().stream().map(emojiById::get).filter(Objects::nonNull).toList()))
                 .toList();
     }
 
@@ -207,9 +218,12 @@ class StatusResponses {
         var ids = all.stream().map(Status::id).distinct().toList();
         var mentions = statuses.findMentions(ids);
         var tags = statuses.findTags(ids);
+        var emojisById = new HashMap<UUID, List<CustomEmojiResponse>>();
+        emojis.findForStatuses(ids).forEach((id, used) -> emojisById.put(id, CustomEmojiResponse.of(used, instance)));
         var media = new HashMap<>(attachments.findByStatuses(ids));
         media.putAll(knownMedia);
         var likeStats = likes.stats(ids, viewer);
+        var reactionsById = reactions.summaries(ids, viewer);
         var boostStats = boosts.stats(ids, viewer);
         var quoteCounts = quotes.acceptedCounts(ids);
         var pollsById = polls.findAll(ids, viewer);
@@ -243,6 +257,7 @@ class StatusResponses {
                 tags.getOrDefault(status.id(), List.of()).stream()
                         .map(name -> StatusTagResponse.of(name, instance))
                         .toList(),
+                emojisById.getOrDefault(status.id(), List.of()),
                 media.getOrDefault(status.id(), List.of()).stream()
                         .map(attachment -> MediaAttachmentResponse.from(attachment, instance))
                         .toList(),
@@ -253,10 +268,15 @@ class StatusResponses {
                 quote,
                 approval.apply(status),
                 status.isReblog() ? 0 : quoteCounts.getOrDefault(status.id(), 0L),
-                Optional.ofNullable(pollsById.get(status.id())).map(poll -> PollResponse.from(poll, now)).orElse(null),
+                Optional.ofNullable(pollsById.get(status.id()))
+                        .map(poll -> PollResponse.from(poll, now, emojisById.getOrDefault(status.id(), List.of())))
+                        .orElse(null),
                 pinned.contains(status.id()),
                 viewer.isEmpty() ? null
-                        : matchesOf.apply(status).stream().map(FilterResponse.ResultResponse::from).toList());
+                        : matchesOf.apply(status).stream().map(FilterResponse.ResultResponse::from).toList(),
+                status.isReblog() ? List.of() : reactionsById.getOrDefault(status.id(), List.of()).stream()
+                        .map(summary -> ReactionResponse.of(summary, instance, null))
+                        .toList());
         // A status that's quoted only shows what it quotes in turn by ID, as on Mastodon, so that quotes don't nest.
         Function<Status, StatusResponse> nested = status -> basic.apply(status, null,
                 Optional.ofNullable(quoteRows.get(status.id())).map(StatusResponses::shallow).orElse(null));

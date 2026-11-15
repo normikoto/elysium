@@ -1,0 +1,49 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Custom emoji', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>
+            People use an emoji by writing its shortcode between colons, such as <strong>:blobcat:</strong>, in a post, a
+            display name, a bio, or a profile field. Other servers are sent its image along with what uses it. An image can
+            be PNG, GIF, WebP, or JPEG, of up to <span th:text="${maxImageSize}">256 KB</span>, and is kept as WebP,
+            animated if it was.
+        </p>
+        <p>
+            Removing an emoji shows its shortcode as text wherever it was used, here and on servers that fetch those posts
+            again. Other servers keep the copies they were sent.
+        </p>
+        <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+        <form method="post" enctype="multipart/form-data" th:action="@{/admin/custom-emojis}">
+            <label for="shortcode">Shortcode</label>
+            <input type="text" id="shortcode" name="shortcode" th:value="${shortcode}" placeholder="blobcat"
+                   pattern="[A-Za-z0-9_]{2,100}" required autofocus>
+            <label for="image">Image</label>
+            <input type="file" id="image" name="image" accept="image/png,image/gif,image/webp,image/jpeg" required>
+            <label for="category">Category (optional)</label>
+            <input type="text" id="category" name="category" th:value="${category}" th:maxlength="${maxCategoryLength}">
+            <button type="submit">Add</button>
+        </form>
+
+        <h2>Emoji</h2>
+        <p th:if="${emojis.isEmpty()}">There are no custom emoji.</p>
+        <div class="status" th:each="emoji : ${emojis}">
+            <p class="status-meta">
+                <span><img class="custom-emoji" th:src="${emoji.url()}" th:alt="|:${emoji.shortcode()}:|">
+                    <strong th:text="|:${emoji.shortcode()}:|"></strong></span>
+            </p>
+            <form class="actions" method="post" th:action="@{/admin/custom-emojis/{id}(id=${emoji.id()})}">
+                <input type="text" name="category" th:value="${emoji.category()}" th:maxlength="${maxCategoryLength}"
+                       placeholder="Category" th:aria-label="|Category of :${emoji.shortcode()}:|">
+                <label><input type="checkbox" name="visibleInPicker" value="true" th:checked="${emoji.visibleInPicker()}">
+                    Show in pickers</label>
+                <button type="submit">Save</button>
+            </form>
+            <form class="actions" method="post" th:action="@{/admin/custom-emojis/{id}/delete(id=${emoji.id()})}">
+                <button type="submit">Remove</button>
+            </form>
+        </div>
+        <p><a href="/admin/accounts">Accounts</a> · <a href="/admin/reports">Reports</a> ·
+            <a href="/admin/statuses">Statuses</a> · <a href="/admin/domain-blocks">Domain blocks</a></p>
+    </div>
+</th:block>
+</html>

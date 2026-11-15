@@ -1,6 +1,8 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.RemotePollRefresher;
 import dev.biribiri.elysium.content.StatusService;
@@ -45,8 +47,13 @@ public class PollsController {
     private final PollService polls;
     private final RemotePollRefresher refresher;
     private final JsonBodies json;
+    private final CustomEmojis emojis;
+    private final InstanceProperties instance;
 
-    PollsController(StatusService statuses, PollService polls, RemotePollRefresher refresher, JsonBodies json) {
+    PollsController(StatusService statuses, PollService polls, RemotePollRefresher refresher, JsonBodies json,
+                    CustomEmojis emojis, InstanceProperties instance) {
+        this.emojis = emojis;
+        this.instance = instance;
         this.statuses = statuses;
         this.polls = polls;
         this.refresher = refresher;
@@ -77,7 +84,7 @@ public class PollsController {
         if (poll.isStale(now)) {
             refresher.refreshSoon(statusId);
         }
-        return PollResponse.from(poll, now);
+        return PollResponse.from(poll, now, emojis(statusId));
     }
 
     @PostMapping("/{id}/votes")
@@ -115,8 +122,12 @@ public class PollsController {
         var choices = choices(json.readAny(request, VOTE_BODY_BYTES));
         var statusId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
         return polls.vote(statusId, voter, choices)
-                .map(poll -> PollResponse.from(poll, Instant.now()))
+                .map(poll -> PollResponse.from(poll, Instant.now(), emojis(statusId)))
                 .orElseThrow(RecordNotFoundException::new);
+    }
+
+    private List<CustomEmojiResponse> emojis(UUID statusId) {
+        return CustomEmojiResponse.of(emojis.findForStatus(statusId), instance);
     }
 
     private UUID visible(String id, Optional<UUID> viewer) {

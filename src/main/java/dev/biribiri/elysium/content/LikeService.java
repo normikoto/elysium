@@ -22,17 +22,17 @@ import java.util.UUID;
 public class LikeService {
     private final LikeRepository likes;
     private final StatusRepository repository;
-    private final StatusService statuses;
     private final ActorService actors;
     private final ApplicationEventPublisher events;
+    private final StatusHolds holds;
 
-    LikeService(LikeRepository likes, StatusRepository repository, StatusService statuses,
-                ActorService actors, ApplicationEventPublisher events) {
+    LikeService(LikeRepository likes, StatusRepository repository, ActorService actors,
+                ApplicationEventPublisher events, StatusHolds holds) {
         this.likes = likes;
         this.repository = repository;
-        this.statuses = statuses;
         this.actors = actors;
         this.events = events;
+        this.holds = holds;
     }
 
     @Transactional
@@ -61,11 +61,7 @@ public class LikeService {
     }
 
     private Optional<Status> holdVisible(UUID statusId, UUID actorId) {
-        var preview = repository.findById(statusId);
-        if (preview.isEmpty()) return Optional.empty();
-        likes.holdActors(List.of(actorId, preview.get().actorId()));
-        if (!likes.eligibleActor(actorId) || !likes.eligibleActor(preview.get().actorId())) return Optional.empty();
-        return repository.findByIdAndLock(statusId).filter(status -> statuses.isVisible(status, Optional.of(actorId)));
+        return holds.holdVisible(statusId, actorId);
     }
 
     /** Look up only local posts; an inbound Like must never fetch its target. */
@@ -168,15 +164,7 @@ public class LikeService {
     }
 
     public void removeForDomain(String domain) {
-        var after = new UUID(0, 0);
-        List<UUID> batch;
-        do {
-            batch = likes.actorsOn(domain, after, 1000);
-            if (!batch.isEmpty()) {
-                likes.removeForActors(batch);
-                after = batch.getLast();
-            }
-        } while (batch.size() == 1000);
+        holds.forActorsOn(domain, likes::removeForActors);
     }
 
     private static Instant now() {

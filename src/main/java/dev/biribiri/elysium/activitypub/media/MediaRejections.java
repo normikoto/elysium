@@ -7,6 +7,7 @@ import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorMediaAllowed;
 import dev.biribiri.elysium.actor.ActorMediaRejected;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -42,12 +43,14 @@ public class MediaRejections {
     private final MediaAttachments attachments;
     private final DomainBlocks blocks;
     private final ActorService actors;
+    private final CustomEmojis emojis;
 
     /**
      * @param scheduler lazy like everywhere else it's used, so that this doesn't affect when the scheduler is created
      */
     MediaRejections(@Lazy SchedulerClient scheduler, MediaAttachments attachments, DomainBlocks blocks,
-                    ActorService actors) {
+                    ActorService actors, CustomEmojis emojis) {
+        this.emojis = emojis;
         this.scheduler = scheduler;
         this.attachments = attachments;
         this.blocks = blocks;
@@ -70,6 +73,7 @@ public class MediaRejections {
     @ApplicationModuleListener
     public void on(DomainMediaAllowed event) {
         attachments.allowForDomain(event.domain());
+        emojis.allowForDomain(event.domain());
     }
 
     @ApplicationModuleListener
@@ -94,7 +98,11 @@ public class MediaRejections {
         if (job.blockId() != null) {
             blocks.find(job.blockId())
                     .filter(DomainBlock::rejectsMedia)
-                    .ifPresent(block -> attachments.rejectForDomain(block.domain()));
+                    .ifPresent(block -> {
+                        attachments.rejectForDomain(block.domain());
+                        // Emoji belong to a server rather than an account, so only a block rejects them.
+                        emojis.rejectForDomain(block.domain());
+                    });
         } else if (job.actorId() != null && actors.isMediaRejected(job.actorId())) {
             attachments.rejectForAccount(job.actorId());
         }

@@ -43,7 +43,8 @@ public class NotificationRepository {
     private static final RowMapper<Notification> MAPPER = (rs, row) -> new Notification(
             rs.getObject("id", UUID.class), rs.getString("type"),
             rs.getObject("created_at", OffsetDateTime.class).toInstant(), rs.getObject("sender_id", UUID.class),
-            rs.getObject("status_id", UUID.class), rs.getString("group_key"), rs.getObject("report_id", UUID.class));
+            rs.getObject("status_id", UUID.class), rs.getString("group_key"), rs.getObject("report_id", UUID.class),
+            rs.getObject("reaction_id", UUID.class));
 
     private final JdbcClient jdbc;
 
@@ -101,6 +102,13 @@ public class NotificationRepository {
         return insert(recipient, sender, ADMIN_REPORT, report, null, null, null, null, report);
     }
 
+    /**
+     * Each reaction is its own, since grouping them would lose which emoji each one is.
+     */
+    public Optional<UUID> insertReaction(UUID recipient, UUID sender, UUID reaction, UUID status) {
+        return insert(recipient, sender, Notification.REACTION, reaction, status, null, null, null, null, reaction);
+    }
+
     public Optional<UUID> insertFavourite(UUID recipient, UUID sender, UUID like, UUID status) {
         return insert(recipient, sender, "favourite", like, status, null, like, null, null);
     }
@@ -144,6 +152,12 @@ public class NotificationRepository {
     private Optional<UUID> insert(
             UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog,
             UUID report) {
+        return insert(recipient, sender, type, source, status, follow, like, reblog, report, null);
+    }
+
+    private Optional<UUID> insert(
+            UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog,
+            UUID report, UUID reaction) {
         if (jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM inbox_notification
                         WHERE recipient_id = :recipient AND type = :type AND source_id = :source)
@@ -169,13 +183,13 @@ public class NotificationRepository {
         var inserted = jdbc.sql("""
                         INSERT INTO inbox_notification
                         (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, reblog_id,
-                         report_id, created_at, group_key)
+                         report_id, reaction_id, created_at, group_key)
                         VALUES (:id, :recipient, :sender, :type, :source, :status, :follow, :like, :reblog, :report,
-                                :created, :group)
+                                :reaction, :created, :group)
                         ON CONFLICT (recipient_id, type, source_id) DO NOTHING
                         """).param("id", id).param("recipient", recipient).param("sender", sender).param("type", type)
                 .param("source", source).param("status", status, Types.OTHER).param("follow", follow, Types.OTHER)
-                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("report", report, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
+                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("report", report, Types.OTHER).param("reaction", reaction, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
         if (inserted == 0) {
             return Optional.empty();
         }
@@ -242,7 +256,8 @@ public class NotificationRepository {
                         ORDER BY e.id %s LIMIT 1
                     ) next WHERE cardinality(chosen.visited) < :limit
                 )
-                SELECT n.id, n.type, n.created_at, n.sender_id, n.status_id, n.report_id, chosen.effective_key AS group_key
+                SELECT n.id, n.type, n.created_at, n.sender_id, n.status_id, n.report_id, n.reaction_id,
+                       chosen.effective_key AS group_key
                 FROM chosen JOIN inbox_notification n ON n.id = chosen.id ORDER BY n.id %s
                 """.formatted(eligible, direction, comparison, direction, direction);
         var found = jdbc.sql(sql).params(parameters).query(MAPPER).list();

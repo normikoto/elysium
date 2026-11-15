@@ -11,8 +11,10 @@ class LikeHandler implements InboundActivityHandler {
     private final LikeService likes;
     private final RemoteActors actors;
     private final JsonMapper json;
+    private final ReactionReceiver reactions;
 
-    LikeHandler(LikeService likes, RemoteActors actors, JsonMapper json) {
+    LikeHandler(LikeService likes, RemoteActors actors, JsonMapper json, ReactionReceiver reactions) {
+        this.reactions = reactions;
         this.likes = likes;
         this.actors = actors;
         this.json = json;
@@ -23,9 +25,15 @@ class LikeHandler implements InboundActivityHandler {
         return "Like";
     }
 
+    /**
+     * Misskey sends every reaction as a {@code Like} with its emoji, even its default one, so one with an emoji is a
+     * reaction rather than a favourite, as Akkoma takes it.
+     */
     @Override
     public void handle(InboundActivity activity) {
-        var target = ActivityObject.of(activity.body(), json).map(ActivityObject::id)
+        var body = json.readTree(activity.body());
+        if (reactions.receive(activity, body)) return;
+        var target = ActivityObject.of(body).map(ActivityObject::id)
                 .flatMap(ActivityObject::parseUri).flatMap(likes::localTarget);
         if (target.isEmpty() || likes.wasUndone(activity.id(), activity.actorUri(), target.get().id(),
                 activity.firstReceivedAt())) return;

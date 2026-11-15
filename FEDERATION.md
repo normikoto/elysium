@@ -5,9 +5,10 @@ The extent of this support and its limitations are what's described in the rest 
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `Announce`, and `Block`
-  and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note` or a
-  `Question`, `Update` of an actor, a `Note`, or a `Question`, `Delete`, and `Flag`, and sending `Follow`, `Like`, `Announce`, and `Block` and their
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `EmojiReact`,
+  `Announce`, and `Block` and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note` or a
+  `Question`, `Update` of an actor, a `Note`, or a `Question`, `Delete`, and `Flag`, and sending `Follow`, `Like`, `EmojiReact`,
+  `Announce`, and `Block` and their
   `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, `Delete`, and `Flag`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
@@ -17,6 +18,8 @@ The extent of this support and its limitations are what's described in the rest 
 - [FEP-044f: Consent-respecting quote posts](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as
   [Quotes](#quotes) describes
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
+- [FEP-c0e0: Emoji reactions](https://codeberg.org/fediverse/fep/src/branch/main/fep/c0e0/fep-c0e0.md), as
+  [Emoji reactions](#emoji-reactions) describes
 - [FEP-e232: Object Links](https://codeberg.org/fediverse/fep/src/branch/main/fep/e232/fep-e232.md), only for quotes
 - [FEP-f1d5: NodeInfo in Fediverse Software](https://codeberg.org/fediverse/fep/src/branch/main/fep/f1d5/fep-f1d5.md)
 
@@ -38,7 +41,8 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
 - `name`, the display name, which is plain text of up to 30 characters.
 - `summary`, the bio, as HTML: `<p>` paragraphs and `<br>` line breaks, with URLs as `<a>` links and hashtags in
   [the same markup as a status's](#objects). Everything else is escaped.
-- `tag`, a `Hashtag` for each hashtag in the bio, as a `Note` has them.
+- `tag`, a `Hashtag` for each hashtag in the bio, as a `Note` has them, and an `Emoji` for each
+  [custom emoji](#custom-emoji) in the display name, bio, or fields.
 - `icon` and `image`, the avatar and header, as `Image`s with a `url` and a `mediaType` of `image/webp`. They're always WebP,
   and can be animated. An avatar is 400 × 400, and a header 1500 × 500.
 - `attachment`, the fields, as `PropertyValue`s (`schema:PropertyValue`), each with a `name` and a `value` that's HTML. A
@@ -50,7 +54,7 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
 
 The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields,
 `Hashtag` (`as:Hashtag`), `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`), and `toot`
-(`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`). `featured` is the user's
+(`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`) and `Emoji` (`toot:Emoji`). `featured` is the user's
 [pinned statuses](#pinned-statuses), at `/users/{username}/collections/featured`. A suspended user's document leaves it
 out.
 
@@ -134,8 +138,8 @@ that never existed.
 ```
 
 A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, and `sensitive`. Its `@context` defines
-`sensitive` as `as:sensitive`, `Hashtag` as `as:Hashtag`, and `blurhash` and `focalPoint` in Mastodon's `toot`
-namespace, as Mastodon's does. It can also have:
+`sensitive` as `as:sensitive`, `Hashtag` as `as:Hashtag`, and `blurhash`, `focalPoint`, and `Emoji` in Mastodon's
+`toot` namespace, as Mastodon's does. It can also have:
 
 - `likes`: the post's likes collection, at `{note-uri}/likes`.
 - `shares`: the post's [boosts](#boosts) collection, at `{note-uri}/shares`.
@@ -147,7 +151,8 @@ namespace, as Mastodon's does. It can also have:
   `@bob@example.com`, as `name`. Mentioned accounts that have since been suspended or deleted are left out. Then a
   `Hashtag` for each of its hashtags, up to 100, with `#` and the normalized name as `name`, such as `#café`, and this
   server's page of public statuses with the tag, `/tags/{name}`, as `href`. A normalized name is lowercase, in
-  Unicode's NFKC form. That page is HTML only, and isn't an ActivityPub collection.
+  Unicode's NFKC form. That page is HTML only, and isn't an ActivityPub collection. Then an `Emoji` for each
+  [custom emoji](#custom-emoji) that its text, content warning, or poll options name.
 - `attachment`: a `Document` for each of its images, video, and audio, up to 4, in order, as Mastodon sends them. Each
   has `mediaType`, `url`, and, if it has them, `name` (the description, as plain text), `width` and `height` (images
   only), and `focalPoint`. Images are always `image/webp`. Video and audio are the files as they were uploaded, so their
@@ -183,6 +188,48 @@ was written: `<a href="…" class="mention hashtag" rel="tag">#<span>Café</span
 A reply's `inReplyTo` is shown if the parent is public or unlisted, or if a followers-only status replies to its author's own
 followers-only status. A direct reply also shows a followers-only or direct parent if it mentions the parent's author, so
 that direct conversations stay threaded.
+
+### Custom emoji
+
+Admins add this server's custom emoji, each with a shortcode of 2 to 100 ASCII letters, digits, or underscores, matched
+with case. Text names one by its shortcode between colons, such as `:blobcat:`, as on Mastodon: the shortcode can't
+touch a letter, a digit, or another colon, and one inside a URL doesn't count. The `content` keeps the shortcode as text,
+and each emoji that's used is a `tag`:
+
+```json
+{
+  "id": "https://elysium.example/emojis/019a0000-0000-7000-8000-000000000000",
+  "type": "Emoji",
+  "name": ":blobcat:",
+  "icon": {
+    "type": "Image",
+    "mediaType": "image/webp",
+    "url": "https://elysium.example/media/019a0000-0000-7000-8000-000000000001.webp"
+  }
+}
+```
+
+The image is always WebP, and can be animated. It fits within 256 × 256 pixels' worth of area, keeping its shape. There's
+no `updated`, since an emoji's image never changes: an admin removes it and adds another. The `id` serves the same
+object, with an `@context` of its own, as `application/activity+json` or `application/ld+json` with any profile,
+including for `*/*` or no `Accept` header, and any origin can read it through CORS. One that's been removed gets a `404`.
+A removed emoji's shortcode shows as text from then on, and nothing is sent about it, so other servers keep the copies
+they have until they fetch what used it again.
+
+#### Receiving custom emoji
+
+Each `Emoji` in a `Note`'s or `Question`'s `tag` whose `name` is a shortcode between colons, and whose `icon` is an
+object with an HTTPS `url`, or that URL alone, is kept, up to 100. The first of each shortcode is taken. An emoji
+belongs to the server of the actor whose status used it, as on Mastodon, so a server can only define its own, whatever
+host its `id` or image is on. Its `id` is kept, and is the image's URL if there isn't one.
+
+An emoji that's new is downloaded shortly afterward, [as attachments are](#receiving-statuses), and counts toward the
+same hourly limit. Its image has to be within 256 KB by default, which an admin
+[can change](docs/configuration.md), and is kept as WebP. One that's too large or isn't an image is
+linked to instead. A later status or `Update` that gives an emoji with the same shortcode a different image, or an
+`updated` later than the one kept, replaces it, unless its `updated` is earlier than the one kept. Emoji that no status
+here uses any more are removed. Emoji aren't read from actor documents, since profiles from other servers aren't
+stored yet.
 
 ### Inboxes
 
@@ -583,7 +630,7 @@ that isn't for anyone here is ignored, even if it's public, unless it's [boosted
 - **Other properties:** `url` is kept if it's an HTTP or HTTPS URL, or a `Link` to one that's `text/html` or has no
   `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
   other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the
-  parent arrives later. Tags other than `Mention` and `Hashtag`, and emoji, aren't read yet.
+  parent arrives later. Tags other than `Mention`, `Hashtag`, and [`Emoji`](#receiving-custom-emoji) aren't read.
 - **Attachments:** each `Document`, `Image`, `Video`, or `Audio` in `attachment`, one object or an array, up to 16 in
   order, as Misskey allows. Its `url` is a string, a `Link`, or an array of them, and the first HTTP or HTTPS one is
   taken. One without such a URL is left out. Its `mediaType` decides whether it's shown as an image, video, or audio,
@@ -621,7 +668,7 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
 - **Statuses:** an `Update` whose `object` is a `Note` is read with [the same checks as a `Create`](#receiving-statuses):
   it has to be attributed to the `actor` alone, with an `id` on the same host and port, and one sent as an ID is fetched.
   It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, the language, the
-  `Hashtag` tags, and the attachments are replaced, and read as they are for a `Create`. An attachment with the same
+  `Hashtag` and `Emoji` tags, and the attachments are replaced, and read as they are for a `Create`. An attachment with the same
   `url` as before is updated rather than replaced. Its visibility, `inReplyTo`, `url`, and `published` aren't
   changed. A `Question` is read the same way, and its [poll](#receiving-polls) is replaced too. Other object types are
   ignored.
@@ -698,6 +745,47 @@ A `Note`'s `likes` collection is an `OrderedCollection` with a `totalItems` and 
 with. It's served with the same media types as the `Note`, and any origin can read it through CORS, but a request that
 accepts HTML is redirected to the status's page, and any signature is ignored. Only public and unlisted statuses have one, and others get a 404, or a
 403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if the suspension ends.
+
+### Emoji reactions
+
+When a local user reacts to a status from another server, an `EmojiReact` signed as the user is sent to the author's
+`inbox`, and addressed only to them, as Pleroma and Akkoma send it. Its `id` is `{actor-uri}#reactions/{uuid}`, which is
+new each time. `content` is the Unicode emoji, or a custom emoji's shortcode between colons, with an `Emoji` in `tag`
+[as a `Note` has one](#custom-emoji). The `@context` defines `EmojiReact` in LitePub's namespace. Reacting to a local
+status sends nothing.
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams",
+    {"toot": "http://joinmastodon.org/ns#", "Emoji": "toot:Emoji", "EmojiReact": "http://litepub.social/ns#EmojiReact"}],
+  "id": "https://elysium.example/users/alice#reactions/5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+  "type": "EmojiReact",
+  "actor": "https://elysium.example/users/alice",
+  "object": "https://remote.example/users/bob/statuses/1",
+  "content": "👍",
+  "to": ["https://remote.example/users/bob"]
+}
+```
+
+A user can react to a status with up to 20 different emoji, each sent as an `EmojiReact` of its own. Removing a reaction
+cancels its `EmojiReact` if it hasn't been sent, and sends an `Undo` either way, with the `id` `{reaction-id}/undo` and the
+`EmojiReact` embedded. A reaction isn't a [like](#likes), and isn't sent as one.
+
+These are accepted as reactions to a local status that their actor can see, as likes are:
+
+- An `EmojiReact` whose `content` is one Unicode emoji, or a shortcode between colons with an `Emoji` for it in `tag`.
+- A `Like` with an emoji in `content`, or in Misskey's `_misskey_reaction`, as Misskey sends every reaction, its default
+  one included. It's taken as a reaction rather than a like, as Akkoma takes it. A `Like` with neither is a like.
+
+A custom emoji belongs to the reacting actor's server, and is [downloaded](#receiving-custom-emoji) as one in a status is.
+Misskey names one from a third server as `:shortcode@host:`, which is matched with the `Emoji` named by its shortcode. An
+`EmojiReact` whose emoji can't be read is ignored, and so is a reaction to anything but a local status. An actor's 20 first
+different emoji on a status are kept, and a repeat of one counts once.
+
+An `Undo` removes a reaction if its `object` names the `EmojiReact` or `Like` by `id`, or embeds it with one. Only the actor
+that signed it can undo it. An `Undo` that arrives first stops the reaction it names from counting if that's processed
+later, for about 34 days. A reaction can't be undone without its `id`, which every server that sends reactions includes.
+Reactions aren't listed in any collection.
 
 ### Boosts
 
@@ -1197,7 +1285,8 @@ Admins can [block a domain](docs/accounts.md#domain-blocks), which also covers i
 compared in lowercase ASCII, without a trailing dot. A block is either a suspension, which is what the rest of this section
 describes, or a limit (Mastodon's `noop`), which only rejects what it says. A limited server federates as usual. If its
 media is rejected, its actors' attachments aren't downloaded, and are shown as links to their server, whatever the file's
-host is. An admin can also reject the media of one account on another server. A suspension rejects media too.
+host is, and neither are its custom emoji. An admin can also reject the media of one account on another server, which
+doesn't cover emoji, since they belong to the server. A suspension rejects media too.
 
 - **Inbound:** A delivery signed with a key on a blocked domain gets a `403`, before any key is fetched, so it doesn't use up
   any limits. This also applies to keys this server has already cached. A signature that's malformed or out of date still
@@ -1207,8 +1296,8 @@ host is. An admin can also reject the media of one account on another server. A 
   actors isn't stored.
 - **Delivery:** Nothing is sent to an inbox on a blocked domain. Deliveries that were already queued finish without being
   sent, and that doesn't count as the server failing.
-- **Existing data:** Follows to and from its actors are removed, and so are their likes, boosts, and statuses, boosts of
-  their statuses, and reports by or about them. Its actors are kept.
+- **Existing data:** Follows to and from its actors are removed, and so are their likes, reactions, boosts, and statuses,
+  boosts of their statuses, its custom emoji, and reports by or about them. Its actors are kept.
 - **Removing a block:** Nothing that was removed comes back. A follower has to ask again, and what was dropped while it was
   blocked isn't delivered. Following again counts as a new follow, and that server isn't sent a `Delete` for a followers-only
   status it was sent before the block, so it keeps any copy it has.
@@ -1269,7 +1358,8 @@ from any origin through CORS. The documents match, except that only 2.1 includes
 `activitypub` as the protocol, even though federation isn't complete yet. Their usage statistics include the total number
 of local users and `localPosts`, which counts replies but not direct messages. Active user counts and `localComments`
 aren't reported. `openRegistrations` is `true` when anyone can ask for an account, even if an admin has to approve it, as
-on Mastodon.
+on Mastodon. `metadata.features` lists Pleroma's `pleroma_emoji_reactions` and `custom_emoji_reactions`, since some
+clients look for them before they offer [emoji reactions](#emoji-reactions).
 
 ## Additional documentation
 

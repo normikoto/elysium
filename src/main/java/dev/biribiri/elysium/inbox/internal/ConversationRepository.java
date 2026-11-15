@@ -105,6 +105,15 @@ public class ConversationRepository {
                 .query(UUID.class).optional().isPresent();
     }
 
+    public boolean currentReaction(UUID id, UUID sender, UUID statusId) {
+        return jdbc.sql("""
+                        SELECT r.id FROM status_reaction r JOIN actor a ON a.id = r.actor_id
+                        WHERE r.id = :id AND r.actor_id = :sender AND r.status_id = :status AND
+                        """ + InboxSql.active("a") + " FOR KEY SHARE OF r")
+                .param("id", id).param("sender", sender).param("status", statusId)
+                .query(UUID.class).optional().isPresent();
+    }
+
     public boolean currentReblog(UUID id, UUID sender, UUID statusId) {
         return jdbc.sql("""
                         SELECT b.id FROM status b JOIN actor a ON a.id = b.actor_id

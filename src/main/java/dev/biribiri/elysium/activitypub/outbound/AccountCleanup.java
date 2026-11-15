@@ -17,7 +17,6 @@ import dev.biribiri.elysium.actor.AccountUnsuspended;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
-import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.context.annotation.Lazy;
@@ -57,7 +56,7 @@ public class AccountCleanup {
     private final SchedulerClient scheduler;
     private final JsonMapper json;
     private final InstanceProperties instance;
-    private final ProfileService profiles;
+    private final Persons persons;
 
     /**
      * @param scheduler lazy like everywhere else it's used, so that this doesn't affect when the scheduler is created
@@ -69,9 +68,9 @@ public class AccountCleanup {
             @Lazy SchedulerClient scheduler,
             JsonMapper json,
             InstanceProperties instance,
-            ProfileService profiles) {
+            Persons persons) {
         this.instance = instance;
-        this.profiles = profiles;
+        this.persons = persons;
         this.actors = actors;
         this.follows = follows;
         this.deliveries = deliveries;
@@ -100,7 +99,7 @@ public class AccountCleanup {
     public void on(AccountUnsuspended event) {
         var actor = actors.findById(event.actorId()).filter(Actor::isActive);
         if (actor.isPresent() && actors.isLocal(actor.get())) {
-            var person = Person.from(actor.get(), profiles.find(actor.get().id()), instance);
+            var person = persons.of(actor.get());
             announce(actor.get(), Update.of(person, "unsuspended", event.at()));
         }
     }

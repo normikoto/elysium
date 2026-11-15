@@ -161,7 +161,7 @@ class ApiDocsIntegrationTests {
     @Test
     void everyApiEndpointThatNeedsATokenSaysSo() throws Exception {
         var noToken = Set.of("post /api/v1/apps", "get /api/v1/instance", "get /api/v2/instance",
-                "get /api/v1/streaming/health");
+                "get /api/v1/streaming/health", "get /api/v1/custom_emojis");
         var undocumented = new ArrayList<String>();
         for (var path : document().get("paths").properties()) {
             if (!path.getKey().startsWith("/api/")) {
@@ -186,8 +186,10 @@ class ApiDocsIntegrationTests {
             for (var operation : path.getValue().properties()) {
                 var name = operation.getKey() + " " + path.getKey();
                 var op = operation.getValue();
-                var linksToMastodon = op.path("externalDocs").path("url").asString("")
-                        .startsWith("https://docs.joinmastodon.org/methods/");
+                var docs = op.path("externalDocs").path("url").asString("");
+                // Pleroma's extensions, which Mastodon doesn't have, link to Akkoma's documentation of them.
+                var linksToMastodon = docs.startsWith("https://docs.joinmastodon.org/methods/")
+                        || (path.getKey().startsWith("/api/v1/pleroma/") && docs.startsWith("https://docs.akkoma.dev/"));
                 if (op.path("summary").asString("").isEmpty()
                         || (path.getKey().startsWith("/api/") && !linksToMastodon)) {
                     undescribed.add(name);

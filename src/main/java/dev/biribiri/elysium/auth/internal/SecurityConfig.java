@@ -85,7 +85,7 @@ class SecurityConfig {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
             "/users/*/followers", "/users/*/following", "/tags/*", "/users/*/outbox", "/users/*/collections/featured",
             "/users/*/statuses/*", "/users/*/statuses/*/likes", "/users/*/statuses/*/shares",
-            "/users/*/quote_authorizations/*", "/actor", "/actor/outbox", "/actuator/health", "/actuator/health/**",
+            "/users/*/quote_authorizations/*", "/emojis/*", "/actor", "/actor/outbox", "/actuator/health", "/actuator/health/**",
             "/images/*", "/media/*", "/api-docs/**", "/api-docs.yaml"
     };
 
@@ -95,7 +95,8 @@ class SecurityConfig {
      */
     private static final String[] PUBLIC_API_PATHS = {
             "/api/v1/instance", "/api/v2/instance", "/api/v1/statuses/*", "/api/v1/statuses/*/context",
-            "/api/v1/statuses/*/history", "/api/v1/polls/*",
+            "/api/v1/statuses/*/history", "/api/v1/polls/*", "/api/v1/custom_emojis",
+            "/api/v1/pleroma/statuses/*/reactions", "/api/v1/pleroma/statuses/*/reactions/*",
             "/api/v1/accounts/*/statuses",
             "/api/v1/timelines/public", "/api/v1/timelines/tag/*", "/api/v1/tags/*",
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}", "/api/v1/accounts/{id:[0-9a-fA-F-]+}/followers",

@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.PostFilters;
@@ -35,6 +36,7 @@ class AccountCleanupTask {
 
     private final InboxService inbox;
     private final LikeService likes;
+    private final ReactionService reactions;
     private final ActorService actors;
     private final StatusService statuses;
     private final FollowService follows;
@@ -53,7 +55,8 @@ class AccountCleanupTask {
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
-                       LikeService likes, MediaAttachments attachments, FollowersOnlyRecipients followersOnly,
+                       LikeService likes, ReactionService reactions, MediaAttachments attachments,
+                       FollowersOnlyRecipients followersOnly,
                        PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
                        PostFilters filters, AccountLists lists) {
         this.lists = lists;
@@ -69,6 +72,7 @@ class AccountCleanupTask {
         this.attachments = attachments;
         this.inbox = inbox;
         this.likes = likes;
+        this.reactions = reactions;
         this.actors = actors;
         this.profiles = profiles;
         this.statuses = statuses;
@@ -84,6 +88,7 @@ class AccountCleanupTask {
         actors.findById(job.actorId()).ifPresent(actor -> {
             if (actor.isDeleted()) {
                 likes.removeForActor(actor.id());
+                reactions.removeForActor(actor.id());
                 pins.removeForActor(actor.id());
                 polls.removeForActor(actor.id());
                 statuses.removeAllBy(actor.id());

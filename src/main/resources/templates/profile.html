@@ -5,14 +5,14 @@
         <img class="profile-header" th:if="${header != null}" th:src="${header}" alt="">
         <img class="avatar" th:if="${avatar != null}" th:src="${avatar}" alt="">
         <p th:text="|@${actor.username}@${actor.domain}|"></p>
-        <!-- The bio and field values are rendered from plain text, which escapes everything they contain. -->
+        <!-- The bio and fields are rendered from plain text, which escapes everything they contain. -->
         <div class="bio" th:if="${!profile.note().isEmpty()}" th:utext="${bio}"></div>
-        <dl class="fields" th:if="${!profile.fields().isEmpty()}">
-            <th:block th:each="field : ${profile.fields()}">
-                <dt th:text="${field.name()}"></dt>
-                <dd th:classappend="${field.verifiedAt() != null} ? 'verified'">
-                    <span th:utext="${field.valueHtml()}"></span>
-                    <span th:if="${field.verifiedAt() != null}" title="The page this links to links back here">✓</span>
+        <dl class="fields" th:if="${!fields.isEmpty()}">
+            <th:block th:each="field : ${fields}">
+                <dt th:utext="${field.name()}"></dt>
+                <dd th:classappend="${field.verified()} ? 'verified'">
+                    <span th:utext="${field.value()}"></span>
+                    <span th:if="${field.verified()}" title="The page this links to links back here">✓</span>
                 </dd>
             </th:block>
         </dl>

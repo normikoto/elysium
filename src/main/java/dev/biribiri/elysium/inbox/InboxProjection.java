@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.RemoteStatusEdited;
 import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.content.StatusLiked;
+import dev.biribiri.elysium.content.StatusReacted;
 import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
 import dev.biribiri.elysium.graph.AccountBlocked;
@@ -239,6 +240,19 @@ public class InboxProjection {
                 .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
                 .filter(source -> conversations.currentLike(event.likeId(), event.actorId(), event.statusId()))
                 .ifPresent(source -> notified(event.authorId(), notifications.insertFavourite(event.authorId(), event.actorId(), event.likeId(), source.id())));
+    }
+
+    @ApplicationModuleListener
+    public void on(StatusReacted event) {
+        if (event.actorId().equals(event.authorId())
+                || conversations.localRecipients(List.of(event.authorId())).isEmpty()) return;
+        notifications.lock();
+        conversations.holdActors(List.of(event.actorId(), event.authorId()));
+        conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
+                .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
+                .filter(source -> conversations.currentReaction(event.reactionId(), event.actorId(), event.statusId()))
+                .ifPresent(source -> notified(event.authorId(),
+                        notifications.insertReaction(event.authorId(), event.actorId(), event.reactionId(), source.id())));
     }
 
     @ApplicationModuleListener

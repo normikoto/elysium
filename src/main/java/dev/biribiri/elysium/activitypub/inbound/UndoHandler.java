@@ -8,6 +8,7 @@ import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.ReactionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -20,8 +21,8 @@ import java.util.Optional;
 
 /**
  * Handles every {@code Undo}, because only one handler can have a type, and tells what's undone from the {@code object}'s
- * type, or the stored activity's when it's sent as just an ID. Undoing a {@code Follow}, {@code Like}, {@code Announce} or
- * {@code Block} does something.
+ * type, or the stored activity's when it's sent as just an ID. Undoing a {@code Follow}, {@code Like}, {@code EmojiReact},
+ * {@code Announce} or {@code Block} does something.
  */
 @Component
 class UndoHandler implements InboundActivityHandler {
@@ -31,6 +32,7 @@ class UndoHandler implements InboundActivityHandler {
     private final ActorService actors;
     private final FollowService follows;
     private final LikeService likes;
+    private final ReactionService reactions;
     private final BoostService boosts;
     private final BlockService blocks;
     private final StoredActivities stored;
@@ -42,6 +44,7 @@ class UndoHandler implements InboundActivityHandler {
             ActorService actors,
             FollowService follows,
             LikeService likes,
+            ReactionService reactions,
             BoostService boosts,
             BlockService blocks,
             StoredActivities stored,
@@ -51,6 +54,7 @@ class UndoHandler implements InboundActivityHandler {
         this.actors = actors;
         this.follows = follows;
         this.likes = likes;
+        this.reactions = reactions;
         this.boosts = boosts;
         this.blocks = blocks;
         this.stored = stored;
@@ -73,11 +77,16 @@ class UndoHandler implements InboundActivityHandler {
         }
         var object = parsed.get();
         if (object.type() != null && !object.type().equals("Follow") && !object.type().equals("Like")
-                && !object.type().equals("Announce") && !object.type().equals("Block")) return;
+                && !object.type().equals("EmojiReact") && !object.type().equals("Announce")
+                && !object.type().equals("Block")) return;
         var original = Optional.ofNullable(object.id()).flatMap(stored::find);
         if (original.isPresent() && (!original.get().actorUri().equals(activity.actorUri())
                 || (object.type() != null && !object.type().equals(original.get().type())))) return;
         var type = object.type() != null ? object.type() : original.map(InboundActivity::type).orElse(null);
+        if ("Like".equals(type) || "EmojiReact".equals(type) || type == null) {
+            undoReaction(activity, object, type);
+            if ("EmojiReact".equals(type)) return;
+        }
         if ("Like".equals(type) || type == null) {
             undoLike(activity, object, original);
             if ("Like".equals(type)) return;
@@ -95,6 +104,21 @@ class UndoHandler implements InboundActivityHandler {
             undoById(activity, object);
         } else if (object.object() != null && "Follow".equals(object.type())) {
             undoByPair(activity, object.object());
+        }
+    }
+
+    /**
+     * A {@code Like} with an emoji is a reaction, so an {@code Undo} of a {@code Like} withdraws both, whichever it was.
+     * Its receipt is the one for likes, which the reaction checks too, so only an {@code Undo} that could be of an
+     * {@code EmojiReact} leaves one of its own. Reactions are only undone by ID, which every server that sends them gives.
+     */
+    private void undoReaction(InboundActivity activity, ActivityObject object, String type) {
+        if (object.id() == null || !InboundActivity.isStorableId(object.id())
+                || !canSpeakFor(activity.actorUri(), object.id())) return;
+        if ("Like".equals(type)) {
+            reactions.undoLike(activity.actorUri(), object.id());
+        } else {
+            reactions.undo(activity.actorUri(), object.id(), activity.receivedAt());
         }
     }
 

@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.ProfileProperties;
 import dev.biribiri.elysium.content.AttachmentProperties;
+import dev.biribiri.elysium.content.CustomEmojiProperties;
 import jakarta.servlet.MultipartConfigElement;
 import org.springframework.boot.servlet.MultipartConfigFactory;
 import org.springframework.context.annotation.Bean;
@@ -22,11 +23,14 @@ class MultipartConfig {
     private static final DataSize FORM = DataSize.ofMegabytes(4);
 
     @Bean
-    MultipartConfigElement multipartConfigElement(ProfileProperties profiles, AttachmentProperties attachments) {
-        var largestFile = Math.max(profiles.maxImageSize().toBytes(), attachments.largest().toBytes());
+    MultipartConfigElement multipartConfigElement(ProfileProperties profiles, AttachmentProperties attachments,
+                                                  CustomEmojiProperties emojis) {
+        var largestFile = Math.max(Math.max(profiles.maxImageSize().toBytes(), attachments.largest().toBytes()),
+                emojis.maxImageSize().toBytes());
         // A profile can have two images at once, and an attachment a thumbnail.
-        var largestRequest = Math.max(2 * profiles.maxImageSize().toBytes(),
-                attachments.largest().toBytes() + attachments.maxImageSize().toBytes()) + FORM.toBytes();
+        var largestRequest = Math.max(Math.max(2 * profiles.maxImageSize().toBytes(),
+                attachments.largest().toBytes() + attachments.maxImageSize().toBytes()), emojis.maxImageSize().toBytes())
+                + FORM.toBytes();
         var factory = new MultipartConfigFactory();
         factory.setMaxFileSize(DataSize.ofBytes(largestFile));
         factory.setMaxRequestSize(DataSize.ofBytes(largestRequest));

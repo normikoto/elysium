@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.net.URI;
 
 /**
- * Withdraws a {@code Follow}, {@code Like}, {@code Announce} or {@code Block} sent from here, which includes it so that the other server doesn't have to look
+ * Withdraws a {@code Follow}, {@code Like}, {@code EmojiReact}, {@code Announce} or {@code Block} sent from here, which includes it so that the other server doesn't have to look
  * it up. Some servers don't keep the ID of a {@code Follow}, and match on its actors instead.
  */
 public record Undo<T>(
@@ -22,6 +22,10 @@ public record Undo<T>(
 
     public static Undo<Like> of(Like like) {
         return new Undo<>(ActivityStreams.CONTEXT, idFor(like.id()), "Undo", like.actor(), like.withoutContext());
+    }
+
+    public static Undo<EmojiReact> of(EmojiReact react) {
+        return new Undo<>(ActivityStreams.CONTEXT, idFor(react.id()), "Undo", react.actor(), react.withoutContext());
     }
 
     public static Undo<Announce> of(Announce announce) {

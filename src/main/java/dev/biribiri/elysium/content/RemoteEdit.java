@@ -17,6 +17,7 @@ import java.util.UUID;
  *                    when it's stored
  * @param attachments every attachment it has now, in order, which replace the ones it had
  * @param poll        its poll now, or null if it has none
+ * @param emojis      the custom emoji its server says it uses now
  */
 public record RemoteEdit(
         URI uri,
@@ -28,12 +29,23 @@ public record RemoteEdit(
         Instant editedAt,
         Collection<String> tags,
         List<RemoteAttachment> attachments,
-        RemotePoll poll
+        RemotePoll poll,
+        List<RemoteEmoji> emojis
 ) {
 
     public RemoteEdit {
         tags = List.copyOf(tags);
         attachments = List.copyOf(attachments);
+        emojis = emojis == null ? List.of() : List.copyOf(emojis);
+    }
+
+    /**
+     * An edit that leaves the status with no custom emoji.
+     */
+    public RemoteEdit(
+            URI uri, UUID authorId, String content, String spoilerText, String language, boolean sensitive,
+            Instant editedAt, Collection<String> tags, List<RemoteAttachment> attachments, RemotePoll poll) {
+        this(uri, authorId, content, spoilerText, language, sensitive, editedAt, tags, attachments, poll, List.of());
     }
 
     /**
@@ -42,7 +54,7 @@ public record RemoteEdit(
     public RemoteEdit(
             URI uri, UUID authorId, String content, String spoilerText, String language, boolean sensitive,
             Instant editedAt, Collection<String> tags, List<RemoteAttachment> attachments) {
-        this(uri, authorId, content, spoilerText, language, sensitive, editedAt, tags, attachments, null);
+        this(uri, authorId, content, spoilerText, language, sensitive, editedAt, tags, attachments, (RemotePoll) null);
     }
 
     /**

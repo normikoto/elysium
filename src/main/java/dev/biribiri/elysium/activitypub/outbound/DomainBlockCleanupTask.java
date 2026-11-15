@@ -5,7 +5,9 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.graph.BlockService;
@@ -27,6 +29,7 @@ class DomainBlockCleanupTask {
 
     private final InboxService inbox;
     private final LikeService likes;
+    private final ReactionService reactions;
     private final DomainBlocks blocks;
     private final FollowService follows;
     private final BlockService accountBlocks;
@@ -35,17 +38,21 @@ class DomainBlockCleanupTask {
     private final Reports reports;
     private final PollService polls;
     private final StatusPinService pins;
+    private final CustomEmojis emojis;
 
     DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, BlockService accountBlocks, StatusService statuses,
-                           InboxService inbox, LikeService likes, FollowersOnlyRecipients followersOnly,
-                           Reports reports, PollService polls, StatusPinService pins) {
+                           InboxService inbox, LikeService likes, ReactionService reactions,
+                           FollowersOnlyRecipients followersOnly,
+                           Reports reports, PollService polls, StatusPinService pins, CustomEmojis emojis) {
         this.pins = pins;
+        this.emojis = emojis;
         this.polls = polls;
         this.followersOnly = followersOnly;
         this.reports = reports;
         this.accountBlocks = accountBlocks;
         this.inbox = inbox;
         this.likes = likes;
+        this.reactions = reactions;
         this.blocks = blocks;
         this.follows = follows;
         this.statuses = statuses;
@@ -66,12 +73,14 @@ class DomainBlockCleanupTask {
         }
         blocks.blockedHosts(follows.remoteDomains()).forEach(domain -> {
             likes.removeForDomain(domain);
+            reactions.removeForDomain(domain);
             pins.removeForDomain(domain);
             polls.removeForDomain(domain);
             follows.removeForDomain(domain);
             followersOnly.removeForDomain(domain);
             accountBlocks.removeForDomain(domain);
             statuses.removeForDomain(domain);
+            emojis.removeForDomain(domain);
             inbox.removeForDomain(domain);
             reports.removeForDomain(domain);
         });

@@ -197,6 +197,19 @@ can't be undone.
 The page only shows the content of public and unlisted posts, so admins don't get to read followers-only and direct posts
 by looking them up.
 
+## Custom emoji
+Admins add the server's custom emoji at `/admin/custom-emojis`. Each has a shortcode, such as `blobcat`, which people write
+between colons, as `:blobcat:`, in a post, a display name, a bio, or a profile field, and an image, which is kept as WebP,
+animated if it was. Images can be up to 256 KB, as on Mastodon, unless you set
+[`elysium.custom-emojis.max-image-size`](configuration.md), which also limits the emoji downloaded from other servers. People's apps list them in their emoji pickers, apart from those you hide from pickers,
+which can still be used by typing their shortcode.
+
+- Posts only show the emoji that existed when they were written or last edited, so adding an emoji doesn't change older
+  posts that happened to use its shortcode.
+- Removing an emoji shows its shortcode as text everywhere it was used. Other servers keep the copies they were sent.
+- Emoji from other servers are downloaded and kept here, as their attachments are, and are removed when no post here uses
+  them any more. A domain block that rejects a server's media stops its emoji being downloaded too.
+
 ## Reports
 People can report an account, and some of its posts, from their app. Other servers can also send reports about accounts
 here. Each admin gets a notification of a new report in their app, and reports are listed at `/admin/reports`, or

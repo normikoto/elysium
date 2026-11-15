@@ -216,7 +216,8 @@ class NoteStorage {
                 attachments(note, author),
                 note.quote(),
                 quotePolicy(note.quotePolicy(), author),
-                note.poll());
+                note.poll(),
+                note.emojis());
         return store.apply(remote).isPresent() ? Result.STORED : Result.TAKEN;
     }
 

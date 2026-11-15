@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.vocab.Create;
 import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollectionPage;
+import dev.biribiri.elysium.activitypub.vocab.Emoji;
 import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.activitypub.vocab.Tombstone;
 import dev.biribiri.elysium.actor.ActorService;
@@ -13,7 +14,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.actor.InstanceProperties;
-import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.activitypub.outbound.Persons;
 import dev.biribiri.elysium.activitypub.vocab.Announce;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.PollService;
@@ -23,6 +24,7 @@ import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.StatusLike;
@@ -89,12 +91,13 @@ public class ActivityPubController {
     private final FollowService follows;
     private final Notes notes;
     private final InstanceProperties instance;
-    private final ProfileService profiles;
+    private final Persons persons;
     private final FetchSigners signers;
     private final MediaAttachments attachments;
     private final QuoteService quotes;
     private final PollService polls;
     private final StatusPinService pins;
+    private final CustomEmojis emojis;
 
     ActivityPubController(
             ActorService actors,
@@ -104,19 +107,21 @@ public class ActivityPubController {
             FollowService follows,
             Notes notes,
             InstanceProperties instance,
-            ProfileService profiles,
+            Persons persons,
             FetchSigners signers,
             MediaAttachments attachments,
             QuoteService quotes,
             PollService polls,
-            StatusPinService pins) {
+            StatusPinService pins,
+            CustomEmojis emojis) {
         this.pins = pins;
+        this.emojis = emojis;
         this.polls = polls;
         this.attachments = attachments;
         this.quotes = quotes;
         this.signers = signers;
         this.instance = instance;
-        this.profiles = profiles;
+        this.persons = persons;
         this.actors = actors;
         this.statuses = statuses;
         this.likes = likes;
@@ -159,7 +164,7 @@ public class ActivityPubController {
         // Not an error, because other servers take any answer that isn't this document as the actor being gone or broken.
         return ResponseEntity.ok(actor.get().isSuspended()
                 ? Person.suspended(actor.get(), instance)
-                : Person.from(actor.get(), profiles.find(actor.get().id()), instance));
+                : persons.of(actor.get()));
     }
 
     /**
@@ -545,6 +550,28 @@ public class ActivityPubController {
             }))
     Application instanceActor() {
         return Application.from(actors.instanceActor(), instance.sharedInboxUri());
+    }
+
+    @CrossOrigin
+    @GetMapping(path = "/emojis/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getEmoji",
+            summary = "Fetch one of the server's custom emoji",
+            description = """
+                    An `Emoji`, as one is in a `tag`: its `name` is the shortcode with colons, and its `icon` is a WebP \
+                    `Image`. This is the `id` of each of this server's emoji, which is never reused. Another server's \
+                    emoji aren't served here.\s""" + FederationDocs.DOCUMENT,
+            parameters = @Parameter(name = "id", description = "The emoji's ID."),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The emoji.", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Emoji.class))
+                    }),
+                    @ApiResponse(responseCode = "404", description = "There's no such emoji, or it was removed.")
+            })
+    ResponseEntity<Emoji> emoji(@PathVariable String id) {
+        return Ids.parse(id).flatMap(emojis::findLocal)
+                .map(emoji -> ResponseEntity.ok(Emoji.document(emoji, instance)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping(path = "/users/{username}/quote_authorizations/{id}", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
