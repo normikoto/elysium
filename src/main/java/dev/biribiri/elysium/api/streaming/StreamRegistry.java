@@ -11,6 +11,7 @@ import org.springframework.security.oauth2.server.resource.introspection.OpaqueT
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -117,9 +118,12 @@ public class StreamRegistry {
      * has been suspended or deleted, since none of those would be let in again.
      */
     private void beat() {
+        // A client often opens several connections with one token, and each check is a few queries.
+        var valid = new HashMap<String, Boolean>();
         for (var connection : List.copyOf(connections)) {
             try {
-                if (connection.token().isPresent() && !stillValid(connection)) {
+                if (connection.token().isPresent() && !valid.computeIfAbsent(
+                        connection.token().get(), _ -> stillValid(connection))) {
                     connection.closeNow();
                     continue;
                 }

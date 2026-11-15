@@ -280,6 +280,12 @@ class StreamingIntegrationTests {
     void eventStreamsCheckTheirParameters() throws Exception {
         assertThat(get("/api/v1/streaming/health").body()).isEqualTo("OK");
         assertThat(get("/api/v1/streaming/hashtag").statusCode()).isEqualTo(400);
+        // As an EventSource asks, which a JSON error still has to be written for.
+        var fromEventSource = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port
+                        + "/api/v1/streaming/hashtag")).header("Accept", "text/event-stream").build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(fromEventSource.statusCode()).isEqualTo(400);
+        assertThat(JsonPath.<String>read(fromEventSource.body(), "$.error")).isEqualTo("Missing tag name parameter");
         assertThat(get("/api/v1/streaming/user").statusCode()).isEqualTo(401);
         assertThat(get("/api/v1/streaming/list?list=1&access_token=" + aliceToken).statusCode()).isEqualTo(404);
     }

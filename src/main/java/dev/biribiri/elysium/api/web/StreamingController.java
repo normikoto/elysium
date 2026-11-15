@@ -195,14 +195,26 @@ class StreamingController {
         return stream(authentication, StreamKey.parse("hashtag:local", tag));
     }
 
+    // Each error names its content type, since an EventSource only accepts text/event-stream, which a JSON body
+    // couldn't otherwise be written as.
+
     @ExceptionHandler
     ResponseEntity<Map<String, String>> invalidStream(StreamKey.InvalidStreamException e) {
-        return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        return error(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> requiresUser(InvalidRequestException e) {
+        return error(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
     }
 
     @ExceptionHandler
     ResponseEntity<Map<String, String>> tooManyConnections(StreamRegistry.TooManyConnectionsException e) {
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", e.getMessage()));
+        return error(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
+    private static ResponseEntity<Map<String, String>> error(HttpStatus status, String message) {
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(Map.of("error", message));
     }
 
     private ResponseEntity<SseEmitter> stream(Authentication authentication, StreamKey key) {
