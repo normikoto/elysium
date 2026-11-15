@@ -31,8 +31,9 @@ class LikeHandler implements InboundActivityHandler {
      */
     @Override
     public void handle(InboundActivity activity) {
-        if (reactions.receive(activity)) return;
-        var target = ActivityObject.of(activity.body(), json).map(ActivityObject::id)
+        var body = json.readTree(activity.body());
+        if (reactions.receive(activity, body)) return;
+        var target = ActivityObject.of(body).map(ActivityObject::id)
                 .flatMap(ActivityObject::parseUri).flatMap(likes::localTarget);
         if (target.isEmpty() || likes.wasUndone(activity.id(), activity.actorUri(), target.get().id(),
                 activity.firstReceivedAt())) return;

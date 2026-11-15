@@ -124,6 +124,14 @@ public class CustomEmojiRepository {
     }
 
     /**
+     * Holds a local emoji until the transaction ends.
+     */
+    public boolean lockLocal(UUID id) {
+        return jdbc.sql("SELECT id FROM custom_emoji WHERE id = :id AND domain IS NULL FOR UPDATE")
+                .param("id", id).query(UUID.class).optional().isPresent();
+    }
+
+    /**
      * @return whether it was removed, whose files are then queued for removal
      */
     public boolean deleteLocal(UUID id) {
@@ -259,27 +267,33 @@ public class CustomEmojiRepository {
     }
 
     /**
-     * Removes one batch of a server's emoji, for when it's blocked.
+     * One batch of a server's emoji, held until the transaction ends, for removing them when it's blocked.
      *
      * @param domain a domain as domain blocks have it, which covers its subdomains
-     * @return how many were removed
      */
-    public int removeForDomain(String domain) {
+    public List<UUID> lockBatchForDomain(String domain) {
         return jdbc.sql("""
-                        WITH removed AS (
-                            DELETE FROM custom_emoji WHERE id IN (
-                                SELECT e.id FROM custom_emoji e WHERE e.domain IS NOT NULL AND %s LIMIT :limit
-                            )
-                            RETURNING image_name, static_name
-                        ), queued AS (
-                        """.formatted(ON_DOMAIN) + QUEUE_REMOVED_FILES + """
-                        )
-                        SELECT count(*) FROM removed
-                        """)
+                        SELECT e.id FROM custom_emoji e WHERE e.domain IS NOT NULL AND %s
+                        ORDER BY e.id LIMIT :limit FOR UPDATE
+                        """.formatted(ON_DOMAIN))
                 .param("domain", domain)
                 .param("limit", BATCH_SIZE)
-                .query(Integer.class)
-                .single();
+                .query(UUID.class)
+                .list();
+    }
+
+    public void deleteRemote(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        jdbc.sql("""
+                        WITH removed AS (
+                            DELETE FROM custom_emoji WHERE id IN (:ids) AND domain IS NOT NULL
+                            RETURNING image_name, static_name
+                        )
+                        """ + QUEUE_REMOVED_FILES)
+                .param("ids", ids)
+                .update();
     }
 
     /**

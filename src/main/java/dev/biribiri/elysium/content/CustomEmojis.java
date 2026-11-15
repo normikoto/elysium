@@ -3,6 +3,7 @@ package dev.biribiri.elysium.content;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.internal.CustomEmojiRepository;
+import dev.biribiri.elysium.content.internal.ReactionRepository;
 import dev.biribiri.elysium.media.ImageKind;
 import dev.biribiri.elysium.media.Images;
 import dev.biribiri.elysium.media.InvalidImageException;
@@ -10,6 +11,8 @@ import dev.biribiri.elysium.media.StoredImage;
 import dev.biribiri.elysium.text.Shortcodes;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.unit.DataSize;
 
 import java.net.URI;
@@ -48,10 +51,15 @@ public class CustomEmojis {
     private final ApplicationEventPublisher events;
     private final CustomEmojiProperties properties;
     private final AttachmentProperties attachmentProperties;
+    private final ReactionRepository reactions;
+    private final TransactionTemplate transaction;
 
     CustomEmojis(CustomEmojiRepository emojis, Images images, MediaAttachments attachments, InstanceProperties instance,
                  ApplicationEventPublisher events, CustomEmojiProperties properties,
-                 AttachmentProperties attachmentProperties) {
+                 AttachmentProperties attachmentProperties, ReactionRepository reactions,
+                 PlatformTransactionManager transactionManager) {
+        this.reactions = reactions;
+        this.transaction = new TransactionTemplate(transactionManager);
         this.properties = properties;
         this.attachmentProperties = attachmentProperties;
         this.emojis = emojis;
@@ -136,16 +144,32 @@ public class CustomEmojis {
     }
 
     /**
-     * Statuses that used it show its shortcode as text from then on.
+     * Statuses that used it show its shortcode as text from then on. Local accounts' reactions with it are withdrawn,
+     * which other servers are sent.
      *
      * @return false if there's no local emoji with the ID
      */
     public boolean deleteLocal(UUID id) {
-        var deleted = emojis.deleteLocal(id);
+        var deleted = Boolean.TRUE.equals(transaction.execute(tx -> {
+            if (!emojis.lockLocal(id)) {
+                return false;
+            }
+            withdrawReactions(List.of(id));
+            return emojis.deleteLocal(id);
+        }));
         if (deleted) {
             attachments.processDeletions();
         }
         return deleted;
+    }
+
+    /**
+     * The emoji are held, so that no reaction can be added with them meanwhile, and are removed in the same transaction.
+     */
+    private void withdrawReactions(List<UUID> emojiIds) {
+        reactions.withdrawWith(emojiIds).forEach(withdrawn -> events.publishEvent(new StatusUnreacted(
+                withdrawn.actorId(), withdrawn.statusId(), withdrawn.authorId(), withdrawn.statusUri(),
+                withdrawn.activityUri(), withdrawn.name(), withdrawn.emojiId())));
     }
 
     public List<CustomEmoji> listLocal() {
@@ -281,7 +305,12 @@ public class CustomEmojis {
      * @param domain a domain as domain blocks have it, which covers its subdomains
      */
     public void removeForDomain(String domain) {
-        while (emojis.removeForDomain(domain) > 0) {
+        while (Boolean.TRUE.equals(transaction.execute(tx -> {
+            var batch = emojis.lockBatchForDomain(domain);
+            withdrawReactions(batch);
+            emojis.deleteRemote(batch);
+            return !batch.isEmpty();
+        }))) {
             // Each batch commits by itself.
         }
         attachments.processDeletions();

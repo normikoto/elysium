@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -47,20 +48,20 @@ public class ReactionService {
     private final ReactionRepository reactions;
     private final LikeRepository likes;
     private final StatusRepository repository;
-    private final StatusService statuses;
     private final ActorService actors;
     private final CustomEmojis emojis;
     private final ApplicationEventPublisher events;
+    private final StatusHolds holds;
 
-    ReactionService(ReactionRepository reactions, LikeRepository likes, StatusRepository repository,
-                    StatusService statuses, ActorService actors, CustomEmojis emojis, ApplicationEventPublisher events) {
+    ReactionService(ReactionRepository reactions, LikeRepository likes, StatusRepository repository, ActorService actors,
+                    CustomEmojis emojis, ApplicationEventPublisher events, StatusHolds holds) {
         this.reactions = reactions;
         this.likes = likes;
         this.repository = repository;
-        this.statuses = statuses;
         this.actors = actors;
         this.emojis = emojis;
         this.events = events;
+        this.holds = holds;
     }
 
     /**
@@ -78,14 +79,15 @@ public class ReactionService {
 
     /**
      * Reads an emoji as a client names it, as Pleroma reads them: one Unicode emoji, a shortcode of this server's, with or
-     * without colons, or {@code shortcode@domain} for another server's that's stored here.
+     * without colons, or {@code shortcode@domain} for another server's that's stored here. A Unicode emoji is in its
+     * fully qualified form, so that the same one counts once however it's sent.
      *
      * @throws InvalidReactionException if it's none of those
      */
     public Choice choose(String value) {
         var given = value == null ? "" : value.strip();
         if (UnicodeEmoji.isOne(given)) {
-            return new Choice(given, null);
+            return new Choice(UnicodeEmoji.normalize(given), null);
         }
         var bare = given.length() > 2 && given.startsWith(":") && given.endsWith(":")
                 ? given.substring(1, given.length() - 1) : given;
@@ -145,11 +147,7 @@ public class ReactionService {
     }
 
     private Optional<Status> holdVisible(UUID statusId, UUID actorId) {
-        var preview = repository.findById(statusId);
-        if (preview.isEmpty()) return Optional.empty();
-        likes.holdActors(List.of(actorId, preview.get().actorId()));
-        if (!likes.eligibleActor(actorId) || !likes.eligibleActor(preview.get().actorId())) return Optional.empty();
-        return repository.findByIdAndLock(statusId).filter(status -> statuses.isVisible(status, Optional.of(actorId)));
+        return holds.holdVisible(statusId, actorId);
     }
 
     public boolean wasUndone(String activityUri, String actorUri) {
@@ -160,22 +158,35 @@ public class ReactionService {
      * Another server's reaction to a local status. A repeat of a reaction that's kept already keeps the newer activity's
      * ID, as likes do, and one past the limit is dropped.
      *
-     * @param remote the custom emoji, which is stored under the actor's domain, or null for a Unicode one
+     * @param name       the Unicode emoji, or the custom emoji's shortcode
+     * @param remote     the custom emoji, or null for a Unicode one
+     * @param emojiDomain the server the actor says a custom emoji is from, or null for its own. One from its own is stored
+     *                   under its domain, as a status's are. One from another server is only that server's emoji if it's
+     *                   stored here already, since the actor's server can't speak for it, and the reaction is dropped
+     *                   otherwise
      */
     @Transactional
-    public void receive(UUID actorId, UUID statusId, String name, RemoteEmoji remote, String activityUri,
-                        Instant firstArrival) {
+    public void receive(UUID actorId, UUID statusId, String name, RemoteEmoji remote, String emojiDomain,
+                        String activityUri, Instant firstArrival) {
         holdVisible(statusId, actorId).ifPresent(status -> {
             var actor = actors.findById(actorId).orElseThrow();
             if (actors.isLocal(actor) || actors.findLocalById(status.actorId()).isEmpty()) return;
-            var emojiId = remote == null ? null
-                    : emojis.storeRemote(actor.domain(), List.of(remote)).get(remote.shortcode());
+            var own = emojiDomain == null || emojiDomain.equalsIgnoreCase(actor.domain());
+            UUID emojiId = null;
+            if (remote != null && own) {
+                emojiId = emojis.storeRemote(actor.domain(), List.of(remote)).get(remote.shortcode());
+            } else if (remote != null) {
+                var stored = emojis.findRemote(remote.shortcode(), emojiDomain.toLowerCase(Locale.ROOT));
+                if (stored.isEmpty()) return;
+                emojiId = stored.get().id();
+            }
+            var reactionName = remote == null ? UnicodeEmoji.normalize(name) : name;
             var actorUri = actor.uri().toString();
             reactions.lockActorOnStatus(actorUri, statusId);
-            reactions.lockReaction(actorUri, statusId, name, emojiId);
+            reactions.lockReaction(actorUri, statusId, reactionName, emojiId);
             reactions.lockActivity(activityUri);
             if (reactions.wasUndone(activityUri, actorUri)) return;
-            var existing = reactions.findOne(actorId, statusId, name, emojiId);
+            var existing = reactions.findOne(actorId, statusId, reactionName, emojiId);
             if (existing.isPresent()) {
                 if (!existing.get().activityAt().isAfter(firstArrival)) {
                     reactions.replaceActivity(existing.get().id(), activityUri, firstArrival);
@@ -184,7 +195,7 @@ public class ReactionService {
             }
             if (reactions.findActivity(actorUri, activityUri).isPresent()
                     || reactions.countFor(actorId, statusId) >= MAX_PER_ACCOUNT) return;
-            var reaction = reactions.insert(actorId, statusId, name, emojiId, activityUri, firstArrival);
+            var reaction = reactions.insert(actorId, statusId, reactionName, emojiId, activityUri, firstArrival);
             events.publishEvent(new StatusReacted(reaction.id(), actorId, statusId, status.actorId()));
         });
     }
@@ -195,12 +206,35 @@ public class ReactionService {
      */
     @Transactional
     public void undo(String actorUri, String activityUri, Instant undoAt) {
-        reactions.findActivity(actorUri, activityUri).ifPresent(reaction -> {
+        withdraw(actorUri, activityUri, true, undoAt);
+    }
+
+    /**
+     * Like {@link #undo}, without remembering it, for an {@code Undo} of a {@code Like}, whose receipt for likes also
+     * stops a reaction that arrives later.
+     */
+    @Transactional
+    public void undoLike(String actorUri, String activityUri) {
+        withdraw(actorUri, activityUri, false, null);
+    }
+
+    /**
+     * Takes the locks {@link #receive} does, in the same order, so that a repeat of the reaction under a newer ID that's
+     * being stored meanwhile is either replaced before this looks, or stored after this has removed the old one.
+     */
+    private void withdraw(String actorUri, String activityUri, boolean remember, Instant undoAt) {
+        var found = reactions.findActivity(actorUri, activityUri);
+        found.ifPresent(reaction -> {
             likes.holdActors(List.of(reaction.actorId()));
             likes.holdStatus(reaction.statusId());
+            reactions.lockActorOnStatus(actorUri, reaction.statusId());
+            reactions.lockReaction(actorUri, reaction.statusId(), reaction.name(), reaction.emojiId());
         });
+        if (found.isEmpty() && !remember) return;
         reactions.lockActivity(activityUri);
-        reactions.markUndone(activityUri, actorUri, undoAt);
+        if (remember) {
+            reactions.markUndone(activityUri, actorUri, undoAt);
+        }
         reactions.deleteActivity(actorUri, activityUri);
     }
 
@@ -220,10 +254,6 @@ public class ReactionService {
         likes.holdActors(List.of(reaction.actorId(), status.get().actorId()));
         if (!likes.eligibleActor(status.get().actorId()) || !likes.holdStatus(reaction.statusId())) return Optional.empty();
         reactions.lockReaction(actor.get().uri().toString(), reaction.statusId(), reaction.name(), reaction.emojiId());
-        return reactions.find(reactionId);
-    }
-
-    public Optional<StatusReaction> find(UUID reactionId) {
         return reactions.find(reactionId);
     }
 
@@ -276,15 +306,7 @@ public class ReactionService {
     }
 
     public void removeForDomain(String domain) {
-        var after = new UUID(0, 0);
-        List<UUID> batch;
-        do {
-            batch = likes.actorsOn(domain, after, 1000);
-            if (!batch.isEmpty()) {
-                reactions.removeForActors(batch);
-                after = batch.getLast();
-            }
-        } while (batch.size() == 1000);
+        holds.forActorsOn(domain, reactions::removeForActors);
     }
 
     private static Instant now() {

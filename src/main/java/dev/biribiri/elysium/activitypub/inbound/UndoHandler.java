@@ -84,7 +84,7 @@ class UndoHandler implements InboundActivityHandler {
                 || (object.type() != null && !object.type().equals(original.get().type())))) return;
         var type = object.type() != null ? object.type() : original.map(InboundActivity::type).orElse(null);
         if ("Like".equals(type) || "EmojiReact".equals(type) || type == null) {
-            undoReaction(activity, object);
+            undoReaction(activity, object, type);
             if ("EmojiReact".equals(type)) return;
         }
         if ("Like".equals(type) || type == null) {
@@ -109,12 +109,17 @@ class UndoHandler implements InboundActivityHandler {
 
     /**
      * A {@code Like} with an emoji is a reaction, so an {@code Undo} of a {@code Like} withdraws both, whichever it was.
-     * Reactions are only undone by ID, which every server that sends them gives.
+     * Its receipt is the one for likes, which the reaction checks too, so only an {@code Undo} that could be of an
+     * {@code EmojiReact} leaves one of its own. Reactions are only undone by ID, which every server that sends them gives.
      */
-    private void undoReaction(InboundActivity activity, ActivityObject object) {
+    private void undoReaction(InboundActivity activity, ActivityObject object, String type) {
         if (object.id() == null || !InboundActivity.isStorableId(object.id())
                 || !canSpeakFor(activity.actorUri(), object.id())) return;
-        reactions.undo(activity.actorUri(), object.id(), activity.receivedAt());
+        if ("Like".equals(type)) {
+            reactions.undoLike(activity.actorUri(), object.id());
+        } else {
+            reactions.undo(activity.actorUri(), object.id(), activity.receivedAt());
+        }
     }
 
     private void undoLike(InboundActivity activity, ActivityObject object, Optional<InboundActivity> original) {

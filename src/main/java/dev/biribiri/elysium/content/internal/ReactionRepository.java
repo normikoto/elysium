@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+import java.net.URI;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -154,11 +155,15 @@ public class ReactionRepository {
         if (statusIds.isEmpty()) {
             return List.of();
         }
+        // Statuses are shown without their accounts, so those aren't gathered unless they're asked for.
+        var actorIds = accountsEach == 0 ? "CAST(ARRAY[] AS uuid[])" : """
+                trim_array(array_agg(r.actor_id ORDER BY r.id DESC),
+                           CAST(greatest(count(*) - :accounts, 0) AS int))""";
         return jdbc.sql("""
                         SELECT r.status_id, r.name, r.emoji_id, count(*) AS total,
                                coalesce(bool_or(r.actor_id = :viewer), false) AS me,
-                               trim_array(array_agg(r.actor_id ORDER BY r.id DESC),
-                                          CAST(greatest(count(*) - :accounts, 0) AS int)) AS actor_ids
+                        """ + actorIds + """
+                         AS actor_ids
                         FROM status_reaction r JOIN actor a ON a.id = r.actor_id
                         WHERE r.status_id IN (:ids) AND
                         """ + LikeRepository.eligible("a") + """
@@ -174,6 +179,42 @@ public class ReactionRepository {
                         rs.getLong("total"),
                         rs.getBoolean("me"),
                         rs.getArray("actor_ids") == null ? List.of() : List.of((UUID[]) rs.getArray("actor_ids").getArray())))
+                .list();
+    }
+
+    /**
+     * A local account's reaction that's been removed with its emoji, with what its {@code Undo} needs.
+     */
+    public record Withdrawn(UUID actorId, UUID statusId, UUID authorId, URI statusUri, String activityUri, String name,
+                            UUID emojiId) {
+    }
+
+    /**
+     * Removes the reactions with a custom emoji that's about to be removed, returning local accounts' ones, whose
+     * withdrawal has to be sent. Other servers' reactions with it go with it.
+     */
+    public List<Withdrawn> withdrawWith(Collection<UUID> emojiIds) {
+        if (emojiIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("""
+                        WITH removed AS (
+                            DELETE FROM status_reaction r WHERE r.emoji_id IN (:emojis)
+                            RETURNING r.actor_id, r.status_id, r.activity_uri, r.name, r.emoji_id
+                        )
+                        SELECT removed.*, s.actor_id AS author_id, s.uri AS status_uri
+                        FROM removed JOIN actor a ON a.id = removed.actor_id JOIN status s ON s.id = removed.status_id
+                        WHERE a.is_local
+                        """)
+                .param("emojis", emojiIds)
+                .query((rs, row) -> new Withdrawn(
+                        rs.getObject("actor_id", UUID.class),
+                        rs.getObject("status_id", UUID.class),
+                        rs.getObject("author_id", UUID.class),
+                        URI.create(rs.getString("status_uri")),
+                        rs.getString("activity_uri"),
+                        rs.getString("name"),
+                        rs.getObject("emoji_id", UUID.class)))
                 .list();
     }
 

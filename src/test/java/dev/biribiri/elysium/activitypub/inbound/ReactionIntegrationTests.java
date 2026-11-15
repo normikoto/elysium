@@ -10,6 +10,7 @@ import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.ReactionService;
+import dev.biribiri.elysium.content.RemoteEmoji;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -22,6 +23,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
@@ -83,6 +85,8 @@ class ReactionIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private JsonMapper json;
+    @Autowired
+    private TransactionTemplate transaction;
 
     private Actor alice;
     private Actor bob;
@@ -189,18 +193,58 @@ class ReactionIntegrationTests {
                 "icon", Map.of("type", "Image", "url", "https://" + host + "/blobcat.png"))));
         reactHandler.handle(activity(remote, "EmojiReact", post, custom, ago(20)));
         likeHandler.handle(activity(remote, "Like", post, Map.of("_misskey_reaction", "🎉", "content", "🎉"), ago(10)));
+        // Misskey's default heart has no variation selector, and counts as the same one.
+        likeHandler.handle(activity(remote(), "Like", post, Map.of("_misskey_reaction", "❤"), ago(8)));
         // A custom emoji with no image isn't a reaction, and an EmojiReact that isn't one is nothing.
         reactHandler.handle(activity(remote, "EmojiReact", post, Map.of("content", ":nothing:"), ago(5)));
 
         var summaries = reactions.summaries(List.of(post.id()), Optional.empty()).get(post.id());
         assertThat(summaries).extracting(summary -> summary.name())
                 .containsExactly("❤️", "blobcat@" + remote.domain(), "🎉");
+        assertThat(summaries.get(0).count()).isEqualTo(2);
         assertThat(summaries.get(1).emoji().domain()).isEqualTo(remote.domain());
         assertThat(likes.count(post.id())).isZero();
 
         // A Like with no emoji is still a favourite.
         likeHandler.handle(activity(remote, "Like", post, Map.of(), ago(1)));
         assertThat(likes.count(post.id())).isEqualTo(1);
+    }
+
+    @Test
+    void anEmojiFromAThirdServerIsOnlyThatServersIfItsStoredHere() {
+        var post = createPost();
+        var remote = remote();
+        var other = "o" + UUID.randomUUID() + ".test";
+        Map<String, Object> named = Map.of("content", ":blobfox@" + other + ":", "tag", List.of(Map.of(
+                "type", "Emoji", "name", ":blobfox:", "icon", Map.of("url", "https://" + other + "/blobfox.png"))));
+
+        likeHandler.handle(activity(remote, "Like", post, named, ago(20)));
+        assertThat(reactions.summaries(List.of(post.id()), Optional.empty())).isEmpty();
+        // Nor is it stored as the reacting server's own.
+        assertThat(emojis.findRemote("blobfox", remote.domain())).isEmpty();
+
+        // As a status from that server would have stored it, which has to be in a transaction.
+        var stored = transaction.execute(tx -> emojis.storeRemote(other, List.of(new RemoteEmoji(
+                "blobfox", null, URI.create("https://" + other + "/blobfox.png"), null))).get("blobfox"));
+        likeHandler.handle(activity(remote, "Like", post, named, ago(10)));
+        var summaries = reactions.summaries(List.of(post.id()), Optional.empty()).get(post.id());
+        assertThat(summaries).singleElement().satisfies(summary -> {
+            assertThat(summary.name()).isEqualTo("blobfox@" + other);
+            assertThat(summary.emoji().id()).isEqualTo(stored);
+        });
+    }
+
+    @Test
+    void anUndoOfALikeBeforeItArrivesStopsItsReaction() {
+        var post = createPost();
+        var remote = remote();
+        var like = activity(remote, "Like", post, Map.of("_misskey_reaction", "👍"), ago(30));
+
+        undoHandler.handle(undo(remote, Map.of("id", like.id(), "type", "Like", "actor", remote.uri().toString(),
+                "object", post.uri().toString())));
+        likeHandler.handle(like);
+
+        assertThat(reactions.summaries(List.of(post.id()), Optional.empty())).isEmpty();
     }
 
     @Test
@@ -258,6 +302,30 @@ class ReactionIntegrationTests {
         assertThat(undo.path("object").path("id").asString()).isEqualTo(saved);
         assertThat(undo.path("object").path("type").asString()).isEqualTo("EmojiReact");
         assertThat(undo.path("object").path("content").asString()).isEqualTo(":" + blob.shortcode() + ":");
+
+        // Removing an emoji withdraws the reactions with it, which the other server is sent.
+        reactions.react(post.id(), bob.id(), reactions.choose(blob.shortcode()));
+        settled();
+        var again = jdbc.sql("SELECT activity_uri FROM status_reaction WHERE status_id = :id")
+                .param("id", post.id()).query(String.class).single();
+        emojis.deleteLocal(blob.id());
+        settled();
+        assertThat(json.readTree(outbound(again + "/undo")).path("object").path("content").asString())
+                .isEqualTo(":" + blob.shortcode() + ":");
+        assertThat(reactions.summaries(List.of(post.id()), Optional.empty())).isEmpty();
+    }
+
+    @Test
+    void theSameEmojiWithAndWithoutItsSelectorIsOneReaction() throws Exception {
+        var post = createPost();
+
+        mvc.perform(put(path(post, "❤")).with(user(bob))).andExpect(status().isOk());
+        mvc.perform(put(path(post, "❤️")).with(user(bob)))
+                .andExpect(jsonPath("$.pleroma.emoji_reactions", hasSize(1)))
+                .andExpect(jsonPath("$.pleroma.emoji_reactions[0].name").value("❤️"))
+                .andExpect(jsonPath("$.pleroma.emoji_reactions[0].count").value(1));
+        mvc.perform(delete(path(post, "❤")).with(user(bob)))
+                .andExpect(jsonPath("$.pleroma.emoji_reactions", hasSize(0)));
     }
 
     /**

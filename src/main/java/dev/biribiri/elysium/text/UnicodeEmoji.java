@@ -15,9 +15,32 @@ public final class UnicodeEmoji {
     private static final Pattern GRAPHEME = Pattern.compile("\\X");
 
     private static final int ZERO_WIDTH_JOINER = 0x200D;
+    private static final int EMOJI_PRESENTATION_SELECTOR = 0xFE0F;
     private static final int COMBINING_KEYCAP = 0x20E3;
 
     private UnicodeEmoji() {
+    }
+
+    /**
+     * The fully qualified form of an emoji, as Unicode lists it and Pleroma stores it, so that one sent with or without
+     * its variation selectors counts as the same. Misskey sends its default ❤ without one, and most clients send ❤️ with
+     * it. The selector follows each emoji that isn't shown as one by default, unless a skin tone modifies it.
+     *
+     * @param emoji what {@link #isOne} accepts
+     */
+    public static String normalize(String emoji) {
+        var codePoints = emoji.codePoints().filter(codePoint -> codePoint != EMOJI_PRESENTATION_SELECTOR).toArray();
+        var normalized = new StringBuilder();
+        for (var i = 0; i < codePoints.length; i++) {
+            var codePoint = codePoints[i];
+            normalized.appendCodePoint(codePoint);
+            var modified = i + 1 < codePoints.length && Character.isEmojiModifier(codePoints[i + 1]);
+            if (Character.isEmoji(codePoint) && !Character.isEmojiPresentation(codePoint)
+                    && !Character.isEmojiModifier(codePoint) && !modified) {
+                normalized.appendCodePoint(EMOJI_PRESENTATION_SELECTOR);
+            }
+        }
+        return normalized.toString();
     }
 
     /**
