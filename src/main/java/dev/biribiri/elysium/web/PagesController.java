@@ -157,8 +157,8 @@ class PagesController {
             // A boost has no page of its own, so its link leads to what it boosts, as on Mastodon.
             return boost.filter(status -> actors.findLocalById(status.actorId())
                             .filter(booster -> booster.username().equalsIgnoreCase(username)).isPresent())
-                    .flatMap(status -> profileViews(List.of(status), null).stream().findFirst())
-                    .map(view -> "redirect:" + view.url())
+                    .flatMap(status -> statuses.findVisible(status.reblogOfId(), viewer))
+                    .map(original -> "redirect:" + original.link())
                     .orElseThrow(PagesController::notFound);
         }
         var view = found
@@ -168,7 +168,6 @@ class PagesController {
                 .orElseThrow(PagesController::notFound);
 
         model.addAttribute("view", view);
-        model.addAttribute("visibility", view.status().visibility().value());
         model.addAttribute("parent", Optional.ofNullable(view.status().inReplyToId())
                 .flatMap(parentId -> statuses.findVisible(parentId, viewer))
                 .flatMap(this::view)

@@ -2,12 +2,14 @@ package dev.biribiri.elysium;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,6 +70,12 @@ class WebPagesIntegrationTests {
 
     @Autowired
     private FollowService follows;
+
+    @Autowired
+    private BlockService blocks;
+
+    @Autowired
+    private BoostService boosts;
 
     private Actor wanda;
     private Actor walt;
@@ -318,12 +326,38 @@ class WebPagesIntegrationTests {
     }
 
     @Test
+    void aBoostOfAFollowersOnlyStatusLeadsToItForAFollower() throws Exception {
+        var petra = account("petra");
+        var fern = account("fern");
+        follows.follow(fern, petra);
+        var status = post(petra, "followers text", Visibility.PRIVATE);
+        var boost = boosts.reblog(status.id(), petra.id(), Visibility.PUBLIC).orElseThrow();
+
+        mockMvc.perform(get(path(petra, boost)).with(loggedIn(fern)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", status.uri().toString()));
+        mockMvc.perform(get(path(petra, boost))).andExpect(status().isNotFound());
+    }
+
+    @Test
     void aPublicStatusPageHasNoVisibilityNotice() throws Exception {
         var status = post(wanda, "visible text", Visibility.PUBLIC);
 
         mockMvc.perform(get(path(wanda, status)).with(loggedIn(wanda)))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("Only visible to"))));
+    }
+
+    @Test
+    void hidesAStatusFromAFollowerItMentionsWhomItsAuthorBlocks() throws Exception {
+        // Accounts of its own, since a block outlasts the test and would stop the others following.
+        var pia = account("pia");
+        var finn = account("finn");
+        follows.follow(finn, pia);
+        var status = post(pia, "@finn followers text", Visibility.PRIVATE);
+        blocks.block(pia, finn);
+
+        mockMvc.perform(get(path(pia, status)).with(loggedIn(finn))).andExpect(status().isNotFound());
     }
 
     @Test
@@ -378,6 +412,8 @@ class WebPagesIntegrationTests {
         var reply = reply(wanda, "reply to myself", parent);
 
         mockMvc.perform(get(path(wanda, reply)).with(loggedIn(wanda)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("In reply to")))
                 .andExpect(content().string(containsString("href=\"" + path(wanda, parent) + "\"")));
     }
 
