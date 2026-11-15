@@ -6,7 +6,11 @@ import dev.biribiri.elysium.content.RemoteAttachment;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.TestImages;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.actor.RemoteProfile;
+import dev.biribiri.elysium.media.MediaProperties;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
@@ -56,6 +60,10 @@ class DomainBlockCleanupIntegrationTests {
     private PollService polls;
     @Autowired
     private BoostService boosts;
+    @Autowired
+    private ProfileService profiles;
+    @Autowired
+    private MediaProperties media;
 
     private Actor local;
     private String domain;
@@ -122,6 +130,24 @@ class DomainBlockCleanupIntegrationTests {
 
         await().atMost(WAIT).until(() -> follows(blocker) == 0 && blockCount("account_id", blocker) == 0);
         assertThat(blockCount("target_id", blocked)).isOne();
+    }
+
+    @Test
+    void removesTheProfilesOfItsActorsAndTheirImages() throws Exception {
+        var uri = URI.create("https://" + domain + "/users/" + UUID.randomUUID());
+        var avatar = URI.create("https://" + domain + "/avatar.png");
+        var actor = actors.upsertRemote(new RemoteActorProfile(uri, "bob", domain, URI.create(uri + "/inbox"), null, null,
+                null, null, null, new RemoteProfile("Bob", "", "", avatar, null, List.of(), false, false, false, null,
+                null)));
+        assertThat(profiles.cacheRemoteImage(actor.id(), false, avatar, TestImages.png(10, 10))).isTrue();
+        var path = profiles.find(actor.id()).avatar().path();
+        var file = media.directory().resolve(path.substring(path.lastIndexOf('/') + 1));
+
+        blocks.create(domain, null);
+
+        await().atMost(WAIT).until(() -> profiles.findAll(List.of(actor.id())).isEmpty());
+        assertThat(file).doesNotExist();
+        assertThat(actors.findById(actor.id())).isPresent();
     }
 
     private void block(Actor account, Actor target) {

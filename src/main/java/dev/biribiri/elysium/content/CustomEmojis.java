@@ -218,6 +218,22 @@ public class CustomEmojis {
         return emojis.findByStatuses(List.of(statusId)).getOrDefault(statusId, List.of());
     }
 
+    /**
+     * @return the emoji that each account on another server's profile lists, for each that has any. A local profile's are
+     * found from its text, with {@link #findLocalIn}.
+     */
+    public Map<UUID, List<CustomEmoji>> findForRemoteProfiles(Collection<UUID> actorIds) {
+        return emojis.findByProfiles(actorIds);
+    }
+
+    /**
+     * Replaces the emoji that an account on another server's profile lists, with those {@link #storeRemote} stored for it,
+     * in the same transaction. Those listed keep their emoji from being removed as unused.
+     */
+    public void replaceForRemoteProfile(UUID actorId, Collection<UUID> emojiIds) {
+        emojis.replaceForProfile(actorId, emojiIds);
+    }
+
     void insertForStatus(UUID statusId, Collection<UUID> emojiIds) {
         emojis.insertForStatus(statusId, emojiIds);
     }
@@ -337,7 +353,7 @@ public class CustomEmojis {
     }
 
     /**
-     * Removes other servers' emoji that no status or reaction uses any more, and their files. Safe to stop partway, and to
+     * Removes other servers' emoji that no status, reaction, or profile uses any more, and their files. Safe to stop partway, and to
      * repeat.
      */
     public void removeUnused() {

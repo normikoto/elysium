@@ -7,6 +7,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
@@ -28,14 +29,17 @@ public class ActorService {
     private final InstanceProperties instance;
     private final TransactionTemplate transaction;
     private final ApplicationEventPublisher events;
+    private final ProfileService profiles;
 
     ActorService(
             ActorRepository actors,
             InstanceActorKeys instanceActorKeys,
             InstanceProperties instance,
             PlatformTransactionManager transactionManager,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            ProfileService profiles) {
         this.events = events;
+        this.profiles = profiles;
         this.actors = actors;
         this.instanceActorKeys = instanceActorKeys;
         this.instance = instance;
@@ -287,18 +291,23 @@ public class ActorService {
     }
 
     /**
-     * Stores an actor from another server, or replaces what's stored about it, which counts as refreshing it. A suspended or
-     * deleted actor isn't changed.
+     * Stores an actor from another server, or replaces what's stored about it, which counts as refreshing it, along with its
+     * profile. A suspended or deleted actor isn't changed, and neither is its profile.
      *
      * @return the stored actor, which callers have to check is active
      * @throws IllegalArgumentException if the actor claims to be on this server, where it could take the URI that a local
      *                                  account would need
      */
+    @Transactional
     public Actor upsertRemote(RemoteActorProfile profile) {
         if (profile.domain().equals(instance.domain())) {
             throw new IllegalArgumentException("A remote actor can't be on this server's domain");
         }
-        return actors.upsertRemote(profile);
+        var stored = actors.upsertRemote(profile);
+        if (stored.isActive()) {
+            profiles.replaceRemote(stored.id(), profile.profile());
+        }
+        return stored;
     }
 
     /**

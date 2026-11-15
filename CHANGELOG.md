@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Profiles of accounts on other servers: their display names, bios, fields, avatars, headers, and custom emoji are shown
+  in apps, along with whether they approve followers by hand, are bots or groups, and when they were created. Avatars and
+  headers are downloaded and kept here as attachments are, and count toward the same hourly limit, and each can be up to
+  `elysium.profiles.max-image-size`. Accounts stored before the upgrade get their profile the next time they're fetched. See `docs/api.md` and `FEDERATION.md`.
 - Emoji reactions, as Pleroma, Akkoma, and Misskey have them. People can react to a post with Unicode emoji and custom
   emoji, up to 20 different ones each, from apps that support Pleroma's reactions API, and get a notification when
   someone reacts to theirs. Reactions are sent to and received from other servers, and Misskey's reactions, which it

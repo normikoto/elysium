@@ -359,6 +359,7 @@ public class CustomEmojiRepository {
                                 WHERE e.domain IS NOT NULL AND e.seen_at < :seenBefore
                                   AND NOT EXISTS (SELECT 1 FROM status_emoji s WHERE s.emoji_id = e.id)
                                   AND NOT EXISTS (SELECT 1 FROM status_reaction r WHERE r.emoji_id = e.id)
+                                  AND NOT EXISTS (SELECT 1 FROM profile_emoji p WHERE p.emoji_id = e.id)
                                 LIMIT :limit
                             ) AND seen_at < :seenBefore
                             RETURNING image_name, static_name
@@ -400,6 +401,50 @@ public class CustomEmojiRepository {
                 .param("ids", emojiIds.toArray(UUID[]::new))
                 .update();
         insertForStatus(statusId, emojiIds);
+    }
+
+    /**
+     * Emoji removed meanwhile are left out, as for {@link #insertForStatus}. The profile has to exist.
+     */
+    public void replaceForProfile(UUID actorId, Collection<UUID> emojiIds) {
+        jdbc.sql("DELETE FROM profile_emoji WHERE actor_id = :actorId AND NOT (emoji_id = ANY (CAST(:ids AS uuid[])))")
+                .param("actorId", actorId)
+                .param("ids", emojiIds.toArray(UUID[]::new))
+                .update();
+        if (emojiIds.isEmpty()) {
+            return;
+        }
+        jdbc.sql("""
+                        WITH held AS (
+                            SELECT id FROM custom_emoji WHERE id = ANY (CAST(:ids AS uuid[])) ORDER BY id FOR KEY SHARE
+                        )
+                        INSERT INTO profile_emoji (actor_id, emoji_id)
+                        SELECT :actorId, id FROM held
+                        ON CONFLICT DO NOTHING
+                        """)
+                .param("actorId", actorId)
+                .param("ids", emojiIds.toArray(UUID[]::new))
+                .update();
+    }
+
+    /**
+     * @return each profile's emoji, for each profile of an account on another server that has any
+     */
+    public Map<UUID, List<CustomEmoji>> findByProfiles(Collection<UUID> actorIds) {
+        if (actorIds.isEmpty()) {
+            return Map.of();
+        }
+        var emojis = new HashMap<UUID, List<CustomEmoji>>();
+        jdbc.sql("SELECT p.actor_id, " + COLUMNS + """
+                         FROM profile_emoji p JOIN custom_emoji e ON e.id = p.emoji_id
+                        WHERE p.actor_id IN (:actorIds) ORDER BY p.actor_id, e.shortcode
+                        """)
+                .param("actorIds", actorIds)
+                .query(rs -> {
+                    emojis.computeIfAbsent(rs.getObject("actor_id", UUID.class), id -> new ArrayList<>())
+                            .add(map(rs, 0));
+                });
+        return emojis;
     }
 
     /**

@@ -227,9 +227,9 @@ An emoji that's new is downloaded shortly afterward, [as attachments are](#recei
 same hourly limit. Its image has to be within 256 KB by default, which an admin
 [can change](docs/configuration.md), and is kept as WebP. One that's too large or isn't an image is
 linked to instead. A later status or `Update` that gives an emoji with the same shortcode a different image, or an
-`updated` later than the one kept, replaces it, unless its `updated` is earlier than the one kept. Emoji that no status
-here uses any more are removed. Emoji aren't read from actor documents, since profiles from other servers aren't
-stored yet.
+`updated` later than the one kept, replaces it, unless its `updated` is earlier than the one kept. Emoji are also read
+from [actor documents](#profiles-from-other-servers). Emoji that no status, reaction, or profile here uses any more are
+removed.
 
 ### Inboxes
 
@@ -411,6 +411,31 @@ so it creates a follow.
 A `Follow` or `Undo` that repeats an `id` from the same actor is processed again, rather than dropped. Misskey uses the same
 `id` for each `Undo` between two actors, so a repeated `Undo` can undo a new follow. A repeated `Follow` gets another `Accept`,
 unless an `Undo` covers it. It's then treated as a retry, so a new request to follow needs a new `id`.
+
+### Profiles from other servers
+
+Whenever an actor's document is fetched, as for a `Follow` or an `Update`, its profile is stored with it, and replaces what
+was stored before. A part that can't be used is left out, without refusing the actor:
+
+- `name`, as plain text on one line, cut to 200 characters.
+- `summary`, or `summaryMap`, as HTML, sanitized as [statuses' `content`](#receiving-statuses) is. One that's longer than
+  20,000 characters once sanitized is left out.
+- `attachment` items of type `PropertyValue`, as Mastodon sends profile fields: `name` as plain text, of up to 255
+  characters, and `value` as sanitized HTML, of up to 2,000 characters. Up to 16 are kept, in order. Links in them aren't
+  checked, so they never show as verified.
+- `icon` and `image`, as the avatar and header, which can each be a URL, an `Image` whose `url` is a URL or a `Link`, or
+  an array of those, whose first item is taken. Only HTTPS URLs are kept.
+- `tag` items of type `Emoji`, read as they are [for statuses](#receiving-custom-emoji), and stored under the actor's
+  domain.
+- `manuallyApprovesFollowers`, `published`, and `url`, a URL or a `Link`, of which the first with an HTTP or HTTPS
+  `href` is taken. A `type` of `Service` or `Application` marks the account as a bot, and `Group` as a group.
+
+Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit. Each
+has to be within 8 MB by default, which an admin [can change](docs/configuration.md), and is kept as WebP. One that's too
+large or isn't an image is linked to instead, until its URL changes. A new URL replaces the copy. A server or account whose
+media is rejected has its copies removed, and they're linked to from then on.
+
+A suspended or deleted actor's profile isn't changed, and a domain block removes the profiles of the server's actors.
 
 ### Following other actors
 
@@ -659,7 +684,8 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
 - **Actors:** an `Update` whose `object` has the `actor`'s own `id` makes this server fetch the actor's document again,
   signed as the [instance actor](#instance-actor), however recently it was fetched. The embedded object isn't read,
   since not every server says when an actor changed, so the document's server is the only one that knows what's current.
-  What's stored is [what a `Follow` stores](#follows): the username, inboxes, `followers` collection, and key. A key
+  What's stored is [what a `Follow` stores](#follows): the username, inboxes, `followers` collection, key, and
+  [profile](#profiles-from-other-servers). A key
   that the new document has dropped, or has with a different value, isn't used for signatures from then on, and is
   fetched again when it's next needed, as is a key on the actor's server that it now lists and that couldn't be found
   before. This holds even if the rest of the new document can't be used. A server error or timeout is tried again later.
@@ -1219,10 +1245,9 @@ never says whether admins acted on it.
 - A report is only sent to the reported account's server, and never to the servers of other statuses it's about, as
   Mastodon's `forward_to_domains` does.
 - Reports from a server aren't refused unless it's suspended: there's no `reject_reports` for a limited one.
-- An actor's `manuallyApprovesFollowers` isn't read, so local users see every account on another server as unlocked.
 - Only `Note`s and `Question`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
   are the replies to a status.
-- Profiles of actors on other servers aren't stored, so an `Update` of one only refreshes its inboxes, collections, and key.
+- Links in the profile fields of actors on other servers aren't checked, so they never show as verified.
 - An `Update` from another server doesn't change who its status mentions, so an edit can't show a followers-only or
   direct status to more local users.
 - A reply's `inReplyTo` is left out if its parent can't be shown, so it doesn't look like a reply.

@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.outbound;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.CustomEmojis;
@@ -19,7 +20,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes the follows, blocks of local accounts, statuses, and reports of and by actors on blocked servers, and which
+ * Removes the follows, blocks of local accounts, statuses, profiles, and reports of and by actors on blocked servers, and which
  * followers-only statuses they were sent. Local accounts' blocks and mutes
  * of them are kept, since they're the accounts' own choices, and the domain block can be lifted. Actors themselves are kept, because other things can refer
  * to them, and nothing is sent to them. This has to be safe to run again, and it's fine for it to find nothing.
@@ -39,11 +40,14 @@ class DomainBlockCleanupTask {
     private final PollService polls;
     private final StatusPinService pins;
     private final CustomEmojis emojis;
+    private final ProfileService profiles;
 
     DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, BlockService accountBlocks, StatusService statuses,
                            InboxService inbox, LikeService likes, ReactionService reactions,
                            FollowersOnlyRecipients followersOnly,
-                           Reports reports, PollService polls, StatusPinService pins, CustomEmojis emojis) {
+                           Reports reports, PollService polls, StatusPinService pins, CustomEmojis emojis,
+                           ProfileService profiles) {
+        this.profiles = profiles;
         this.pins = pins;
         this.emojis = emojis;
         this.polls = polls;
@@ -81,6 +85,7 @@ class DomainBlockCleanupTask {
             accountBlocks.removeForDomain(domain);
             statuses.removeForDomain(domain);
             emojis.removeForDomain(domain);
+            profiles.removeForDomain(domain);
             inbox.removeForDomain(domain);
             reports.removeForDomain(domain);
         });

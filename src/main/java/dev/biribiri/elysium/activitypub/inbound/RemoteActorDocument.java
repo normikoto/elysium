@@ -4,17 +4,38 @@ import dev.biribiri.elysium.activitypub.http.HostHeader;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.actor.RemoteProfile;
+import dev.biribiri.elysium.content.RemoteEmoji;
+import dev.biribiri.elysium.text.RemoteHtml;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /**
- * Decides what to believe from another server's actor document. These values get stored and activities get sent to them, so
- * a document is refused unless it's all usable. Failure messages are shown to admins, so they don't quote the document.
+ * Decides what to believe from another server's actor document. Activities get sent to where it says, so a document is
+ * refused unless those are all usable. Its profile is only shown, so a part of that which can't be used is left out
+ * instead. Failure messages are shown to admins, so they don't quote the document.
  */
 final class RemoteActorDocument {
 
     private static final int MAX_USERNAME_LENGTH = 255;
+
+    /**
+     * Limits on a profile, well above what Mastodon, GoToSocial and Misskey let their own users write, so that only a
+     * profile that's meant to be a nuisance loses anything. Names are cut short, and a bio or field that's too long is
+     * left out, since cutting HTML short could leave it saying something else.
+     */
+    static final int MAX_DISPLAY_NAME = 200;
+    static final int MAX_NOTE_HTML = 20_000;
+    static final int MAX_FIELDS = 16;
+    static final int MAX_FIELD_NAME = 255;
+    static final int MAX_FIELD_VALUE_HTML = 2_000;
+
+    private static final Set<String> BOT_TYPES = Set.of("Service", "Application");
 
     private RemoteActorDocument() {
     }
@@ -74,7 +95,107 @@ final class RemoteActorDocument {
                 sharedInbox,
                 publicKeyPem(document.path("publicKey")),
                 followers,
-                featured);
+                featured,
+                profile(document));
+    }
+
+    /**
+     * The custom emoji that an actor's profile uses, which are stored under its domain.
+     */
+    static List<RemoteEmoji> emoji(JsonNode document) {
+        return RemoteEmojis.read(document.path("tag"));
+    }
+
+    private static RemoteProfile profile(JsonNode document) {
+        var types = ActivityJson.types(document.path("type"));
+        var noteHtml = html(ActivityJson.naturalText(document, "summary"), MAX_NOTE_HTML).orElse("");
+        return new RemoteProfile(
+                cut(plain(ActivityJson.naturalText(document, "name")), MAX_DISPLAY_NAME),
+                RemoteHtml.plainText(noteHtml),
+                noteHtml,
+                RemoteEmojis.iconUrl(document.path("icon")).orElse(null),
+                RemoteEmojis.iconUrl(document.path("image")).orElse(null),
+                fields(document.path("attachment")),
+                ActivityJson.flag(document.path("manuallyApprovesFollowers")),
+                types.stream().anyMatch(BOT_TYPES::contains),
+                types.contains("Group"),
+                RemoteNote.timestamp(document.path("published")),
+                profileUrl(document.path("url")));
+    }
+
+    /**
+     * Mastodon's profile fields, which are {@code PropertyValue}s whose value is HTML.
+     */
+    private static List<RemoteProfile.Field> fields(JsonNode attachment) {
+        var fields = new ArrayList<RemoteProfile.Field>();
+        for (var candidate : attachment.isArray() ? attachment.valueStream().toList() : List.of(attachment)) {
+            if (fields.size() == MAX_FIELDS) {
+                break;
+            }
+            if (!candidate.isObject() || !ActivityJson.types(candidate.path("type")).contains("PropertyValue")) {
+                continue;
+            }
+            var name = plain(ActivityJson.text(candidate.path("name")));
+            var value = html(ActivityJson.text(candidate.path("value")), MAX_FIELD_VALUE_HTML);
+            if (name.isEmpty() || name.codePointCount(0, name.length()) > MAX_FIELD_NAME || value.isEmpty()) {
+                continue;
+            }
+            fields.add(new RemoteProfile.Field(name, RemoteHtml.inlineText(value.get()), value.get()));
+        }
+        return fields;
+    }
+
+    /**
+     * Names are plain text in ActivityStreams, and they're shown on one line.
+     */
+    private static String plain(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.codePoints()
+                .map(c -> Character.isISOControl(c) ? ' ' : c)
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
+                .toString()
+                .replaceAll("\\s+", " ")
+                .strip();
+    }
+
+    private static String cut(String text, int max) {
+        if (text.codePointCount(0, text.length()) <= max) {
+            return text;
+        }
+        return text.substring(0, text.offsetByCodePoints(0, max)).strip();
+    }
+
+    /**
+     * @return the sanitized HTML, which is empty if there's none, or nothing if it's too long
+     */
+    private static Optional<String> html(String html, int max) {
+        if (html == null) {
+            return Optional.of("");
+        }
+        var sanitized = RemoteHtml.sanitize(html);
+        return sanitized.length() > max ? Optional.empty() : Optional.of(sanitized);
+    }
+
+    /**
+     * Mastodon links its profile page as a plain URL, and others can send a {@code Link} or several. The first one that
+     * browsers can open is taken.
+     */
+    private static URI profileUrl(JsonNode url) {
+        for (var candidate : url.isArray() ? url.valueStream().toList() : List.of(url)) {
+            var href = candidate.isObject() ? ActivityJson.text(candidate.path("href")) : ActivityJson.text(candidate);
+            var parsed = href == null || !InboundActivity.isStorableId(href)
+                    ? null
+                    : ActivityObject.parseUri(href)
+                            .filter(uri -> uri.getHost() != null
+                                    && ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme())))
+                            .orElse(null);
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        return null;
     }
 
     /**

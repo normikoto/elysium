@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
+import dev.biribiri.elysium.actor.RemoteProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -176,6 +177,133 @@ class RemoteActorDocumentTests {
         var profile = RemoteActorDocument.read(ACTOR, document(",\"followers\":\"" + followers + "\""));
 
         assertThat(profile.followersUri()).isNull();
+    }
+
+    @Test
+    void readsTheProfileAsMastodonSendsIt() {
+        var profile = RemoteActorDocument.read(ACTOR, document("""
+                ,"name":"Bob :blob:","summary":"<p>Hi <script>alert(1)</script><a href=\\"https://bob.test\\">there</a></p>",
+                 "url":"https://remote.test/@bob","manuallyApprovesFollowers":true,"published":"2020-03-04T05:06:07Z",
+                 "icon":{"type":"Image","mediaType":"image/png","url":"https://media.remote.test/a.png"},
+                 "image":{"type":"Image","url":"https://media.remote.test/h.png"},
+                 "attachment":[{"type":"PropertyValue","name":"Site","value":"<a href=\\"https://bob.test\\">bob.test</a>"},
+                               {"type":"IdentityProof","name":"x","signatureValue":"y"}]""")).profile();
+
+        assertThat(profile.displayName()).isEqualTo("Bob :blob:");
+        assertThat(profile.noteHtml()).doesNotContain("script").contains("href=\"https://bob.test\"");
+        assertThat(profile.note()).isEqualTo("Hi there");
+        assertThat(profile.url()).hasToString("https://remote.test/@bob");
+        assertThat(profile.manuallyApprovesFollowers()).isTrue();
+        assertThat(profile.published()).hasToString("2020-03-04T05:06:07Z");
+        assertThat(profile.avatarUrl()).hasToString("https://media.remote.test/a.png");
+        assertThat(profile.headerUrl()).hasToString("https://media.remote.test/h.png");
+        assertThat(profile.fields()).singleElement().satisfies(field -> {
+            assertThat(field.name()).isEqualTo("Site");
+            assertThat(field.value()).isEqualTo("bob.test");
+            assertThat(field.valueHtml()).contains("href=\"https://bob.test\"");
+        });
+        assertThat(profile.bot()).isFalse();
+        assertThat(profile.group()).isFalse();
+    }
+
+    @Test
+    void readsAnEmptyProfileFromAMinimalDocument() {
+        var profile = RemoteActorDocument.read(ACTOR, document("")).profile();
+
+        assertThat(profile).isEqualTo(RemoteProfile.EMPTY);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Service", "Application"})
+    void readsBotsFromTheirType(String type) {
+        var profile = RemoteActorDocument.read(ACTOR, json("""
+                {"id":"%s","type":"%s","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox"}
+                """.formatted(ACTOR, type))).profile();
+
+        assertThat(profile.bot()).isTrue();
+    }
+
+    @Test
+    void readsGroupsFromTheirType() {
+        var profile = RemoteActorDocument.read(ACTOR, json("""
+                {"id":"%s","type":"Group","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox"}
+                """.formatted(ACTOR))).profile();
+
+        assertThat(profile.group()).isTrue();
+        assertThat(profile.bot()).isFalse();
+    }
+
+    @Test
+    void readsImagesGivenAsUrlsLinksOrArrays() {
+        var profile = RemoteActorDocument.read(ACTOR, document("""
+                ,"icon":["https://media.remote.test/a.png","https://media.remote.test/b.png"],
+                 "image":{"type":"Image","url":{"type":"Link","href":"https://media.remote.test/h.png"}}""")).profile();
+
+        assertThat(profile.avatarUrl()).hasToString("https://media.remote.test/a.png");
+        assertThat(profile.headerUrl()).hasToString("https://media.remote.test/h.png");
+    }
+
+    @Test
+    void leavesOutImagesThatAreNotHttps() {
+        var profile = RemoteActorDocument.read(ACTOR, document(
+                ",\"icon\":\"http://media.remote.test/a.png\",\"image\":\"javascript:alert(1)\"")).profile();
+
+        assertThat(profile.avatarUrl()).isNull();
+        assertThat(profile.headerUrl()).isNull();
+    }
+
+    @Test
+    void readsAProfileUrlFromALinkAndLeavesOutOneBrowsersCannotOpen() {
+        var link = RemoteActorDocument.read(ACTOR, document("""
+                ,"url":[{"type":"Link","href":"javascript:alert(1)"},{"type":"Link","href":"https://remote.test/@bob"}]"""));
+        var bad = RemoteActorDocument.read(ACTOR, document(",\"url\":\"ftp://remote.test/bob\""));
+
+        assertThat(link.profile().url()).hasToString("https://remote.test/@bob");
+        assertThat(bad.profile().url()).isNull();
+    }
+
+    @Test
+    void readsANameOnOneLineAndCutsItShort() {
+        var name = "a\\nb  " + "x".repeat(RemoteActorDocument.MAX_DISPLAY_NAME + 10);
+        var profile = RemoteActorDocument.read(ACTOR, document(",\"name\":\"" + name + "\"")).profile();
+
+        assertThat(profile.displayName()).startsWith("a b x").doesNotContain("\n")
+                .hasSize(RemoteActorDocument.MAX_DISPLAY_NAME);
+    }
+
+    @Test
+    void leavesOutABioThatIsTooLong() {
+        var summary = "<p>" + "x".repeat(RemoteActorDocument.MAX_NOTE_HTML) + "</p>";
+        var profile = RemoteActorDocument.read(ACTOR, document(",\"summary\":\"" + summary + "\"")).profile();
+
+        assertThat(profile.noteHtml()).isEmpty();
+        assertThat(profile.note()).isEmpty();
+    }
+
+    @Test
+    void keepsOnlySoManyFieldsAndLeavesOutUnusableOnes() {
+        var fields = new StringBuilder("{\"type\":\"PropertyValue\",\"name\":\"\",\"value\":\"no name\"},");
+        fields.append("{\"type\":\"PropertyValue\",\"name\":\"long\",\"value\":\"")
+                .append("x".repeat(RemoteActorDocument.MAX_FIELD_VALUE_HTML + 1)).append("\"}");
+        for (var i = 0; i < RemoteActorDocument.MAX_FIELDS + 5; i++) {
+            fields.append(",{\"type\":\"PropertyValue\",\"name\":\"f").append(i).append("\",\"value\":\"v\"}");
+        }
+        var profile = RemoteActorDocument.read(ACTOR, document(",\"attachment\":[" + fields + "]")).profile();
+
+        assertThat(profile.fields()).hasSize(RemoteActorDocument.MAX_FIELDS);
+        assertThat(profile.fields().getFirst().name()).isEqualTo("f0");
+    }
+
+    @Test
+    void readsTheProfilesEmoji() {
+        var emoji = RemoteActorDocument.emoji(document("""
+                ,"tag":[{"type":"Emoji","name":":blob:","icon":{"type":"Image","url":"https://media.remote.test/blob.png"}},
+                        {"type":"Hashtag","name":"#tag"}]"""));
+
+        assertThat(emoji).singleElement().satisfies(found -> {
+            assertThat(found.shortcode()).isEqualTo("blob");
+            assertThat(found.url()).hasToString("https://media.remote.test/blob.png");
+        });
     }
 
     private static void assertRefused(JsonNode document) {

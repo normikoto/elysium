@@ -10,12 +10,22 @@ import java.util.Optional;
 /**
  * A name and value that someone shows on their profile.
  *
+ * @param value      as text. For an account on another server, it's what its HTML says.
  * @param verifiedAt when the page that the value links to was found to link back to the profile, or null
+ * @param html       the value as another server sent it, sanitized, or null for a local account's, which is rendered from
+ *                   its text
  */
-public record ProfileField(String name, String value, Instant verifiedAt) {
+public record ProfileField(String name, String value, Instant verifiedAt, String html) {
+
+    /**
+     * A local account's.
+     */
+    public ProfileField(String name, String value, Instant verifiedAt) {
+        this(name, value, verifiedAt, null);
+    }
 
     public String valueHtml() {
-        return PlainText.renderFieldValue(value);
+        return html != null ? html : PlainText.renderFieldValue(value);
     }
 
     /**

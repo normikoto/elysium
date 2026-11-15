@@ -7,15 +7,21 @@ import dev.biribiri.elysium.activitypub.signature.SignatureVerifier;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.content.CustomEmojis;
+import dev.biribiri.elysium.content.RemoteEmoji;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -33,13 +39,19 @@ public class RemoteActors {
     private final InstanceProperties instance;
     private final SignatureVerifier signatures;
     private final DomainBlocks blocks;
+    private final CustomEmojis emojis;
+    private final TransactionTemplate transaction;
 
     RemoteActors(
             ActorService actors,
             ActivityDocuments documents,
             InstanceProperties instance,
             SignatureVerifier signatures,
-            DomainBlocks blocks) {
+            DomainBlocks blocks,
+            CustomEmojis emojis,
+            PlatformTransactionManager transactionManager) {
+        this.emojis = emojis;
+        this.transaction = new TransactionTemplate(transactionManager);
         this.actors = actors;
         this.documents = documents;
         this.instance = instance;
@@ -64,7 +76,8 @@ public class RemoteActors {
             return existing.get();
         }
         var document = fetch(uri, existing.isPresent());
-        var stored = document.map(fetched -> actors.upsertRemote(RemoteActorDocument.read(uri, fetched)))
+        var stored = document
+                .map(fetched -> store(RemoteActorDocument.read(uri, fetched), RemoteActorDocument.emoji(fetched)))
                 .or(() -> existing)
                 .orElseThrow();
         // It can have been suspended or deleted while it was being fetched, which the upsert leaves alone.
@@ -111,7 +124,22 @@ public class RemoteActors {
         if (blocks.isBlocked(uri.getHost())) {
             return Optional.empty();
         }
-        return Optional.of(actors.upsertRemote(profile)).filter(Actor::isActive);
+        return Optional.of(store(profile, RemoteActorDocument.emoji(document))).filter(Actor::isActive);
+    }
+
+    /**
+     * The emoji are stored with the profile that lists them, since one stored by itself could be removed as unused before
+     * the profile keeps it.
+     */
+    private Actor store(RemoteActorProfile profile, List<RemoteEmoji> emoji) {
+        return transaction.execute(status -> {
+            var stored = actors.upsertRemote(profile);
+            if (stored.isActive()) {
+                var ids = emojis.storeRemote(stored.domain(), emoji);
+                emojis.replaceForRemoteProfile(stored.id(), ids.values());
+            }
+            return stored;
+        });
     }
 
     private void checkUri(URI uri) {

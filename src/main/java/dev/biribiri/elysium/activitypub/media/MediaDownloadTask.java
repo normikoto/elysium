@@ -24,6 +24,11 @@ class MediaDownloadTask {
     }
 
     @Bean
+    Task<ProfileImageDownloadJob> profileImageDownload() {
+        return Jobs.task(MediaDownloads.PROFILE_IMAGE_TASK, downloads::run);
+    }
+
+    @Bean
     Task<EmojiDownloadJob> emojiDownload() {
         return Jobs.task(MediaDownloads.EMOJI_TASK, downloads::run);
     }

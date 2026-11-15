@@ -1106,8 +1106,8 @@ expect_follower() {
     fail "$username@$server never followed alice. Check Elysium's failed jobs and logs"
 }
 
-# Passing means that Elysium took the other server's Update of the lab user, and fetched its actor again. This runs while alice
-# follows the lab user, because servers send these to followers.
+# Passing means that Elysium took the other server's Update of the lab user, fetched its actor again, and stored its new
+# display name. This runs while alice follows the lab user, because servers send these to followers.
 rename_lab() {
     local domain=$1 before found
     before=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
@@ -1131,14 +1131,16 @@ rename_lab() {
     echo "Waiting for Elysium to fetch lab@$domain again"
     for _ in $(seq 1 60); do
         found=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
-            "SELECT count(*) FROM actor WHERE domain = '$domain' AND username = 'lab' AND updated_at > '$before'")
+            "SELECT count(*) FROM actor a JOIN profile p ON p.actor_id = a.id
+             WHERE a.domain = '$domain' AND a.username = 'lab' AND a.updated_at > '$before'
+               AND p.display_name = 'Renamed lab'")
         if [[ $found -eq 1 ]]; then
-            echo "Elysium fetched lab@$domain again after its Update"
+            echo "Elysium fetched lab@$domain again after its Update, with its new name"
             return
         fi
         sleep 2
     done
-    fail "Elysium didn't fetch lab@$domain again after its Update. Check /admin/db-scheduler, and its logs at debug level"
+    fail "Elysium didn't fetch lab@$domain again, or store its new name, after its Update. Check /admin/db-scheduler, and its logs at debug level"
 }
 
 # Passing means that Elysium took the other server's Update of its status that mentions alice.

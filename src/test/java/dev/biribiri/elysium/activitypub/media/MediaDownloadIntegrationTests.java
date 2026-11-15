@@ -10,7 +10,9 @@ import dev.biribiri.elysium.activitypub.http.LoopbackClients;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.actor.RemoteProfile;
 import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachment;
@@ -93,6 +95,8 @@ class MediaDownloadIntegrationTests {
     private DomainBlocks blocks;
     @Autowired
     private CustomEmojis emojis;
+    @Autowired
+    private ProfileService profiles;
 
     private final Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
     private HttpServer server;
@@ -171,6 +175,83 @@ class MediaDownloadIntegrationTests {
     }
 
     @Test
+    void keepsACopyOfAnAvatarAndReplacesItWhenItChanges() throws Exception {
+        serve("/avatar.png", 200, "image/png", TestImages.png(64, 64));
+        serve("/avatar2.png", 200, "image/png", TestImages.png(32, 32));
+        withImages(fileUrl("/avatar.png"), null);
+
+        downloads.run(new ProfileImageDownloadJob(author.id(), false, Instant.now()));
+
+        var cached = profiles.find(author.id()).avatar();
+        assertThat(cached.url(instance, false).toString()).startsWith("https://downloads.example/media/");
+        var file = media.directory().resolve(cached.path().substring(cached.path().lastIndexOf('/') + 1));
+        assertThat(file).exists();
+        downloads.run(new ProfileImageDownloadJob(author.id(), false, Instant.now()));
+        assertThat(requests.get("/avatar.png")).hasValue(1);
+
+        // Fetching the same profile again keeps the copy, and a new image replaces it.
+        withImages(fileUrl("/avatar.png"), null);
+        assertThat(profiles.find(author.id()).avatar()).isEqualTo(cached);
+        withImages(fileUrl("/avatar2.png"), null);
+        assertThat(file).doesNotExist();
+        assertThat(profiles.find(author.id()).avatar().url(instance, false)).isEqualTo(fileUrl("/avatar2.png"));
+        downloads.run(new ProfileImageDownloadJob(author.id(), false, Instant.now()));
+        assertThat(profiles.find(author.id()).avatar().path()).isNotNull();
+    }
+
+    @Test
+    void aHeaderThatIsntAnImageStaysALink() throws Exception {
+        serve("/header.png", 200, "image/png", "not an image".getBytes());
+        withImages(null, fileUrl("/header.png"));
+
+        downloads.run(new ProfileImageDownloadJob(author.id(), true, Instant.now()));
+
+        assertThat(profiles.find(author.id()).header().url(instance, false)).isEqualTo(fileUrl("/header.png"));
+        assertThat(profiles.findImageToDownload(author.id(), true)).isEmpty();
+    }
+
+    @Test
+    void rejectingAnAccountsMediaRemovesItsProfileImageCopies() throws Exception {
+        serve("/mine.png", 200, "image/png", TestImages.png(10, 10));
+        withImages(fileUrl("/mine.png"), null);
+        downloads.run(new ProfileImageDownloadJob(author.id(), false, Instant.now()));
+        var path = profiles.find(author.id()).avatar().path();
+        var file = media.directory().resolve(path.substring(path.lastIndexOf('/') + 1));
+
+        assertThat(actors.setMediaRejected(author.id(), true)).isTrue();
+        rejections.run(new MediaRejectionJob(null, author.id(), Instant.now()));
+
+        assertThat(file).doesNotExist();
+        assertThat(profiles.find(author.id()).avatar().url(instance, false)).isEqualTo(fileUrl("/mine.png"));
+        assertThat(profiles.findImageToDownload(author.id(), false)).isEmpty();
+
+        actors.setMediaRejected(author.id(), false);
+        await().atMost(Duration.ofSeconds(10)).until(() -> profiles.findImageToDownload(author.id(), false).isPresent());
+    }
+
+    @Test
+    void rejectingAServersMediaRemovesItsProfileImageCopies() throws Exception {
+        serve("/theirs.png", 200, "image/png", TestImages.png(10, 10));
+        withImages(fileUrl("/theirs.png"), null);
+        downloads.run(new ProfileImageDownloadJob(author.id(), false, Instant.now()));
+        var path = profiles.find(author.id()).avatar().path();
+        var file = media.directory().resolve(path.substring(path.lastIndexOf('/') + 1));
+
+        var block = blocks.create(host, DomainBlock.Severity.NOOP, true, null);
+        rejections.run(new MediaRejectionJob(block.id(), null, Instant.now()));
+
+        assertThat(file).doesNotExist();
+        assertThat(profiles.find(author.id()).avatar().path()).isNull();
+        // Nothing more is downloaded from it.
+        withImages(fileUrl("/theirs.png"), null);
+        downloads.run(new ProfileImageDownloadJob(author.id(), false, Instant.now()));
+        assertThat(requests.get("/theirs.png")).hasValue(1);
+
+        blocks.delete(block.id());
+        await().atMost(Duration.ofSeconds(10)).until(() -> profiles.findImageToDownload(author.id(), false).isPresent());
+    }
+
+    @Test
     void anEmojiPastItsServersBudgetIsTriedAgainWhenItsUsedAgain() throws Exception {
         // Leaves the server one byte of its budget, which lets the emoji be fetched but not kept.
         serve("/most.mp4", 200, "video/mp4", TestMedia.mp4(50 * 1024 - 1));
@@ -240,6 +321,12 @@ class MediaDownloadIntegrationTests {
 
         assertThat(emojis.findForStatus(statusId).getFirst().imageName()).isNull();
         assertThat(emojis.findForDownload(emoji.id())).isEmpty();
+    }
+
+    private void withImages(URI avatar, URI header) {
+        var profile = new RemoteProfile("", "", "", avatar, header, List.of(), false, false, false, null, null);
+        actors.upsertRemote(new RemoteActorProfile(author.uri(), "s", host, author.inboxUri(), null, null, null, null, null,
+                profile));
     }
 
     private URI fileUrl(String path) {
