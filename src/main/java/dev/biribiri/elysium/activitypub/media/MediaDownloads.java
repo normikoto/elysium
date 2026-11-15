@@ -13,10 +13,13 @@ import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.AttachmentProperties;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.InvalidMediaAttachmentException;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.ReceivedMedia;
+import dev.biribiri.elysium.content.RemoteEmojiAdded;
 import dev.biribiri.elysium.content.RemoteMediaAdded;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.ratelimit.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +36,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.function.Function;
 
 /**
  * Downloads other servers' attachments, so that they're served from here, and people's browsers don't fetch them from
@@ -49,6 +53,7 @@ import java.util.concurrent.Semaphore;
 public class MediaDownloads {
 
     static final TaskDescriptor<MediaDownloadJob> TASK = TaskDescriptor.of("media-download", MediaDownloadJob.class);
+    static final TaskDescriptor<EmojiDownloadJob> EMOJI_TASK = TaskDescriptor.of("emoji-download", EmojiDownloadJob.class);
 
     private static final Logger log = LoggerFactory.getLogger(MediaDownloads.class);
 
@@ -66,6 +71,8 @@ public class MediaDownloads {
     private final AttachmentProperties properties;
     private final RateLimiter budget;
     private final MediaRejections rejections;
+    private final CustomEmojis emojis;
+    private final DomainBlocks blocks;
     private final Semaphore running = new Semaphore(MAX_RUNNING);
     private final Set<String> hostsDownloading = ConcurrentHashMap.newKeySet();
 
@@ -74,8 +81,10 @@ public class MediaDownloads {
      */
     MediaDownloads(@Lazy SchedulerClient scheduler, MediaAttachments attachments, ActorService actors,
                    FederationHttpClient http, HostRequests hostRequests, AttachmentProperties properties,
-                   MediaRejections rejections) {
+                   MediaRejections rejections, CustomEmojis emojis, DomainBlocks blocks) {
         this.rejections = rejections;
+        this.emojis = emojis;
+        this.blocks = blocks;
         this.scheduler = scheduler;
         this.attachments = attachments;
         this.actors = actors;
@@ -100,6 +109,14 @@ public class MediaDownloads {
         }
     }
 
+    @ApplicationModuleListener
+    public void on(RemoteEmojiAdded event) {
+        if (properties.remoteCacheEnabled()) {
+            Jobs.schedule(scheduler, EMOJI_TASK, new EmojiDownloadJob(event.emojiId(), Instant.now()),
+                    event.emojiId().toString());
+        }
+    }
+
     CompletionHandler<MediaDownloadJob> run(MediaDownloadJob job) {
         if (!properties.remoteCacheEnabled()) {
             return Jobs.done();
@@ -117,6 +134,35 @@ public class MediaDownloads {
         if (rejections.isRejected(author.get().id(), author.get().uri())) {
             return Jobs.done();
         }
+        var server = ServerActivityLimits.serverKey(author.get().uri());
+        return withRoom(url, host -> download(job, url, host, server));
+    }
+
+    /**
+     * An emoji's image is small, but it's fetched as an attachment is, sharing the same slots and each server's budget.
+     */
+    CompletionHandler<EmojiDownloadJob> run(EmojiDownloadJob job) {
+        if (!properties.remoteCacheEnabled()) {
+            return Jobs.done();
+        }
+        var source = emojis.findForDownload(job.emojiId());
+        if (source.isEmpty()) {
+            return Jobs.done();
+        }
+        var url = source.get().url();
+        var server = URI.create("https://" + source.get().domain() + "/");
+        if (url.getHost() == null || server.getHost() == null) {
+            return Jobs.done();
+        }
+        // A filter added since the emoji was stored. Its job removes copies already kept.
+        if (blocks.rejectsMedia(server.getHost())) {
+            emojis.giveUpCaching(job.emojiId());
+            return Jobs.done();
+        }
+        return withRoom(url, host -> downloadEmoji(job, url, host, ServerActivityLimits.serverKey(server)));
+    }
+
+    private <J> CompletionHandler<J> withRoom(URI url, Function<String, CompletionHandler<J>> download) {
         if (!running.tryAcquire()) {
             return Jobs.rescheduleAt(Instant.now().plus(WAIT_FOR_ROOM));
         }
@@ -126,11 +172,54 @@ public class MediaDownloads {
             return Jobs.rescheduleAt(Instant.now().plus(WAIT_FOR_ROOM));
         }
         try {
-            return download(job, url, host, ServerActivityLimits.serverKey(author.get().uri()));
+            return download.apply(host);
         } finally {
             hostsDownloading.remove(host);
             running.release();
         }
+    }
+
+    private CompletionHandler<EmojiDownloadJob> downloadEmoji(EmojiDownloadJob job, URI url, String host, String server) {
+        var id = job.emojiId();
+        var limit = CustomEmojis.MAX_IMAGE_SIZE.toBytes();
+        var probe = budget.tryAcquire(server);
+        if (probe.isEmpty()) {
+            log.debug("Not downloading {}, since {} has had as much downloaded as it can for now", url, server);
+            emojis.giveUpCaching(id);
+            return Jobs.done();
+        }
+        probe.get().release();
+        if (!hostRequests.tryStartFetch(host)) {
+            return Jobs.rescheduleAt(Instant.now().plus(WAIT_FOR_ROOM));
+        }
+        FederationHttpClient.Download<byte[]> downloaded;
+        try {
+            downloaded = http.download(url, limit, DEADLINE, MAX_REDIRECTS, (contentType, body) -> body.readAllBytes());
+        } catch (BlockedTargetException | ResponseTooLargeException e) {
+            log.debug("Not downloading {}: {}", url, e.getMessage());
+            emojis.giveUpCaching(id);
+            return Jobs.done();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Couldn't download " + url, e);
+        } finally {
+            hostRequests.finishFetch(host);
+        }
+        var status = downloaded.status();
+        if (status >= 500 || status == 408 || status == 429) {
+            throw new IllegalStateException("Downloading " + url + " returned " + status);
+        }
+        if (downloaded.body() == null) {
+            log.debug("Not downloading {}, which returned {}", url, status);
+            emojis.giveUpCaching(id);
+            return Jobs.done();
+        }
+        if (budget.tryAcquire(server, Math.max(1, downloaded.body().length)).isEmpty()) {
+            log.debug("Not keeping {}, since {} has had as much downloaded as it can for now", url, server);
+            emojis.giveUpCaching(id);
+            return Jobs.done();
+        }
+        emojis.cacheRemote(id, url, downloaded.body());
+        return Jobs.done();
     }
 
     private CompletionHandler<MediaDownloadJob> download(MediaDownloadJob job, URI url, String host, String server) {

@@ -84,6 +84,7 @@ public class StatusService {
     private final QuoteRules quoteRules;
     private final PostingDefaults postingDefaults;
     private final PollRepository polls;
+    private final CustomEmojis emojis;
 
     StatusService(
             StatusRepository statuses,
@@ -104,8 +105,10 @@ public class StatusService {
             QuoteRepository quotes,
             QuoteRules quoteRules,
             PostingDefaults postingDefaults,
-            PollRepository polls) {
+            PollRepository polls,
+            CustomEmojis emojis) {
         this.polls = polls;
+        this.emojis = emojis;
         this.followersOnly = followersOnly;
         this.quotes = quotes;
         this.quoteRules = quoteRules;
@@ -166,6 +169,7 @@ public class StatusService {
         var mentioned = resolveMentions(author, text);
         var content = quoting == null ? render(text, mentioned)
                 : withQuoteFallback(render(text, mentioned), text, linkTo(quoting.status()), quoting.status().uri());
+        var localEmojis = localEmojiIds(text, spoilerText, poll == null ? List.of() : poll.options());
 
         return transaction.execute(tx -> {
             // Before the status, so that one that can't have them isn't given an ID.
@@ -218,6 +222,7 @@ public class StatusService {
             }
             statuses.insertMentions(id, mentions);
             statuses.insertTags(id, Hashtags.names(text));
+            emojis.insertForStatus(id, localEmojis);
             threads.assign(status, parent.map(Status::uri).orElse(null));
             if (quoted != null) {
                 insertLocalQuote(status, quoted, quoting.local());
@@ -353,6 +358,12 @@ public class StatusService {
             }
             var addedMentions = statuses.replaceMentions(id, mentionedIds(mentioned, authorId));
             statuses.replaceTags(id, Hashtags.names(text));
+            var pollOptions = switch (pollEdit) {
+                case REMOVE -> List.<String>of();
+                case REPLACE, HIDE_TOTALS -> newPoll.options();
+                case KEEP -> oldPoll.map(PollRepository.Row::titles).orElse(List.of());
+            };
+            emojis.replaceForStatus(id, localEmojiIds(text, spoilerText, pollOptions));
             events.publishEvent(new StatusEdited(id, authorId, editedAt, addedMentions));
             return new Edited(statuses.findById(id), removed);
         });
@@ -543,7 +554,9 @@ public class StatusService {
      */
     public List<StatusVersion> findHistory(Status status) {
         var versions = new ArrayList<>(statuses.findEdits(status.id()));
-        versions.add(StatusVersion.current(status, polls.find(status.id()).map(PollRepository.Row::titles).orElse(null)));
+        var current = emojis.findForStatus(status.id()).stream().map(CustomEmoji::id).toList();
+        versions.add(StatusVersion.current(
+                status, polls.find(status.id()).map(PollRepository.Row::titles).orElse(null), current));
         return List.copyOf(versions);
     }
 
@@ -721,6 +734,7 @@ public class StatusService {
             mentions.remove(author.id());
             statuses.insertMentions(id, mentions);
             statuses.insertTags(id, remoteTags(remote.tags()));
+            emojis.insertForStatus(id, emojis.storeRemote(author.domain(), remote.emojis()).values());
             attachments.addRemote(id, author.id(), remote.attachments());
             if (remote.poll() != null) {
                 insertRemotePoll(id, PollService.clean(remote.poll()), now);
@@ -765,7 +779,13 @@ public class StatusService {
         // Servers also send an Update when nothing an edit can change has, such as when a quote is approved, and that
         // isn't kept as a version, so that the status doesn't show as edited.
         var stored = statuses.findByUriForAuthor(edit.uri(), edit.authorId());
+        var domain = actors.findById(edit.authorId()).map(Actor::domain).orElse(null);
         if (stored.isPresent() && isSameVersion(stored.get(), html, edit, tags, poll)) {
+            // An emoji's image can change with nothing else, which isn't a new version.
+            if (domain != null) {
+                transaction.executeWithoutResult(tx -> emojis.replaceForStatus(
+                        stored.get().id(), emojis.storeRemote(domain, edit.emojis()).values()));
+            }
             return RemoteEdit.Outcome.UNCHANGED;
         }
         // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
@@ -785,6 +805,9 @@ public class StatusService {
             id.ifPresent(editedId -> {
                 replaceRemotePoll(editedId, poll);
                 statuses.replaceTags(editedId, tags);
+                if (domain != null) {
+                    emojis.replaceForStatus(editedId, emojis.storeRemote(domain, edit.emojis()).values());
+                }
                 removedMedia[0] = attachments.replaceRemote(editedId, edit.authorId(), edit.attachments());
             });
             return id.isPresent();
@@ -837,6 +860,11 @@ public class StatusService {
             return false;
         }
         if (!Set.copyOf(tags).equals(Set.copyOf(statuses.findTags(List.of(status.id())).getOrDefault(status.id(), List.of())))) {
+            return false;
+        }
+        var shortcodes = edit.emojis().stream().map(RemoteEmoji::shortcode).collect(Collectors.toSet());
+        if (!shortcodes.equals(emojis.findForStatus(status.id()).stream().map(CustomEmoji::shortcode)
+                .collect(Collectors.toSet()))) {
             return false;
         }
         var current = attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of());
@@ -1365,6 +1393,17 @@ public class StatusService {
     /**
      * Another server's tags are only checked here, so that what counts as a tag is decided in one place.
      */
+    /**
+     * This server's emoji that a local status names, in its text, its content warning, or its poll's options.
+     */
+    private List<UUID> localEmojiIds(String text, String spoilerText, List<String> pollOptions) {
+        var texts = new ArrayList<String>();
+        texts.add(text);
+        texts.add(spoilerText);
+        texts.addAll(pollOptions);
+        return emojis.findLocalIn(texts).values().stream().map(CustomEmoji::id).toList();
+    }
+
     private static Collection<String> remoteTags(Collection<String> names) {
         return Hashtags.parseAll(names);
     }

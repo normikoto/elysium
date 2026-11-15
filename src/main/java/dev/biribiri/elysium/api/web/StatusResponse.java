@@ -46,7 +46,7 @@ record StatusResponse(
         @JsonProperty("media_attachments") List<MediaAttachmentResponse> mediaAttachments,
         List<MentionResponse> mentions,
         List<StatusTagResponse> tags,
-        List<Object> emojis,
+        List<CustomEmojiResponse> emojis,
         Object card,
         @Schema(nullable = true, description = "Its poll, or null if it has none. A boost has none of its own.")
         PollResponse poll,
@@ -98,7 +98,7 @@ record StatusResponse(
      */
     static StatusResponse from(
             Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
-            List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
+            List<CustomEmojiResponse> emojis, List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
             Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll, boolean pinned,
             List<FilterResponse.ResultResponse> filtered) {
         return new StatusResponse(
@@ -124,7 +124,7 @@ record StatusResponse(
                 mediaAttachments,
                 mentions,
                 tags,
-                List.of(),
+                emojis,
                 null,
                 poll,
                 likes.favourited(),

@@ -14,8 +14,8 @@ import java.util.List;
 @Schema(name = "Poll", description = """
         Mastodon's Poll entity. Its `id` is its status's. A poll from another server has the counts its server last \
         sent, plus votes from here since. `voters_count` is null unless more than one option can be chosen, and the \
-        counts are null while a poll that hides its totals is open. `emojis` is always empty. `voted` and `own_votes` \
-        are only there for a user.""")
+        counts are null while a poll that hides its totals is open. `voted` and `own_votes` are only there for a \
+        user.""")
 record PollResponse(
         String id,
         @JsonProperty("expires_at") String expiresAt,
@@ -24,7 +24,7 @@ record PollResponse(
         @JsonProperty("votes_count") int votesCount,
         @JsonProperty("voters_count") Integer votersCount,
         List<Option> options,
-        List<Object> emojis,
+        List<CustomEmojiResponse> emojis,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean voted,
         @JsonProperty("own_votes") @JsonInclude(JsonInclude.Include.NON_NULL) List<Integer> ownVotes
 ) {
@@ -33,7 +33,10 @@ record PollResponse(
     record Option(String title, @JsonProperty("votes_count") Integer votesCount) {
     }
 
-    static PollResponse from(Poll poll, Instant now) {
+    /**
+     * @param emojis its status's custom emoji, of which it has those its options name
+     */
+    static PollResponse from(Poll poll, Instant now, List<CustomEmojiResponse> emojis) {
         var hidden = poll.countsHidden(now);
         return new PollResponse(
                 poll.statusId().toString(),
@@ -45,7 +48,7 @@ record PollResponse(
                 poll.options().stream()
                         .map(option -> new Option(option.title(), hidden ? null : option.votesCount()))
                         .toList(),
-                List.of(),
+                CustomEmojiResponse.namedIn(emojis, poll.options().stream().map(Poll.Option::title).toList()),
                 poll.ownVotes() == null ? null : !poll.ownVotes().isEmpty(),
                 poll.ownVotes());
     }

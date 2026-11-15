@@ -6,6 +6,7 @@ import dev.biribiri.elysium.text.PlainText;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.SequencedSet;
 
 /**
@@ -46,5 +47,19 @@ public record Profile(
      */
     public SequencedSet<String> hashtags() {
         return Hashtags.names(note);
+    }
+
+    /**
+     * Everything in the profile that can name a custom emoji, as Mastodon finds them.
+     */
+    public List<String> texts() {
+        var texts = new ArrayList<String>();
+        texts.add(displayName);
+        texts.add(note);
+        fields.forEach(field -> {
+            texts.add(field.name());
+            texts.add(field.value());
+        });
+        return texts;
     }
 }

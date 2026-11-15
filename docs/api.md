@@ -31,8 +31,9 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   future, because other servers are sent whole seconds.
 - `GET /api/v1/statuses/:id/history` only has the versions of a status from another server that were sent here, so it
   can lack some that its server shows, and it has no versions from before the upgrade that added it. Only the latest 50
-  versions of a status are kept. Only the current version has `media_attachments`, and earlier ones have none. Entries
-  have empty `emojis`. Their `poll` only has the `title` of each option that version's poll had, and is null for a version
+  versions of a status are kept. Only the current version has `media_attachments`, and earlier ones have none. An
+  entry's `emojis` leaves out emoji that have been removed since, and is empty for a version from before the upgrade
+  that added custom emoji. Their `poll` only has the `title` of each option that version's poll had, and is null for a version
   with no poll, or from before the upgrade that added polls.
 - URLs, mentions, and hashtags in a status are linked. A mention of an account on another server is looked
   up when the status is posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A
@@ -42,6 +43,13 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   it's longer than 2048 characters, in which case it counts at its full length. URLs can save at most 4096 characters
   per status, and any URLs after that also count at their full length. A mention counts without its domain, as in
   Mastodon, and the domains can save at most 4096 characters per status.
+- A status's `emojis` are this server's custom emoji that its text, content warning, or poll options name when it's
+  posted or edited, so one an admin adds later isn't shown on statuses that named it before. The `emojis` of its `poll`
+  are those its options name. Shortcodes are matched with case, and a status has at most 100. Images are WebP, and
+  `static_url` is the first frame of an animated one. An account's `emojis` are those its display name, note, and
+  fields name, and are empty for an account on another server, since those profiles aren't stored yet.
+  `GET /api/v1/custom_emojis` lists every emoji an admin has added, including those hidden from the picker, and has no
+  disabled ones, since an admin removes an emoji instead.
 - A hashtag needs a letter, and can be up to 100 characters. Tags are matched without regard to case or Unicode
   composition, and `tags[].name` is the normalized form: lowercase, in Unicode's NFKC form. A status keeps at most 100
   tags. `tags[].url` is this server's page for the tag, even on a status from another server, as on Mastodon. Statuses
@@ -71,7 +79,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   followed here. When a local account starts following someone, up to 40 of their recent public and unlisted statuses are
   fetched as well, and these are ordered by when they were posted, so a client that's already loaded newer statuses
   won't be given them as new. Other older ones, and replies that arrive before their parent, aren't there. Their HTML is sanitized, so it
-  can differ from what the other server shows, and they never have `emojis`. Their `media_attachments` are
+  can differ from what the other server shows. Their `emojis` are the ones their server listed, which are copied here as
+  their attachments are, and link to their server until then. Their `media_attachments` are
   copied here shortly after they arrive, as Mastodon does, and until then, or if they can't be, `url` and an image's
   `preview_url` are the same as `remote_url`. A copy is checked like an upload, so its type is what the file is, and a
   file that isn't an accepted format is `unknown`. Copies are removed after 30 days by default, and aren't fetched

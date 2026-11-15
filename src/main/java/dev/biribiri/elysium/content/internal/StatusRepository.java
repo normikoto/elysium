@@ -340,7 +340,9 @@ public class StatusRepository {
                             SELECT id, text, content, spoiler_text, language, sensitive,
                                    coalesce(edited_at, published_at) AS since,
                                    (SELECT array_agg(o.title ORDER BY o.position) FROM poll_option o
-                                    WHERE o.status_id = status.id) AS poll_options
+                                    WHERE o.status_id = status.id) AS poll_options,
+                                   (SELECT array_agg(e.emoji_id) FROM status_emoji e
+                                    WHERE e.status_id = status.id) AS emoji_ids
                             FROM status WHERE %s
                             FOR NO KEY UPDATE
                         ), replaced AS (
@@ -350,8 +352,9 @@ public class StatusRepository {
                             RETURNING old.*
                         )
                         INSERT INTO status_edit (status_id, text, content, spoiler_text, language, sensitive, created_at,
-                                                 poll_options)
-                        SELECT id, text, content, spoiler_text, language, sensitive, since, poll_options FROM replaced
+                                                 poll_options, emoji_ids)
+                        SELECT id, text, content, spoiler_text, language, sensitive, since, poll_options, emoji_ids
+                        FROM replaced
                         RETURNING status_id
                         """.formatted(condition))
                 .params(parameters)
@@ -387,7 +390,8 @@ public class StatusRepository {
      */
     public List<StatusVersion> findEdits(UUID statusId) {
         return jdbc.sql("""
-                        SELECT text, content, spoiler_text, language, sensitive, created_at, poll_options FROM status_edit
+                        SELECT text, content, spoiler_text, language, sensitive, created_at, poll_options, emoji_ids
+                        FROM status_edit
                         WHERE status_id = :statusId ORDER BY created_at, id
                         """)
                 .param("statusId", statusId)
@@ -399,7 +403,9 @@ public class StatusRepository {
                         rs.getBoolean("sensitive"),
                         rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                         rs.getArray("poll_options") == null ? null
-                                : List.of((String[]) rs.getArray("poll_options").getArray())))
+                                : List.of((String[]) rs.getArray("poll_options").getArray()),
+                        rs.getArray("emoji_ids") == null ? null
+                                : List.of((UUID[]) rs.getArray("emoji_ids").getArray())))
                 .list();
     }
 

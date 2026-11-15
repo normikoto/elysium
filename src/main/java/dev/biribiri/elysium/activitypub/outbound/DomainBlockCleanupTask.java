@@ -5,6 +5,7 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.PollService;
@@ -35,11 +36,13 @@ class DomainBlockCleanupTask {
     private final Reports reports;
     private final PollService polls;
     private final StatusPinService pins;
+    private final CustomEmojis emojis;
 
     DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, BlockService accountBlocks, StatusService statuses,
                            InboxService inbox, LikeService likes, FollowersOnlyRecipients followersOnly,
-                           Reports reports, PollService polls, StatusPinService pins) {
+                           Reports reports, PollService polls, StatusPinService pins, CustomEmojis emojis) {
         this.pins = pins;
+        this.emojis = emojis;
         this.polls = polls;
         this.followersOnly = followersOnly;
         this.reports = reports;
@@ -72,6 +75,7 @@ class DomainBlockCleanupTask {
             followersOnly.removeForDomain(domain);
             accountBlocks.removeForDomain(domain);
             statuses.removeForDomain(domain);
+            emojis.removeForDomain(domain);
             inbox.removeForDomain(domain);
             reports.removeForDomain(domain);
         });

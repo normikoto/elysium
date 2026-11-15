@@ -7,7 +7,7 @@
 # Elysium's pins, which it only does when it refreshes an actor. Elysium fetches a post that a followed account
 # boosts, and it backfills a followed account's older post from its outbox. Elysium quotes the other server's post, and
 # Mastodon and Misskey quote Elysium's, with Mastodon's approvals and a revocation checked on both sides. Each server
-# forwards a report to the other.
+# forwards a report to the other. On Mastodon, each server shows the other's custom emoji.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
 # The lab keeps running afterward, so that it can be looked into. See federation/README.md.
@@ -485,6 +485,62 @@ media_from_elysium() {
     expect_delivered "$media_uri#create"
     "${target}_expect_media"
     echo "$target shows the status's attachment"
+}
+
+# Alice, who's an admin, adds an emoji and posts with it, and Mastodon has to show the emoji, linked from here.
+emoji_from_elysium() {
+    local note
+    driver sh /federation/elysium-emoji.sh alice "$password" labblob /federation/fixtures/image.png \
+        || fail "Couldn't add an emoji to Elysium"
+    emoji_uri=$(driver curl -fsS https://elysium.test/api/v1/statuses -H "Authorization: Bearer $elysium_token" \
+        --data-urlencode 'status=:labblob: Emoji from Elysium' | jq -r .uri)
+    note=$(driver curl -fsS -H 'Accept: application/activity+json' "$emoji_uri")
+    jq -e '.tag | map(select(.type == "Emoji" and .name == ":labblob:"
+            and (.icon.url | startswith("https://elysium.test/media/")))) | length == 1' <<<"$note" >/dev/null \
+        || fail "The status's Note has no Emoji tag: $note"
+    expect_delivered "$emoji_uri#create"
+    local output
+    output=$(docker compose exec -T -e EMOJI_URI="$emoji_uri" mastodon-web bin/rails runner '
+        status = nil
+        60.times do
+            status = Status.uncached { Status.find_by(uri: ENV["EMOJI_URI"]) }
+            break if status
+            sleep 2
+        end
+        emoji = status&.emojis&.first
+        puts "EMOJI #{emoji&.shortcode} #{emoji&.domain} #{emoji&.image_remote_url}"')
+    echo "$output"
+    grep -qE '^EMOJI labblob elysium\.test https://elysium\.test/media/' <<<"$output" \
+        || fail "Mastodon didn't store $emoji_uri with its emoji"
+    echo "mastodon shows the status's custom emoji"
+}
+
+# Mastodon's lab user posts with one of Mastodon's emoji, and Elysium has to show it, served from Elysium once it's
+# downloaded.
+emoji_from_mastodon() {
+    local statuses status
+    docker compose exec -T mastodon-web bin/rails runner '
+        STDIN.binmode
+        file = Tempfile.new(["labcat", ".png"], binmode: true)
+        file.write(STDIN.read)
+        file.rewind
+        CustomEmoji.find_or_create_by!(shortcode: "labcat", domain: nil) { |emoji| emoji.image = file }
+        PostStatusService.new.call(Account.find_local("lab"), text: "@alice@elysium.test :labcat: Emoji from the lab")' \
+        <federation/fixtures/image.png
+    echo "Waiting for Elysium to show lab@mastodon.test's status with an emoji"
+    for _ in $(seq 1 60); do
+        statuses=$(driver curl -fsS -G https://elysium.test/api/v1/timelines/public --data-urlencode remote=true)
+        status=$(jq -c 'map(select(.content | contains("Emoji from the lab"))) | first // empty' <<<"$statuses")
+        if [[ -n $status ]] && jq -e '.emojis[0].url | startswith("https://elysium.test/media/")' \
+            <<<"$status" >/dev/null; then
+            jq -e '(.emojis | length == 1) and .emojis[0].shortcode == "labcat"' <<<"$status" >/dev/null \
+                || fail "Elysium shows lab@mastodon.test's status without its emoji: $status"
+            echo "Elysium shows lab@mastodon.test's custom emoji, served from Elysium"
+            return
+        fi
+        sleep 2
+    done
+    fail "Elysium didn't store and download lab@mastodon.test's emoji: $status. Check /admin/db-scheduler"
 }
 
 mastodon_expect_media() {
@@ -2305,6 +2361,7 @@ case "$target" in
         follow_from_elysium mastodon.test post_from_mastodon
         edit_from_mastodon
         media_from_mastodon
+        emoji_from_mastodon
         delete_account_from_mastodon
         post_from_elysium
         mastodon_expect_statuses
@@ -2319,6 +2376,7 @@ case "$target" in
         mastodon_expect_deleted
         edit_from_elysium
         media_from_elysium
+        emoji_from_elysium
         update_profile_from_elysium
         moderate_from_elysium
         ;;

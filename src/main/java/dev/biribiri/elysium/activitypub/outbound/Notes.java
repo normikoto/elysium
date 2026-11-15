@@ -1,12 +1,14 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
 import dev.biribiri.elysium.activitypub.vocab.Document;
+import dev.biribiri.elysium.activitypub.vocab.Emoji;
 import dev.biribiri.elysium.activitypub.vocab.Hashtag;
 import dev.biribiri.elysium.activitypub.vocab.Mention;
 import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.Poll;
@@ -42,10 +44,12 @@ public class Notes {
     private final MediaAttachments attachments;
     private final QuoteService quotes;
     private final PollService polls;
+    private final CustomEmojis emojis;
 
     Notes(StatusService statuses, ActorService actors, InstanceProperties instance, MediaAttachments attachments,
-          QuoteService quotes, PollService polls) {
+          QuoteService quotes, PollService polls, CustomEmojis emojis) {
         this.polls = polls;
+        this.emojis = emojis;
         this.quotes = quotes;
         this.attachments = attachments;
         this.statuses = statuses;
@@ -95,6 +99,7 @@ public class Notes {
                 parent.flatMap(shown -> actors.findById(shown.actorId())).filter(Actor::isActive).map(Actor::uri).orElse(null),
                 mentioned.stream().map(actor -> Mention.of(actor.uri(), "@" + actor.username() + "@" + actor.domain())).toList(),
                 Hashtag.of(tags, instance),
+                Emoji.of(emojis.findForStatus(status.id()), instance),
                 media.stream().map(attachment -> Document.of(attachment, instance)).toList(),
                 quote.map(found -> quote(status, found, quotedAuthor)).orElse(null),
                 policy(status, author),

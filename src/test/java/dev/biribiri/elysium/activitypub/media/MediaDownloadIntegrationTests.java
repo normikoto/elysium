@@ -12,9 +12,12 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.AttachmentType;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.content.RemoteEdit;
+import dev.biribiri.elysium.content.RemoteEmoji;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -88,6 +91,8 @@ class MediaDownloadIntegrationTests {
     private MediaRejections rejections;
     @Autowired
     private DomainBlocks blocks;
+    @Autowired
+    private CustomEmojis emojis;
 
     private final Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
     private HttpServer server;
@@ -131,6 +136,57 @@ class MediaDownloadIntegrationTests {
         // Running it again finds nothing to do.
         downloads.run(new MediaDownloadJob(attachment.id(), Instant.now()));
         assertThat(requests.get("/a.png")).hasValue(1);
+    }
+
+    @Test
+    void keepsACopyOfAnEmojiAndReplacesItWhenItsImageChanges() throws Exception {
+        serve("/blob.png", 200, "image/png", TestImages.png(64, 64));
+        serve("/blob2.png", 200, "image/png", TestImages.png(32, 32));
+        var noteUri = URI.create(author.uri() + "/notes/" + UUID.randomUUID());
+        var statusId = statuses.storeRemote(new RemoteStatus(noteUri, null, author.id(), "<p>:blob:</p>", null, null,
+                Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(), null, null, null,
+                List.of(new RemoteEmoji("blob", null, fileUrl("/blob.png"), null)))).orElseThrow();
+        var emoji = emojis.findForStatus(statusId).getFirst();
+        assertThat(emoji.url(instance)).isEqualTo(fileUrl("/blob.png"));
+
+        downloads.run(new EmojiDownloadJob(emoji.id(), Instant.now()));
+
+        var cached = emojis.findForStatus(statusId).getFirst();
+        assertThat(cached.url(instance).toString()).startsWith("https://downloads.example/media/");
+        assertThat(media.directory().resolve(cached.imageName())).exists();
+        downloads.run(new EmojiDownloadJob(emoji.id(), Instant.now()));
+        assertThat(requests.get("/blob.png")).hasValue(1);
+
+        // An edit that names another image for it replaces the copy.
+        statuses.updateRemote(new RemoteEdit(noteUri, author.id(), "<p>:blob:</p>", null, null, false,
+                Instant.now(), List.of(), List.of(), null,
+                List.of(new RemoteEmoji("blob", null, fileUrl("/blob2.png"), null))));
+        var changed = emojis.findForStatus(statusId).getFirst();
+        assertThat(changed.id()).isEqualTo(emoji.id());
+        assertThat(changed.url(instance)).isEqualTo(fileUrl("/blob2.png"));
+        attachments.processDeletions();
+        assertThat(media.directory().resolve(cached.imageName())).doesNotExist();
+        downloads.run(new EmojiDownloadJob(emoji.id(), Instant.now()));
+        assertThat(emojis.findForStatus(statusId).getFirst().imageName()).isNotNull();
+    }
+
+    @Test
+    void anEmojiThatIsntAnImageStaysALink() {
+        serve("/bad.png", 200, "image/png", TestMedia.html());
+        var noteUri = URI.create(author.uri() + "/notes/" + UUID.randomUUID());
+        var statusId = statuses.storeRemote(new RemoteStatus(noteUri, null, author.id(), "<p>:bad:</p>", null, null,
+                Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(), null, null, null,
+                List.of(new RemoteEmoji("bad", null, fileUrl("/bad.png"), null)))).orElseThrow();
+        var emoji = emojis.findForStatus(statusId).getFirst();
+
+        downloads.run(new EmojiDownloadJob(emoji.id(), Instant.now()));
+
+        assertThat(emojis.findForStatus(statusId).getFirst().imageName()).isNull();
+        assertThat(emojis.findForDownload(emoji.id())).isEmpty();
+    }
+
+    private URI fileUrl(String path) {
+        return URI.create("http://files." + host + ":" + server.getAddress().getPort() + path);
     }
 
     @Test

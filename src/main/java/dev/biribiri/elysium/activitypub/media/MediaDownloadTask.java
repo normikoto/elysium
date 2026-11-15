@@ -22,4 +22,9 @@ class MediaDownloadTask {
     Task<MediaDownloadJob> mediaDownload() {
         return Jobs.task(MediaDownloads.TASK, downloads::run);
     }
+
+    @Bean
+    Task<EmojiDownloadJob> emojiDownload() {
+        return Jobs.task(MediaDownloads.EMOJI_TASK, downloads::run);
+    }
 }

@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * One version of a status, as it was before an edit, or as it is now.
@@ -10,16 +11,18 @@ import java.util.List;
  * @param language    the language code, or null if not set
  * @param since       when this version became current: when the status was published, or edited
  * @param pollOptions its poll's options, or null if it had no poll, or it's from before the upgrade that added polls
+ * @param emojiIds    the custom emoji it showed, some of which can be gone since
  */
 public record StatusVersion(
         String text, String content, String spoilerText, String language, boolean sensitive, Instant since,
-        List<String> pollOptions) {
+        List<String> pollOptions, List<UUID> emojiIds) {
 
     public StatusVersion {
         pollOptions = pollOptions == null ? null : List.copyOf(pollOptions);
+        emojiIds = emojiIds == null ? List.of() : List.copyOf(emojiIds);
     }
 
-    static StatusVersion current(Status status, List<String> pollOptions) {
+    static StatusVersion current(Status status, List<String> pollOptions, List<UUID> emojiIds) {
         return new StatusVersion(
                 status.text(),
                 status.content(),
@@ -27,6 +30,7 @@ public record StatusVersion(
                 status.language(),
                 status.sensitive(),
                 status.editedAt() == null ? status.publishedAt() : status.editedAt(),
-                pollOptions);
+                pollOptions,
+                emojiIds);
     }
 }

@@ -7,7 +7,11 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.Profile;
 import dev.biribiri.elysium.actor.ProfileImage;
 
+import dev.biribiri.elysium.content.CustomEmoji;
+
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -17,7 +21,8 @@ import java.util.List;
  * @param name       the display name, left out if there isn't one
  * @param summary    the bio as HTML, left out if there isn't one
  * @param attachment the profile's fields, as Mastodon sends them
- * @param tag        the hashtags in the bio, as Mastodon sends them, left out if there are none
+ * @param tag        the hashtags in the bio, and the custom emoji in the profile, as Mastodon sends them, left out if there
+ *                   are none
  * @param featured   the collection of pinned statuses, left out while the actor is suspended, since it can't be read then
  * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
@@ -42,7 +47,7 @@ public record Person(
         Image icon,
         Image image,
         List<PropertyValue> attachment,
-        List<Hashtag> tag,
+        List<Tag> tag,
         boolean manuallyApprovesFollowers,
         String published,
         String updated,
@@ -86,8 +91,12 @@ public record Person(
         return URI.create(actor.uri() + "/collections/featured");
     }
 
-    public static Person from(Actor actor, Profile profile, InstanceProperties instance) {
-        var hashtags = profile.hashtags();
+    /**
+     * @param emojis this server's custom emoji that the profile names
+     */
+    public static Person from(Actor actor, Profile profile, Collection<CustomEmoji> emojis, InstanceProperties instance) {
+        var tags = new ArrayList<Tag>(Hashtag.of(profile.hashtags(), instance));
+        tags.addAll(Emoji.of(emojis, instance));
         return new Person(
                 ActivityStreams.PERSON_CONTEXT,
                 actor.uri(),
@@ -111,7 +120,7 @@ public record Person(
                         : profile.fields().stream()
                         .map(field -> new PropertyValue("PropertyValue", field.name(), field.valueHtml()))
                         .toList(),
-                hashtags.isEmpty() ? null : Hashtag.of(hashtags, instance),
+                tags.isEmpty() ? null : List.copyOf(tags),
                 profile.manuallyApprovesFollowers(),
                 ActivityStreams.time(actor.createdAt()),
                 ActivityStreams.time(profile.updatedAt()),
@@ -123,7 +132,7 @@ public record Person(
      * saying this, and so that the actor is still there to come back. Its profile isn't shown, as Mastodon does.
      */
     public static Person suspended(Actor actor, InstanceProperties instance) {
-        return from(actor, Profile.EMPTY, instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, true);
+        return from(actor, Profile.EMPTY, List.of(), instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, true);
     }
 
     /**

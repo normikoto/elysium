@@ -90,6 +90,7 @@ public record Note(
         terms.put("blurhash", "toot:blurhash");
         terms.put("focalPoint", Map.of("@container", "@list", "@id", "toot:focalPoint"));
         terms.put("votersCount", "toot:votersCount");
+        terms.put(Emoji.CONTEXT_TERM, Emoji.CONTEXT_IRI);
         terms.put("quote", Map.of("@id", "https://w3id.org/fep/044f#quote", "@type", "@id"));
         terms.put("quoteUri", "http://fedibird.com/ns#quoteUri");
         terms.put("quoteUrl", "as:quoteUrl");
@@ -152,6 +153,7 @@ public record Note(
      * @param parentAuthor who wrote the parent status, or null if there's none to show
      * @param mentions     the accounts the status mentions
      * @param hashtags     the status's hashtags
+     * @param emojis       the status's custom emoji
      * @param attachments  the status's attachments, in order
      * @param quote        what it quotes, or null if it doesn't
      * @param policy       who can quote it
@@ -160,7 +162,8 @@ public record Note(
      */
     public static Note from(
             Status status, Actor author, URI inReplyTo, URI parentAuthor, List<Mention> mentions, List<Hashtag> hashtags,
-            List<Document> attachments, Quote quote, InteractionPolicy policy, Poll poll, Instant now) {
+            List<Emoji> emojis, List<Document> attachments, Quote quote, InteractionPolicy policy, Poll poll,
+            Instant now) {
         var others = new ArrayList<String>();
         mentions.forEach(mention -> others.add(mention.href().toString()));
         if (parentAuthor != null && !parentAuthor.equals(author.uri()) && status.visibility() != Visibility.DIRECT) {
@@ -190,7 +193,7 @@ public record Note(
                 status.spoilerText().isEmpty() ? null : status.spoilerText(),
                 inReplyTo,
                 status.language() == null ? null : Map.of(status.language(), status.content()),
-                tags(mentions, hashtags, shownQuote),
+                tags(mentions, hashtags, emojis, shownQuote),
                 attachments.isEmpty() ? null : List.copyOf(attachments),
                 URI.create(status.uri() + "/likes"),
                 URI.create(status.uri() + "/shares"),
@@ -207,9 +210,10 @@ public record Note(
                 poll == null ? null : poll.votersCount());
     }
 
-    private static List<Tag> tags(List<Mention> mentions, List<Hashtag> hashtags, URI quoted) {
+    private static List<Tag> tags(List<Mention> mentions, List<Hashtag> hashtags, List<Emoji> emojis, URI quoted) {
         var tags = new ArrayList<Tag>(mentions);
         tags.addAll(hashtags);
+        tags.addAll(emojis);
         if (quoted != null) {
             tags.add(QuoteLink.of(quoted));
         }

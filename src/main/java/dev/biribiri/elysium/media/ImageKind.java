@@ -11,7 +11,12 @@ public enum ImageKind {
     AVATAR(400, 400, Fit.COVER),
     HEADER(1500, 500, Fit.COVER),
     ATTACHMENT(3840, 2160, Fit.WITHIN),
-    ATTACHMENT_PREVIEW(640, 360, Fit.WITHIN);
+    ATTACHMENT_PREVIEW(640, 360, Fit.WITHIN),
+    /**
+     * Custom emoji are shown at the height of a line of text, so this leaves room for high-density screens and for
+     * clients that show them larger on their own.
+     */
+    EMOJI(256, 256, Fit.WITHIN);
 
     public enum Fit {
         /**

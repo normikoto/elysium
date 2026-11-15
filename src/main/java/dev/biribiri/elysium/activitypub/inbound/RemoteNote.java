@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.Focus;
 import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.content.RemoteEmoji;
 import dev.biribiri.elysium.content.RemotePoll;
 import dev.biribiri.elysium.content.RemoteQuote;
 import dev.biribiri.elysium.content.StatusService;
@@ -40,6 +41,7 @@ import java.util.regex.Pattern;
  * @param quotePolicy  its {@code interactionPolicy.canQuote}, or null if it has none
  * @param poll         its poll, if it's a {@code Question} with options, or null
  * @param name         its {@code name}, or the one in {@code nameMap}, which a vote in a poll has, or null if it has none
+ * @param emojis       the {@code Emoji} in its {@code tag}, as {@link RemoteEmojis} reads them
  */
 record RemoteNote(
         URI id,
@@ -59,7 +61,8 @@ record RemoteNote(
         RemoteQuote quote,
         QuotePolicy quotePolicy,
         RemotePoll poll,
-        String name) {
+        String name,
+        List<RemoteEmoji> emojis) {
 
     /**
      * The properties that say what a note quotes, in the order Mastodon reads them. Only FEP-044f's comes with a way to ask
@@ -107,6 +110,7 @@ record RemoteNote(
         mentions = List.copyOf(mentions);
         hashtags = List.copyOf(hashtags);
         attachments = List.copyOf(attachments);
+        emojis = List.copyOf(emojis);
     }
 
     /**
@@ -164,7 +168,8 @@ record RemoteNote(
                 quote(node),
                 quotePolicy(node.path("interactionPolicy").path("canQuote")),
                 types.contains("Question") ? poll(node, Instant.now()) : null,
-                ActivityJson.naturalText(node, "name")));
+                ActivityJson.naturalText(node, "name"),
+                RemoteEmojis.read(node.path("tag"))));
     }
 
     /**

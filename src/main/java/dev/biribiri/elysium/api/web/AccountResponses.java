@@ -5,16 +5,21 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.Profile;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.text.Shortcodes;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Builds account responses, loading what they count for all of the accounts together rather than one query each.
@@ -28,6 +33,7 @@ class AccountResponses {
     private final InstanceProperties instance;
     private final ProfileService profiles;
     private final PostingDefaults postingDefaults;
+    private final CustomEmojis emojis;
 
     AccountResponses(
             ActorService actors,
@@ -35,8 +41,10 @@ class AccountResponses {
             FollowService follows,
             InstanceProperties instance,
             ProfileService profiles,
-            PostingDefaults postingDefaults) {
+            PostingDefaults postingDefaults,
+            CustomEmojis emojis) {
         this.postingDefaults = postingDefaults;
+        this.emojis = emojis;
         this.actors = actors;
         this.profiles = profiles;
         this.statuses = statuses;
@@ -78,9 +86,17 @@ class AccountResponses {
         var stats = statuses.statsFor(ids);
         var counts = follows.countsFor(ids);
         var hiding = actors.hidingCollections(ids);
+        var named = new HashMap<UUID, Set<String>>();
+        profilesById.forEach((id, profile) -> named.put(id, Shortcodes.names(profile.texts())));
+        var localEmojis = emojis.findLocal(named.values().stream().flatMap(Set::stream).collect(Collectors.toSet()));
         var responses = new HashMap<UUID, AccountResponse>();
         for (var actor : found) {
             var local = actors.isLocal(actor);
+            var accountEmojis = !local ? List.<CustomEmojiResponse>of() : named.getOrDefault(actor.id(), Set.of()).stream()
+                    .map(localEmojis::get)
+                    .filter(Objects::nonNull)
+                    .map(emoji -> CustomEmojiResponse.of(emoji, instance))
+                    .toList();
             responses.put(actor.id(), AccountResponse.from(
                     actor,
                     local ? actor.username() : actor.username() + "@" + actor.domain(),
@@ -88,6 +104,7 @@ class AccountResponses {
                     stats.get(actor.id()),
                     counts.get(actor.id()),
                     local ? hiding.contains(actor.id()) : null,
+                    accountEmojis,
                     instance));
         }
         return responses;

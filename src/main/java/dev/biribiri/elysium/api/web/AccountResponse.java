@@ -25,8 +25,8 @@ import java.util.List;
  */
 @Schema(name = "Account", description = """
         Mastodon's Account entity. Profiles of accounts on other servers aren't stored yet, so for those `display_name` \
-        is the username, `note` and `fields` are empty, the images are a placeholder, and `locked` is false. `emojis` is \
-        always empty, and `bot`, `group`, and `discoverable` are false.""")
+        is the username, `note`, `fields` and `emojis` are empty, the images are a placeholder, and `locked` is false. \
+        `bot`, `group`, and `discoverable` are false.""")
 record AccountResponse(
         String id,
         String username,
@@ -52,7 +52,7 @@ record AccountResponse(
         @JsonProperty("following_count") long followingCount,
         @JsonProperty("statuses_count") long statusesCount,
         @JsonProperty("last_status_at") String lastStatusAt,
-        List<Object> emojis,
+        List<CustomEmojiResponse> emojis,
         List<Field> fields,
         @Schema(description = """
                 Whether the account hides who's in its followers and following, or null for an account on another \
@@ -80,6 +80,7 @@ record AccountResponse(
     /**
      * @param acct    the username for a local account, and the username and domain for a remote one
      * @param profile null for a remote account, whose profile isn't stored
+     * @param emojis  the custom emoji the profile names
      */
     static AccountResponse from(
             Actor actor,
@@ -88,6 +89,7 @@ record AccountResponse(
             AccountStats stats,
             FollowCounts follows,
             Boolean hideCollections,
+            List<CustomEmojiResponse> emojis,
             InstanceProperties instance) {
         var placeholder = instance.resolve(PLACEHOLDER_IMAGE_PATH).toString();
         var shown = profile == null ? Profile.EMPTY : profile;
@@ -115,7 +117,7 @@ record AccountResponse(
                 stats.lastStatusAt() == null
                         ? null
                         : LocalDate.ofInstant(stats.lastStatusAt(), ZoneOffset.UTC).toString(),
-                List.of(),
+                emojis,
                 shown.fields().stream().map(field -> Field.of(field, field.valueHtml())).toList(),
                 hideCollections);
     }
