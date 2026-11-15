@@ -2,8 +2,8 @@ package dev.biribiri.elysium;
 
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
+import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -14,19 +14,64 @@ import org.springframework.web.util.WebUtils;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
     private static final String SESSION_COOKIE = "SESSION";
 
+    /**
+     * One container for the whole test JVM, rather than one per Spring context. Test classes need dozens of different contexts,
+     * and Spring caches up to 32 of them, so a container each meant as many published ports. Rootless Docker picks a port that's
+     * free in its own namespace, and then fails if it's taken on the host, so every port was another chance of a clash. With one
+     * container, a clash can be retried by starting it again.
+     */
+    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(DockerImageName.parse("postgres:18-alpine"))
+            .withStartupAttempts(3)
+            // Every cached context keeps its own connection pool open in the same server. Setting a command replaces
+            // Testcontainers' own, so fsync=off has to be repeated.
+            .withCommand("postgres", "-c", "fsync=off", "-c", "max_connections=1000");
+
+    private static final AtomicInteger DATABASES = new AtomicInteger();
+
+    /**
+     * Gives each context a database of its own, so it still starts empty, as it did with a container of its own.
+     */
     @Bean
-    @ServiceConnection
-    PostgreSQLContainer postgresContainer() {
-        return new PostgreSQLContainer(DockerImageName.parse("postgres:18-alpine"));
+    JdbcConnectionDetails jdbcConnectionDetails() throws SQLException {
+        var name = startedPostgres().getDatabaseName() + "_" + DATABASES.incrementAndGet();
+        try (var connection = POSTGRES.createConnection(""); var statement = connection.createStatement()) {
+            statement.execute("CREATE DATABASE " + name);
+        }
+        var url = "jdbc:postgresql://%s:%d/%s".formatted(POSTGRES.getHost(), POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT), name);
+        return new JdbcConnectionDetails() {
+            @Override
+            public String getUsername() {
+                return POSTGRES.getUsername();
+            }
+
+            @Override
+            public String getPassword() {
+                return POSTGRES.getPassword();
+            }
+
+            @Override
+            public String getJdbcUrl() {
+                return url;
+            }
+        };
+    }
+
+    private static synchronized PostgreSQLContainer startedPostgres() {
+        if (!POSTGRES.isRunning()) {
+            POSTGRES.start();
+        }
+        return POSTGRES;
     }
 
     /**

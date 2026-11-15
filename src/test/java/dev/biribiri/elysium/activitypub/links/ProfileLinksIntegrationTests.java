@@ -11,21 +11,27 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.context.annotation.Primary;
 
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,7 +40,7 @@ import static org.mockito.Mockito.when;
  * Runs the real scheduler, with the pages that fields link to served by a mock client, since the real one only fetches
  * HTTPS from public addresses.
  */
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, ProfileLinksIntegrationTests.Pages.class})
 @SpringBootTest(properties = {"db-scheduler.polling-interval=PT0.1S", "db-scheduler.heartbeat-interval=PT1S"})
 class ProfileLinksIntegrationTests {
 
@@ -44,13 +50,18 @@ class ProfileLinksIntegrationTests {
     private ActorService actors;
     @Autowired
     private ProfileService profiles;
-    @MockitoBean
+    private static final Map<URI, FederationHttpClient.Response> PAGES = new ConcurrentHashMap<>();
+    private static final FederationHttpClient.Response NOT_FOUND = new FederationHttpClient.Response(404, null, null, new byte[0], null);
+
+    @Autowired
     private FederationHttpClient http;
 
     private Actor local;
 
     @BeforeEach
     void setUp() {
+        PAGES.clear();
+        clearInvocations(http);
         var name = "l" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         actors.createLocalIfAbsent(name, actor -> {
         });
@@ -95,14 +106,31 @@ class ProfileLinksIntegrationTests {
         return profiles.find(local.id()).fields();
     }
 
-    private void page(String uri, String html) throws IOException {
-        when(http.get(eq(URI.create(uri)), anyString(), any())).thenReturn(new FederationHttpClient.Response(
+    private void page(String uri, String html) {
+        PAGES.put(URI.create(uri), new FederationHttpClient.Response(
                 200, "text/html", null, ("<!doctype html><html><head></head><body>" + html + "</body></html>")
                 .getBytes(StandardCharsets.UTF_8), null));
     }
 
-    private void redirect(String uri, String location) throws IOException {
-        when(http.get(eq(URI.create(uri)), anyString(), any()))
-                .thenReturn(new FederationHttpClient.Response(301, null, null, new byte[0], location));
+    private void redirect(String uri, String location) {
+        PAGES.put(URI.create(uri), new FederationHttpClient.Response(301, null, null, new byte[0], location));
+    }
+
+    /**
+     * Stubbed once, before any thread can call it, and answered from {@link #PAGES} rather than stubbing the mock in each
+     * test. A test's last profile update leaves a check running after it ends, and Mockito's stubbing isn't safe while
+     * another thread calls the mock, so stubbing for the next test could attach a page to that call instead.
+     */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Pages {
+
+        @Bean
+        @Primary
+        FederationHttpClient pagesHttpClient() throws IOException {
+            var http = mock(FederationHttpClient.class);
+            when(http.get(any(), anyString(), any()))
+                    .thenAnswer(invocation -> PAGES.getOrDefault(invocation.<URI>getArgument(0), NOT_FOUND));
+            return http;
+        }
     }
 }

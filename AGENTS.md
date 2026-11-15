@@ -117,7 +117,8 @@ change. New settings an operator would use also belong in `application.propertie
 
 ## Testing
 
-- Integration tests are `@SpringBootTest` with `@Import(TestcontainersConfiguration.class)`, which runs a real PostgreSQL.
+- Integration tests are `@SpringBootTest` with `@Import(TestcontainersConfiguration.class)`, which runs a real PostgreSQL. One
+  container serves the whole run, and each Spring context gets an empty database of its own in it.
 - `src/test/resources/config/application.properties` turns the login and sign-up rate limits off, because test classes
   share contexts and one address. `RateLimitIntegrationTests` turns them back on. The inbox's limit on key fetches is always on, so
   tests that make an inbox fetch keys should set their own address, as `InboxIntegrationTests` does.
