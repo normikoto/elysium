@@ -86,10 +86,18 @@ final class FilterParameters {
     }
 
     /**
-     * @return null if it's left out
+     * Reads a flag as Rails does, where an empty value is the same as a missing one, and a JSON number is read like its
+     * text.
+     *
+     * @return null if it's left out or empty
      */
     static Boolean flag(Map<String, ?> parameters, String name) {
-        return parameters.get(name) == null ? null : RequestParameters.flag(parameters, name);
+        return switch (parameters.get(name)) {
+            case null -> null;
+            case String string when string.isEmpty() -> null;
+            case Number number -> RequestParameters.flag(number.toString());
+            default -> RequestParameters.flag(parameters, name);
+        };
     }
 
     /**
@@ -137,7 +145,7 @@ final class FilterParameters {
             id = RequestParameters.uuid(idValue).orElseThrow(RecordNotFoundException::new);
         }
         return new PostFilterChange.KeywordEdit(id, RequestParameters.string(entry, "keyword"),
-                flag(entry, "whole_word"), RequestParameters.flag(entry, "_destroy"));
+                flag(entry, "whole_word"), Boolean.TRUE.equals(flag(entry, "_destroy")));
     }
 
     @SuppressWarnings("unchecked")

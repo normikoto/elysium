@@ -169,8 +169,15 @@ class StreamEvents {
                 if (listed) {
                     rendered.computeIfAbsent(viewer, v -> payloads.status(statusId, v)
                                     .map(status -> new Rendered(write(status.payload()), status.hiddenIn())))
-                            .filter(status -> !status.hiddenIn().contains(context(key)))
-                            .ifPresent(status -> connection.send(key, event, status.payload()));
+                            .ifPresent(status -> {
+                                if (!status.hiddenIn().contains(context(key))) {
+                                    connection.send(key, event, status.payload());
+                                } else if (event.equals("status.update")) {
+                                    // An edit can make a status the client already has match, and it can't be left
+                                    // showing the old text.
+                                    connection.send(key, "delete", statusId.toString());
+                                }
+                            });
                 }
             }
         }

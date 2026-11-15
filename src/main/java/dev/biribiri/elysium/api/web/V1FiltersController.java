@@ -159,19 +159,10 @@ public class V1FiltersController {
         var viewer = FiltersController.viewer(token);
         var keywordId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
         var parameters = json.readAny(request, MAX_BODY_BYTES);
-        var irreversible = FilterParameters.flag(parameters, "irreversible");
-        PostFilter.Action action = null;
-        if (irreversible != null) {
-            action = irreversible ? PostFilter.Action.HIDE : PostFilter.Action.WARN;
-        }
         var phrase = parameters.containsKey("phrase") && RequestParameters.string(parameters, "phrase") == null
                 ? "" : RequestParameters.string(parameters, "phrase");
-        var current = filters.legacyFind(viewer, keywordId).orElseThrow(RecordNotFoundException::new);
-        // A blur filter isn't irreversible either, so not being irreversible doesn't make it a warning.
-        if (action == PostFilter.Action.WARN && current.filter().action() == PostFilter.Action.BLUR) {
-            action = null;
-        }
-        return filters.legacyUpdate(viewer, keywordId, phrase, FilterParameters.contexts(parameters), action,
+        return filters.legacyUpdate(viewer, keywordId, phrase, FilterParameters.contexts(parameters),
+                        FilterParameters.flag(parameters, "irreversible"),
                         FilterParameters.expiry(parameters), FilterParameters.flag(parameters, "whole_word"))
                 .map(V1FiltersController::response).orElseThrow(RecordNotFoundException::new);
     }

@@ -360,6 +360,65 @@ class FiltersIntegrationTests {
     }
 
     @Test
+    void theUsersOwnStatusesArentFiltered() throws Exception {
+        var alice = token("filteralice");
+        var bob = token("filterbob");
+        createFilter(alice, """
+                {"title": "Finale", "context": ["home", "account", "notifications"], "filter_action": "hide",
+                 "keywords_attributes": [{"keyword": "finale"}]}""");
+        var own = createStatus(alice, "my finale review");
+        mockMvc.perform(withToken(post("/api/v1/statuses/" + own + "/favourite"), bob)).andExpect(status().isOk());
+
+        mockMvc.perform(withToken(get("/api/v1/timelines/home"), alice))
+                .andExpect(jsonPath("$[*].id", contains(own)))
+                .andExpect(jsonPath("$[0].filtered", hasSize(0)));
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM inbox_notification").query(Long.class)
+                .single() == 1);
+        mockMvc.perform(withToken(get("/api/v1/notifications"), alice))
+                .andExpect(jsonPath("$[*].status.id", contains(own)));
+    }
+
+    @Test
+    void longV1PhrasesNameTheirFiltersShortened() throws Exception {
+        var token = token("filteralice");
+        var phrase = "p".repeat(PostFilters.MAX_KEYWORD_LENGTH);
+        mockMvc.perform(withToken(post("/api/v1/filters"), token).param("phrase", phrase).param("context[]", "home"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phrase").value(phrase));
+        mockMvc.perform(withToken(get("/api/v2/filters"), token))
+                .andExpect(jsonPath("$[0].title").value("p".repeat(PostFilters.MAX_TITLE_LENGTH)));
+    }
+
+    @Test
+    void emptyFlagsAreLeftOut() throws Exception {
+        var token = token("filteralice");
+        mockMvc.perform(withToken(post("/api/v2/filters"), token)
+                        .param("title", "Empty")
+                        .param("context[]", "home")
+                        .param("keywords_attributes[0][keyword]", "word")
+                        .param("keywords_attributes[0][whole_word]", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.keywords[0].whole_word").value(true));
+    }
+
+    @Test
+    void v1DoesntTurnBlurIntoAWarning() throws Exception {
+        var token = token("filteralice");
+        String keywordId = JsonPath.read(createFilter(token, """
+                {"title": "Blur", "context": ["home"], "filter_action": "blur",
+                 "keywords_attributes": [{"keyword": "one"}, {"keyword": "two"}]}"""), "$.keywords[0].id");
+        mockMvc.perform(withToken(put("/api/v1/filters/" + keywordId), token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phrase": "uno", "irreversible": false, "whole_word": 0}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.irreversible").value(false))
+                .andExpect(jsonPath("$.whole_word").value(false));
+        mockMvc.perform(withToken(get("/api/v2/filters"), token))
+                .andExpect(jsonPath("$[0].filter_action").value("blur"));
+    }
+
+    @Test
     void statusFiltersCoverBoosts() throws Exception {
         var alice = token("filteralice");
         var bob = token("filterbob");

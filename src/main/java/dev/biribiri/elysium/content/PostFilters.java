@@ -125,6 +125,7 @@ public class PostFilters {
      */
     @Transactional
     public boolean delete(UUID accountId, UUID filterId) {
+        repository.lockAccount(accountId);
         if (repository.find(accountId, filterId).isEmpty()) return false;
         repository.delete(filterId);
         changed(accountId);
@@ -165,6 +166,7 @@ public class PostFilters {
      */
     @Transactional
     public Optional<PostFilter.Keyword> updateKeyword(UUID accountId, UUID keywordId, String keyword, Boolean wholeWord) {
+        repository.lockAccount(accountId);
         var old = keyword(accountId, keywordId);
         if (old.isEmpty()) return Optional.empty();
         var updated = new PostFilter.Keyword(keywordId, keyword == null ? old.get().keyword() : keyword(keyword),
@@ -181,6 +183,7 @@ public class PostFilters {
      */
     @Transactional
     public boolean deleteKeyword(UUID accountId, UUID keywordId) {
+        repository.lockAccount(accountId);
         if (repository.findFilterOfKeyword(accountId, keywordId).isEmpty()) return false;
         repository.deleteKeyword(keywordId);
         changed(accountId);
@@ -222,6 +225,7 @@ public class PostFilters {
      */
     @Transactional
     public boolean deleteStatus(UUID accountId, UUID filteredStatusId) {
+        repository.lockAccount(accountId);
         if (repository.findFilterOfStatus(accountId, filteredStatusId).isEmpty()) return false;
         repository.deleteStatus(filteredStatusId);
         changed(accountId);
@@ -258,7 +262,7 @@ public class PostFilters {
     public LegacyFilter legacyCreate(UUID accountId, String phrase, Set<PostFilter.Context> contexts,
                                      PostFilter.Action action, PostFilterChange.Expiry expiry, boolean wholeWord) {
         if (phrase == null || phrase.isBlank()) throw new InvalidPostFilterException("Phrase can't be blank");
-        var filter = create(accountId, new PostFilterChange(phrase, contexts, action, expiry,
+        var filter = create(accountId, new PostFilterChange(titleFrom(phrase), contexts, action, expiry,
                 List.of(new PostFilterChange.KeywordEdit(null, phrase, wholeWord, false))));
         return new LegacyFilter(filter, filter.keywords().getFirst());
     }
@@ -267,19 +271,26 @@ public class PostFilters {
      * Changes the keyword, and what its filter applies to. The phrase also names a filter that has only this keyword. A
      * filter with others can only have its keyword changed, as on Mastodon, since the change would apply to all of them.
      *
-     * @param phrase    null to keep it
-     * @param wholeWord null to keep it
+     * @param phrase       null to keep it
+     * @param irreversible null to keep the action. False keeps {@link PostFilter.Action#BLUR}, which isn't irreversible
+     *                     either
+     * @param wholeWord    null to keep it
      * @return the keyword and its filter as changed, or empty if the account has no such keyword
      * @throws InvalidPostFilterException if the change is refused
      */
     @Transactional
     public Optional<LegacyFilter> legacyUpdate(UUID accountId, UUID keywordId, String phrase,
-                                               Set<PostFilter.Context> contexts, PostFilter.Action action,
+                                               Set<PostFilter.Context> contexts, Boolean irreversible,
                                                PostFilterChange.Expiry expiry, Boolean wholeWord) {
         repository.lockAccount(accountId);
         var found = legacyFind(accountId, keywordId);
         if (found.isEmpty()) return Optional.empty();
         var filter = found.get().filter();
+        PostFilter.Action action = null;
+        if (irreversible != null) {
+            action = irreversible ? PostFilter.Action.HIDE
+                    : filter.action() == PostFilter.Action.BLUR ? null : PostFilter.Action.WARN;
+        }
         var single = filter.keywords().size() == 1;
         var changesFilter = (contexts != null && !contexts.equals(filter.contexts()))
                 || (action != null && action != filter.action())
@@ -289,7 +300,8 @@ public class PostFilters {
                     "This filter has more than one keyword, so only its phrase and whole-word setting can be changed here");
         }
         if (phrase != null && phrase.isBlank()) throw new InvalidPostFilterException("Phrase can't be blank");
-        update(accountId, filter.id(), new PostFilterChange(single ? phrase : null, contexts, action, expiry,
+        update(accountId, filter.id(), new PostFilterChange(single && phrase != null ? titleFrom(phrase) : null, contexts,
+                action, expiry,
                 List.of(new PostFilterChange.KeywordEdit(keywordId, phrase, wholeWord, false))));
         return legacyFind(accountId, keywordId);
     }
@@ -302,6 +314,7 @@ public class PostFilters {
      */
     @Transactional
     public boolean legacyDelete(UUID accountId, UUID keywordId) {
+        repository.lockAccount(accountId);
         var found = legacyFind(accountId, keywordId);
         if (found.isEmpty()) return false;
         var filter = found.get().filter();
@@ -348,6 +361,15 @@ public class PostFilters {
 
     private static Optional<PostFilter.Keyword> keywordIn(PostFilter filter, UUID keywordId) {
         return filter.keywords().stream().filter(keyword -> keyword.id().equals(keywordId)).findFirst();
+    }
+
+    /**
+     * A phrase can be longer than a title, so a long one is cut short to name its filter.
+     */
+    private static String titleFrom(String phrase) {
+        var stripped = phrase.strip();
+        return stripped.codePointCount(0, stripped.length()) <= MAX_TITLE_LENGTH ? stripped
+                : stripped.substring(0, stripped.offsetByCodePoints(0, MAX_TITLE_LENGTH));
     }
 
     private static String title(String title) {

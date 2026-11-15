@@ -87,17 +87,11 @@ class StatusResponses {
     }
 
     /**
-     * A status rendered for a stream, and the contexts in which the viewer's filters hide it.
-     */
-    record Streamed(StatusResponse response, Set<PostFilter.Context> hiddenIn) {
-    }
-
-    /**
      * @return empty if the status's author can't be loaded
      */
-    Optional<Streamed> streamed(Status status, Optional<UUID> viewer) {
+    Optional<StreamPayloads.StreamedStatus> streamed(Status status, Optional<UUID> viewer) {
         return build(List.of(status), false, viewer, Map.of()).stream().findFirst()
-                .map(built -> new Streamed(built.response(), Arrays.stream(PostFilter.Context.values())
+                .map(built -> new StreamPayloads.StreamedStatus(built.response(), Arrays.stream(PostFilter.Context.values())
                         .filter(built::hiddenIn).collect(Collectors.toUnmodifiableSet())));
     }
 
@@ -223,10 +217,12 @@ class StatusResponses {
         var matcher = viewer.map(filters::matcher).orElse(PostFilterMatcher.NONE);
         var byId = all.stream().collect(Collectors.toMap(Status::id, Function.identity(), (a, b) -> a));
         var matches = new HashMap<UUID, List<PostFilterMatch>>();
-        // A boost has no text of its own, so its keywords are matched in what it boosts, as on Mastodon.
+        // A boost has no text of its own, so its keywords are matched in what it boosts, as on Mastodon. The viewer's own
+        // statuses are never filtered, as Mastodon's clients don't filter them, since hiding them here couldn't be undone.
         Function<Status, List<PostFilterMatch>> matchesOf = status -> matcher.isEmpty() ? List.of()
                 : matches.computeIfAbsent(status.id(), id -> {
                     var proper = status.isReblog() ? byId.get(status.reblogOfId()) : status;
+                    if (proper != null && viewer.filter(proper.actorId()::equals).isPresent()) return List.of();
                     var text = proper == null ? null : PostFilterMatcher.searchableText(
                             proper, pollsById.get(proper.id()), media.getOrDefault(proper.id(), List.of()));
                     return matcher.match(status, text);

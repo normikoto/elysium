@@ -54,11 +54,11 @@ import java.util.UUID;
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/"))
 public class StatusesController {
 
+    private static final Optional<PostFilter.Context> THREAD = Optional.of(PostFilter.Context.THREAD);
+
     /**
      * The most a character can take up in JSON, as an escaped surrogate pair like {@code \ud83d\ude00}.
      */
-    private static final Optional<PostFilter.Context> THREAD = Optional.of(PostFilter.Context.THREAD);
-
     private static final long MAX_BYTES_PER_CHARACTER = 12;
 
     /**

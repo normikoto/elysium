@@ -236,7 +236,8 @@ Filters follow [Mastodon's filters API](https://docs.joinmastodon.org/methods/fi
 `/api/v2/filters` and its deprecated v1 form at `/api/v1/filters`, which some clients still use:
 
 - Statuses have Mastodon's `filtered`, listing the user's unexpired filters that they match in any context, as on
-  Mastodon. It's left out without a user token. A boost matches by the status it boosts.
+  Mastodon. It's left out without a user token. A boost matches by the status it boosts. The user's own statuses, and
+  boosts of them, never match, as Mastodon's own app treats them, so notifications about them aren't hidden either.
 - Keywords are matched without regard to case, in a status's content warning, its text, its poll's options, and its
   media descriptions. A whole-word keyword only needs a word boundary at an end that's a letter, digit, or underscore, so
   `#tag` doesn't match `#tagged` but does match `#tag!`. For a status from another server, its text is what its HTML
@@ -268,7 +269,7 @@ differences:
 - Lists aren't implemented, so `list` gets an "Unknown stream type" error, and `/api/v1/streaming/list` a 404. There are no
   `announcement`, `announcement.reaction`, `announcement.delete`, `notifications_merged`, or `encrypted_message` events.
   `filters_changed` is sent on `user`, as on Mastodon, with no payload: the WebSocket message has no `payload`, and the
-  event stream's `data` is empty.
+  event stream's `data` is empty. An edit that makes a status match a filter that hides it there is sent as a `delete`.
 - A stream carries what its timeline would list: `user` what the home timeline would, and `public` and `hashtag` what the
   public and hashtag timelines would, including leaving out what the user has hidden or their filters hide. A status from
   another server only arrives once it's stored here.

@@ -39,8 +39,7 @@ public class StreamPayloads {
 
     public Optional<StreamedStatus> status(UUID statusId, Optional<UUID> viewer) {
         return statuses.findVisible(statusId, viewer)
-                .flatMap(status -> statusResponses.streamed(status, viewer))
-                .map(streamed -> new StreamedStatus(streamed.response(), streamed.hiddenIn()));
+                .flatMap(status -> statusResponses.streamed(status, viewer));
     }
 
     public Optional<Object> notification(UUID notificationId, UUID viewer) {

@@ -15,6 +15,7 @@ import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
@@ -145,6 +146,20 @@ class StreamingIntegrationTests {
         assertThat(JsonPath.<String>read(payload, "$.id")).isEqualTo(hidden.id().toString());
         assertThat(JsonPath.<List<String>>read(payload, "$.filtered[*].keyword_matches[*]")).containsExactly("secret");
         home.expectNothing();
+    }
+
+    @Test
+    void anEditThatAFilterHidesDeletesTheStatusFromTheStream() throws Exception {
+        follows.follow(alice, bob);
+        filters.create(alice.id(), new PostFilterChange("Hidden", Set.of(PostFilter.Context.HOME),
+                PostFilter.Action.HIDE, null, List.of(new PostFilterChange.KeywordEdit(null, "secret", null, false))));
+        var home = webSocket("?stream=user", aliceToken);
+        var status = post(bob, "nothing yet", Visibility.PUBLIC);
+        home.next(event("update"));
+
+        statuses.edit(status.id(), bob.id(), new StatusEdit("now a secret", null, null, null));
+        var delete = home.next(event("delete"));
+        assertThat(JsonPath.<String>read(delete, "$.payload")).isEqualTo(status.id().toString());
     }
 
     @Test

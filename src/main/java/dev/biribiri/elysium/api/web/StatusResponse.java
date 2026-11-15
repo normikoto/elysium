@@ -62,8 +62,8 @@ record StatusResponse(
         @JsonProperty("quote_approval") QuoteApprovalResponse quoteApproval,
         @JsonProperty("quotes_count") long quotesCount,
         @Schema(description = """
-                The viewer's unexpired filters that the status matches, whatever their contexts, as on Mastodon. Left \
-                out without a user.""")
+                The viewer's unexpired filters that the status matches, whatever their contexts, as on Mastodon. The \
+                viewer's own statuses never match. Left out without a user.""")
         @JsonInclude(JsonInclude.Include.NON_NULL) List<FilterResponse.ResultResponse> filtered
 ) {
 
