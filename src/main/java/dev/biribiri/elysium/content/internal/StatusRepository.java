@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.Indexable;
 import dev.biribiri.elysium.content.AccountStats;
 import dev.biribiri.elysium.content.DeletedStatus;
 import dev.biribiri.elysium.content.Status;
@@ -87,6 +88,12 @@ public class StatusRepository {
             " AND EXISTS (SELECT 1 FROM media_attachment m WHERE m.status_id = s.id)";
 
     private static final String MENTIONS_VIEWER = mentions(":viewer");
+
+    /**
+     * What status search matches against. It has to be the expression {@code status_search_idx} is built on, character
+     * for character, or PostgreSQL won't use the index.
+     */
+    private static final String SEARCH_VECTOR = "to_tsvector('simple', s.spoiler_text || ' ' || s.text)";
 
     /**
      * Leaves out what's hidden from the viewer: statuses by accounts it has blocked, muted, or blocked the server of, or that
@@ -1052,6 +1059,34 @@ public class StatusRepository {
     }
 
     /**
+     * Finds statuses by their words, newest first, as Mastodon does. A viewer finds what they wrote, favourited, or are
+     * mentioned in, and public statuses by accounts that let anyone's search find them. Of those, only what the viewer can
+     * see is found, with followers-only statuses by accounts they no longer follow left out.
+     *
+     * @param query     in {@code websearch_to_tsquery}'s syntax, which accepts anything, so a query with no words finds
+     *                  nothing rather than failing
+     * @param accountId only find this account's statuses, or null for anyone's
+     */
+    public List<Status> search(UUID viewer, String query, UUID accountId, StatusPage page, int offset) {
+        var parameters = new HashMap<String, Object>();
+        parameters.put("viewer", viewer);
+        parameters.put("query", query);
+        var filter = new StringBuilder("s.reblog_of_id IS NULL AND ")
+                .append(SEARCH_VECTOR).append(" @@ websearch_to_tsquery('simple', :query)")
+                .append(" AND (s.actor_id = :viewer OR").append(MENTIONS_VIEWER)
+                .append(" OR EXISTS (SELECT 1 FROM status_like l WHERE l.status_id = s.id AND l.actor_id = :viewer)")
+                .append(" OR (s.visibility = 'public' AND ").append(Indexable.account("s.actor_id")).append("))")
+                .append(" AND (s.visibility IN ('public', 'unlisted') OR s.actor_id = :viewer OR").append(MENTIONS_VIEWER)
+                .append(" OR (s.visibility = 'private' AND ").append(Following.accepted(":viewer", "s.actor_id")).append("))")
+                .append(NOT_HIDDEN);
+        if (accountId != null) {
+            filter.append(" AND s.actor_id = :accountId");
+            parameters.put("accountId", accountId);
+        }
+        return findPage(filter.toString(), parameters, page, offset);
+    }
+
+    /**
      * @return the days since {@code since} on which each tag was used, by public statuses from active accounts
      */
     public Map<String, List<TagDay>> tagDays(Collection<String> names, Instant since) {
@@ -1164,6 +1199,10 @@ public class StatusRepository {
     }
 
     private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page) {
+        return findPage(filter, parameters, page, 0);
+    }
+
+    private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page, int offset) {
         var sql = new StringBuilder(SELECT).append("WHERE ").append(filter);
         var cursors = new HashMap<String, Object>(parameters);
         if (page.maxId() != null) {
@@ -1181,6 +1220,10 @@ public class StatusRepository {
         }
         sql.append(ascending ? " ORDER BY s.id ASC" : " ORDER BY s.id DESC").append(" LIMIT :limit");
         cursors.put("limit", page.limit());
+        if (offset > 0) {
+            sql.append(" OFFSET :offset");
+            cursors.put("offset", offset);
+        }
 
         var statuses = jdbc.sql(sql.toString()).params(cursors).query(STATUS_MAPPER).list();
         return ascending ? statuses.reversed() : statuses;

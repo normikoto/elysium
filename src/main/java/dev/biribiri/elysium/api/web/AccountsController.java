@@ -180,10 +180,10 @@ public class AccountsController {
             summary = "Change the user's profile and account settings",
             description = """
                     Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, \
-                    `locked`, `hide_collections`, and `source[quote_policy]` can be changed. `bot`, `discoverable`, \
-                    `indexable`, and the rest of `source` are accepted only with the values the account already has \
-                    (false, and `public` for `source[privacy]`), and any other value for them, or any other field with a value, gets a 422 naming it. Then nothing \
-                    is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it.
+                    `locked`, `indexable`, `hide_collections`, and `source[quote_policy]` can be changed. `bot`, \
+                    `discoverable`, and the rest of `source` are accepted only with the values the account already has \
+                    (false, and `public` for `source[privacy]`), and any other value for them, or any other field with \
+                    a value, gets a 422 naming it. Then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it.
 
                     `fields_attributes` can be a list, or an object keyed by position, as can a form's \
                     `fields_attributes[0][name]` or `fields_attributes[][name]`. It replaces all of the fields, and \
@@ -764,6 +764,10 @@ public class AccountsController {
                     Whether requests to follow the user wait for the user to approve them. Turning it off approves \
                     those still waiting.""")
             Boolean locked,
+            @Schema(description = """
+                    Whether anyone's search can find the user's public statuses. Without it, only those who wrote, \
+                    favourited, or are mentioned in a status can find it.""")
+            Boolean indexable,
             @Schema(description = """
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")

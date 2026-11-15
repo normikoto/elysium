@@ -52,7 +52,8 @@ public final class ActivityStreams {
                     Emoji.CONTEXT_TERM, Emoji.CONTEXT_IRI,
                     "manuallyApprovesFollowers", "as:manuallyApprovesFollowers",
                     "toot", "http://joinmastodon.org/ns#",
-                    "featured", Map.of("@id", "toot:featured", "@type", "@id")));
+                    "featured", Map.of("@id", "toot:featured", "@type", "@id"),
+                    "indexable", "toot:indexable"));
 
     /**
      * The {@code @context} of an actor document or activity saying that the actor is suspended, which adds Mastodon's term for

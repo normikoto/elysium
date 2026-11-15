@@ -71,6 +71,14 @@
             Requests to follow you wait until you approve or refuse them in your app. Turning this off approves those
             still waiting.
         </p>
+        <label>
+            <input type="checkbox" name="indexable" value="true" th:checked="${indexable}">
+            Let anyone find your public posts by searching
+        </label>
+        <p>
+            Even with this off, people here can find your posts that they've favourited or that mention them. Other
+            servers are told about this setting, and decide for themselves what their search finds.
+        </p>
         <button type="submit">Save</button>
     </form>
     <p><a href="/settings/password">Change your password</a></p>

@@ -25,6 +25,7 @@ import java.util.List;
  *                   are none
  * @param featured   the collection of pinned statuses, left out while the actor is suspended, since it can't be read then
  * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them
+ * @param indexable  whether any server's search may find the actor's public statuses
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
  * @param suspended  true if the actor is suspended. Otherwise this is left out, as other servers treat a missing one as false.
  */
@@ -49,6 +50,7 @@ public record Person(
         List<PropertyValue> attachment,
         List<Tag> tag,
         boolean manuallyApprovesFollowers,
+        boolean indexable,
         String published,
         String updated,
         Boolean suspended
@@ -122,6 +124,7 @@ public record Person(
                         .toList(),
                 tags.isEmpty() ? null : List.copyOf(tags),
                 profile.manuallyApprovesFollowers(),
+                profile.indexable(),
                 ActivityStreams.time(actor.createdAt()),
                 ActivityStreams.time(profile.updatedAt()),
                 null);
@@ -146,6 +149,7 @@ public record Person(
         return new Person(
                 context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, featured,
                 endpoints,
-                publicKey, icon, image, attachment, tag, manuallyApprovesFollowers, published, updated, suspended);
+                publicKey, icon, image, attachment, tag, manuallyApprovesFollowers, indexable, published, updated,
+                suspended);
     }
 }

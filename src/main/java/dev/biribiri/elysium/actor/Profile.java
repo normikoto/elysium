@@ -18,6 +18,7 @@ import java.util.SequencedSet;
  * @param avatar    null if there isn't one
  * @param header    null if there isn't one
  * @param manuallyApprovesFollowers whether requests to follow the account wait for its approval
+ * @param indexable whether anyone's search can find its public statuses
  * @param updatedAt null if it's never been changed
  * @param remote    what only an account on another server has, or null for a local one
  */
@@ -28,10 +29,11 @@ public record Profile(
         ProfileImage header,
         List<ProfileField> fields,
         boolean manuallyApprovesFollowers,
+        boolean indexable,
         Instant updatedAt,
         Remote remote) {
 
-    public static final Profile EMPTY = new Profile("", "", null, null, List.of(), false, null);
+    public static final Profile EMPTY = new Profile("", "", null, null, List.of(), false, false, null);
 
     /**
      * What an account on another server's actor document says that a local profile doesn't need.
@@ -59,8 +61,9 @@ public record Profile(
             ProfileImage header,
             List<ProfileField> fields,
             boolean manuallyApprovesFollowers,
+            boolean indexable,
             Instant updatedAt) {
-        this(displayName, note, avatar, header, fields, manuallyApprovesFollowers, updatedAt, null);
+        this(displayName, note, avatar, header, fields, manuallyApprovesFollowers, indexable, updatedAt, null);
     }
 
     /**

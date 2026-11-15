@@ -51,14 +51,18 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
 - `published`, when the account was created, and `updated`, when the profile last changed, both to the second.
 
 `manuallyApprovesFollowers` is always included, and is true when the user [approves followers by hand](#follows).
+`indexable` is always included too, as Mastodon sends it, and is true when the user lets anyone's search find their public
+statuses. It's false until they choose that. This server's own search follows other servers' actors' `indexable` in the
+same way.
 
 The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields,
 `Hashtag` (`as:Hashtag`), `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`), and `toot`
-(`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`) and `Emoji` (`toot:Emoji`). `featured` is the user's
+(`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`), `indexable` (`toot:indexable`), and `Emoji`
+(`toot:Emoji`). `featured` is the user's
 [pinned statuses](#pinned-statuses), at `/users/{username}/collections/featured`. A suspended user's document leaves it
 out.
 
-When a user changes their profile, or whether they approve followers by hand, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
+When a user changes their profile, whether they approve followers by hand, or whether they're indexable, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
 `{actor-uri}#profile/{milliseconds}`. It's addressed to the public, with the followers collection in `cc`, and its
 `object` is the actor document, without a `@context` of its own, as it is when it's sent. A save that changes nothing
 sends nothing, and neither does verifying a field. These aren't ordered, so a server that's been down can get an older
@@ -427,8 +431,9 @@ was stored before. A part that can't be used is left out, without refusing the a
   an array of those, whose first item is taken. Only HTTPS URLs are kept.
 - `tag` items of type `Emoji`, read as they are [for statuses](#receiving-custom-emoji), and stored under the actor's
   domain.
-- `manuallyApprovesFollowers`, `published`, and `url`, a URL or a `Link`, of which the first with an HTTP or HTTPS
-  `href` is taken. A `type` of `Service` or `Application` marks the account as a bot, and `Group` as a group.
+- `manuallyApprovesFollowers`, `indexable`, `published`, and `url`, a URL or a `Link`, of which the first with an HTTP
+  or HTTPS `href` is taken. An actor without `indexable`, or with anything but `true`, isn't indexable, so its public
+  statuses are only found here by the users who favourited them or are mentioned in them. A `type` of `Service` or `Application` marks the account as a bot, and `Group` as a group.
 
 Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit. Each
 has to be within 8 MB by default, which an admin [can change](docs/configuration.md), and is kept as WebP. One that's too
