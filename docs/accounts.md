@@ -199,8 +199,9 @@ by looking them up.
 
 ## Custom emoji
 Admins add the server's custom emoji at `/admin/custom-emojis`. Each has a shortcode, such as `blobcat`, which people write
-between colons, as `:blobcat:`, in a post, a display name, a bio, or a profile field, and an image of up to 256 KB, which is
-kept as WebP, animated if it was. People's apps list them in their emoji pickers, apart from those you hide from pickers,
+between colons, as `:blobcat:`, in a post, a display name, a bio, or a profile field, and an image, which is kept as WebP,
+animated if it was. Images can be up to 256 KB, as on Mastodon, unless you set
+[`elysium.custom-emojis.max-image-size`](configuration.md), which also limits the emoji downloaded from other servers. People's apps list them in their emoji pickers, apart from those you hide from pickers,
 which can still be used by typing their shortcode.
 
 - Posts only show the emoji that existed when they were written or last edited, so adding an emoji doesn't change older

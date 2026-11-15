@@ -5,7 +5,8 @@
         <p>
             People use an emoji by writing its shortcode between colons, such as <strong>:blobcat:</strong>, in a post, a
             display name, a bio, or a profile field. Other servers are sent its image along with what uses it. An image can
-            be PNG, GIF, WebP, or JPEG, of up to 256 KB, and is kept as WebP, animated if it was.
+            be PNG, GIF, WebP, or JPEG, of up to <span th:text="${maxImageSize}">256 KB</span>, and is kept as WebP,
+            animated if it was.
         </p>
         <p>
             Removing an emoji shows its shortcode as text wherever it was used, here and on servers that fetch those posts

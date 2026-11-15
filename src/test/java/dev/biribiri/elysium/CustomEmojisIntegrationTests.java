@@ -51,7 +51,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
         "elysium.instance.base-url=https://emoji.example",
-        "elysium.jobs.worker-enabled=false"
+        "elysium.jobs.worker-enabled=false",
+        // Lower than the default, so that the tests show the setting is what's used.
+        "elysium.custom-emojis.max-image-size=200KB"
 })
 @AutoConfigureMockMvc
 class CustomEmojisIntegrationTests {
@@ -133,10 +135,12 @@ class CustomEmojisIntegrationTests {
                         .session(session).with(csrf()).param("shortcode", shortcode()))
                 .andExpect(status().isUnprocessableContent());
         mockMvc.perform(multipart(PAGE)
-                        .file(new MockMultipartFile("image", "e.png", "image/png", new byte[300 * 1024]))
+                        .file(new MockMultipartFile("image", "e.png", "image/png", new byte[210 * 1024]))
                         .session(session).with(csrf()).param("shortcode", shortcode()))
                 .andExpect(status().isUnprocessableContent())
-                .andExpect(content().string(containsString("256 KB")));
+                .andExpect(content().string(containsString("larger than 200 KB")));
+        mockMvc.perform(get(PAGE).session(session))
+                .andExpect(content().string(containsString("of up to <span>200 KB</span>")));
     }
 
     @Test
@@ -172,7 +176,7 @@ class CustomEmojisIntegrationTests {
 
     @Test
     void refusesAnImageThatsTooLarge() {
-        assertThatThrownBy(() -> CustomEmojis.checkImageSize(CustomEmojis.MAX_IMAGE_SIZE.toBytes() + 1))
+        assertThatThrownBy(() -> emojis.checkImageSize(emojis.maxImageSize().toBytes() + 1))
                 .isInstanceOf(InvalidCustomEmojiException.class);
     }
 

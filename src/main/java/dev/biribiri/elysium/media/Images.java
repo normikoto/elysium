@@ -72,7 +72,7 @@ public class Images {
     /**
      * A limit as people are told it.
      */
-    static String describe(DataSize limit) {
+    public static String describe(DataSize limit) {
         return limit.toKilobytes() % 1024 == 0 ? limit.toMegabytes() + " MB" : limit.toKilobytes() + " KB";
     }
 

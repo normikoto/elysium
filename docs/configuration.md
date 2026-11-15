@@ -16,6 +16,7 @@ Set these in your `application.properties`:
 | `elysium.statuses.max-characters`  | Optional. The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Defaults to `5000`. Lowering it doesn't affect existing statuses. |
 | `elysium.profiles.max-fields`      | Optional. How many fields each profile can have, from 0 to 50. Defaults to `4`, as on Mastodon. Lowering it doesn't remove any, but a profile with more can't save its fields until it has few enough. |
 | `elysium.profiles.max-image-size`  | Optional. The largest avatar or header that can be uploaded, such as `4MB`. Defaults to `8MB`. |
+| `elysium.custom-emojis.max-image-size` | Optional. The largest image a [custom emoji](accounts.md#custom-emoji) can have, before it's re-encoded, for those admins add and those downloaded from other servers. Defaults to `256KB`, as on Mastodon. Other servers' emoji with larger images are linked to their server. |
 | `elysium.attachments.max-image-size` | Optional. The largest image that can be attached to a post, before it's re-encoded. Defaults to `16MB`. |
 | `elysium.attachments.max-video-size` | Optional. The largest video that can be attached to a post. Defaults to `100MB`. |
 | `elysium.attachments.max-audio-size` | Optional. The largest audio file that can be attached to a post. Defaults to `40MB`. |

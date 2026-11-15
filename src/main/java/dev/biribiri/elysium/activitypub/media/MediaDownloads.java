@@ -181,7 +181,7 @@ public class MediaDownloads {
 
     private CompletionHandler<EmojiDownloadJob> downloadEmoji(EmojiDownloadJob job, URI url, String host, String server) {
         var id = job.emojiId();
-        var limit = CustomEmojis.MAX_IMAGE_SIZE.toBytes();
+        var limit = emojis.maxImageSize().toBytes();
         var probe = budget.tryAcquire(server);
         if (probe.isEmpty()) {
             log.debug("Not downloading {}, since {} has had as much downloaded as it can for now", url, server);

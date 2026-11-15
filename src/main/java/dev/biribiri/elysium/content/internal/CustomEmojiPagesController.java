@@ -54,7 +54,7 @@ class CustomEmojiPagesController {
                 throw new InvalidCustomEmojiException("Choose an image");
             }
             // Before the file is read into memory, since Spring takes files as large as a video.
-            CustomEmojis.checkImageSize(image.getSize());
+            emojis.checkImageSize(image.getSize());
             emojis.addLocal(shortcode, image.getBytes(), category);
             return "redirect:" + PATH;
         } catch (InvalidCustomEmojiException e) {
@@ -101,6 +101,7 @@ class CustomEmojiPagesController {
     private String page(Model model) {
         model.addAttribute("emojis", emojis.listLocal().stream().map(emoji -> Row.from(emoji, instance)).toList());
         model.addAttribute("maxCategoryLength", CustomEmojis.MAX_CATEGORY_LENGTH);
+        model.addAttribute("maxImageSize", emojis.describeMaxImageSize());
         return "admin-custom-emojis";
     }
 

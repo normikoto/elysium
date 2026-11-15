@@ -31,11 +31,6 @@ import java.util.UUID;
 @Service
 public class CustomEmojis {
 
-    /**
-     * Mastodon's default limit, which other servers are used to sending within.
-     */
-    public static final DataSize MAX_IMAGE_SIZE = DataSize.ofKilobytes(256);
-
     public static final int MAX_CATEGORY_LENGTH = 50;
 
     /**
@@ -49,9 +44,11 @@ public class CustomEmojis {
     private final MediaAttachments attachments;
     private final InstanceProperties instance;
     private final ApplicationEventPublisher events;
+    private final CustomEmojiProperties properties;
 
     CustomEmojis(CustomEmojiRepository emojis, Images images, MediaAttachments attachments, InstanceProperties instance,
-                 ApplicationEventPublisher events) {
+                 ApplicationEventPublisher events, CustomEmojiProperties properties) {
+        this.properties = properties;
         this.emojis = emojis;
         this.images = images;
         this.attachments = attachments;
@@ -64,9 +61,9 @@ public class CustomEmojis {
      *
      * @throws InvalidCustomEmojiException if it's too large
      */
-    public static void checkImageSize(long size) {
+    public void checkImageSize(long size) {
         try {
-            Images.checkSize(size, MAX_IMAGE_SIZE);
+            Images.checkSize(size, properties.maxImageSize());
         } catch (InvalidImageException e) {
             throw new InvalidCustomEmojiException(e.getMessage());
         }
@@ -86,7 +83,7 @@ public class CustomEmojis {
         }
         StoredImage stored;
         try {
-            stored = images.store(image, ImageKind.EMOJI, MAX_IMAGE_SIZE);
+            stored = images.store(image, ImageKind.EMOJI, properties.maxImageSize());
         } catch (InvalidImageException e) {
             throw new InvalidCustomEmojiException(e.getMessage());
         }
@@ -105,6 +102,20 @@ public class CustomEmojis {
             throw taken(name);
         }
         return emoji;
+    }
+
+    /**
+     * The largest image an emoji can have, as admins are told it.
+     */
+    public String describeMaxImageSize() {
+        return Images.describe(properties.maxImageSize());
+    }
+
+    /**
+     * The largest image of another server's emoji that's downloaded.
+     */
+    public DataSize maxImageSize() {
+        return properties.maxImageSize();
     }
 
     private static InvalidCustomEmojiException taken(String name) {
@@ -231,7 +242,7 @@ public class CustomEmojis {
     public boolean cacheRemote(UUID id, URI url, byte[] image) {
         StoredImage stored;
         try {
-            stored = images.store(image, ImageKind.EMOJI, MAX_IMAGE_SIZE);
+            stored = images.store(image, ImageKind.EMOJI, properties.maxImageSize());
         } catch (InvalidImageException e) {
             emojis.giveUpCaching(id);
             return false;
