@@ -54,7 +54,7 @@ public class ModeratedStatuses {
                 author.isSuspended(),
                 status.visibility().value(),
                 status.publishedAt().truncatedTo(ChronoUnit.SECONDS).toString(),
-                status.url() != null ? status.url() : status.uri(),
+                status.link(),
                 shown,
                 shown ? status.spoilerText() : "",
                 shown ? status.content() : "",

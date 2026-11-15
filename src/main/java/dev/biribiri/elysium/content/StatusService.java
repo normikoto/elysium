@@ -168,7 +168,7 @@ public class StatusService {
                 : draft.quotePolicy() != null ? draft.quotePolicy() : postingDefaults.quotePolicy(authorId);
         var mentioned = resolveMentions(author, text);
         var content = quoting == null ? render(text, mentioned)
-                : withQuoteFallback(render(text, mentioned), text, linkTo(quoting.status()), quoting.status().uri());
+                : withQuoteFallback(render(text, mentioned), text, quoting.status().link(), quoting.status().uri());
         var localEmojis = localEmojiIds(text, spoilerText, poll == null ? List.of() : poll.options());
 
         return transaction.execute(tx -> {
@@ -475,10 +475,6 @@ public class StatusService {
         return PlainText.quoteInline(link) + content;
     }
 
-    private static URI linkTo(Status status) {
-        return status.url() == null ? status.uri() : status.url();
-    }
-
     /**
      * The fallback for what a status quotes, which is kept through edits, as is the quote.
      */
@@ -486,7 +482,7 @@ public class StatusService {
         if (quote == null) {
             return content;
         }
-        var link = Optional.ofNullable(quote.quotedStatusId()).flatMap(statuses::findById).map(StatusService::linkTo)
+        var link = Optional.ofNullable(quote.quotedStatusId()).flatMap(statuses::findById).map(Status::link)
                 .orElse(quote.quotedUri());
         return withQuoteFallback(content, text, link, quote.quotedUri());
     }

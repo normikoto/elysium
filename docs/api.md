@@ -56,6 +56,8 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   composition, and `tags[].name` is the normalized form: lowercase, in Unicode's NFKC form. A status keeps at most 100
   tags. `tags[].url` is this server's page for the tag, even on a status from another server, as on Mastodon. Statuses
   posted before the upgrade that added hashtags have no `tags`, and their hashtags aren't linked, until they're edited.
+- A followers-only or direct status from this server has a `url`, as on Mastodon, but its page says it wasn't found,
+  even to accounts that can see it, since this server's pages only show what anyone can see.
 - A followers-only or direct status can be seen by the accounts it mentions, as on Mastodon. Mentions from accounts
   the user does not follow appear in notifications, and direct messages in conversations, rather than in the home timeline.
 - `mentions` leaves out accounts that have been suspended or deleted since. For a status from another server, it also
