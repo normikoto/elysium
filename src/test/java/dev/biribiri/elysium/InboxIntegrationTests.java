@@ -18,6 +18,7 @@ import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.inbox.InboxProjection;
 import dev.biribiri.elysium.inbox.InboxService;
 import dev.biribiri.elysium.inbox.internal.MarkerRepository;
+import dev.biribiri.elysium.inbox.internal.NotificationRepository;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,7 @@ class InboxIntegrationTests {
     @Autowired JdbcClient jdbc;
     @Autowired PlatformTransactionManager transactions;
     @MockitoSpyBean MarkerRepository markerRepository;
+    @Autowired NotificationRepository notificationRepository;
     private Actor alice;
     private Actor bob;
     private Actor carol;
@@ -94,6 +96,22 @@ class InboxIntegrationTests {
         alice = local("inboxalice");
         bob = local("inboxbob");
         carol = local("inboxcarol");
+    }
+
+    /**
+     * Only a notification that's actually added is streamed, so a repeat has to say it added nothing.
+     */
+    @Test
+    void aRepeatedNotificationIsNotAddedAgain() {
+        var status = createStatus(alice, "hi", PUBLIC, null);
+        var added = new TransactionTemplate(transactions).execute(tx -> {
+            notificationRepository.lock();
+            return List.of(
+                    notificationRepository.insert(bob.id(), alice.id(), "mention", status.id(), status.id(), null),
+                    notificationRepository.insert(bob.id(), alice.id(), "mention", status.id(), status.id(), null));
+        });
+        assertThat(added.get(0)).isPresent();
+        assertThat(added.get(1)).isEmpty();
     }
 
     @Test

@@ -186,6 +186,7 @@ public class BoostService {
         boosts.findByUri(actorUri, announceUri).ifPresent(boost -> {
             boosts.lockPair(actorUri, boost.statusId());
             boosts.deleteRemote(actorUri, announceUri);
+            events.publishEvent(new RemoteStatusDeleted(boost.id()));
         });
     }
 

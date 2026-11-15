@@ -99,7 +99,10 @@ class SecurityConfig {
             "/api/v1/accounts/*/statuses",
             "/api/v1/timelines/public", "/api/v1/timelines/tag/*", "/api/v1/tags/*",
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}", "/api/v1/accounts/{id:[0-9a-fA-F-]+}/followers",
-            "/api/v1/accounts/{id:[0-9a-fA-F-]+}/following", "/api/v1/accounts/lookup", "/api/v2/search"
+            "/api/v1/accounts/{id:[0-9a-fA-F-]+}/following", "/api/v1/accounts/lookup", "/api/v2/search",
+            // The WebSocket decides what each subscription needs, and the other streams need what their timelines do.
+            "/api/v1/streaming", "/api/v1/streaming/health", "/api/v1/streaming/public", "/api/v1/streaming/public/*",
+            "/api/v1/streaming/hashtag", "/api/v1/streaming/hashtag/local"
     };
 
     /**
@@ -178,6 +181,7 @@ class SecurityConfig {
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(server -> server
                         .opaqueToken(token -> token.introspector(introspector))
+                        .bearerTokenResolver(new StreamingTokenResolver())
                         .authenticationEntryPoint((_, response, _) -> responses.invalidToken(response))
                         .accessDeniedHandler((_, response, _) -> responses.insufficientScope(response)))
                 .build();

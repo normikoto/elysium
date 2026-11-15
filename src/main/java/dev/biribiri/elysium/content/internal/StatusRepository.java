@@ -676,15 +676,37 @@ public class StatusRepository {
      * @param viewer who's looking, from whom what they've hidden is left out, or null
      */
     public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia, UUID viewer) {
+        return findPage(publicFilter(origin, onlyMedia, viewer), page);
+    }
+
+    /**
+     * Whether {@link #findPublic} would list this status, so that a stream shows what the timeline does.
+     */
+    public boolean inPublic(UUID statusId, StatusOrigin origin, boolean onlyMedia, UUID viewer) {
+        return matches(publicFilter(origin, onlyMedia, viewer), statusId);
+    }
+
+    private static Filter publicFilter(StatusOrigin origin, boolean onlyMedia, UUID viewer) {
         var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + origin(origin)
                 + (onlyMedia ? HAS_MEDIA : "") + (viewer == null ? "" : NOT_HIDDEN);
-        return findPage(filter, viewer == null ? Map.of() : Map.of("viewer", viewer), page);
+        return new Filter(filter, viewer == null ? Map.of() : Map.of("viewer", viewer));
     }
 
     /**
      * Replies are listed too, as on Mastodon, since someone following a tag wants every status that uses it.
      */
     public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, UUID viewer) {
+        return findPage(taggedFilter(tags, origin, onlyMedia, viewer), page);
+    }
+
+    /**
+     * Whether {@link #findTagged} would list this status.
+     */
+    public boolean inTagged(UUID statusId, TagFilter tags, StatusOrigin origin, boolean onlyMedia, UUID viewer) {
+        return matches(taggedFilter(tags, origin, onlyMedia, viewer), statusId);
+    }
+
+    private static Filter taggedFilter(TagFilter tags, StatusOrigin origin, boolean onlyMedia, UUID viewer) {
         var filter = new StringBuilder("""
                 s.visibility = 'public' AND s.reblog_of_id IS NULL
                 AND EXISTS (SELECT 1 FROM status_tag t WHERE t.status_id = s.id AND t.name = ANY (CAST(:any AS text[])))""");
@@ -711,7 +733,7 @@ public class StatusRepository {
             filter.append(NOT_HIDDEN);
             parameters.put("viewer", viewer);
         }
-        return findPage(filter.toString(), parameters, page);
+        return new Filter(filter.toString(), parameters);
     }
 
     private static String origin(StatusOrigin origin) {
@@ -728,6 +750,17 @@ public class StatusRepository {
      * @param followedIds the accounts the viewer follows, which can be empty
      */
     public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
+        return findPage(homeFilter(viewerId, followedIds), page);
+    }
+
+    /**
+     * Whether {@link #findHome} would list this status.
+     */
+    public boolean inHome(UUID viewerId, Collection<UUID> followedIds, UUID statusId) {
+        return matches(homeFilter(viewerId, followedIds), statusId);
+    }
+
+    private static Filter homeFilter(UUID viewerId, Collection<UUID> followedIds) {
         var filter = """
                 (s.actor_id = :viewer
                  OR (s.actor_id = ANY (CAST(:followed AS uuid[]))
@@ -738,7 +771,7 @@ public class StatusRepository {
                 + " AND " + HiddenAccounts.visibleInTimelinesById("s.in_reply_to_account_id");
         // One array parameter, rather than one for each account, which PostgreSQL's driver limits the number of.
         var followed = followedIds.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
-        return findPage(filter, Map.of("viewer", viewerId, "followed", followed), page);
+        return new Filter(filter, Map.of("viewer", viewerId, "followed", followed));
     }
 
     /**
@@ -1016,6 +1049,27 @@ public class StatusRepository {
                         """)
                 .query(Long.class)
                 .single();
+    }
+
+    /**
+     * A timeline's condition on {@code s} and its author, kept in one place so that a page of the timeline and a check of
+     * one status always agree.
+     */
+    private record Filter(String sql, Map<String, ?> parameters) {
+    }
+
+    private List<Status> findPage(Filter filter, StatusPage page) {
+        return findPage(filter.sql(), filter.parameters(), page);
+    }
+
+    private boolean matches(Filter filter, UUID statusId) {
+        var parameters = new HashMap<String, Object>(filter.parameters());
+        parameters.put("statusId", statusId);
+        return Boolean.TRUE.equals(jdbc.sql("SELECT EXISTS (SELECT 1 " + FROM_ACTIVE + "WHERE " + filter.sql()
+                        + " AND s.id = :statusId)")
+                .params(parameters)
+                .query(Boolean.class)
+                .single());
     }
 
     private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page) {

@@ -20,6 +20,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -143,7 +144,15 @@ class ApiDocsIntegrationTests {
                 .andExpect(jsonPath("$.paths['/api/v1/admin/domain_blocks'].get.security[0].oauth2[0]")
                         .value("admin:read:domain_blocks"))
                 .andExpect(jsonPath("$.paths['/api/v1/instance'].get.security").doesNotExist())
-                .andExpect(jsonPath("$.paths['/api/v1/apps'].post.security").doesNotExist());
+                .andExpect(jsonPath("$.paths['/api/v1/apps'].post.security").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/streaming/user'].get.security[0].oauth2[0]").value("read:statuses"))
+                .andExpect(jsonPath("$.paths['/api/v1/streaming/user/notification'].get.security[0].oauth2[0]")
+                        .value("read:notifications"))
+                .andExpect(jsonPath("$.paths['/api/v1/streaming/public'].get.security[*].oauth2")
+                        .value(hasItem(List.of("read:statuses"))))
+                .andExpect(jsonPath("$.paths['/api/v1/streaming'].get.security.length()").value(2))
+                .andExpect(jsonPath("$.paths['/api/v1/streaming'].get.responses['401'].content['application/json'].schema['$ref']")
+                        .value("#/components/schemas/Error"));
     }
 
     /**
@@ -151,7 +160,8 @@ class ApiDocsIntegrationTests {
      */
     @Test
     void everyApiEndpointThatNeedsATokenSaysSo() throws Exception {
-        var noToken = Set.of("post /api/v1/apps", "get /api/v1/instance", "get /api/v2/instance");
+        var noToken = Set.of("post /api/v1/apps", "get /api/v1/instance", "get /api/v2/instance",
+                "get /api/v1/streaming/health");
         var undocumented = new ArrayList<String>();
         for (var path : document().get("paths").properties()) {
             if (!path.getKey().startsWith("/api/")) {

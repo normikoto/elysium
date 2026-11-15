@@ -26,6 +26,7 @@ Set these in your `application.properties`:
 | `elysium.attachments.remote-cache-retention` | Optional. How long a copy of another server's attachment is kept, such as `7d`. Defaults to `30d`. |
 | `elysium.attachments.remote-download-budget` | Optional. How much each other server's attachments can add up to in an hour, such as `500MB`. Defaults to `2GB`. |
 | `elysium.media.directory`          | Optional. Where uploaded images, video, and audio are kept. Defaults to `media` in the working directory. The server has to be able to write to it, and you should back it up along with the database, which refers to the files in it. `compose.yaml` and `elysium.service` already set this. |
+| `elysium.streaming.max-connections` | Optional. How many [streaming](#streaming) connections can be open at once, from all clients together. Past that, new ones are refused until others close. Defaults to `1000`. |
 | `server.servlet.session.timeout`   | Optional. How long a login session lasts without a request. Defaults to `30m`. See [Login sessions](accounts.md#login-sessions). |
 | `elysium.federation.inbox-limits.activities-per-minute` | Optional. How many activities each other server can deliver a minute. Defaults to `120`. See [Inbox limits](#inbox-limits). |
 | `elysium.federation.inbox-limits.data-per-hour` | Optional. How much data each other server's activities can add up to in an hour, such as `50MB`. It can't be less than `1MB`. Defaults to `20MB`. |
@@ -82,6 +83,28 @@ Don't leave out the second one. Without it, each copy holds about three times as
 other copies can't run them while it does. If a copy stops, other copies can take a long time to run the jobs it held.
 
 To go back, remove both settings and restart.
+
+## Streaming
+Apps can keep a connection open at `/api/v1/streaming` to see new posts and notifications as they happen, rather than
+checking every so often. Most connect with a WebSocket, which nginx only passes on with these lines in the server
+block:
+```nginx
+location /api/v1/streaming {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    # Longer than the server's 30 seconds between heartbeats.
+    proxy_read_timeout 1h;
+    # The same proxy_pass and proxy_set_header lines as the server's other locations
+}
+```
+Caddy passes WebSockets on by default. Without this, apps fall back to checking for updates, or show an error.
+
+Apps that can't send headers put their token in the URL, as on Mastodon, so your proxy's access log can contain tokens.
+Leave the query string out of the log for `/api/v1/streaming`, or keep the log as private as the tokens.
+
+Each copy of the server only streams what it handles itself, so with more than one copy, apps miss updates that another
+copy handled. Streaming connections count towards `elysium.streaming.max-connections`, and past it new ones are refused.
 
 ## Reverse proxies
 A public server needs a reverse proxy in front of it, to handle HTTPS, and to limit how many requests each address can

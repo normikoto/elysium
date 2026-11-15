@@ -114,7 +114,10 @@ public class ConversationRepository {
                 .query(UUID.class).optional().isPresent();
     }
 
-    public void add(Source source, UUID viewer, List<UUID> people) {
+    /**
+     * @return the conversation, if the status wasn't already in it
+     */
+    public Optional<UUID> add(Source source, UUID viewer, List<UUID> people) {
         var participants = people.stream().filter(id -> !id.equals(viewer)).distinct().map(UUID::toString).sorted().toArray(String[]::new);
         var id = jdbc.sql("""
                         INSERT INTO inbox_conversation (id, owner_id, thread_id, participant_ids)
@@ -130,6 +133,7 @@ public class ConversationRepository {
             jdbc.sql("UPDATE inbox_conversation SET last_read_id = greatest(last_read_id, :status) WHERE id = :id")
                     .param("status", source.id()).param("id", id).update();
         }
+        return inserted ? Optional.of(id) : Optional.empty();
     }
 
     public List<Conversation> page(UUID viewer, InboxPage page) {

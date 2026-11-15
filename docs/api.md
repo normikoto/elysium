@@ -55,8 +55,7 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
 - `GET /api/v1/instance` reports the length limit in `max_toot_chars` and `configuration.statuses.max_characters`, and
   the media limits in `configuration.media_attachments`, where `video_size_limit` is the larger of the video and audio
   limits. `video_frame_rate_limit` and `video_matrix_limit` aren't enforced, since video isn't decoded. Its
-  `version` is a Mastodon version followed by `(compatible; Elysium)`. The streaming API isn't implemented, though
-  `urls.streaming_api` is set. `invites_enabled` is always `false`, since only admins can make invites, from the command
+  `version` is a Mastodon version followed by `(compatible; Elysium)`. `invites_enabled` is always `false`, since only admins can make invites, from the command
   line. People sign up on the server's `/signup` page, since `POST /api/v1/accounts` isn't implemented.
 - `GET /api/v2/instance` has the same limits in `configuration`, and `api_versions.mastodon` is 7, which is what clients
   look for before they offer quotes. Not everything Mastodon added up to that version is here, as this page lists, and
@@ -198,7 +197,7 @@ Notifications follow [Mastodon's notifications API](https://docs.joinmastodon.or
   Inbox updates may appear shortly after their source activity is stored. Silent mentions and self-mentions do not notify.
 - Notification policies and notification requests are not implemented. `include_filtered` has no effect, and
   `supported_types[]` has no effect because generated types have no fallback representations. Notifications are not
-  suppressed by a per-domain quota. Clients poll; streaming and push subscriptions are not implemented.
+  suppressed by a per-domain quota. Push subscriptions are not implemented, but streaming is, as described below.
 - Notification pages default to 40 results, with a maximum of 80; unread counts default to a cap of 100, with a maximum
   of 1000. V2 groups follow events within a span of up to twelve hours, and favourites and reblogs by status, while mentions
   remain individual groups.
@@ -232,6 +231,33 @@ Timeline positions follow [Mastodon's markers API](https://docs.joinmastodon.org
 - Positions and paging cursors must be UUIDs. Invalid values receive 422; concurrent marker updates can receive 409.
   Missing or other users' notification and conversation IDs receive 404. These endpoints require user tokens; an app
   token receives 422.
+
+Streaming follows [Mastodon's streaming API](https://docs.joinmastodon.org/methods/streaming/), over a WebSocket at
+`/api/v1/streaming`, which `urls.streaming_api` points to, and as server-sent events at its other paths. These are the
+differences:
+
+- Lists aren't implemented, so `list` gets an "Unknown stream type" error, and `/api/v1/streaming/list` a 404. There are no
+  `filters_changed`, `announcement`, `announcement.reaction`, `announcement.delete`, `notifications_merged`, or
+  `encrypted_message` events.
+- A stream carries what its timeline would list: `user` what the home timeline would, and `public` and `hashtag` what the
+  public and hashtag timelines would, including leaving out what the user has hidden. A status from another server only
+  arrives once it's stored here.
+- `public`, `public:local`, `public:remote`, their `:media` forms, `hashtag`, and `hashtag:local` work without a token, as
+  their timelines do. With one, they need `read:statuses`. `user` and `direct` need `read:statuses` and
+  `user:notification` needs `read:notifications`, with a user token, and `user` only has notifications if the token can
+  read them.
+- `delete` goes to every stream that carries statuses, whether or not it carried that status.
+- Events can arrive out of order, or more than once, shortly after what they're about happens.
+- A WebSocket can have up to 50 subscriptions, and more get an error. A message that can't be followed gets
+  `{"error": …, "status": 400}`, or 401 or 403 for a stream that needs a token or scope it doesn't have, and the connection
+  stays open. A stream given in the URL that can't be subscribed to gets the error, and the connection is closed.
+- The token can be in the `Authorization` header, the `access_token` query parameter, or the `Sec-WebSocket-Protocol`, but
+  the last two only work for streaming.
+- An event stream with a missing or invalid `tag` gets a 400, and one with an app token for a stream that needs a user
+  gets a 422.
+- The server limits how many streaming connections can be open at once, from all clients together. Past that, a WebSocket
+  is closed with code 1013, and an event stream gets a 503.
+- A connection is closed within about 30 seconds of its token being revoked or expiring, or its account being suspended.
 
 Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.org/methods/accounts/) and
 [search API](https://docs.joinmastodon.org/methods/search/), with these differences:
