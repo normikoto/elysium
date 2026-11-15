@@ -301,7 +301,8 @@ public class ListsController {
 
     /**
      * A form names them {@code account_ids[]}, and JSON {@code account_ids}. None at all does nothing, as on Mastodon. An
-     * ID that isn't a UUID can't be an account, which Mastodon answers with a 404.
+     * ID that isn't a UUID can't be an account, which Mastodon answers with a 404 when adding it, though it ignores one
+     * when removing it.
      */
     static List<UUID> accountIds(Map<String, ?> parameters) {
         var value = parameters.containsKey("account_ids") ? parameters.get("account_ids") : parameters.get("account_ids[]");

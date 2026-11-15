@@ -7,7 +7,6 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import java.net.URI;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -25,12 +24,6 @@ public class AccountListRepository {
             rs.getString("title"),
             AccountList.RepliesPolicy.parse(rs.getString("replies_policy")).orElseThrow(),
             rs.getBoolean("exclusive"));
-
-    /**
-     * Members that can be listed: not suspended or deleted, as with blocks and mutes.
-     */
-    private static final String ACTIVE_MEMBER = "JOIN actor a ON a.id = m.target_id"
-            + " AND a.suspended_at IS NULL AND a.deleted_at IS NULL ";
 
     private final JdbcClient jdbc;
 
@@ -124,44 +117,42 @@ public class AccountListRepository {
      * Every one of a list's members, newest first.
      */
     public List<FollowEntry> findAllMembers(UUID ownerId, UUID listId) {
-        return jdbc.sql("SELECT m.id, a.id AS other_id, a.uri AS other_uri FROM account_list_member m " + ACTIVE_MEMBER
-                        + "WHERE m.account_id = :owner AND m.list_id = :list ORDER BY m.created_at DESC, m.id DESC")
-                .param("owner", ownerId)
-                .param("list", listId)
-                .query((rs, row) -> new FollowEntry(rs.getObject("id", UUID.class), rs.getObject("other_id", UUID.class),
-                        URI.create(rs.getString("other_uri"))))
-                .list();
+        return Pages.findAll(jdbc, "account_list_member", " AND r.list_id = :list", Map.of("list", listId), ownerId);
     }
 
     /**
      * @return which of these accounts are already in the list
      */
     public List<UUID> findMemberIds(UUID listId, Collection<UUID> accountIds) {
-        return jdbc.sql("SELECT target_id FROM account_list_member WHERE list_id = :list AND target_id IN (:accounts)")
-                .param("list", listId).param("accounts", accountIds).query(UUID.class).list();
+        return jdbc.sql("""
+                        SELECT target_id FROM account_list_member
+                        WHERE list_id = :list AND target_id = ANY (CAST(:accounts AS uuid[]))""")
+                .param("list", listId).param("accounts", accountIds.toArray(UUID[]::new)).query(UUID.class).list();
     }
 
     /**
-     * Adds the account if the owner follows it or has asked to, and it's neither suspended nor deleted. Reading the
-     * follow in the same statement means it can't be removed in between, which the foreign key would refuse.
+     * Adds each account that the owner follows or has asked to, and that's neither suspended nor deleted. Reading the
+     * follows in the same statement means they can't be removed in between, which the foreign key would refuse.
      *
-     * @return whether it was added
+     * @param accountIds distinct
+     * @return how many were added
      */
-    public boolean insertMember(UUID ownerId, UUID listId, UUID accountId) {
+    public int insertMembers(UUID ownerId, UUID listId, Collection<UUID> accountIds) {
         return jdbc.sql("""
                         INSERT INTO account_list_member (id, list_id, account_id, target_id, created_at)
-                        SELECT :id, :list, f.follower_id, f.followed_id, now() FROM follow f
-                        JOIN actor a ON a.id = f.followed_id AND a.suspended_at IS NULL AND a.deleted_at IS NULL
-                        WHERE f.follower_id = :owner AND f.followed_id = :account""")
-                .param("id", UUID.randomUUID())
+                        SELECT v.id, :list, f.follower_id, f.followed_id, now()
+                        FROM unnest(CAST(:ids AS uuid[]), CAST(:accounts AS uuid[])) AS v (id, account_id)
+                        JOIN follow f ON f.follower_id = :owner AND f.followed_id = v.account_id
+                        JOIN actor a ON a.id = f.followed_id AND a.suspended_at IS NULL AND a.deleted_at IS NULL""")
+                .param("ids", accountIds.stream().map(id -> UUID.randomUUID()).toArray(UUID[]::new))
+                .param("accounts", accountIds.toArray(UUID[]::new))
                 .param("list", listId)
                 .param("owner", ownerId)
-                .param("account", accountId)
-                .update() > 0;
+                .update();
     }
 
     public void deleteMembers(UUID listId, Collection<UUID> accountIds) {
-        jdbc.sql("DELETE FROM account_list_member WHERE list_id = :list AND target_id IN (:accounts)")
-                .param("list", listId).param("accounts", accountIds).update();
+        jdbc.sql("DELETE FROM account_list_member WHERE list_id = :list AND target_id = ANY (CAST(:accounts AS uuid[]))")
+                .param("list", listId).param("accounts", accountIds.toArray(UUID[]::new)).update();
     }
 }

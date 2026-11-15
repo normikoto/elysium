@@ -2,6 +2,7 @@ package dev.biribiri.elysium.graph.internal;
 
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.net.URI;
@@ -11,10 +12,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Pages through a local account's list of blocks or mutes, newest first, in the same way as follows: by when each was made,
- * since their IDs are random.
+ * Pages through a local account's blocks, mutes, or list members, newest first, in the same way as follows: by when each
+ * was made, since their IDs are random.
  */
 final class Pages {
+
+    private static final RowMapper<FollowEntry> MAPPER = (rs, row) -> new FollowEntry(
+            rs.getObject("id", UUID.class),
+            rs.getObject("other_id", UUID.class),
+            URI.create(rs.getString("other_uri")));
 
     private Pages() {
     }
@@ -32,9 +38,7 @@ final class Pages {
      */
     static List<FollowEntry> find(JdbcClient jdbc, String table, String extra, Map<String, ?> extraParameters,
                                   UUID accountId, FollowPage page) {
-        var sql = new StringBuilder("SELECT r.id, a.id AS other_id, a.uri AS other_uri FROM ").append(table)
-                .append(" r JOIN actor a ON a.id = r.target_id WHERE r.account_id = :account")
-                .append(" AND a.suspended_at IS NULL AND a.deleted_at IS NULL").append(extra);
+        var sql = new StringBuilder(select(table, extra));
         var parameters = new HashMap<String, Object>();
         parameters.putAll(extraParameters);
         parameters.put("account", accountId);
@@ -54,13 +58,26 @@ final class Pages {
         sql.append(ascending ? " ORDER BY r.created_at ASC, r.id ASC" : " ORDER BY r.created_at DESC, r.id DESC")
                 .append(" LIMIT :limit");
         parameters.put("limit", page.limit());
-        var found = jdbc.sql(sql.toString())
-                .params(parameters)
-                .query((rs, row) -> new FollowEntry(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("other_id", UUID.class),
-                        URI.create(rs.getString("other_uri"))))
-                .list();
+        var found = jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list();
         return ascending ? found.reversed() : found;
+    }
+
+    /**
+     * Like {@link #find}, every row at once.
+     */
+    static List<FollowEntry> findAll(JdbcClient jdbc, String table, String extra, Map<String, ?> extraParameters,
+                                     UUID accountId) {
+        var parameters = new HashMap<String, Object>(extraParameters);
+        parameters.put("account", accountId);
+        return jdbc.sql(select(table, extra) + " ORDER BY r.created_at DESC, r.id DESC")
+                .params(parameters)
+                .query(MAPPER)
+                .list();
+    }
+
+    private static String select(String table, String extra) {
+        return "SELECT r.id, a.id AS other_id, a.uri AS other_uri FROM " + table
+                + " r JOIN actor a ON a.id = r.target_id WHERE r.account_id = :account"
+                + " AND a.suspended_at IS NULL AND a.deleted_at IS NULL" + extra;
     }
 }

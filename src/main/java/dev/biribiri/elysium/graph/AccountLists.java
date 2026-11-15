@@ -140,11 +140,9 @@ public class AccountLists {
         if (!lists.findMemberIds(listId, distinct).isEmpty()) {
             throw new InvalidAccountListException("Account has already been taken");
         }
-        for (var accountId : distinct) {
-            if (!lists.insertMember(ownerId, listId, accountId)) {
-                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-                return false;
-            }
+        if (lists.insertMembers(ownerId, listId, distinct) < distinct.size()) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            return false;
         }
         return true;
     }

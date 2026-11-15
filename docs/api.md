@@ -271,7 +271,8 @@ Lists follow [Mastodon's lists API](https://docs.joinmastodon.org/methods/lists/
   Going over either gets a 422. Lists are listed oldest first.
 - An account can be added once the user follows it or has asked to, as on Mastodon. Adding one they don't follow, or one
   that's suspended, deleted, or unknown, gets a 404, and one that's already in the list a 422. Either way, none of the
-  accounts are added. Unfollowing or blocking an account takes it out of the user's lists, as on Mastodon.
+  accounts are added. Unfollowing or blocking an account takes it out of the user's lists, as on Mastodon. Removing
+  accounts with an ID that isn't a UUID gets a 404, where Mastodon ignores it.
 - `GET /api/v1/lists/:id/accounts` pages by when each account was added, newest first, and the cursors are the IDs in the
   `Link` header, not account IDs. `limit=0` lists all of them, as on Mastodon. Suspended and deleted accounts are left out.
 - A list's timeline is worked out from the statuses stored here each time, as the home timeline is, so a newly added
