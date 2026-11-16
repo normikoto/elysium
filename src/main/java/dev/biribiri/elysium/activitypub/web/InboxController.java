@@ -144,8 +144,7 @@ class InboxController {
             log.debug("Refusing a delivery: {}", e.getMessage());
             var response = ResponseEntity.status(e.failure().status());
             if (e.failure() == Failure.FETCH_BUDGET_SPENT) {
-                response.header(
-                        HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(budgets.timeUntilReset(address)));
+                response.header(HttpHeaders.RETRY_AFTER, budgets.retryAfter(address));
             }
             return response.build();
         }

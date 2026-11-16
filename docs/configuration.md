@@ -33,6 +33,7 @@ Set these in your `application.properties`:
 | `elysium.federation.inbox-limits.data-per-hour` | Optional. How much data each other server's activities can add up to in an hour, such as `50MB`. It can't be less than `1MB`. Defaults to `20MB`. |
 | `elysium.federation.inbox-limits.exempt-domains` | Optional. A comma-separated list of domains, such as `mastodon.social`, that aren't limited, along with their subdomains. Enter only the domain, with no `https://` or wildcard. A suffix that anyone can register under, such as `co.uk`, isn't allowed. Empty by default. |
 | `elysium.federation.send-blocks` | Optional. Set to `false` to stop telling people on other servers that a user has blocked them. Their server then keeps showing them the user's public posts. The follows between them end on both servers either way. Defaults to `true`. See [Blocks and mutes](accounts.md#blocks-and-mutes). |
+| `elysium.federation.authorized-fetch` | Optional. Set to `true` to make other servers sign their requests to read your users' profiles, posts, and follower lists. Defaults to `false`. See [Authorized fetch](#authorized-fetch). |
 | `elysium.federation.allowed-private-networks` | Optional, and should not normally be set. A comma-separated list of private networks, such as `172.30.0.0/24`, that requests to other servers may reach. Anyone can make the server send requests, so this would let them reach anything on these networks. Only for testing with servers on a private network. |
 | `db-scheduler.polling-strategy` | Optional, and experimental. Set to `LOCK_AND_FETCH` to change how background jobs are picked up, which may help with more than one copy of the server. Defaults to `FETCH`. See [Background jobs](#background-jobs). |
 | `db-scheduler.polling-strategy-upper-limit-fraction-of-threads` | Set to `1.0` along with `LOCK_AND_FETCH`. Leave it unset otherwise. |
@@ -71,6 +72,17 @@ A server is counted by its domain, so `a.example.com` and `b.example.com` share 
 that's reaching its limit, add it to `elysium.federation.inbox-limits.exempt-domains` rather than raising the limits for
 every server. These limits don't apply to requests that aren't signed, or whose signature is wrong, which is why a public
 server needs a [reverse proxy that limits them](#reverse-proxies).
+
+## Authorized fetch
+By default, anyone can read your users' public posts, profiles, and follower lists as ActivityPub documents, without saying
+who they are, so a server you've [blocked](accounts.md#domain-blocks) can still read them. With
+`elysium.federation.authorized-fetch=true`, as with Mastodon's `AUTHORIZED_FETCH`, other servers have to sign these
+requests, and a blocked server, or a suspended account on another server, is refused.
+
+This doesn't make anything private. Web pages, such as profiles and public posts, can still be read by anyone, and a
+blocked server can read them that way too. It can also make another server's account sign the requests. Servers that
+never sign their requests can't read your users' posts or follower lists while it's on, though they can still follow your
+users and receive their posts. Mastodon, GoToSocial, and Misskey all sign them.
 
 ## Background jobs
 Sending activities to other servers, and other background work, happens in jobs stored in the database, which any copy of

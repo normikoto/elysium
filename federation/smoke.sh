@@ -56,6 +56,23 @@ wait_for() {
     fail "$url never became ready"
 }
 
+# Fetches one of Elysium's ActivityPub documents, signed with draft-cavage as alice, because the lab requires signed fetches.
+# Takes curl's options, and then the URL.
+elysium_get() {
+    local url=${!#} date key signature
+    date=$(LC_ALL=C TZ=GMT date '+%a, %d %b %Y %H:%M:%S GMT')
+    key=$(mktemp)
+    docker compose exec -T postgres psql -U elysium -d elysium -tAc \
+        "SELECT l.private_key_pem FROM local_account l JOIN actor a ON a.id = l.actor_id WHERE a.uri = '$expected_actor'" \
+        >"$key"
+    signature=$(printf '(request-target): get %s\nhost: elysium.test\ndate: %s' "${url#https://elysium.test}" "$date" \
+        | openssl dgst -sha256 -sign "$key" | openssl base64 -A)
+    rm -f "$key"
+    driver curl -sS -H 'Accept: application/activity+json' -H "Date: $date" \
+        -H "Signature: keyId=\"$expected_actor#main-key\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"$signature\"" \
+        "${@:1:$#-1}" "$url"
+}
+
 check_elysium() {
     local webfinger actor instance
     webfinger=$(driver curl -fsS "https://elysium.test/.well-known/webfinger?resource=acct:alice@elysium.test")
@@ -64,6 +81,9 @@ check_elysium() {
 
     actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
     [[ $(jq -r .id <<<"$actor") == "$expected_actor" ]] || fail "Unexpected actor document: $actor"
+    # The lab requires signed fetches, so an unsigned request only gets the key, and not the profile.
+    jq -e '.publicKey.publicKeyPem and (has("url") | not)' <<<"$actor" >/dev/null \
+        || fail "An unsigned fetch didn't get the shorter actor document: $actor"
 
     instance=$(driver curl -fsS -H 'Accept: application/activity+json' https://elysium.test/actor)
     [[ $(jq -r .id <<<"$instance") == https://elysium.test/actor ]] || fail "Unexpected instance actor: $instance"
@@ -74,6 +94,11 @@ check_elysium() {
         https://elysium.test/inbox)
     [[ $status == 401 ]] || fail "An unsigned delivery got a $status, not a 401"
     echo 'Elysium refuses an unsigned delivery'
+
+    status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' \
+        "$expected_actor/followers")
+    [[ $status == 401 ]] || fail "An unsigned fetch of alice's followers got a $status, not a 401"
+    echo 'Elysium refuses an unsigned fetch'
 }
 
 # Passing means that Elysium verified the signature, which needs a fetch of the sender's key from its server.
@@ -228,7 +253,7 @@ follow_from_elysium() {
     [[ $following == true ]] || fail "lab@$domain never accepted alice's Follow. Check /admin/db-scheduler"
 
     local page
-    page=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/following?page=true")
+    page=$(elysium_get -f "$expected_actor/following?page=true")
     jq -e --arg uri "$lab_uri" '.orderedItems == [$uri]' <<<"$page" >/dev/null \
         || fail "alice's following collection doesn't list $lab_uri: $page"
     echo "lab@$domain accepted, and alice's following collection lists it"
@@ -242,7 +267,7 @@ follow_from_elysium() {
     driver curl -fsS -o /dev/null -X POST "https://elysium.test/api/v1/accounts/$lab_id/unfollow" \
         -H "Authorization: Bearer $write_token"
     expect_delivered "$expected_actor#follows/%/undo"
-    status=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/following" | jq -r .totalItems)
+    status=$(elysium_get -f "$expected_actor/following" | jq -r .totalItems)
     [[ $status == 0 ]] || fail "alice's following collection still has $status items after unfollowing"
     echo "lab@$domain took alice's Undo"
 }
@@ -391,7 +416,7 @@ post_from_elysium() {
     local actor followers status
     actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
     [[ $(jq -r .followers <<<"$actor") == "$expected_actor/followers" ]] || fail "The actor has no followers collection: $actor"
-    followers=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/followers")
+    followers=$(elysium_get -f "$expected_actor/followers")
     [[ $(jq -r .totalItems <<<"$followers") == 1 ]] || fail "Unexpected followers collection: $followers"
 
     # Not local, because delete_from_elysium uses it too.
@@ -403,7 +428,8 @@ post_from_elysium() {
     expect_queued "$private_uri#create"
 
     status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$private_uri")
-    [[ $status == 404 ]] || fail "Fetching a followers-only status got a $status, not a 404"
+    # Not a 404, because the lab requires signed fetches.
+    [[ $status == 401 ]] || fail "An unsigned fetch of a followers-only status got a $status, not a 401"
 }
 
 post_status() {
@@ -441,13 +467,13 @@ delete_from_elysium() {
     expect_queued "$private_uri#delete"
 
     local status tombstone
-    status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$public_uri")
+    status=$(elysium_get -o /dev/null -w '%{http_code}' "$public_uri")
     [[ $status == 410 ]] || fail "Fetching a deleted public status got a $status, not a 410"
-    tombstone=$(driver curl -sS -H 'Accept: application/activity+json' "$public_uri")
+    tombstone=$(elysium_get "$public_uri")
     [[ $(jq -r .type <<<"$tombstone") == Tombstone ]] || fail "A deleted public status isn't a Tombstone: $tombstone"
 
     status=$(driver curl -sS -o /dev/null -w '%{http_code}' -H 'Accept: application/activity+json' "$private_uri")
-    [[ $status == 404 ]] || fail "Fetching a deleted followers-only status got a $status, not a 404"
+    [[ $status == 401 ]] || fail "An unsigned fetch of a deleted followers-only status got a $status, not a 401"
 }
 
 edited_text='An edited public status from the lab'
@@ -460,7 +486,7 @@ edit_from_elysium() {
     expect_delivered "$edited_uri#create"
     driver curl -fsS -o /dev/null -X PUT "https://elysium.test/api/v1/statuses/${edited_uri##*/}" \
         -H "Authorization: Bearer $elysium_token" --data-urlencode "status=$edited_text"
-    note=$(driver curl -fsS -H 'Accept: application/activity+json' "$edited_uri")
+    note=$(elysium_get -f "$edited_uri")
     [[ $(jq -r .updated <<<"$note") != null ]] || fail "The edited status has no updated: $note"
     expect_delivered "$edited_uri#updates/%"
     if [[ $target != misskey ]]; then
@@ -480,7 +506,7 @@ media_from_elysium() {
     media_uri=$(driver curl -fsS https://elysium.test/api/v1/statuses -H "Authorization: Bearer $elysium_token" \
         --data-urlencode "status=$media_text" --data-urlencode 'sensitive=true' --data-urlencode "media_ids[]=$media_id" \
         | jq -r .uri)
-    note=$(driver curl -fsS -H 'Accept: application/activity+json' "$media_uri")
+    note=$(elysium_get -f "$media_uri")
     jq -e '.attachment[0].type == "Document" and .attachment[0].mediaType == "image/webp"' <<<"$note" >/dev/null \
         || fail "The status's Note has no attachment: $note"
     expect_delivered "$media_uri#create"
@@ -495,7 +521,7 @@ emoji_from_elysium() {
         || fail "Couldn't add an emoji to Elysium"
     emoji_uri=$(driver curl -fsS https://elysium.test/api/v1/statuses -H "Authorization: Bearer $elysium_token" \
         --data-urlencode 'status=:labblob: Emoji from Elysium' | jq -r .uri)
-    note=$(driver curl -fsS -H 'Accept: application/activity+json' "$emoji_uri")
+    note=$(elysium_get -f "$emoji_uri")
     jq -e '.tag | map(select(.type == "Emoji" and .name == ":labblob:"
             and (.icon.url | startswith("https://elysium.test/media/")))) | length == 1' <<<"$note" >/dev/null \
         || fail "The status's Note has no Emoji tag: $note"
@@ -648,7 +674,7 @@ update_profile_from_elysium() {
     local actor
     driver curl -fsS -o /dev/null -X PATCH https://elysium.test/api/v1/accounts/update_credentials \
         -H "Authorization: Bearer $elysium_token" --data-urlencode "display_name=$display_name"
-    actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
+    actor=$(elysium_get -f "$expected_actor")
     [[ $(jq -r .name <<<"$actor") == "$display_name" ]] || fail "The actor document doesn't have the new name: $actor"
     expect_delivered "$expected_actor#profile/%"
     "${target}_expect_display_name"
@@ -1347,7 +1373,7 @@ check_likes() {
         done
         jq -e --arg uri "$uri" 'any(.[]; .status.uri == $uri)' <<<"$body" >/dev/null || fail "No favourite notification for $uri"
         if [[ $uri == "$public_uri" ]]; then
-            collection=$(driver curl -fsS -H 'Accept: application/activity+json' "$uri/likes?page=true")
+            collection=$(elysium_get -f "$uri/likes?page=true")
             jq -e --arg uri "$uri" '.totalItems == 1 and .orderedItems[0].type == "Like" and .orderedItems[0].object == $uri' \
                 <<<"$collection" >/dev/null || fail "Unexpected likes collection: $collection"
         fi
@@ -1425,7 +1451,7 @@ check_pins() {
     body=$(driver curl -fsS -X POST "https://elysium.test/api/v1/statuses/${public_uri##*/}/pin" \
         -H "Authorization: Bearer $write_token")
     jq -e .pinned <<<"$body" >/dev/null || fail "Pinning failed: $body"
-    featured=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor/collections/featured")
+    featured=$(elysium_get -f "$expected_actor/collections/featured")
     jq -e --arg uri "$public_uri" '.totalItems == 1 and .orderedItems[0].id == $uri' <<<"$featured" >/dev/null \
         || fail "Unexpected featured collection: $featured"
     # GoToSocial doesn't read Adds, and only reads featured collections when it refreshes an actor.
@@ -1653,7 +1679,7 @@ check_boosts() {
     done
     jq -e --arg uri "$public_uri" 'any(.[]; .status.uri == $uri)' <<<"$body" >/dev/null \
         || fail "No reblog notification for $public_uri"
-    collection=$(driver curl -fsS -H 'Accept: application/activity+json' "$public_uri/shares?page=true")
+    collection=$(elysium_get -f "$public_uri/shares?page=true")
     jq -e --arg uri "$public_uri" '.totalItems == 1 and .orderedItems[0].type == "Announce" and .orderedItems[0].object == $uri' \
         <<<"$collection" >/dev/null || fail "Unexpected shares collection: $collection"
     boost_from_peer "$public_uri" unreblog
@@ -2075,7 +2101,7 @@ set_locked() {
     local locked=$1 write_token=$2 actor
     driver curl -fsS -o /dev/null -X PATCH https://elysium.test/api/v1/accounts/update_credentials \
         -H "Authorization: Bearer $write_token" --data-urlencode "locked=$locked"
-    actor=$(driver curl -fsS -H 'Accept: application/activity+json' "$expected_actor")
+    actor=$(elysium_get -f "$expected_actor")
     [[ $(jq -r .manuallyApprovesFollowers <<<"$actor") == "$locked" ]] \
         || fail "alice's actor document doesn't have manuallyApprovesFollowers $locked: $actor"
     expect_delivered "$expected_actor#profile/%"

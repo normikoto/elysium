@@ -24,8 +24,9 @@ import java.util.List;
  * @param tag        the hashtags in the bio, and the custom emoji in the profile, as Mastodon sends them, left out if there
  *                   are none
  * @param featured   the collection of pinned statuses, left out while the actor is suspended, since it can't be read then
- * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them
- * @param indexable  whether any server's search may find the actor's public statuses
+ * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them, left out of a
+ *                   {@linkplain #minimal minimal} document, since a false one would say the actor isn't locked
+ * @param indexable  whether any server's search may find the actor's public statuses, left out of a minimal document
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
  * @param suspended  true if the actor is suspended. Otherwise this is left out, as other servers treat a missing one as false.
  */
@@ -49,8 +50,8 @@ public record Person(
         Image image,
         List<PropertyValue> attachment,
         List<Tag> tag,
-        boolean manuallyApprovesFollowers,
-        boolean indexable,
+        Boolean manuallyApprovesFollowers,
+        Boolean indexable,
         String published,
         String updated,
         Boolean suspended
@@ -136,6 +137,38 @@ public record Person(
      */
     public static Person suspended(Actor actor, InstanceProperties instance) {
         return from(actor, Profile.EMPTY, List.of(), instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, true);
+    }
+
+    /**
+     * What's served to an unsigned request when signed fetches are required. It keeps the key, because some servers fetch
+     * a key without signing, and this server's deliveries are only accepted once the key can be read. It's what Mastodon
+     * serves then, with the collections' URIs, which say nothing that the actor's URI doesn't.
+     */
+    public static Person minimal(Actor actor, InstanceProperties instance) {
+        return new Person(
+                actor.isSuspended() ? ActivityStreams.SUSPENDED_ACTOR_CONTEXT : ActivityStreams.ACTOR_CONTEXT,
+                actor.uri(),
+                "Person",
+                actor.username(),
+                null,
+                null,
+                null,
+                actor.inboxUri(),
+                actor.outboxUri(),
+                followersOf(actor),
+                followingOf(actor),
+                null,
+                new Endpoints(instance.sharedInboxUri()),
+                new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                actor.isSuspended() ? true : null);
     }
 
     /**

@@ -75,6 +75,11 @@ spring.datasource.password=
 # user's posts. Either way, the follows between them end on both servers. See docs/accounts.md.
 #elysium.federation.send-blocks=true
 
+# Whether other servers have to sign their requests to read your users' profiles, posts, and follower lists, as with
+# Mastodon's AUTHORIZED_FETCH. Turning it on makes blocking a server stop it from reading them too, but servers that never
+# sign their requests can't read them. Web pages stay public either way. See docs/configuration.md.
+#elysium.federation.authorized-fetch=false
+
 # This should not normally be set. Lets requests to other servers reach these private networks, as a comma-separated list
 # in CIDR form. It's only for federating with servers on a private network, because anyone can make this server send
 # requests to any host, and could then reach anything on these networks.

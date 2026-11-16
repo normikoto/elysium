@@ -17,6 +17,16 @@ final class FederationDocs {
 
     static final String UNSIGNED = "Doesn't need a signature, and any signature on the request is ignored.";
 
+    static final String VARIES_BY_SIGNATURE = "Answers have `Vary: Signature`.";
+
+    /**
+     * For documents that only need a signature when the admin requires signed fetches.
+     */
+    static final String SIGNED_FETCH = """
+            A signature is only needed if the server requires signed fetches. Then a request with none gets a 401, and \
+            one whose signature can't be accepted gets the status an inbox would answer it with, and a signed answer \
+            has `Cache-Control: no-store, private`. Otherwise any signature is ignored.\s""" + VARIES_BY_SIGNATURE;
+
     /**
      * For URLs that serve a web page too, without what they do with signatures.
      */
@@ -26,9 +36,9 @@ final class FederationDocs {
             others get a 406. Any origin can read both through CORS, and the response varies by `Accept`.""";
 
     /**
-     * For URLs that serve a web page too, and ignore signatures.
+     * For URLs that serve a web page too, and only need a signature when signed fetches are required.
      */
-    static final String NEGOTIATED = CONTENT_NEGOTIATION + " " + UNSIGNED;
+    static final String NEGOTIATED = CONTENT_NEGOTIATION + " " + SIGNED_FETCH;
 
     /**
      * For URLs that only serve an ActivityPub document.
@@ -43,20 +53,20 @@ final class FederationDocs {
              `orderedItems`, which are actor URIs, newest follow first, and a `next` page if there are more. Only \
             accepted follows are counted or listed, and suspended and deleted actors are left out. If the user hides \
             who's in their collections, the collection and every page only have `totalItems`.\s"""
-            + DOCUMENT + " " + UNSIGNED;
+            + DOCUMENT + " " + SIGNED_FETCH;
 
     static final String OUTBOX = """
             An `OrderedCollection` of the user's public and unlisted posts, with `totalItems` and a `first` page, at \
             `?page=true`. A page is an `OrderedCollectionPage` with `partOf`, up to\s""" + ActivityPubController.COLLECTION_PAGE_SIZE + """
              `orderedItems`, newest first, and a `next` page if there may be more. A status is a `Create` that embeds \
             its `Note`, and a boost an `Announce` of the boosted status's ID. Followers-only and direct posts and boosts \
-            are left out.\s""" + DOCUMENT + " " + UNSIGNED;
+            are left out.\s""" + DOCUMENT + " " + SIGNED_FETCH;
 
     static final String FEATURED = """
             An `OrderedCollection` of the user's pinned public and unlisted posts, as embedded `Note`s in \
             `orderedItems`, the most recently pinned first, with `totalItems`. It isn't paged, since a user can pin at \
             most\s""" + StatusPinService.MAX_PER_ACCOUNT + """
-             posts. Pinned followers-only posts are left out.\s""" + DOCUMENT + " " + UNSIGNED;
+             posts. Pinned followers-only posts are left out.\s""" + DOCUMENT + " " + SIGNED_FETCH;
 
     static final String USERNAME = "The username, matched case-insensitively.";
 

@@ -6,7 +6,7 @@ passwords and secrets are public, so don't use any of this for a real server.
 
 ## Running it
 
-You need Docker and `jq`.
+You need Docker, `jq`, and `openssl`.
 
 ```shell
 ./gradlew bootBuildImage
@@ -19,7 +19,10 @@ Rebuild the image to test a change to Elysium, because the lab doesn't build it 
 The script checks:
 
 - **Discovery:** Elysium serves its documents through the proxy, and the other server can resolve `@alice@elysium.test`.
-- **Refusing deliveries:** An unsigned `POST` to Elysium's inbox gets a `401`.
+  Elysium runs with authorized fetch on, so an unsigned fetch of alice's actor only gets the shorter document, and the
+  other server's fetches all have to be signed.
+- **Refusing deliveries and fetches:** An unsigned `POST` to Elysium's inbox gets a `401`, and so does an unsigned fetch of
+  alice's followers.
 - **Accepting deliveries:** The other server posts a status mentioning alice, and it ends up in Elysium's
   `inbound_activity` table. This means that Elysium fetched the sender's key and verified the signature. Mastodon runs
   with `AUTHORIZED_FETCH` on, so it has to accept Elysium's signed fetch and its instance actor as well.
@@ -51,7 +54,7 @@ The script checks:
   deleted account's followers. Once it's deleted, Elysium has to mark the actor as deleted and remove its follows. This uses a
   second account because later checks need `lab`, and Misskey can't delete `lab`, which is its admin.
 - **Sending statuses:** alice posts a public and a followers-only status. The other server has to accept the signed `Create`
-  for each and store it with the right visibility. An unsigned fetch of the followers-only one has to get a `404`.
+  for each and store it with the right visibility. An unsigned fetch of the followers-only one has to get a `401`.
   GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in
   GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating until a restart. Misskey has to show
   both in the `lab` user's home timeline too, with the text that was posted. Mastodon has to have both in the `lab` user's home
