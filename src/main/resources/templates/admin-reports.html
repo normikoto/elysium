@@ -30,8 +30,7 @@
             <a th:if="${resolved}" th:href="@{/admin/reports(resolved='', max_id=${older})}">More reports</a>
             <a th:unless="${resolved}" th:href="@{/admin/reports(max_id=${older})}">More reports</a>
         </p>
-        <p><a href="/admin/accounts">Accounts</a> · <a href="/admin/statuses">Statuses</a> ·
-            <a href="/admin/domain-blocks">Domain blocks</a> · <a href="/admin/custom-emojis">Custom emoji</a></p>
+        <p><a href="/admin">Back to admin</a></p>
     </div>
 </th:block>
 </html>

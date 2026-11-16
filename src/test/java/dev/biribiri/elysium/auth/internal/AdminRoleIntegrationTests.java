@@ -97,6 +97,33 @@ class AdminRoleIntegrationTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void adminsSeeTheFrontPageAndALinkToIt() throws Exception {
+        var session = logIn(account(AccountRole.ADMIN));
+
+        mockMvc.perform(get("/admin").session(session))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/accounts\"")));
+        for (var page : new String[]{"/", "/settings"}) {
+            mockMvc.perform(get(page).session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(containsString("href=\"/admin\"")));
+        }
+    }
+
+    @Test
+    void usersCannotSeeTheFrontPageOrALinkToIt() throws Exception {
+        var session = logIn(account(AccountRole.USER));
+
+        mockMvc.perform(get("/admin").session(session)).andExpect(status().isForbidden());
+        for (var page : new String[]{"/", "/settings"}) {
+            mockMvc.perform(get(page).session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(not(containsString("href=\"/admin\""))));
+        }
+        mockMvc.perform(get("/")).andExpect(content().string(not(containsString("href=\"/admin\""))));
+    }
+
     // Tokens
 
     @Test

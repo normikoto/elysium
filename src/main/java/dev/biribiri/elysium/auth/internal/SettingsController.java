@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.InvalidProfileException;
 import dev.biribiri.elysium.actor.Profile;
 import dev.biribiri.elysium.actor.ProfileChange;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.auth.Admins;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -33,11 +34,14 @@ class SettingsController {
     private final ActorService actors;
     private final ProfileService profiles;
     private final InstanceProperties instance;
+    private final Admins admins;
 
-    SettingsController(ActorService actors, ProfileService profiles, InstanceProperties instance) {
+    SettingsController(
+            ActorService actors, ProfileService profiles, InstanceProperties instance, Admins admins) {
         this.actors = actors;
         this.profiles = profiles;
         this.instance = instance;
+        this.admins = admins;
     }
 
     /**
@@ -152,6 +156,7 @@ class SettingsController {
         model.addAttribute("hideCollections", hideCollections);
         model.addAttribute("manuallyApprovesFollowers", manuallyApprovesFollowers);
         model.addAttribute("indexable", indexable);
+        model.addAttribute("admin", admins.isAdmin(accountId));
     }
 
     /**
