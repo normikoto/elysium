@@ -119,6 +119,79 @@ class CustomEmojisIntegrationTests {
     }
 
     @Test
+    void anAdminRenamesClearsAndMovesCategoriesOnThePage() throws Exception {
+        var session = TestOAuth.logIn(mockMvc, ADMIN, PASSWORD);
+        var blobs = "Blobs " + shortcode();
+        var cats = "Cats " + shortcode();
+        var first = emojis.addLocal(shortcode(), TestImages.png(64, 64), blobs);
+        var second = emojis.addLocal(shortcode(), TestImages.png(64, 64), blobs);
+        var loose = emojis.addLocal(shortcode(), TestImages.png(64, 64), null);
+
+        var page = mockMvc.perform(get(PAGE).session(session))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(page).contains("<h3>" + blobs + " (2)</h3>", "<option value=\"" + blobs + "\">");
+        assertThat(page.indexOf("<h3>" + blobs)).isLessThan(page.indexOf("<h3>Uncategorized"));
+        assertThat(page.indexOf("<h3>Uncategorized")).isLessThan(page.indexOf(":" + loose.shortcode() + ":"));
+
+        mockMvc.perform(post(PAGE + "/categories").session(session).with(csrf())
+                        .param("from", blobs).param("to", " " + cats + " "))
+                .andExpect(redirectedUrl(PAGE));
+        assertThat(findLocal(first.shortcode()).category()).isEqualTo(cats);
+        assertThat(findLocal(second.shortcode()).category()).isEqualTo(cats);
+        assertThat(findLocal(loose.shortcode()).category()).isNull();
+
+        mockMvc.perform(post(PAGE + "/move").session(session).with(csrf())
+                        .param("ids", loose.id().toString(), "not an id", UUID.randomUUID().toString())
+                        .param("category", cats))
+                .andExpect(redirectedUrl(PAGE));
+        assertThat(findLocal(loose.shortcode()).category()).isEqualTo(cats);
+
+        mockMvc.perform(post(PAGE + "/move").session(session).with(csrf())
+                        .param("ids", first.id().toString()).param("category", ""))
+                .andExpect(redirectedUrl(PAGE));
+        assertThat(findLocal(first.shortcode()).category()).isNull();
+
+        mockMvc.perform(post(PAGE + "/categories").session(session).with(csrf())
+                        .param("from", cats).param("to", ""))
+                .andExpect(redirectedUrl(PAGE));
+        assertThat(findLocal(second.shortcode()).category()).isNull();
+        assertThat(findLocal(loose.shortcode()).category()).isNull();
+
+        mockMvc.perform(post(PAGE + "/move").session(session).with(csrf()).param("category", cats))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(content().string(containsString("Choose the emoji to move")));
+        mockMvc.perform(post(PAGE + "/categories").session(session).with(csrf())
+                        .param("from", cats).param("to", "x".repeat(CustomEmojis.MAX_CATEGORY_LENGTH + 1)))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(content().string(containsString("longer than " + CustomEmojis.MAX_CATEGORY_LENGTH)));
+    }
+
+    @Test
+    void uncategorizedIsReservedInAnyCase() throws Exception {
+        var session = TestOAuth.logIn(mockMvc, ADMIN, PASSWORD);
+        var category = "Reserved " + shortcode();
+        var emoji = emojis.addLocal(shortcode(), TestImages.png(64, 64), category);
+
+        assertThatThrownBy(() -> emojis.addLocal(shortcode(), TestImages.png(64, 64), "Uncategorized"))
+                .isInstanceOf(InvalidCustomEmojiException.class);
+        mockMvc.perform(multipart(PAGE).file(image()).session(session).with(csrf())
+                        .param("shortcode", shortcode()).param("category", " uncategorized "))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(content().string(containsString("is reserved")));
+        mockMvc.perform(post(PAGE + "/" + emoji.id()).session(session).with(csrf())
+                        .param("category", "UNCATEGORIZED").param("visibleInPicker", "true"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(post(PAGE + "/categories").session(session).with(csrf())
+                        .param("from", category).param("to", "Uncategorized"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(post(PAGE + "/move").session(session).with(csrf())
+                        .param("ids", emoji.id().toString()).param("category", "Uncategorized"))
+                .andExpect(status().isUnprocessableContent());
+        assertThat(findLocal(emoji.shortcode()).category()).isEqualTo(category);
+    }
+
+    @Test
     void thePageRefusesBadShortcodesDuplicatesAndImages() throws Exception {
         var session = TestOAuth.logIn(mockMvc, ADMIN, PASSWORD);
         var shortcode = shortcode();

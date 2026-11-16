@@ -39,6 +39,12 @@ public class CustomEmojis {
     public static final int MAX_CATEGORY_LENGTH = 50;
 
     /**
+     * What the admin page calls the emoji with no category. A category can't have this name, in any case, or the page
+     * would show two groups that look the same.
+     */
+    public static final String UNCATEGORIZED = "Uncategorized";
+
+    /**
      * Another server's emoji is kept this long after any status last used it, so that one being stored doesn't lose it
      * in between, and one that's used again soon isn't downloaded again.
      */
@@ -141,6 +147,33 @@ public class CustomEmojis {
      */
     public boolean updateLocal(UUID id, String category, boolean visibleInPicker) {
         return emojis.updateLocal(id, category(category), visibleInPicker);
+    }
+
+    /**
+     * Moves every local emoji in a category to another, which merges them if it's one that's already used.
+     *
+     * @param from the category as it's stored
+     * @param to   null or blank to leave them uncategorized
+     * @return how many were moved
+     * @throws InvalidCustomEmojiException if the new category isn't valid
+     */
+    public int renameLocalCategory(String from, String to) {
+        var checked = category(to);
+        if (from == null || from.isBlank() || from.equals(checked)) {
+            return 0;
+        }
+        return emojis.renameLocalCategory(from, checked);
+    }
+
+    /**
+     * IDs that aren't of a local emoji, such as one removed meanwhile, are skipped.
+     *
+     * @param category null or blank to leave them uncategorized
+     * @return how many were moved
+     * @throws InvalidCustomEmojiException if the category isn't valid
+     */
+    public int moveLocal(Collection<UUID> ids, String category) {
+        return emojis.updateLocalCategory(ids, category(category));
     }
 
     /**
@@ -375,6 +408,10 @@ public class CustomEmojis {
         if (stripped.codePointCount(0, stripped.length()) > MAX_CATEGORY_LENGTH) {
             throw new InvalidCustomEmojiException(
                     "A category can't be longer than %d characters".formatted(MAX_CATEGORY_LENGTH));
+        }
+        if (stripped.equalsIgnoreCase(UNCATEGORIZED)) {
+            throw new InvalidCustomEmojiException(
+                    "\"%s\" is reserved. Leave the category empty instead".formatted(UNCATEGORIZED));
         }
         return stripped;
     }

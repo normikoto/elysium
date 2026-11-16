@@ -209,6 +209,12 @@ animated if it was. Images can be up to 256 KB, as on Mastodon, unless you set
 [`elysium.custom-emojis.max-image-size`](configuration.md), which also limits the emoji downloaded from other servers. People's apps list them in their emoji pickers, apart from those you hide from pickers,
 which can still be used by typing their shortcode.
 
+An emoji can have a category, and apps show each category as its own section of their pickers, with the uncategorized
+emoji together, usually as "Custom". The admin page lists the emoji by category, with the uncategorized ones last. You can
+rename a category, which merges it with another if you give it that one's name, or make all its emoji uncategorized, and
+move several emoji at once by selecting them. A category can't be called "Uncategorized", which is what the page calls
+the emoji with none.
+
 - Posts only show the emoji that existed when they were written or last edited, so adding an emoji doesn't change older
   posts that happened to use its shortcode.
 - Removing an emoji shows its shortcode as text everywhere it was used. Other servers keep the copies they were sent.

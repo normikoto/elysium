@@ -49,10 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   someone reacts to theirs. Reactions are sent to and received from other servers, and Misskey's reactions, which it
   sends as likes, are shown as reactions rather than favourites. See `docs/api.md` and `FEDERATION.md`.
 - Custom emoji, as on Mastodon. Admins add them at `/admin/custom-emojis`, and people use them by writing their
-  shortcode between colons, such as `:blobcat:`, in posts, display names, bios, and profile fields. Apps list them with
-  `GET /api/v1/custom_emojis`, and they're shown in apps and on this server's pages, and sent to other servers. Emoji in
-  posts from other servers are shown too, and downloaded and kept here as their attachments are. Posts from before the
-  upgrade don't get emoji unless they're edited. Images can be up to 256 KB, which
+  shortcode between colons, such as `:blobcat:`, in posts, display names, bios, and profile fields. Admins can sort them
+  into categories, which apps show as sections of their emoji pickers, and rename categories or move several emoji at
+  once. Apps list them with `GET /api/v1/custom_emojis`, and they're shown in apps and on this server's pages, and sent
+  to other servers. Emoji in posts from other servers are shown too, and downloaded and kept here as their attachments
+  are. Posts from before the upgrade don't get emoji unless they're edited. Images can be up to 256 KB, which
   `elysium.custom-emojis.max-image-size` changes. See `docs/accounts.md`, `docs/api.md`, and `FEDERATION.md`.
 - Lists, as on Mastodon, so people can sort the accounts they follow into lists, each with a timeline of its own, which
   apps can also stream. A list can show replies to anyone the person follows, to other members, or none, and can be
