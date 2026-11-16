@@ -887,6 +887,39 @@ class FollowIntegrationTests {
     }
 
     @Test
+    void anUndoOfAnIdReusedForAnotherAccountRemovesBothFollowsAndTheirAccepts() {
+        var other = otherAccount();
+        var id = newId();
+        var first = follow(id);
+        followHandler.handle(arrive(first));
+        removeStored(first);
+        followHandler.handle(arrive(followOf(id, other.uri().toString())));
+        assertThat(followsFrom(id)).containsExactlyInAnyOrder(followed.id(), other.id());
+
+        undoHandler.handle(arrive(undo(followerUri, "\"" + id + "\"")));
+
+        assertThat(followsFrom(id)).isEmpty();
+        assertThat(accepts()).isEmpty();
+        assertThat(acceptsOf(other)).isEmpty();
+    }
+
+    @Test
+    void anUndoNamingOneAccountOfAReusedIdStillRemovesBothFollows() {
+        var other = otherAccount();
+        var id = newId();
+        var first = follow(id);
+        followHandler.handle(arrive(first));
+        removeStored(first);
+        followHandler.handle(arrive(followOf(id, other.uri().toString())));
+
+        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(id, followerUri))));
+
+        assertThat(followsFrom(id)).isEmpty();
+        assertThat(accepts()).isEmpty();
+        assertThat(acceptsOf(other)).isEmpty();
+    }
+
+    @Test
     void aRepeatIsStoppedByAnUndoThatGotHereBeforeTheFirstFollow() {
         var activity = follow(newId());
         undoHandler.handle(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
@@ -1150,6 +1183,23 @@ class FollowIntegrationTests {
     private boolean undone(String id) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM undone_follow WHERE activity_uri = :id)").param("id", id)
                 .query(Boolean.class).single();
+    }
+
+    private Actor otherAccount() {
+        var name = "u" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        actors.createLocalIfAbsent(name, actor -> {
+        });
+        return actors.findLocalByUsername(name).orElseThrow();
+    }
+
+    private List<UUID> followsFrom(String activityUri) {
+        return jdbc.sql("SELECT followed_id FROM follow WHERE activity_uri = :uri").param("uri", activityUri)
+                .query(UUID.class).list();
+    }
+
+    private List<String> acceptsOf(Actor account) {
+        return jdbc.sql("SELECT body FROM outbound_activity WHERE actor_id = :id").param("id", account.id())
+                .query(String.class).list();
     }
 
     private List<String> accepts() {

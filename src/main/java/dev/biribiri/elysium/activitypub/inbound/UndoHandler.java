@@ -196,7 +196,7 @@ class UndoHandler implements InboundActivityHandler {
         var followed = followedUri.flatMap(ActivityObject::parseUri).flatMap(actors::findAnyLocalByUri).map(Actor::id);
         transaction.executeWithoutResult(status ->
                 follows.undo(actorUri, followed, followId, follow.map(InboundActivity::arrival), activity.receivedAt())
-                        .ifPresent(this::cancelAccept));
+                        .forEach(this::cancelAccept));
     }
 
     private void undoByPair(InboundActivity activity, String followedUri) {
