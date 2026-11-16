@@ -10,8 +10,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,7 +17,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -178,15 +175,15 @@ class CustomEmojiPagesController {
     }
 
     /**
-     * One zip that both Misskey and Akkoma can import.
+     * One zip that both Misskey and Akkoma can import. It's written while the request waits, rather than as a
+     * StreamingResponseBody, whose async timeout would cut off a large export partway.
      */
     @GetMapping(PATH + "/export")
-    ResponseEntity<StreamingResponseBody> exportPack() {
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("application/zip"))
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        ContentDisposition.attachment().filename(packs.exportName()).build().toString())
-                .body(packs::export);
+    void exportPack(HttpServletResponse response) throws IOException {
+        response.setContentType("application/zip");
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                ContentDisposition.attachment().filename(packs.exportName()).build().toString());
+        packs.export(response.getOutputStream());
     }
 
     /**

@@ -44,13 +44,11 @@ import java.util.zip.ZipOutputStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
@@ -170,10 +168,7 @@ class EmojiPacksIntegrationTests {
         var hidden = emojis.addLocal(shortcode(), TestImages.animatedGif(2, 16, 16), null);
         emojis.updateLocal(hidden.id(), null, false);
 
-        var started = mockMvc.perform(get(PAGE + "/export").session(session))
-                .andExpect(request().asyncStarted())
-                .andReturn();
-        var zip = mockMvc.perform(asyncDispatch(started))
+        var zip = mockMvc.perform(get(PAGE + "/export").session(session))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "application/zip"))
                 .andExpect(header().string("Content-Disposition", containsString("packs.example-emojis.zip")))

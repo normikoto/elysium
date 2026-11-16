@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.InvalidCustomEmojiException;
+import dev.biribiri.elysium.text.Shortcodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -59,28 +60,32 @@ class EmojiPacks {
             throws IOException {
         var override = CustomEmojis.checkCategory(categoryOverride);
         var limit = emojis.maxImageSize().toBytes();
-        try (var pack = EmojiPackReader.open(archive, archiveName, limit, json)) {
-            if (limited && pack.fileCount() > emojis.maxPackFiles()) {
-                throw new InvalidCustomEmojiException(
-                        "A pack can't have more than %d files. Import larger ones from the command line"
-                                .formatted(emojis.maxPackFiles()));
-            }
+        var maxFiles = limited ? emojis.maxPackFiles() : Integer.MAX_VALUE;
+        try (var pack = EmojiPackReader.open(archive, archiveName, limit, maxFiles, json)) {
             var packCategory = packCategory(pack.name());
+            // As addLocal reads them, so that one written as ":blob:" is found as blob.
+            var shortcodes = pack.entries().stream()
+                    .map(entry -> Shortcodes.parse(entry.shortcode().strip()).orElse(entry.shortcode()))
+                    .toList();
+            var existing = emojis.findLocal(shortcodes).keySet();
             var added = new ArrayList<String>();
             var replaced = new ArrayList<String>();
             var skipped = new ArrayList<String>();
             var failed = new ArrayList<>(pack.problems());
-            for (var entry : pack.entries()) {
-                var category = override != null ? override : pack.hasCategories() ? entry.category() : packCategory;
+            for (var i = 0; i < shortcodes.size(); i++) {
+                var entry = pack.entries().get(i);
+                var shortcode = shortcodes.get(i);
+                var category = override != null ? override
+                        : pack.hasCategories() ? packCategory(entry.category()) : packCategory;
                 try {
-                    var exists = !emojis.findLocal(List.of(entry.shortcode())).isEmpty();
+                    var exists = existing.contains(shortcode);
                     if (exists && !replace) {
-                        skipped.add(entry.shortcode());
-                    } else if (exists && emojis.replaceLocal(entry.shortcode(), pack.read(entry, limit), category)) {
-                        replaced.add(entry.shortcode());
+                        skipped.add(shortcode);
+                    } else if (exists && emojis.replaceLocal(shortcode, pack.read(entry, limit), category)) {
+                        replaced.add(shortcode);
                     } else {
-                        emojis.addLocal(entry.shortcode(), pack.read(entry, limit), category);
-                        added.add(entry.shortcode());
+                        emojis.addLocal(shortcode, pack.read(entry, limit), category);
+                        added.add(shortcode);
                     }
                 } catch (InvalidCustomEmojiException e) {
                     failed.add(new EmojiPackReader.Problem(entry.shortcode(), e.getMessage()));
@@ -91,8 +96,8 @@ class EmojiPacks {
     }
 
     /**
-     * A pack's name only becomes a category if it can be one, so that a pack called "Uncategorized" or with a long name
-     * is still imported.
+     * A pack's name, or a Misskey emoji's category, only becomes a category if it can be one, so that a pack called
+     * "Uncategorized", or a category longer than this server allows, is still imported.
      */
     private static String packCategory(String name) {
         try {

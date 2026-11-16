@@ -72,10 +72,8 @@ final class EmojiPackReader {
      * @param name                what its emoji are grouped under, unless it has categories of its own: the folder
      *                            it's in, or the archive's name, or null
      * @param hasCategories       whether it's Misskey's, which gives each emoji's category, including none
-     * @param fileCount           how many files it has, emoji or not
      */
-    record Pack(String name, boolean hasCategories, List<Entry> entries, List<Problem> problems, int fileCount,
-                Source source)
+    record Pack(String name, boolean hasCategories, List<Entry> entries, List<Problem> problems, Source source)
             implements Closeable {
 
         /**
@@ -94,11 +92,18 @@ final class EmojiPackReader {
     /**
      * @param archiveName the name it was uploaded as, for the pack's name
      * @param maxFileSize the most any file could need to be read, past which it's refused rather than read
-     * @throws InvalidCustomEmojiException if it isn't an archive this can read, or its manifest isn't valid
+     * @param maxFiles    the most files it can have, emoji or not. A tar archive is refused as soon as it passes this,
+     *                    so a small compressed one can't fill the disk before it's counted
+     * @throws InvalidCustomEmojiException if it isn't an archive this can read, its manifest isn't valid, or it has too
+     *                                     many files
      */
-    static Pack open(Path archive, String archiveName, long maxFileSize, JsonMapper json) throws IOException {
-        var source = source(archive, Math.max(maxFileSize, MAX_MANIFEST_SIZE));
+    static Pack open(Path archive, String archiveName, long maxFileSize, int maxFiles, JsonMapper json)
+            throws IOException {
+        var source = source(archive, Math.max(maxFileSize, MAX_MANIFEST_SIZE), maxFiles);
         try {
+            if (source.files().size() > maxFiles) {
+                throw tooManyFiles(maxFiles);
+            }
             return read(source, archiveName, json);
         } catch (RuntimeException e) {
             source.close();
@@ -120,7 +125,7 @@ final class EmojiPackReader {
         } else {
             entries = images(source.files());
         }
-        return new Pack(name, misskey.isPresent(), unique(entries, problems), problems, source.files().size(), source);
+        return new Pack(name, misskey.isPresent(), unique(entries, problems), problems, source);
     }
 
     /**
@@ -280,7 +285,7 @@ final class EmojiPackReader {
         return parts.isEmpty() ? Optional.empty() : Optional.of(String.join("/", parts));
     }
 
-    private static Source source(Path archive, long maxFileSize) throws IOException {
+    private static Source source(Path archive, long maxFileSize, int maxFiles) throws IOException {
         byte[] magic;
         try (var in = Files.newInputStream(archive)) {
             magic = in.readNBytes(262);
@@ -289,10 +294,10 @@ final class EmojiPackReader {
             return ZipSource.open(archive);
         }
         if (magic.length >= 2 && (magic[0] & 0xff) == 0x1f && (magic[1] & 0xff) == 0x8b) {
-            return TarSource.extract(archive, true, maxFileSize);
+            return TarSource.extract(archive, true, maxFileSize, maxFiles);
         }
         if (magic.length >= 262 && new String(magic, 257, 5, StandardCharsets.US_ASCII).equals("ustar")) {
-            return TarSource.extract(archive, false, maxFileSize);
+            return TarSource.extract(archive, false, maxFileSize, maxFiles);
         }
         throw new InvalidCustomEmojiException("A pack has to be a .zip, .tar.gz, or .tar file");
     }
@@ -320,6 +325,11 @@ final class EmojiPackReader {
 
     static InvalidCustomEmojiException missing(String file) {
         return new InvalidCustomEmojiException("The pack has no file called " + file);
+    }
+
+    static InvalidCustomEmojiException tooManyFiles(int maxFiles) {
+        return new InvalidCustomEmojiException(
+                "A pack can't have more than %d files. Import larger ones from the command line".formatted(maxFiles));
     }
 
     static InvalidCustomEmojiException tooLarge(String file, long limit) {
@@ -407,14 +417,18 @@ final class EmojiPackReader {
         private final Path directory;
         private final Map<String, Path> files;
         private final Set<String> tooLarge;
+        private final Set<String> all;
 
         private TarSource(Path directory, Map<String, Path> files, Set<String> tooLarge) {
             this.directory = directory;
             this.files = files;
             this.tooLarge = tooLarge;
+            var all = new LinkedHashSet<>(files.keySet());
+            all.addAll(tooLarge);
+            this.all = all;
         }
 
-        static TarSource extract(Path archive, boolean gzipped, long maxFileSize) throws IOException {
+        static TarSource extract(Path archive, boolean gzipped, long maxFileSize, int maxFiles) throws IOException {
             var directory = Files.createTempDirectory("elysium-emoji-pack-");
             var files = new LinkedHashMap<String, Path>();
             var tooLarge = new HashSet<String>();
@@ -428,6 +442,9 @@ final class EmojiPackReader {
                     var name = normalize(entry.getName());
                     if (name.isEmpty() || files.containsKey(name.get()) || tooLarge.contains(name.get())) {
                         continue;
+                    }
+                    if (files.size() + tooLarge.size() >= maxFiles) {
+                        throw tooManyFiles(maxFiles);
                     }
                     var bytes = tar.readNBytes((int) Math.min(maxFileSize + 1, Integer.MAX_VALUE - 8));
                     if (bytes.length > maxFileSize) {
@@ -460,8 +477,6 @@ final class EmojiPackReader {
 
         @Override
         public Set<String> files() {
-            var all = new LinkedHashSet<>(files.keySet());
-            all.addAll(tooLarge);
             return all;
         }
 

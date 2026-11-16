@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -45,7 +46,7 @@ final class EmojiPackWriter {
             if (image == null) {
                 continue;
             }
-            zip.putNextEntry(new ZipEntry(fileName(emoji)));
+            zip.putNextEntry(stored(fileName(emoji), image));
             zip.write(image);
             zip.closeEntry();
             written.add(emoji);
@@ -57,6 +58,20 @@ final class EmojiPackWriter {
         zip.write(json.writerWithDefaultPrettyPrinter().writeValueAsBytes(pleroma(written, host, homepage, json)));
         zip.closeEntry();
         zip.finish();
+    }
+
+    /**
+     * WebP is already compressed, so deflating it again would only spend time.
+     */
+    private static ZipEntry stored(String name, byte[] content) {
+        var entry = new ZipEntry(name);
+        entry.setMethod(ZipEntry.STORED);
+        entry.setSize(content.length);
+        entry.setCompressedSize(content.length);
+        var crc = new CRC32();
+        crc.update(content);
+        entry.setCrc(crc.getValue());
+        return entry;
     }
 
     static String fileName(CustomEmoji emoji) {

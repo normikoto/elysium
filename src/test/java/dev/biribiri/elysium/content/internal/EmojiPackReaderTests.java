@@ -43,7 +43,7 @@ class EmojiPackReaderTests {
                 "plain.png", "p",
                 "pack.json", "{\"files\": {\"other\": \"blob.png\"}}"));
 
-        try (var pack = EmojiPackReader.open(archive, "export.zip", LIMIT, JSON)) {
+        try (var pack = EmojiPackReader.open(archive, "export.zip", LIMIT, Integer.MAX_VALUE, JSON)) {
             assertThat(pack.hasCategories()).isTrue();
             assertThat(pack.entries()).containsExactly(
                     new EmojiPackReader.Entry("blob", "Blobs", "blob.png"),
@@ -61,7 +61,7 @@ class EmojiPackReaderTests {
                 "blobs/cats/blobcat.png", "c",
                 "blobs/blob.png", "b"));
 
-        try (var pack = EmojiPackReader.open(archive, "download.zip", LIMIT, JSON)) {
+        try (var pack = EmojiPackReader.open(archive, "download.zip", LIMIT, Integer.MAX_VALUE, JSON)) {
             assertThat(pack.name()).isEqualTo("blobs");
             assertThat(pack.hasCategories()).isFalse();
             assertThat(pack.entries()).containsExactly(
@@ -79,7 +79,7 @@ class EmojiPackReaderTests {
                 "README.md", "not an emoji",
                 "__MACOSX/._blob.PNG", "resource fork"));
 
-        try (var pack = EmojiPackReader.open(archive, "Party Pack.zip", LIMIT, JSON)) {
+        try (var pack = EmojiPackReader.open(archive, "Party Pack.zip", LIMIT, Integer.MAX_VALUE, JSON)) {
             assertThat(pack.name()).isEqualTo("Party Pack");
             assertThat(pack.entries()).containsExactly(
                     new EmojiPackReader.Entry("blob", null, "nested/blob.PNG"),
@@ -92,7 +92,7 @@ class EmojiPackReaderTests {
         var longName = "a".repeat(120) + "/blob_" + "b".repeat(40) + ".png";
         var archive = tarGz(files(longName, "b", "../escape.png", "x"));
 
-        try (var pack = EmojiPackReader.open(archive, "pack.tar.gz", LIMIT, JSON)) {
+        try (var pack = EmojiPackReader.open(archive, "pack.tar.gz", LIMIT, Integer.MAX_VALUE, JSON)) {
             assertThat(pack.name()).isEqualTo("a".repeat(120));
             assertThat(pack.entries()).extracting(EmojiPackReader.Entry::file).containsExactly(longName);
             assertThat(pack.read(pack.entries().getFirst(), LIMIT)).isEqualTo("b".getBytes(StandardCharsets.UTF_8));
@@ -106,7 +106,7 @@ class EmojiPackReaderTests {
                 "../evil.png", "e",
                 "ok.png", "o"));
 
-        try (var pack = EmojiPackReader.open(archive, "pack.zip", LIMIT, JSON)) {
+        try (var pack = EmojiPackReader.open(archive, "pack.zip", LIMIT, Integer.MAX_VALUE, JSON)) {
             assertThat(pack.source().files()).containsExactlyInAnyOrder("pack.json", "ok.png");
             for (var entry : pack.entries()) {
                 if (!entry.shortcode().equals("ok")) {
@@ -120,7 +120,7 @@ class EmojiPackReaderTests {
     void refusesAFileLargerThanTheLimitWhateverItClaims() throws IOException {
         var archive = zip(files("big.png", "x".repeat((int) LIMIT + 1)));
 
-        try (var pack = EmojiPackReader.open(archive, "pack.zip", LIMIT, JSON)) {
+        try (var pack = EmojiPackReader.open(archive, "pack.zip", LIMIT, Integer.MAX_VALUE, JSON)) {
             assertThatThrownBy(() -> pack.read(pack.entries().getFirst(), LIMIT))
                     .isInstanceOf(InvalidCustomEmojiException.class)
                     .hasMessageContaining("larger than");
@@ -131,7 +131,7 @@ class EmojiPackReaderTests {
     void keepsTheFirstOfTwoEmojiWithOneShortcode() throws IOException {
         var archive = zip(files("one/blob.png", "1", "two/blob.png", "2"));
 
-        try (var pack = EmojiPackReader.open(archive, "pack.zip", LIMIT, JSON)) {
+        try (var pack = EmojiPackReader.open(archive, "pack.zip", LIMIT, Integer.MAX_VALUE, JSON)) {
             assertThat(pack.entries()).hasSize(1);
             assertThat(pack.problems()).extracting(EmojiPackReader.Problem::what).containsExactly("blob");
         }
@@ -141,11 +141,11 @@ class EmojiPackReaderTests {
     void refusesWhatIsntAnArchiveOrHasABrokenManifest() throws IOException {
         var text = directory.resolve("notes.txt");
         Files.writeString(text, "just some text");
-        assertThatThrownBy(() -> EmojiPackReader.open(text, "notes.txt", LIMIT, JSON))
+        assertThatThrownBy(() -> EmojiPackReader.open(text, "notes.txt", LIMIT, Integer.MAX_VALUE, JSON))
                 .isInstanceOf(InvalidCustomEmojiException.class);
 
         var broken = zip(files("meta.json", "{not json"));
-        assertThatThrownBy(() -> EmojiPackReader.open(broken, "pack.zip", LIMIT, JSON))
+        assertThatThrownBy(() -> EmojiPackReader.open(broken, "pack.zip", LIMIT, Integer.MAX_VALUE, JSON))
                 .isInstanceOf(InvalidCustomEmojiException.class)
                 .hasMessageContaining("meta.json");
     }
