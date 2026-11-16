@@ -212,7 +212,8 @@ which can still be used by typing their shortcode.
 An emoji can have a category, and apps show each category as its own section of their pickers, with the uncategorized
 emoji together, usually as "Custom". The admin page lists the emoji by category, with the uncategorized ones last. You can
 rename a category, which merges it with another if you give it that one's name, or make all its emoji uncategorized, and
-move several emoji at once by selecting them.
+move several emoji at once by selecting them. A category can't be called "Uncategorized", which is what the page calls
+the emoji with none.
 
 - Posts only show the emoji that existed when they were written or last edited, so adding an emoji doesn't change older
   posts that happened to use its shortcode.

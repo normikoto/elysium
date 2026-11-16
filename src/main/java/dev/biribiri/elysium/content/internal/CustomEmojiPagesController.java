@@ -150,6 +150,7 @@ class CustomEmojiPagesController {
         model.addAttribute("groups", groups);
         model.addAttribute("categories", groups.stream().map(Group::name).filter(Objects::nonNull).toList());
         model.addAttribute("maxCategoryLength", CustomEmojis.MAX_CATEGORY_LENGTH);
+        model.addAttribute("uncategorized", CustomEmojis.UNCATEGORIZED);
         model.addAttribute("maxImageSize", emojis.describeMaxImageSize());
         return "admin-custom-emojis";
     }

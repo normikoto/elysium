@@ -39,6 +39,12 @@ public class CustomEmojis {
     public static final int MAX_CATEGORY_LENGTH = 50;
 
     /**
+     * What the admin page calls the emoji with no category. A category can't have this name, in any case, or the page
+     * would show two groups that look the same.
+     */
+    public static final String UNCATEGORIZED = "Uncategorized";
+
+    /**
      * Another server's emoji is kept this long after any status last used it, so that one being stored doesn't lose it
      * in between, and one that's used again soon isn't downloaded again.
      */
@@ -402,6 +408,10 @@ public class CustomEmojis {
         if (stripped.codePointCount(0, stripped.length()) > MAX_CATEGORY_LENGTH) {
             throw new InvalidCustomEmojiException(
                     "A category can't be longer than %d characters".formatted(MAX_CATEGORY_LENGTH));
+        }
+        if (stripped.equalsIgnoreCase(UNCATEGORIZED)) {
+            throw new InvalidCustomEmojiException(
+                    "\"%s\" is reserved. Leave the category empty instead".formatted(UNCATEGORIZED));
         }
         return stripped;
     }

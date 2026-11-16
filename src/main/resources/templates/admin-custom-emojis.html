@@ -39,12 +39,12 @@
             <form id="move-emojis" method="post" th:action="@{/admin/custom-emojis/move}">
                 <label for="move-category">Move the selected emoji to</label>
                 <input type="text" id="move-category" name="category" th:maxlength="${maxCategoryLength}"
-                       list="categories" placeholder="Leave empty for Uncategorized">
+                       list="categories" th:placeholder="|Leave empty for ${uncategorized}|">
                 <button type="submit">Move</button>
             </form>
         </th:block>
         <section th:each="group : ${groups}">
-            <h3 th:text="|${group.name() ?: 'Uncategorized'} (${group.emojis().size()})|"></h3>
+            <h3 th:text="|${group.name() ?: uncategorized} (${group.emojis().size()})|"></h3>
             <th:block th:if="${group.name() != null}">
                 <form class="actions" method="post" th:action="@{/admin/custom-emojis/categories}">
                     <input type="hidden" name="from" th:value="${group.name()}">

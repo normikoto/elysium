@@ -168,6 +168,30 @@ class CustomEmojisIntegrationTests {
     }
 
     @Test
+    void uncategorizedIsReservedInAnyCase() throws Exception {
+        var session = TestOAuth.logIn(mockMvc, ADMIN, PASSWORD);
+        var category = "Reserved " + shortcode();
+        var emoji = emojis.addLocal(shortcode(), TestImages.png(64, 64), category);
+
+        assertThatThrownBy(() -> emojis.addLocal(shortcode(), TestImages.png(64, 64), "Uncategorized"))
+                .isInstanceOf(InvalidCustomEmojiException.class);
+        mockMvc.perform(multipart(PAGE).file(image()).session(session).with(csrf())
+                        .param("shortcode", shortcode()).param("category", " uncategorized "))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(content().string(containsString("is reserved")));
+        mockMvc.perform(post(PAGE + "/" + emoji.id()).session(session).with(csrf())
+                        .param("category", "UNCATEGORIZED").param("visibleInPicker", "true"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(post(PAGE + "/categories").session(session).with(csrf())
+                        .param("from", category).param("to", "Uncategorized"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(post(PAGE + "/move").session(session).with(csrf())
+                        .param("ids", emoji.id().toString()).param("category", "Uncategorized"))
+                .andExpect(status().isUnprocessableContent());
+        assertThat(findLocal(emoji.shortcode()).category()).isEqualTo(category);
+    }
+
+    @Test
     void thePageRefusesBadShortcodesDuplicatesAndImages() throws Exception {
         var session = TestOAuth.logIn(mockMvc, ADMIN, PASSWORD);
         var shortcode = shortcode();
