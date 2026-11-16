@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -225,6 +226,21 @@ class WebPagesIntegrationTests {
 
         mockMvc.perform(get("/users/wanda").param("max_id", newer.id().toString()))
                 .andExpect(content().string(not(containsString("Pinned</h2>"))));
+    }
+
+    @Test
+    void showsALocalOnlyStatusOnlyToAccountsLoggedInHere() throws Exception {
+        var status = statuses.create(wanda.id(), new NewStatus(
+                "local-only text", null, null, Visibility.PUBLIC, false, null, List.of(), null, null, null, true));
+
+        mockMvc.perform(get(path(wanda, status))).andExpect(status().isNotFound());
+        mockMvc.perform(get(path(wanda, status)).with(loggedIn(walt)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("local-only text")))
+                .andExpect(content().string(containsString("Only visible to people on this server")));
+        for (var page : new String[]{"/users/wanda", "/"}) {
+            mockMvc.perform(get(page)).andExpect(content().string(not(containsString("local-only text"))));
+        }
     }
 
     @Test

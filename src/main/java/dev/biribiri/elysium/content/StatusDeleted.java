@@ -17,10 +17,12 @@ import java.util.UUID;
  *                           when statuses didn't mention anyone
  * @param boosterIds         the local accounts that had boosted it, whose followers were sent it too. Null for an event
  *                           stored before boosts existed
+ * @param localOnly          whether it was local-only, so nothing was sent anywhere. False for an event stored before this
+ *                           was added, when there were none
  */
 public record StatusDeleted(
         UUID statusId, URI statusUri, UUID authorId, Visibility visibility, Instant publishedAt, UUID inReplyToAccountId,
-        List<UUID> mentionedIds, List<UUID> boosterIds) {
+        List<UUID> mentionedIds, List<UUID> boosterIds, boolean localOnly) {
 
     /**
      * @return who it mentioned, which is nobody for an event stored before mentions existed

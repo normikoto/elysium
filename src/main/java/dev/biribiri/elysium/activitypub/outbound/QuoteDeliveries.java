@@ -149,7 +149,9 @@ public class QuoteDeliveries {
         var status = statuses.findAndHold(statusId, authorId);
         var author = actors.findLocalById(authorId);
         var quote = quotes.find(statusId);
-        if (status.isEmpty() || author.isEmpty() || quote.isEmpty() || quote.get().requestUri() == null
+        // A local-only status can't quote another server's, but the request would carry the whole status.
+        if (status.isEmpty() || status.get().localOnly() || author.isEmpty() || quote.isEmpty()
+                || quote.get().requestUri() == null
                 || (onlyIfPending && quote.get().state() != QuoteState.PENDING)) {
             return Optional.empty();
         }
@@ -203,7 +205,9 @@ public class QuoteDeliveries {
      */
     @ApplicationModuleListener
     public void on(QuoteRevoked event) {
-        if (event.stampId() == null) {
+        // Nothing elsewhere knows of this quote, since its stamp is only served with the quote. Decided when it was revoked,
+        // since the quoting status can be gone or its author suspended by the time this runs.
+        if (event.stampId() == null || event.localOnly()) {
             return;
         }
         var quotedAuthor = actors.findLocalById(event.quotedAuthorId());

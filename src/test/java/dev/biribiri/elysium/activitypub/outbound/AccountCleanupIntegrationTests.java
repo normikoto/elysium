@@ -433,7 +433,7 @@ class AccountCleanupIntegrationTests {
         actors.suspend(local.id());
 
         transactions.executeWithoutResult(tx -> events.publishEvent(new StatusDeleted(
-                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt(), null, List.of(), List.of())));
+                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt(), null, List.of(), List.of(), false)));
 
         await().atMost(WAIT).until(() -> !activities(local, status.uri() + "#delete").isEmpty());
     }
@@ -445,7 +445,7 @@ class AccountCleanupIntegrationTests {
         actors.markDeleted(local.id());
 
         transactions.executeWithoutResult(tx -> events.publishEvent(new StatusDeleted(
-                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt(), null, List.of(), List.of())));
+                status.id(), status.uri(), local.id(), status.visibility(), status.publishedAt(), null, List.of(), List.of(), false)));
 
         await().atMost(WAIT).until(() -> publications() == 0);
         assertThat(activities(local, status.uri() + "#delete")).isEmpty();

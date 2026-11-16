@@ -48,6 +48,7 @@
             <p class="status-meta">
                 <strong th:text="${status.handle()}"></strong>
                 <span th:text="${status.visibility()}"></span>
+                <span th:if="${status.localOnly()}">local-only</span>
                 <time th:datetime="${status.publishedAt()}" th:text="${status.publishedAt()}"></time>
             </p>
             <p th:if="${!status.spoilerText().isEmpty()}"><strong th:text="${status.spoilerText()}"></strong></p>

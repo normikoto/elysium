@@ -184,7 +184,7 @@ class RemoteUrlLookupTests {
 
     private static Status status() {
         return new Status(UUID.randomUUID(), NOTE, UUID.randomUUID(), "hi", "<p>hi</p>", null, null, Visibility.PUBLIC,
-                false, false, null, null, null, null, Instant.now(), null, null, 0, null, null);
+                false, false, null, null, null, null, Instant.now(), null, null, 0, null, null, false);
     }
 
     private static Actor suspended(Actor actor) {

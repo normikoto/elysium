@@ -179,6 +179,22 @@ class NoteFetchIntegrationTests {
     }
 
     @Test
+    void neverServesALocalOnlyStatusNorATombstoneOfOne() throws Exception {
+        var follower = remote("follower");
+        followAlice(follower, Duration.ofHours(-1));
+        var status = statuses.create(alice().id(), new NewStatus(
+                "only here", null, null, Visibility.PUBLIC, false, null, List.of(), null, null, null, true));
+        var everyone = post("everyone", Visibility.PUBLIC);
+
+        fetch(status, follower).andExpect(status().isNotFound());
+        send(unsigned(status)).andExpect(status().isNotFound());
+        statuses.delete(status.id(), alice().id());
+        statuses.delete(everyone.id(), alice().id());
+        send(unsigned(status)).andExpect(status().isNotFound());
+        send(unsigned(everyone)).andExpect(status().isGone());
+    }
+
+    @Test
     void keepsADeletedFollowersOnlyStatusHidden() throws Exception {
         var mentioned = remote("mentioned");
         followAlice(mentioned, Duration.ofHours(-1));

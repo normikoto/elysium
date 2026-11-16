@@ -11,7 +11,9 @@ import java.util.UUID;
  * @param uri        its {@code Announce}'s ID
  * @param statusId   the status it boosts
  * @param activityAt when a remote boost's {@code Announce} first arrived, or null for a local one
+ * @param localOnly  whether it boosts a local-only status, so it's never sent anywhere
  */
 public record StatusBoost(
-        UUID id, URI uri, UUID actorId, UUID statusId, Visibility visibility, Instant publishedAt, Instant activityAt) {
+        UUID id, URI uri, UUID actorId, UUID statusId, Visibility visibility, Instant publishedAt, Instant activityAt,
+        boolean localOnly) {
 }

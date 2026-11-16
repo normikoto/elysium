@@ -18,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -113,6 +114,23 @@ class OutboxIntegrationTests {
                 .andExpect(jsonPath("$.orderedItems[0].type").value("Announce"))
                 .andExpect(jsonPath("$.orderedItems[0].object").value(boosted.uri().toString()))
                 .andExpect(jsonPath("$.orderedItems[0].cc", contains(alice.uri() + "/followers", bob.uri().toString())));
+    }
+
+    @Test
+    void leavesOutLocalOnlyStatusesAndBoostsOfThem() throws Exception {
+        var bob = local();
+        var hidden = statuses.create(bob.id(), new NewStatus(
+                "Only here", null, null, Visibility.PUBLIC, false, null, List.of(), null, null, null, true));
+        var boost = boosts.reblog(hidden.id(), alice.id(), Visibility.PUBLIC).orElseThrow();
+        statuses.create(alice.id(), new NewStatus(
+                "Mine", null, null, Visibility.PUBLIC, false, null, List.of(), null, null, null, true));
+        var shown = post(alice, "Everyone", Visibility.PUBLIC);
+
+        assertThat(boost.localOnly()).isTrue();
+        mockMvc.perform(get(path).param("page", "true").accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.orderedItems", hasSize(1)))
+                .andExpect(jsonPath("$.orderedItems[0].id").value(shown.uri() + "#create"));
     }
 
     @Test

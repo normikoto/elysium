@@ -107,7 +107,8 @@ requires a signature. There's no web page at this URL, so its `url` links to the
 
 Statuses are `Note` objects at `/users/{username}/statuses/{id}`, which is also the URL of their web page. These are
 served the same way as actor documents: the same `Accept` types get the object, requests that accept HTML get the page,
-and any origin can read both through CORS. Public and unlisted statuses are served to anyone.
+and any origin can read both through CORS. Public and unlisted statuses are served to anyone, unless they're
+[local-only](#local-only-statuses).
 
 A fetch of a `Note` doesn't need a signature unless [signed fetches are required](#authorized-fetch), but one is checked if it's sent, and the request is
 answered as the actor that owns the signing key:
@@ -788,6 +789,17 @@ fetched at most every 15 minutes. Nothing is fetched from this server or a [bloc
 - **Failures:** a `404`, `410`, or other refusal skips what was fetched, and what it would have led to. A server error or
   timeout is tried again later.
 
+### Local-only statuses
+
+A local user can make a status local-only, alongside any visibility. Nothing about it is sent to other servers: no
+`Create`, `Update`, or `Delete`, no `Announce` or `Add` of it by local users, no poll results, and no `QuoteRequest`, so
+the actors it mentions and the author of the status it replies to aren't sent it either. A fetch of its `Note` gets a
+404, with or without a signature, and so does a fetch once it's deleted, rather than a `410`. Outboxes and `featured`
+collections leave it out, along with boosts of it.
+
+Its ID is never sent, but if another server has it anyway, a `Like`, `EmojiReact`, `Announce`, or poll `Vote` of it is
+ignored, and a `QuoteRequest` for it isn't answered. A reply to it or quote of it by a local user is local-only too.
+
 ### Likes
 
 When a local user likes a status from another server, a `Like` signed as the user is sent to the author's `inbox`, and
@@ -1312,6 +1324,8 @@ never says whether admins acted on it.
 - A `featured` collection only lists public and unlisted pins, where Mastodon also names followers-only ones to a
   follower's signed fetch. Pins from another server are kept for its followers-only statuses that were sent here, but those
   aren't fetched.
+- Mastodon has no [local-only statuses](#local-only-statuses). They work like glitch-soc's, which aren't sent to other
+  servers either.
 - Once `elysium.federation.send-blocks` is turned off, lifting a block that was sent before then sends no `Undo`, so the
   other server keeps it.
 

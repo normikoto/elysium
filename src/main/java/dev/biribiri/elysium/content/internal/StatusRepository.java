@@ -44,7 +44,13 @@ public class StatusRepository {
     private static final String COLUMNS = """
             s.id, s.uri, s.actor_id, s.text, s.content, s.spoiler_text, s.language, s.visibility, s.sensitive, s.reply,
             s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at, s.edited_at, s.reblog_of_id,
-            s.quote_automatic, s.quote_manual, s.note_updated_at""";
+            s.quote_automatic, s.quote_manual, s.note_updated_at, s.local_only""";
+
+    /**
+     * For a query with no viewer, which serves people who aren't logged in and other servers. A viewer is always an account
+     * here, so it can see local-only statuses, and the boosts of them, which are local-only too.
+     */
+    private static final String NOT_LOCAL_ONLY = " AND NOT s.local_only";
 
     private static final String COUNT_REPLIES = """
             SELECT count(*) FROM status r
@@ -163,7 +169,8 @@ public class StatusRepository {
                 rs.getObject("reblog_of_id", UUID.class),
                 rs.getLong("replies_count"),
                 ContentRows.quoteApproval(rs),
-                ContentRows.instantOrNull(rs.getObject("note_updated_at", OffsetDateTime.class)));
+                ContentRows.instantOrNull(rs.getObject("note_updated_at", OffsetDateTime.class)),
+                rs.getBoolean("local_only"));
     }
 
     /**
@@ -198,10 +205,11 @@ public class StatusRepository {
                         INSERT INTO status (id, uri, actor_id, text, content, spoiler_text, language, visibility, sensitive,
                                             reply, in_reply_to_id, in_reply_to_account_id, in_reply_to_uri, url,
                                             published_at, edited_at, reblog_of_id, activity_at, quote_automatic,
-                                            quote_manual)
+                                            quote_manual, local_only)
                         VALUES (:id, :uri, :actorId, :text, :content, :spoilerText, :language, :visibility, :sensitive,
                                 :reply, :inReplyToId, :inReplyToAccountId, :inReplyToUri, :url, :publishedAt, :editedAt,
-                                :reblogOfId, :activityAt, CAST(:quoteAutomatic AS text[]), CAST(:quoteManual AS text[]))
+                                :reblogOfId, :activityAt, CAST(:quoteAutomatic AS text[]), CAST(:quoteManual AS text[]),
+                                :localOnly)
                         ON CONFLICT DO NOTHING
                         """)
                 .param("reblogOfId", status.reblogOfId(), Types.OTHER)
@@ -220,6 +228,7 @@ public class StatusRepository {
                 .param("language", status.language(), Types.VARCHAR)
                 .param("visibility", status.visibility().value())
                 .param("sensitive", status.sensitive())
+                .param("localOnly", status.localOnly())
                 .param("reply", status.reply())
                 .param("inReplyToId", status.inReplyToId(), Types.OTHER)
                 .param("inReplyToAccountId", status.inReplyToAccountId(), Types.OTHER)
@@ -761,7 +770,7 @@ public class StatusRepository {
 
     private static Filter publicFilter(StatusOrigin origin, boolean onlyMedia, UUID viewer) {
         var filter = "s.visibility = 'public' AND s.reblog_of_id IS NULL AND " + NOT_A_REPLY_TO_OTHERS + origin(origin)
-                + (onlyMedia ? HAS_MEDIA : "") + (viewer == null ? "" : NOT_HIDDEN);
+                + (onlyMedia ? HAS_MEDIA : "") + (viewer == null ? NOT_LOCAL_ONLY : NOT_HIDDEN);
         return new Filter(filter, viewer == null ? Map.of() : Map.of("viewer", viewer));
     }
 
@@ -805,6 +814,8 @@ public class StatusRepository {
         if (viewer != null) {
             filter.append(NOT_HIDDEN);
             parameters.put("viewer", viewer);
+        } else {
+            filter.append(NOT_LOCAL_ONLY);
         }
         return new Filter(filter.toString(), parameters);
     }
@@ -934,9 +945,7 @@ public class StatusRepository {
             parameters.put("viewer", viewer);
         }
         filter.append(")");
-        if (viewer != null) {
-            filter.append(NO_HIDDEN_BOOSTS);
-        }
+        filter.append(viewer != null ? NO_HIDDEN_BOOSTS : NOT_LOCAL_ONLY);
         if (excludeReplies) {
             filter.append(" AND ").append(NOT_A_REPLY_TO_OTHERS);
         }
@@ -953,7 +962,8 @@ public class StatusRepository {
      * Counts what {@link #findByAccount} lists for these visibilities, with no viewer and boosts included.
      */
     public long countByAccount(UUID actorId, Collection<Visibility> visibilities) {
-        return jdbc.sql("SELECT count(*) " + FROM_ACTIVE + "WHERE s.actor_id = :actorId AND s.visibility IN (:visibilities)")
+        return jdbc.sql("SELECT count(*) " + FROM_ACTIVE + "WHERE s.actor_id = :actorId AND s.visibility IN (:visibilities)"
+                        + NOT_LOCAL_ONLY)
                 .param("actorId", actorId)
                 .param("visibilities", visibilities.stream().map(Visibility::value).toList())
                 .query(Long.class)

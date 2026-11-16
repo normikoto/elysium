@@ -172,6 +172,9 @@ public class StatusesController {
                     which is quoted as such servers quote each other, without asking. A status from before this \
                     server supported quotes can only be quoted by its author. A status that can't be quoted gets a \
                     422.
+                    - `local_only`, as on glitch-soc, keeps the status on this server: it isn't sent to other servers, \
+                    and only accounts logged in here can see it. A reply to or quote of a local-only status is \
+                    local-only too, and a local-only status that quotes a status from another server gets a 422.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
@@ -182,7 +185,7 @@ public class StatusesController {
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
                             The status is empty or too long, media can't be attached, a value is unsupported or of the \
-                            wrong type, or the token \
+                            wrong type, a local-only status quotes one from another server, or the token \
                             has no user.""")
             })
     @RequestBody(required = true, content = @Content(
@@ -689,7 +692,8 @@ public class StatusesController {
                 mediaIds(parameters.get("media_ids")),
                 quoted(RequestParameters.string(parameters, "quoted_status_id")),
                 quotePolicy(parameters),
-                poll(parameters.get("poll")));
+                poll(parameters.get("poll")),
+                RequestParameters.flag(parameters, "local_only"));
         return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
     }
 
@@ -929,6 +933,11 @@ public class StatusesController {
             @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
                     Who can quote this status. Missing means the user's default. A followers-only or direct status can \
                     only be quoted by its author.""")
-            String quote_approval_policy) {
+            String quote_approval_policy,
+            @Schema(description = """
+                    Whether the status stays on this server, unsent to other servers and only shown to accounts \
+                    logged in here. A reply to or quote of a local-only status is local-only whatever this says.""",
+                    defaultValue = "false")
+            Boolean local_only) {
     }
 }

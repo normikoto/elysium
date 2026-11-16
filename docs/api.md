@@ -65,6 +65,12 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   leaves out local accounts that the status was sent to without mentioning them, which can still see it.
 - `visibility` defaults to `public` only when it's missing. An empty value is rejected, as are a repeated value and
   `visibility[]`.
+- `local_only=true` keeps a status on this server, as on glitch-soc, alongside any `visibility`. It isn't sent to other
+  servers, and only accounts on this server can see it, through an app or logged in to the website. Anyone else gets a
+  404, and it's left out of what they can list, such as the public timeline and an account's statuses. A reply to or
+  quote of a local-only status, and a boost of one, are local-only too. A local-only status that quotes a status from
+  another server gets a 422. An edit can't change it. Statuses have `local_only`, which is always false for one from
+  another server.
 - `GET /api/v1/instance` reports the length limit in `max_toot_chars` and `configuration.statuses.max_characters`, and
   the media limits in `configuration.media_attachments`, where `video_size_limit` is the larger of the video and audio
   limits. `video_frame_rate_limit` and `video_matrix_limit` aren't enforced, since video isn't decoded. Its

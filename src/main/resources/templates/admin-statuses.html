@@ -22,6 +22,7 @@
                 <span th:text="${status.local()} ? 'Local' : 'Remote'"></span>
                 <span th:if="${status.authorSuspended()}">Suspended</span>
                 <span th:text="${status.visibility()}"></span>
+                <span th:if="${status.localOnly()}">local-only</span>
                 <time th:datetime="${status.publishedAt()}" th:text="${status.publishedAt()}"></time>
             </p>
             <th:block th:if="${status.shown()}">

@@ -12,6 +12,7 @@ import java.util.UUID;
  * @param descriptions one for each attachment, empty for one without
  */
 public record ModeratedStatus(UUID id, String handle, boolean local, boolean authorSuspended, String visibility,
+                              boolean localOnly,
                               String publishedAt, URI link, boolean shown, String spoilerText, String content,
                               List<String> descriptions) {
 }

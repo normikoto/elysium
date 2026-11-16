@@ -81,7 +81,7 @@ public class StatusDeliveries {
     public void on(StatusPublished event) {
         var status = statuses.findAndHold(event.statusId(), event.authorId());
         var author = actors.findLocalById(event.authorId());
-        if (status.isEmpty() || author.isEmpty()) {
+        if (status.isEmpty() || author.isEmpty() || status.get().localOnly()) {
             return;
         }
         var mentioned = notes.mentioned(status.get());
@@ -126,7 +126,7 @@ public class StatusDeliveries {
         deliveries.cancelStartingWith(updates);
         deliveries.cancel(StatusQuote.requestUriFor(event.statusUri()).toString());
         var author = actors.findAnyLocalById(event.authorId()).filter(found -> !found.isDeleted());
-        if (author.isEmpty()) {
+        if (author.isEmpty() || event.localOnly()) {
             followersOnly.forget(event.statusId());
             return;
         }
@@ -184,6 +184,10 @@ public class StatusDeliveries {
      * @param also who else to send it to, besides those who have the status
      */
     void sendUpdate(Status status, Actor author, Note note, Update update, Collection<URI> also) {
+        // Nobody elsewhere has it, including remote voters, who can't vote in a poll they can't fetch.
+        if (status.localOnly()) {
+            return;
+        }
         var create = Create.of(note);
         deliveries.replaceBody(create.id().toString(), json.writeValueAsString(create));
         var everyone = new LinkedHashSet<>(everyoneSent(status, true));
@@ -203,6 +207,9 @@ public class StatusDeliveries {
      * Everyone that a status's {@code Update}s go to, as for an edit.
      */
     List<URI> everyoneSent(Status status, boolean withoutBlocked) {
+        if (status.localOnly()) {
+            return List.of();
+        }
         return everyoneSent(
                 status.id(),
                 status.actorId(),

@@ -7,6 +7,8 @@
         </p>
         <p th:if="${view.status.visibility.name() == 'PRIVATE'}">Only visible to followers and mentioned accounts</p>
         <p th:if="${view.status.visibility.name() == 'DIRECT'}">Only visible to mentioned accounts</p>
+        <p th:if="${view.status.localOnly and view.status.visibility.isOpen()}">Only visible to people on this server</p>
+        <p th:if="${view.status.localOnly and !view.status.visibility.isOpen()}">Not sent to other servers</p>
         <th:block th:insert="~{status-card :: card(${view})}"></th:block>
         <p><a th:href="@{${view.authorUrl}}" th:text="|More from ${view.authorName}|"></a></p>
     </div>

@@ -30,6 +30,10 @@ record StatusResponse(
         boolean sensitive,
         @JsonProperty("spoiler_text") String spoilerText,
         String visibility,
+        @Schema(description = """
+                Whether the status stays on this server, as on glitch-soc. Only accounts logged in here can see it. A \
+                boost of one is local-only too.""")
+        @JsonProperty("local_only") boolean localOnly,
         String language,
         String uri,
         String url,
@@ -114,6 +118,7 @@ record StatusResponse(
                 status.sensitive(),
                 status.spoilerText(),
                 status.visibility().value(),
+                status.localOnly(),
                 status.language(),
                 status.uri().toString(),
                 pageUrl(status),
