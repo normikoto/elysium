@@ -213,7 +213,7 @@ public class QuoteService {
             quoting.ifPresent(status -> {
                 events.publishEvent(new QuoteRevoked(
                         quotingStatusId, status.actorId(), ownerId,
-                        found.state() == QuoteState.ACCEPTED ? found.stampId() : null));
+                        found.state() == QuoteState.ACCEPTED ? found.stampId() : null, status.localOnly()));
                 noteChanged(status);
             });
             return Revocation.REVOKED;

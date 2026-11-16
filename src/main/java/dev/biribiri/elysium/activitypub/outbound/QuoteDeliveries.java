@@ -15,7 +15,6 @@ import dev.biribiri.elysium.content.QuoteRequested;
 import dev.biribiri.elysium.content.QuoteRevoked;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
-import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusNoteChanged;
 import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
@@ -206,7 +205,9 @@ public class QuoteDeliveries {
      */
     @ApplicationModuleListener
     public void on(QuoteRevoked event) {
-        if (event.stampId() == null) {
+        // Nothing elsewhere knows of this quote, since its stamp is only served with the quote. Decided when it was revoked,
+        // since the quoting status can be gone or its author suspended by the time this runs.
+        if (event.stampId() == null || event.localOnly()) {
             return;
         }
         var quotedAuthor = actors.findLocalById(event.quotedAuthorId());
@@ -217,12 +218,8 @@ public class QuoteDeliveries {
         var stamp = QuoteAuthorization.idFor(quotedAuthor.get().uri(), event.stampId());
         var inboxes = new LinkedHashSet<URI>();
         if (actors.isLocal(quotingAuthor.get())) {
-            var status = statuses.findVisible(event.statusId(), Optional.of(event.authorId()));
-            // Nothing elsewhere knows of this quote, since its stamp is only served with the quote.
-            if (status.filter(Status::localOnly).isPresent()) {
-                return;
-            }
-            status.ifPresent(found -> inboxes.addAll(statusDeliveries.everyoneSent(found, false)));
+            statuses.findVisible(event.statusId(), Optional.of(event.authorId()))
+                    .ifPresent(status -> inboxes.addAll(statusDeliveries.everyoneSent(status, false)));
         } else {
             recipients.add(quotingAuthor.get(), inboxes);
         }
