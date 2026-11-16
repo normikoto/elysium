@@ -62,17 +62,21 @@ public class FollowRepository {
                 .optional();
     }
 
-    public Optional<Row> findByActivity(UUID followerId, String activityUri) {
+    /**
+     * A server can reuse a {@code Follow}'s ID for another account once the first activity has been cleaned up here, so an
+     * ID can be behind follows of more than one account.
+     *
+     * @return the follows this activity is behind
+     */
+    public List<Row> findByActivity(UUID followerId, String activityUri) {
         return jdbc.sql("""
                         SELECT id, followed_id, activity_uri, activity_at, state FROM follow
                         WHERE follower_id = :followerId AND activity_uri = :activityUri
-                        ORDER BY activity_at DESC, id
-                        LIMIT 1
                         """)
                 .param("followerId", followerId)
                 .param("activityUri", activityUri)
                 .query(ROW_MAPPER)
-                .optional();
+                .list();
     }
 
     /**
@@ -536,16 +540,28 @@ public class FollowRepository {
     }
 
     /**
-     * @return who the removed follow was of, if one was removed
+     * @return who each removed follow was of
      */
-    public Optional<UUID> deleteByActivity(UUID followerId, String activityUri) {
+    public List<UUID> deleteByActivity(UUID followerId, String activityUri) {
         return jdbc.sql("DELETE FROM follow WHERE follower_id = :followerId AND activity_uri = :activityUri RETURNING followed_id")
                 .param("followerId", followerId)
                 .param("activityUri", activityUri)
                 .query(UUID.class)
-                .list()
-                .stream()
-                .findFirst();
+                .list();
+    }
+
+    /**
+     * @return whether a follow was removed
+     */
+    public boolean deleteByActivity(UUID followerId, UUID followedId, String activityUri) {
+        return jdbc.sql("""
+                        DELETE FROM follow
+                        WHERE follower_id = :followerId AND followed_id = :followedId AND activity_uri = :activityUri
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .param("activityUri", activityUri)
+                .update() > 0;
     }
 
     /**

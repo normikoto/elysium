@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- When a server reused a `Follow`'s ID to follow a second account here, an `Undo` of it could leave one of the two follows
+  behind, and still send its `Accept`. It now removes both.
+
 ## [0.1.0] - 2026-11-15
 
 ### Added

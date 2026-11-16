@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * Who follows whom. A follow can be identified by the activity that created it, which other servers refer to when they undo
@@ -478,36 +480,69 @@ public class FollowService {
      *                   that first arrived before the {@code Undo}, if the activity itself isn't known.
      * @param arrival    when the activity arrived, if that's known. It may not have arrived yet.
      * @param undoAt     when the {@code Undo} arrived
-     * @return the follow that was removed, if any
+     * @return the follows that were removed
      */
     @Transactional
-    public Optional<Removed> undo(
+    public List<Removed> undo(
             String followerUri, Optional<UUID> followedId, String activityUri, Optional<Arrival> arrival, Instant undoAt) {
         var follower = actors.findByUri(URI.create(followerUri));
-        var stored = follower.flatMap(actor -> follows.findByActivity(actor.id(), activityUri));
-        var followed = stored.map(FollowRepository.Row::followedId).or(() -> followedId);
-        followed.ifPresent(id -> follows.lock(pairKey(followerUri, id)));
+        var stored = follower.map(actor -> follows.findByActivity(actor.id(), activityUri)).orElse(List.of());
+        // The activity can be a reused ID's Follow of another account that hasn't been handled yet, which no row shows.
+        var unstored = followedId.filter(id -> stored.stream().noneMatch(row -> row.followedId().equals(id)));
+        // In one order, so that two of these can't each hold a pair the other is waiting for.
+        Stream.concat(stored.stream().map(FollowRepository.Row::followedId), unstored.stream())
+                .sorted()
+                .forEach(id -> follows.lock(pairKey(followerUri, id)));
         follows.lock(activityUri);
 
+        var removed = new ArrayList<Removed>();
+        // Each row is timed by itself rather than by the stored activity, since a reused ID's stored activity is only the
+        // last Follow that had it.
+        if (stored.stream().anyMatch(row -> row.activityAt().isAfter(undoAt))) {
+            // The Undo got here first, so nothing else says what it covers. Only this activity can be stopped.
+            follows.markUndone(activityUri, followerUri, undoAt);
+        }
+        for (var row : stored) {
+            if (row.activityAt().isAfter(undoAt)) {
+                if (follows.deleteByActivity(follower.get().id(), row.followedId(), activityUri)) {
+                    removed.add(new Removed(row.followedId(), activityUri));
+                }
+            } else {
+                // A Follow that first arrived after this one is a newer follow, even if this one was repeated after that.
+                cover(followerUri, row.followedId(), row.activityAt()).ifPresent(removed::add);
+            }
+        }
+        if (stored.isEmpty() || unstored.isPresent()) {
+            removed.addAll(undoUnstored(follower, followerUri, unstored, activityUri, arrival, undoAt));
+        }
+        return removed;
+    }
+
+    /**
+     * Undoes an activity that no follow here shows yet. The caller holds the locks.
+     */
+    private List<Removed> undoUnstored(Optional<Actor> follower, String followerUri, Optional<UUID> followedId,
+                                       String activityUri, Optional<Arrival> arrival, Instant undoAt) {
         // Stored activities are eventually cleaned up, long before an account stops following someone.
-        var known = arrival.or(() -> stored.map(row -> new Arrival(row.activityAt(), row.activityAt())));
-        if (known.isEmpty() && followed.isPresent()) {
+        if (arrival.isEmpty() && followedId.isPresent()) {
             // Either the Follow hasn't arrived, or this isn't the ID that it has here, since a server can make a new one. The
             // actor has still stopped following, and staying a follower by mistake is worse than losing one.
             follows.markUndone(activityUri, followerUri, undoAt);
-            return cover(followerUri, followed.get(), undoAt);
+            return cover(followerUri, followedId.get(), undoAt).stream().toList();
         }
-        if (known.isEmpty() || known.get().first().isAfter(undoAt)) {
+        if (arrival.isEmpty() || arrival.get().first().isAfter(undoAt)) {
             // The Undo got here first, so nothing else says what it covers. Only this activity can be stopped.
             follows.markUndone(activityUri, followerUri, undoAt);
-            return follower.flatMap(actor -> follows.deleteByActivity(actor.id(), activityUri))
-                    .map(followedActor -> new Removed(followedActor, activityUri));
+            // A follow from it can have been saved since it was looked for, before the lock was taken.
+            return follower.map(actor -> follows.deleteByActivity(actor.id(), activityUri)).orElse(List.of()).stream()
+                    .map(followedActor -> new Removed(followedActor, activityUri))
+                    .toList();
         }
-        if (followed.isEmpty()) {
-            return Optional.empty();
+        if (followedId.isEmpty()) {
+            return List.of();
         }
         // A Follow that first arrived after this one is a newer follow, even if this one was repeated after that.
-        return cover(followerUri, followed.get(), known.get().first());
+        return cover(followerUri, followedId.get(), arrival.get().first()).stream().toList();
     }
 
     /**

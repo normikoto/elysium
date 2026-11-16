@@ -405,6 +405,9 @@ Activities are ordered by when they arrived here, whatever order they're process
 - A newer `Follow` replaces an older one's `Accept` if that hasn't been sent yet, and an `Undo` cancels the `Accept` of the
   follow it removes, if that hasn't been sent yet.
 
+If an actor's `Follow`s of more than one account here share an `id`, an `Undo` of that `id` removes all of them, whichever
+account its embedded `Follow` names.
+
 An `Undo` of an embedded `Follow` whose `id` isn't known here removes any follow between its actor and its `object` that arrived
 before it, because a server can make a new `id`. An `Undo` that only gives an `id` that isn't known has no other effect.
 
