@@ -15,6 +15,7 @@ import dev.biribiri.elysium.content.QuoteRequested;
 import dev.biribiri.elysium.content.QuoteRevoked;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
+import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusNoteChanged;
 import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
@@ -149,7 +150,9 @@ public class QuoteDeliveries {
         var status = statuses.findAndHold(statusId, authorId);
         var author = actors.findLocalById(authorId);
         var quote = quotes.find(statusId);
-        if (status.isEmpty() || author.isEmpty() || quote.isEmpty() || quote.get().requestUri() == null
+        // A local-only status can't quote another server's, but the request would carry the whole status.
+        if (status.isEmpty() || status.get().localOnly() || author.isEmpty() || quote.isEmpty()
+                || quote.get().requestUri() == null
                 || (onlyIfPending && quote.get().state() != QuoteState.PENDING)) {
             return Optional.empty();
         }
@@ -214,8 +217,12 @@ public class QuoteDeliveries {
         var stamp = QuoteAuthorization.idFor(quotedAuthor.get().uri(), event.stampId());
         var inboxes = new LinkedHashSet<URI>();
         if (actors.isLocal(quotingAuthor.get())) {
-            statuses.findVisible(event.statusId(), Optional.of(event.authorId()))
-                    .ifPresent(status -> inboxes.addAll(statusDeliveries.everyoneSent(status, false)));
+            var status = statuses.findVisible(event.statusId(), Optional.of(event.authorId()));
+            // Nothing elsewhere knows of this quote, since its stamp is only served with the quote.
+            if (status.filter(Status::localOnly).isPresent()) {
+                return;
+            }
+            status.ifPresent(found -> inboxes.addAll(statusDeliveries.everyoneSent(found, false)));
         } else {
             recipients.add(quotingAuthor.get(), inboxes);
         }

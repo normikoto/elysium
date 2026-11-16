@@ -90,7 +90,7 @@ public class StatusPinService {
         found.ifPresent(status -> pins.findPair(actorId, statusId).ifPresent(pin -> {
             pins.delete(pin.id());
             events.publishEvent(new StatusUnpinned(actorId, status.uri(), pin.activityUri(), status.visibility(),
-                    status.publishedAt()));
+                    status.publishedAt(), status.localOnly()));
         }));
         return found;
     }

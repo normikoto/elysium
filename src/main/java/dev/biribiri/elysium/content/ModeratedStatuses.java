@@ -35,7 +35,8 @@ public class ModeratedStatuses {
         var authors = actors.findByIds(statuses.stream().map(Status::actorId).distinct().toList()).stream()
                 .collect(Collectors.toMap(Actor::id, Function.identity()));
         var shownIds = statuses.stream()
-                .filter(status -> showAll || status.isVisibleTo(Optional.empty()))
+                // Admins are accounts here, so they see local-only statuses as anyone here would.
+                .filter(status -> showAll || status.visibility().isOpen())
                 .map(Status::id)
                 .toList();
         var media = attachments.findByStatuses(shownIds);
@@ -53,6 +54,7 @@ public class ModeratedStatuses {
                 local,
                 author.isSuspended(),
                 status.visibility().value(),
+                status.localOnly(),
                 status.publishedAt().truncatedTo(ChronoUnit.SECONDS).toString(),
                 status.link(),
                 shown,

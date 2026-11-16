@@ -168,10 +168,18 @@ public class StatusService {
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
         // Before looking up mentions on other servers, so that a reply to nothing doesn't make those requests or use up the
         // author's lookups. The parent is checked again under a lock below, since it can be deleted in between.
-        if (draft.inReplyToId() != null && findVisible(draft.inReplyToId(), Optional.of(authorId)).isEmpty()) {
-            throw new ReplyParentNotFoundException();
-        }
+        var replyingTo = draft.inReplyToId() == null ? null
+                : findVisible(draft.inReplyToId(), Optional.of(authorId)).orElseThrow(ReplyParentNotFoundException::new);
         var quoting = draft.quotedStatusId() == null ? null : quotable(draft.quotedStatusId(), authorId);
+        // Replying to or quoting a local-only status keeps the conversation here, as on glitch-soc, so that its URI isn't
+        // sent to another server in inReplyTo or quote.
+        var localOnly = draft.localOnly()
+                || (replyingTo != null && replyingTo.localOnly())
+                || (quoting != null && quoting.status().localOnly());
+        // Quoting another server's status would have to send this one to it, to ask for its approval.
+        if (localOnly && quoting != null && !quoting.local()) {
+            throw new InvalidStatusException(LOCAL_ONLY_REMOTE_QUOTE);
+        }
         // Quoting a followers-only status, which only its author can, keeps the quote among the same followers.
         var visibility = quoting != null && quoting.status().visibility() == Visibility.PRIVATE && draft.visibility().isOpen()
                 ? Visibility.PRIVATE : draft.visibility();
@@ -219,7 +227,8 @@ public class StatusService {
                     null,
                     0,
                     quotePolicy.approval(),
-                    null);
+                    null,
+                    localOnly);
             statuses.insert(status);
             media.attach(id, authorId, claimed);
             if (poll != null) {
@@ -388,6 +397,7 @@ public class StatusService {
     }
 
     private static final String MEDIA_AND_POLL = "A status can't have both media and a poll";
+    private static final String LOCAL_ONLY_REMOTE_QUOTE = "A local-only status can't quote a status from another server";
 
     private void insertLocalPoll(UUID statusId, NewPoll poll, Instant from) {
         polls.insert(statusId, poll.multiple(), poll.hideTotals(), from.plusSeconds(poll.expiresIn()), null, null, null,
@@ -734,7 +744,8 @@ public class StatusService {
                     null,
                     0,
                     remote.quotePolicy(),
-                    null);
+                    null,
+                    false);
             if (!statuses.insert(status)) {
                 return Optional.<UUID>empty();
             }
@@ -939,9 +950,10 @@ public class StatusService {
         var followed = Set.copyOf(follows.followedIds(viewer));
         var mentioned = statuses.mentioning(ids, viewer);
         var refusing = blocks.refusing(viewer, found.stream().map(Status::actorId).collect(Collectors.toSet()));
+        var local = found.stream().anyMatch(Status::localOnly) && actors.isLocal(viewer);
         return found.stream()
                 .filter(status -> isVisible(status, Optional.of(viewer), followed::contains, mentioned::contains,
-                        refusing::contains))
+                        refusing::contains, local))
                 .toList();
     }
 
@@ -981,8 +993,9 @@ public class StatusService {
     /**
      * Whether this viewer is allowed to see a status. Besides what {@link Status#isVisibleTo} allows, a followers-only status
      * can be seen by an account that follows its author, and a followers-only or direct status by the accounts it mentions,
-     * as on Mastodon. Nothing by an author who blocks the viewer, or the viewer's server, can be seen, so that they can't
-     * favourite, boost or reply to it either.
+     * as on Mastodon. A local-only status can only be seen by accounts here, as one that's open or followers-only would be.
+     * Nothing by an author who blocks the viewer, or the viewer's server, can be seen, so that they can't favourite, boost or
+     * reply to it either.
      */
     public boolean isVisible(Status status, Optional<UUID> viewer) {
         return isVisible(
@@ -990,7 +1003,8 @@ public class StatusService {
                 viewer,
                 author -> viewer.filter(id -> follows.isFollowing(id, author)).isPresent(),
                 statusId -> viewer.filter(id -> !statuses.mentioning(List.of(statusId), id).isEmpty()).isPresent(),
-                author -> viewer.filter(id -> !blocks.refusing(id, List.of(author)).isEmpty()).isPresent());
+                author -> viewer.filter(id -> !blocks.refusing(id, List.of(author)).isEmpty()).isPresent(),
+                status.localOnly() && viewer.filter(actors::isLocal).isPresent());
     }
 
     /**
@@ -1001,12 +1015,16 @@ public class StatusService {
      * exists, and nobody can have it without being sent its deletion. Former followers aren't shown it, as they aren't sent
      * its edits.
      *
-     * <p>An author who blocks the fetcher, or the fetcher's server, doesn't show it anything.
+     * <p>An author who blocks the fetcher, or the fetcher's server, doesn't show it anything. A local-only status is shown
+     * to no other server.
      *
      * @param fetcher an active actor, or empty for a fetch that nobody is known to be behind
      */
     public Optional<Status> findFetchable(UUID id, Optional<UUID> fetcher) {
         return statuses.findById(id).filter(status -> {
+            if (status.localOnly()) {
+                return false;
+            }
             if (fetcher.isPresent() && !blocks.refusing(fetcher.get(), List.of(status.actorId())).isEmpty()) {
                 return false;
             }
@@ -1031,18 +1049,22 @@ public class StatusService {
      * @param mentionsViewer whether a status mentions the viewer, for a caller that has looked that up already
      * @param refusesViewer  whether an author blocks the viewer or the viewer's server, for a caller that has looked that up
      *                       already
+     * @param viewerIsLocal  whether the viewer is an account here, which only has to be right for a local-only status
      */
     private static boolean isVisible(
             Status status, Optional<UUID> viewer, Predicate<UUID> followsAuthor, Predicate<UUID> mentionsViewer,
-            Predicate<UUID> refusesViewer) {
+            Predicate<UUID> refusesViewer, boolean viewerIsLocal) {
         if (viewer.isPresent() && refusesViewer.test(status.actorId())) {
             return false;
         }
         if (status.isVisibleTo(viewer)) {
             return true;
         }
-        if (viewer.isEmpty()) {
+        if (viewer.isEmpty() || (status.localOnly() && !viewerIsLocal)) {
             return false;
+        }
+        if (status.visibility().isOpen()) {
+            return true;
         }
         return (status.visibility() == Visibility.PRIVATE && followsAuthor.test(status.actorId()))
                 || mentionsViewer.test(status.id());
@@ -1072,8 +1094,9 @@ public class StatusService {
             var authors = Stream.concat(ancestors.stream(), descendants.stream()).map(Status::actorId)
                     .collect(Collectors.toSet());
             Set<UUID> hiddenAuthors = viewer.isEmpty() ? Set.of() : blocks.hiddenFrom(viewer.get(), authors);
+            var local = hidden.stream().anyMatch(Status::localOnly) && actors.isLocal(viewer.get());
             Predicate<Status> visible = found -> !hiddenAuthors.contains(found.actorId())
-                    && isVisible(found, viewer, followed::contains, mentioning::contains, hiddenAuthors::contains);
+                    && isVisible(found, viewer, followed::contains, mentioning::contains, hiddenAuthors::contains, local);
             return new StatusContext(
                     ancestors.stream().filter(visible).toList(), descendants.stream().filter(visible).toList());
         });
@@ -1175,7 +1198,7 @@ public class StatusService {
             }).toList();
             events.publishEvent(new StatusDeleted(
                     status.id(), status.uri(), authorId, status.visibility(), status.publishedAt(),
-                    shownParentAuthor(status), mentioned, boosters));
+                    shownParentAuthor(status), mentioned, boosters, status.localOnly()));
         });
         return deleted;
     }

@@ -55,7 +55,7 @@ public class PinDeliveries {
         if (actor == null) return;
         var pin = pins.findAndHold(event.pinId()).orElse(null);
         var status = pin == null ? null : statuses.findVisible(pin.statusId(), Optional.of(actor.id())).orElse(null);
-        if (status == null) return;
+        if (status == null || status.localOnly()) return;
         var inboxes = inboxes(actor.id(), status.visibility(), status.publishedAt());
         if (inboxes.isEmpty()) return;
         var add = CollectionChange.pin(pin.activityUri(), actor, status.uri(), status.visibility());
@@ -71,7 +71,7 @@ public class PinDeliveries {
     public void on(StatusUnpinned event) {
         deliveries.cancel(event.activityUri());
         var actor = actors.findAnyLocalById(event.actorId()).filter(found -> !found.isDeleted()).orElse(null);
-        if (actor == null) return;
+        if (actor == null || event.localOnly()) return;
         var inboxes = inboxes(actor.id(), event.visibility(), event.publishedAt());
         if (inboxes.isEmpty()) return;
         var remove = CollectionChange.unpin(CollectionChange.removalIdFor(event.activityUri()), actor, event.statusUri(),

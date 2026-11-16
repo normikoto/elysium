@@ -2,7 +2,8 @@
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Remove a status', ~{::content})}">
 <th:block th:fragment="content">
     <p th:if="${status.local()}">
-        This permanently deletes the <span th:text="${status.visibility()}"></span> status by
+        This permanently deletes the <span th:text="${status.visibility()}"></span><th:block th:if="${status.localOnly()}">,
+        local-only</th:block> status by
         <strong th:text="${status.handle()}"></strong> from
         <time th:datetime="${status.publishedAt()}" th:text="${status.publishedAt()}"></time>, attachments included, and
         asks the servers it was sent to to delete it too. It can't be undone.

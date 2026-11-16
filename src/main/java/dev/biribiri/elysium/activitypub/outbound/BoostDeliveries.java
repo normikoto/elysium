@@ -62,7 +62,7 @@ public class BoostDeliveries {
     public void on(StatusReblogged event) {
         var booster = actors.findAnyLocalById(event.actorId()).filter(found -> !found.isDeleted());
         if (booster.isEmpty()) return;
-        boosts.findAndHold(event.boostId()).ifPresent(boost ->
+        boosts.findAndHold(event.boostId()).filter(boost -> !boost.localOnly()).ifPresent(boost ->
                 statuses.findVisible(boost.statusId(), Optional.of(boost.actorId())).ifPresent(status -> {
                     var author = actors.findById(status.actorId()).orElse(null);
                     var announce = Announce.fromHere(boost.uri(), booster.get(), status.uri(), author, boost.visibility(),
@@ -87,7 +87,7 @@ public class BoostDeliveries {
     public void on(StatusUnreblogged event) {
         deliveries.cancel(event.boostUri().toString());
         var booster = actors.findAnyLocalById(event.actorId()).filter(found -> !found.isDeleted());
-        if (booster.isEmpty()) {
+        if (booster.isEmpty() || event.localOnly()) {
             followersOnly.forget(event.boostId());
             return;
         }

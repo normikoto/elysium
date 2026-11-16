@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 @Repository
 public class BoostRepository {
 
-    private static final String COLUMNS = "b.id, b.uri, b.actor_id, b.reblog_of_id AS status_id, b.visibility, b.published_at, b.activity_at";
+    private static final String COLUMNS = "b.id, b.uri, b.actor_id, b.reblog_of_id AS status_id, b.visibility, b.published_at, b.activity_at, b.local_only";
 
     private static final RowMapper<StatusBoost> MAPPER = new SimplePropertyRowMapper<>(StatusBoost.class, ContentRows.CONVERSIONS);
 

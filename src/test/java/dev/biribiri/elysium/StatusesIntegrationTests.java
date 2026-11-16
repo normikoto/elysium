@@ -314,6 +314,56 @@ class StatusesIntegrationTests {
         assertThat(jdbc.sql("SELECT count(*) FROM status").query(Long.class).single()).isZero();
     }
 
+    @Test
+    void createsALocalOnlyStatusThatRepliesAndQuotesKeepLocalAndEditsDoNotChange() throws Exception {
+        var localOnly = expectCreated(createRequest(alice(), "Only here").param("local_only", "true"));
+        var everyone = create(alice(), "Everyone");
+        var reply = create(bob(), "Reply", "public", localOnly);
+        var quote = expectCreated(createRequest(bob(), "Quote").param("quoted_status_id", localOnly));
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + localOnly), alice())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Still only here")
+                        .param("local_only", "false"))
+                .andExpect(status().isOk());
+
+        for (var id : List.of(localOnly, reply, quote)) {
+            mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.local_only").value(true));
+        }
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + everyone), bob()))
+                .andExpect(jsonPath("$.local_only").value(false));
+    }
+
+    @Test
+    void refusesALocalOnlyQuoteOfAStatusFromAnotherServer() throws Exception {
+        var remote = remote(Visibility.PUBLIC);
+        mockMvc.perform(createRequest(alice(), "Quote")
+                        .param("quoted_status_id", remote.toString())
+                        .param("local_only", "true"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(createRequest(alice(), "Quote").param("quoted_status_id", remote.toString()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void showsALocalOnlyStatusOnlyToAccountsLoggedInHere() throws Exception {
+        var localOnly = expectCreated(createRequest(alice(), "Only here").param("local_only", "true"));
+        var boost = expectCreated(withToken(post("/api/v1/statuses/" + localOnly + "/reblog"), bob()));
+        var everyone = create(alice(), "Everyone");
+
+        mockMvc.perform(get("/api/v1/statuses/" + localOnly)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/statuses/" + localOnly + "/context")).andExpect(status().isNotFound());
+        expectIds(get(TIMELINE), everyone);
+        expectIds(withToken(get(TIMELINE), carol()), everyone, localOnly);
+        expectIds(get("/api/v1/accounts/" + aliceId() + "/statuses"), everyone);
+        expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), carol()), everyone, localOnly);
+        expectIds(get("/api/v1/accounts/" + bobId() + "/statuses"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + boost), carol()))
+                .andExpect(jsonPath("$.local_only").value(true))
+                .andExpect(jsonPath("$.reblog.local_only").value(true));
+    }
+
     // Reading
 
     @Test

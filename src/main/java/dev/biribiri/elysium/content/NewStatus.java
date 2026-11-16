@@ -13,6 +13,8 @@ import java.util.UUID;
  * @param quotedStatusId the status to quote, or null for none
  * @param quotePolicy who can quote this status, or null for the author's default
  * @param poll        its poll, or null for none
+ * @param localOnly   whether it stays on this server. A reply to or quote of a local-only status is local-only whatever
+ *                    this says
  */
 public record NewStatus(
         String text,
@@ -24,7 +26,8 @@ public record NewStatus(
         List<UUID> mediaIds,
         UUID quotedStatusId,
         QuotePolicy quotePolicy,
-        NewPoll poll
+        NewPoll poll,
+        boolean localOnly
 ) {
 
     public NewStatus {
@@ -47,5 +50,14 @@ public record NewStatus(
     public NewStatus(String text, String spoilerText, String language, Visibility visibility, boolean sensitive,
                      UUID inReplyToId, List<UUID> mediaIds, UUID quotedStatusId, QuotePolicy quotePolicy) {
         this(text, spoilerText, language, visibility, sensitive, inReplyToId, mediaIds, quotedStatusId, quotePolicy, null);
+    }
+
+    /**
+     * A status that federates.
+     */
+    public NewStatus(String text, String spoilerText, String language, Visibility visibility, boolean sensitive,
+                     UUID inReplyToId, List<UUID> mediaIds, UUID quotedStatusId, QuotePolicy quotePolicy, NewPoll poll) {
+        this(text, spoilerText, language, visibility, sensitive, inReplyToId, mediaIds, quotedStatusId, quotePolicy, poll,
+                false);
     }
 }

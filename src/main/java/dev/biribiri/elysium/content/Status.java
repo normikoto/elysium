@@ -29,6 +29,8 @@ import java.util.UUID;
  *                           whose server didn't say
  * @param noteUpdatedAt      when its {@code Note} last changed other than by an edit, or null if it hasn't. Only for a local
  *                           status
+ * @param localOnly          whether it stays on this server: it's never sent to or served to another server, and only
+ *                           accounts logged in here can see it. Always false for a status from another server
  */
 public record Status(
         UUID id,
@@ -50,7 +52,8 @@ public record Status(
         UUID reblogOfId,
         long repliesCount,
         QuoteApproval quoteApproval,
-        Instant noteUpdatedAt
+        Instant noteUpdatedAt,
+        boolean localOnly
 ) {
 
     public boolean isReblog() {
@@ -68,10 +71,11 @@ public record Status(
 
     /**
      * Whether a viewer can see this status without knowing who follows whom. Use {@link StatusService#isVisible}, which also
-     * lets followers see followers-only statuses, unless the viewer is anonymous or is the author.
+     * lets followers see followers-only statuses and local accounts see local-only ones, unless the viewer is anonymous or
+     * is the author. A local-only status is only visible here to its author, since the viewer could be on another server.
      */
     public boolean isVisibleTo(Optional<UUID> viewer) {
-        return visibility.isOpen()
+        return (visibility.isOpen() && !localOnly)
                 || viewer.filter(actorId::equals).isPresent();
     }
 }

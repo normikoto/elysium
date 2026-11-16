@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Searching for a post's link, from apps, finds the post, as on Mastodon. A post from another server that isn't here yet
   is fetched from its server, when the app asks for that and the post is public or unlisted. This counts toward the same
   limit of 30 lookups a minute as finding accounts on other servers. See `docs/api.md` and `FEDERATION.md`.
+- Local-only posts, which are never sent to other servers, and only people on this server can see. Apps that support
+  glitch-soc's `local_only` can post them. Replies to them, quotes of them, and boosts of them are local-only too. See
+  `docs/api.md` and `FEDERATION.md`.
 - An admin front page at `/admin`, which links to every admin page. Admins find a link to it on the front page and their
   settings page.
 
