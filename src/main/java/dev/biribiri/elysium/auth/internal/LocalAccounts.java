@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.auth.internal;
 
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.auth.Admins;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -24,7 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Passwords and roles for local actors.
  */
 @Service
-class LocalAccounts implements UserDetailsService {
+class LocalAccounts implements UserDetailsService, Admins {
 
     static final int MIN_PASSWORD_LENGTH = 8;
     static final int MAX_PASSWORD_LENGTH = 128;
@@ -119,7 +120,8 @@ class LocalAccounts implements UserDetailsService {
      * session or a stored authorization. Those are copies from when they were created, and a session's copy is serialized,
      * so a command can't update it when the role changes.
      */
-    boolean isAdmin(UUID actorId) {
+    @Override
+    public boolean isAdmin(UUID actorId) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM account_credential WHERE actor_id = :actorId AND role = 'ADMIN')")
                 .param("actorId", actorId)
                 .query(Boolean.class)

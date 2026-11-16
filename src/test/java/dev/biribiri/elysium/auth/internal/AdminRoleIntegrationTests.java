@@ -104,9 +104,11 @@ class AdminRoleIntegrationTests {
         mockMvc.perform(get("/admin").session(session))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/admin/accounts\"")));
-        mockMvc.perform(get("/settings").session(session))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("href=\"/admin\"")));
+        for (var page : new String[]{"/", "/settings"}) {
+            mockMvc.perform(get(page).session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(containsString("href=\"/admin\"")));
+        }
     }
 
     @Test
@@ -114,9 +116,12 @@ class AdminRoleIntegrationTests {
         var session = logIn(account(AccountRole.USER));
 
         mockMvc.perform(get("/admin").session(session)).andExpect(status().isForbidden());
-        mockMvc.perform(get("/settings").session(session))
-                .andExpect(status().isOk())
-                .andExpect(content().string(not(containsString("href=\"/admin\""))));
+        for (var page : new String[]{"/", "/settings"}) {
+            mockMvc.perform(get(page).session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(not(containsString("href=\"/admin\""))));
+        }
+        mockMvc.perform(get("/")).andExpect(content().string(not(containsString("href=\"/admin\""))));
     }
 
     // Tokens

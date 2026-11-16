@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
+import dev.biribiri.elysium.auth.Admins;
 import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -64,6 +65,7 @@ class PagesController {
     private final PollService polls;
     private final StatusPinService pins;
     private final CustomEmojis emojis;
+    private final Admins admins;
 
     PagesController(
             ActorService actors,
@@ -75,7 +77,9 @@ class PagesController {
             MediaAttachments attachments,
             PollService polls,
             StatusPinService pins,
-            CustomEmojis emojis) {
+            CustomEmojis emojis,
+            Admins admins) {
+        this.admins = admins;
         this.pins = pins;
         this.emojis = emojis;
         this.attachments = attachments;
@@ -94,6 +98,7 @@ class PagesController {
         model.addAttribute("userCount", actors.countLocal());
         model.addAttribute("statusCount", statuses.countLocal());
         model.addAttribute("showLogin", principal == null);
+        model.addAttribute("showAdmin", viewer(principal).filter(admins::isAdmin).isPresent());
         model.addAttribute("registrationEnabled", registration.acceptsUninvited());
         model.addAttribute("statuses", views(statuses.findPublic(StatusOrigin.LOCAL, firstPage(null))));
         return "home";
