@@ -20,28 +20,63 @@
             <label for="image">Image</label>
             <input type="file" id="image" name="image" accept="image/png,image/gif,image/webp,image/jpeg" required>
             <label for="category">Category (optional)</label>
-            <input type="text" id="category" name="category" th:value="${category}" th:maxlength="${maxCategoryLength}">
+            <input type="text" id="category" name="category" th:value="${category}" th:maxlength="${maxCategoryLength}"
+                   list="categories">
             <button type="submit">Add</button>
         </form>
 
+        <datalist id="categories">
+            <option th:each="name : ${categories}" th:value="${name}"></option>
+        </datalist>
+
         <h2>Emoji</h2>
-        <p th:if="${emojis.isEmpty()}">There are no custom emoji.</p>
-        <div class="status" th:each="emoji : ${emojis}">
-            <p class="status-meta">
-                <span><img class="custom-emoji" th:src="${emoji.url()}" th:alt="|:${emoji.shortcode()}:|">
-                    <strong th:text="|:${emoji.shortcode()}:|"></strong></span>
+        <p th:if="${groups.isEmpty()}">There are no custom emoji.</p>
+        <th:block th:unless="${groups.isEmpty()}">
+            <p>
+                Apps show each category as its own section of their emoji pickers, and the uncategorized emoji together,
+                usually as "Custom".
             </p>
-            <form class="actions" method="post" th:action="@{/admin/custom-emojis/{id}(id=${emoji.id()})}">
-                <input type="text" name="category" th:value="${emoji.category()}" th:maxlength="${maxCategoryLength}"
-                       placeholder="Category" th:aria-label="|Category of :${emoji.shortcode()}:|">
-                <label><input type="checkbox" name="visibleInPicker" value="true" th:checked="${emoji.visibleInPicker()}">
-                    Show in pickers</label>
-                <button type="submit">Save</button>
+            <form id="move-emojis" method="post" th:action="@{/admin/custom-emojis/move}">
+                <label for="move-category">Move the selected emoji to</label>
+                <input type="text" id="move-category" name="category" th:maxlength="${maxCategoryLength}"
+                       list="categories" placeholder="Leave empty for Uncategorized">
+                <button type="submit">Move</button>
             </form>
-            <form class="actions" method="post" th:action="@{/admin/custom-emojis/{id}/delete(id=${emoji.id()})}">
-                <button type="submit">Remove</button>
-            </form>
-        </div>
+        </th:block>
+        <section th:each="group : ${groups}">
+            <h3 th:text="|${group.name() ?: 'Uncategorized'} (${group.emojis().size()})|"></h3>
+            <th:block th:if="${group.name() != null}">
+                <form class="actions" method="post" th:action="@{/admin/custom-emojis/categories}">
+                    <input type="hidden" name="from" th:value="${group.name()}">
+                    <input type="text" name="to" th:value="${group.name()}" th:maxlength="${maxCategoryLength}"
+                           list="categories" th:aria-label="|New name for ${group.name()}|">
+                    <button type="submit">Rename</button>
+                </form>
+                <form class="actions" method="post" th:action="@{/admin/custom-emojis/categories}">
+                    <input type="hidden" name="from" th:value="${group.name()}">
+                    <input type="hidden" name="to" value="">
+                    <button type="submit">Make uncategorized</button>
+                </form>
+            </th:block>
+            <div class="status" th:each="emoji : ${group.emojis()}">
+                <p class="status-meta">
+                    <label><input type="checkbox" name="ids" form="move-emojis" th:value="${emoji.id()}">
+                        <img class="custom-emoji" th:src="${emoji.url()}" th:alt="|:${emoji.shortcode()}:|">
+                        <strong th:text="|:${emoji.shortcode()}:|"></strong></label>
+                </p>
+                <form class="actions" method="post" th:action="@{/admin/custom-emojis/{id}(id=${emoji.id()})}">
+                    <input type="text" name="category" th:value="${emoji.category()}" th:maxlength="${maxCategoryLength}"
+                           list="categories" placeholder="Category"
+                           th:aria-label="|Category of :${emoji.shortcode()}:|">
+                    <label><input type="checkbox" name="visibleInPicker" value="true" th:checked="${emoji.visibleInPicker()}">
+                        Show in pickers</label>
+                    <button type="submit">Save</button>
+                </form>
+                <form class="actions" method="post" th:action="@{/admin/custom-emojis/{id}/delete(id=${emoji.id()})}">
+                    <button type="submit">Remove</button>
+                </form>
+            </div>
+        </section>
         <p><a href="/admin/accounts">Accounts</a> · <a href="/admin/reports">Reports</a> ·
             <a href="/admin/statuses">Statuses</a> · <a href="/admin/domain-blocks">Domain blocks</a></p>
     </div>

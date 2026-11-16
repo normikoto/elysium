@@ -16,6 +16,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
@@ -81,11 +87,44 @@ class CustomEmojiPagesController {
             Ids.parse(id).ifPresent(emojiId -> emojis.updateLocal(emojiId, category, visibleInPicker != null));
             return "redirect:" + PATH;
         } catch (InvalidCustomEmojiException e) {
-            response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
-            model.addAttribute("error", e.getMessage());
-            model.addAttribute("shortcode", "");
-            model.addAttribute("category", "");
-            return page(model);
+            return refused(e, model, response);
+        }
+    }
+
+    @PostMapping(PATH + "/categories")
+    String renameCategory(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            Model model,
+            HttpServletResponse response) {
+        try {
+            emojis.renameLocalCategory(from, to);
+            return "redirect:" + PATH;
+        } catch (InvalidCustomEmojiException e) {
+            return refused(e, model, response);
+        }
+    }
+
+    /**
+     * The checkboxes are outside this form, since each emoji has a form of its own, so they name it with their
+     * {@code form} attribute. IDs that don't parse are skipped, as removed ones are.
+     */
+    @PostMapping(PATH + "/move")
+    String move(
+            @RequestParam(required = false) List<String> ids,
+            @RequestParam(required = false) String category,
+            Model model,
+            HttpServletResponse response) {
+        try {
+            var parsed = ids == null ? List.<UUID>of()
+                    : ids.stream().map(Ids::parse).flatMap(Optional::stream).distinct().toList();
+            if (parsed.isEmpty()) {
+                throw new InvalidCustomEmojiException("Choose the emoji to move");
+            }
+            emojis.moveLocal(parsed, category);
+            return "redirect:" + PATH;
+        } catch (InvalidCustomEmojiException e) {
+            return refused(e, model, response);
         }
     }
 
@@ -98,18 +137,50 @@ class CustomEmojiPagesController {
         return "redirect:" + PATH;
     }
 
+    private String refused(InvalidCustomEmojiException e, Model model, HttpServletResponse response) {
+        response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
+        model.addAttribute("error", e.getMessage());
+        model.addAttribute("shortcode", "");
+        model.addAttribute("category", "");
+        return page(model);
+    }
+
     private String page(Model model) {
-        model.addAttribute("emojis", emojis.listLocal().stream().map(emoji -> Row.from(emoji, instance)).toList());
+        var groups = groups(emojis.listLocal().stream().map(emoji -> Row.from(emoji, instance)).toList());
+        model.addAttribute("groups", groups);
+        model.addAttribute("categories", groups.stream().map(Group::name).filter(Objects::nonNull).toList());
         model.addAttribute("maxCategoryLength", CustomEmojis.MAX_CATEGORY_LENGTH);
         model.addAttribute("maxImageSize", emojis.describeMaxImageSize());
         return "admin-custom-emojis";
     }
 
+    /**
+     * Categories in alphabetical order, ignoring case, and then the uncategorized emoji. Categories that differ only in
+     * case stay apart, since apps show them apart.
+     */
+    static List<Group> groups(List<Row> rows) {
+        var byCategory = new TreeMap<String, List<Row>>(
+                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER.thenComparing(Comparator.naturalOrder())));
+        for (var row : rows) {
+            byCategory.computeIfAbsent(row.category(), category -> new ArrayList<>()).add(row);
+        }
+        return byCategory.entrySet().stream().map(entry -> new Group(entry.getKey(), entry.getValue())).toList();
+    }
+
+    /**
+     * @param name null for the uncategorized emoji
+     */
+    record Group(String name, List<Row> emojis) {
+    }
+
+    /**
+     * @param category null for none
+     */
     record Row(UUID id, String shortcode, String url, String category, boolean visibleInPicker) {
 
         static Row from(CustomEmoji emoji, InstanceProperties instance) {
-            return new Row(emoji.id(), emoji.shortcode(), emoji.url(instance).toString(),
-                    emoji.category() == null ? "" : emoji.category(), emoji.visibleInPicker());
+            return new Row(emoji.id(), emoji.shortcode(), emoji.url(instance).toString(), emoji.category(),
+                    emoji.visibleInPicker());
         }
     }
 }

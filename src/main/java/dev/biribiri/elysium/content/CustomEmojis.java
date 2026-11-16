@@ -144,6 +144,33 @@ public class CustomEmojis {
     }
 
     /**
+     * Moves every local emoji in a category to another, which merges them if it's one that's already used.
+     *
+     * @param from the category as it's stored
+     * @param to   null or blank to leave them uncategorized
+     * @return how many were moved
+     * @throws InvalidCustomEmojiException if the new category isn't valid
+     */
+    public int renameLocalCategory(String from, String to) {
+        var checked = category(to);
+        if (from == null || from.isBlank() || from.equals(checked)) {
+            return 0;
+        }
+        return emojis.renameLocalCategory(from, checked);
+    }
+
+    /**
+     * IDs that aren't of a local emoji, such as one removed meanwhile, are skipped.
+     *
+     * @param category null or blank to leave them uncategorized
+     * @return how many were moved
+     * @throws InvalidCustomEmojiException if the category isn't valid
+     */
+    public int moveLocal(Collection<UUID> ids, String category) {
+        return emojis.updateLocalCategory(ids, category(category));
+    }
+
+    /**
      * Statuses that used it show its shortcode as text from then on. Local accounts' reactions with it are withdrawn,
      * which other servers are sent.
      *

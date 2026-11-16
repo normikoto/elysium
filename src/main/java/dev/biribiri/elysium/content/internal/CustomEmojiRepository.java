@@ -123,6 +123,29 @@ public class CustomEmojiRepository {
                 .update() == 1;
     }
 
+    public int renameLocalCategory(String from, String to) {
+        return jdbc.sql("""
+                        UPDATE custom_emoji SET category = :to, updated_at = now()
+                        WHERE domain IS NULL AND category = :from
+                        """)
+                .param("from", from)
+                .param("to", to, Types.VARCHAR)
+                .update();
+    }
+
+    public int updateLocalCategory(Collection<UUID> ids, String category) {
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        return jdbc.sql("""
+                        UPDATE custom_emoji SET category = :category, updated_at = now()
+                        WHERE domain IS NULL AND id IN (:ids)
+                        """)
+                .param("ids", ids)
+                .param("category", category, Types.VARCHAR)
+                .update();
+    }
+
     /**
      * Holds a local emoji until the transaction ends.
      */
