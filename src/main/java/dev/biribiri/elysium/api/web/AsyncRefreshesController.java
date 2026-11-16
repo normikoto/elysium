@@ -79,7 +79,7 @@ public class AsyncRefreshesController {
     public AsyncRefreshBody get(
             @AuthenticationPrincipal TokenPrincipal token,
             @Parameter(description = "The refresh's ID, from the header.") @PathVariable String id) {
-        var viewer = NotificationRequests.viewer(token);
+        var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
         return Optional.of(id)
                 .filter(found -> found.startsWith(CONTEXT_PREFIX))
                 .flatMap(found -> RequestParameters.uuid(found.substring(CONTEXT_PREFIX.length())))
