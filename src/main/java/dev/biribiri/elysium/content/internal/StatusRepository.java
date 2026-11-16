@@ -521,6 +521,22 @@ public class StatusRepository {
     }
 
     /**
+     * Finds a status by its URI, or else by the page its server gave, for someone who has its link. Boosts aren't found,
+     * since a boost's URI is its {@code Announce}'s, which nobody links to.
+     */
+    public Optional<Status> findByUriOrUrl(String uriOrUrl) {
+        return jdbc.sql(SELECT + "WHERE s.uri = :uri AND s.reblog_of_id IS NULL")
+                .param("uri", uriOrUrl).query(STATUS_MAPPER).optional()
+                .or(() -> jdbc.sql(SELECT + """
+                                WHERE md5(s.url) = md5(:url) AND s.url = :url AND s.reblog_of_id IS NULL
+                                ORDER BY s.id LIMIT 1
+                                """)
+                        .param("url", uriOrUrl)
+                        .query(STATUS_MAPPER)
+                        .optional());
+    }
+
+    /**
      * Finds a status for an admin. Unlike other lookups, this includes the statuses of suspended authors, since those can
      * come back. Boosts aren't found, since removing one would remove nothing of its own.
      */

@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.RemoteUrlResolver;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.text.Hashtags;
@@ -30,8 +31,9 @@ import java.util.regex.Pattern;
 /**
  * Searches for accounts, statuses, and hashtags.
  *
- * <p>A query that's an address, {@code username@domain}, or an {@code https} URL finds that one account. Only a signed-in
- * user's request with {@code resolve} can make this server ask another one about it. Any other query matches the start of
+ * <p>A query that's an address, {@code username@domain}, finds that one account, and an {@code https} URL finds the one
+ * account or status there. Only a signed-in user's request with {@code resolve} can make this server ask another one about
+ * it. Any other query matches the start of
  * usernames this server knows, and of the hashtags its public statuses use, and the words of statuses a signed-in user is
  * allowed to find. Statuses are only searched for a user, as on Mastodon, which needs to know whose statuses they can find.
  */
@@ -86,7 +88,7 @@ public class SearchController {
                     - Statuses are found by whole words in their text and content warning, in any language, with no \
                     stemming. Words in quotes are a phrase, `OR` is between alternatives, and a word after `-` \
                     mustn't be there. Mastodon's operators, such as `from:` and `has:`, aren't supported, and poll \
-                    options and media descriptions aren't searched. A status's URL doesn't find it.
+                    options and media descriptions aren't searched.
                     - Only a signed-in user finds statuses: those they wrote, favourited, or are mentioned in, and \
                     public statuses by accounts whose `indexable` is true, newest first. Of those, only what they can \
                     see is found, leaving out accounts they block or mute. Their filters don't leave statuses out, \
@@ -96,10 +98,14 @@ public class SearchController {
                     most used first. A query that's a valid tag name, with or without its `#`, is also found when \
                     nothing uses it, as the first result. Only the first\s""" + MAX_TAG_OFFSET + """
                      can be paged through with `offset`.
-                    - A query that's a `username@domain` or an `https` URL finds that one account. Any other query \
+                    - A query that's a `username@domain` finds that one account. Any other query that isn't a URL \
                     matches the start of the usernames this server knows.
-                    - Another server is only asked about an account for a signed-in user's request, when `resolve` is \
-                    true. Each user can make\s""" + RemoteActorResolver.LOOKUPS_PER_MINUTE + """
+                    - An `https` URL finds only the account or status there, by its ID, or by the page its server \
+                    gives, such as a status's page. A profile page only finds its account with `resolve`. A status is \
+                    only found for a signed-in user who can see it, even if they block or mute its author. With \
+                    `resolve`, one from another server is fetched if anyone can see it there.
+                    - Another server is only asked about an account or status for a signed-in user's request, when \
+                    `resolve` is true. Each user can make\s""" + RemoteActorResolver.LOOKUPS_PER_MINUTE + """
                      of those lookups a minute, and then gets a 429.
                     - Only the first\s""" + AccountFilter.MAX_LIMIT + """
                      matches can be paged through with `offset`, and an `offset` past them returns no accounts.
@@ -109,8 +115,8 @@ public class SearchController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "search/#v2"),
             parameters = {
                     @Parameter(name = "q", description = """
-                            A username, or the start of one, a `username@domain`, an `https` URL, the start of a \
-                            hashtag, or words in statuses. A missing or blank query returns nothing."""),
+                            A username, or the start of one, a `username@domain`, an `https` URL of an account or \
+                            status, the start of a hashtag, or words in statuses. A missing or blank query returns nothing."""),
                     @Parameter(name = "type", description = "Only search for this type.",
                             schema = @Schema(allowableValues = {"accounts", "statuses", "hashtags"})),
                     @Parameter(name = "account_id", description = """
@@ -119,8 +125,8 @@ public class SearchController {
                     @Parameter(name = "max_id", description = "Only find statuses older than this one."),
                     @Parameter(name = "min_id", description = "Only find statuses newer than this one."),
                     @Parameter(name = "resolve", description = """
-                            Whether to ask another server about an address or URL this server doesn't know, or hasn't \
-                            refreshed for a while. Only works for a signed-in user.\s""" + ApiDocs.FLAG),
+                            Whether to ask another server about an address or URL this server doesn't know, or an \
+                            account it hasn't refreshed for a while. Only works for a signed-in user.\s""" + ApiDocs.FLAG),
                     @Parameter(name = "limit", description = "How many of each type to return. Values outside 1 to "
                             + MAX_LIMIT + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + DEFAULT_LIMIT)),
@@ -162,6 +168,9 @@ public class SearchController {
         var skipped = Math.min(requestedOffset, AccountFilter.MAX_LIMIT);
 
         var foundTags = searchTags ? tags(query, pageSize, requestedOffset, viewer.isPresent()) : List.<TagResponse>of();
+        if (isUrl(query)) {
+            return byUrl(query, viewer, shouldResolve, searchAccounts, searchStatuses, requestedOffset, foundTags);
+        }
         var foundStatuses = searchStatuses && viewer.isPresent()
                 ? statuses(viewer.get(), query, accountId, page, requestedOffset)
                 : List.<StatusResponse>of();
@@ -170,9 +179,7 @@ public class SearchController {
         }
 
         List<Actor> found;
-        if (query.regionMatches(true, 0, "https://", 0, "https://".length())) {
-            found = skipped > 0 ? List.of() : lookup.byUrl(query, viewer, shouldResolve).stream().toList();
-        } else if (ACCT.matcher(query).matches()) {
+        if (ACCT.matcher(query).matches()) {
             found = skipped > 0 ? List.of() : lookup.byAcct(query, viewer, shouldResolve).stream().toList();
         } else if (USERNAME_PREFIX.matcher(query).matches()) {
             found = byUsernamePrefix(query.startsWith("@") ? query.substring(1) : query, pageSize, skipped);
@@ -183,12 +190,39 @@ public class SearchController {
     }
 
     /**
-     * An address or URL names one account, and its words would find statuses that mention it by chance. The viewer's
+     * A URL names one account or status, so it's looked up once whichever is searched for, and only finds that one. A
+     * status is only shown to whoever can see it, and only to a signed-in user, as for any other search for statuses. The
+     * viewer's own blocks and mutes don't hide it, since they asked for it by name, as a thread shows the status asked for.
+     */
+    private SearchResponse byUrl(
+            String query, Optional<UUID> viewer, boolean resolve, boolean searchAccounts, boolean searchStatuses,
+            int skipped, List<TagResponse> foundTags) {
+        if (skipped > 0 || !(searchAccounts || searchStatuses && viewer.isPresent())) {
+            return new SearchResponse(List.of(), List.of(), foundTags);
+        }
+        var found = lookup.byUrl(query, viewer, resolve);
+        var foundAccounts = found.filter(_ -> searchAccounts)
+                .flatMap(at -> at instanceof RemoteUrlResolver.Found.Account(var actor) ? Optional.of(actor) : Optional.empty())
+                .map(actor -> accounts.build(List.of(actor)))
+                .orElse(List.of());
+        var foundStatuses = found.filter(_ -> searchStatuses && viewer.isPresent())
+                .flatMap(at -> at instanceof RemoteUrlResolver.Found.Post(var status) ? Optional.of(status) : Optional.empty())
+                .filter(status -> statuses.isVisible(status, viewer))
+                .map(status -> statusResponses.list(List.of(status), viewer, Optional.empty()))
+                .orElse(List.of());
+        return new SearchResponse(foundAccounts, foundStatuses, foundTags);
+    }
+
+    private static boolean isUrl(String query) {
+        return query.regionMatches(true, 0, "https://", 0, "https://".length());
+    }
+
+    /**
+     * An address names one account, and its words would find statuses that mention it by chance. The viewer's
      * filters only mark what they match, since hiding what someone searched for would leave them wondering where it went.
      */
     private List<StatusResponse> statuses(UUID viewer, String query, String accountId, StatusPage page, int skipped) {
-        var isAccount = query.regionMatches(true, 0, "https://", 0, "https://".length()) || ACCT.matcher(query).matches();
-        if (isAccount || skipped >= MAX_STATUS_OFFSET) {
+        if (ACCT.matcher(query).matches() || skipped >= MAX_STATUS_OFFSET) {
             return List.of();
         }
         Optional<UUID> account = Optional.empty();

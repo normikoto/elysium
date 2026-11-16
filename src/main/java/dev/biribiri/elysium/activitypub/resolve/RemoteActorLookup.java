@@ -1,16 +1,12 @@
 package dev.biribiri.elysium.activitypub.resolve;
 
-import com.github.benmanes.caffeine.cache.Ticker;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.inbound.RemoteActors;
-import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
-import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.moderation.DomainBlocks;
-import dev.biribiri.elysium.ratelimit.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -22,7 +18,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.URI;
-import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -30,17 +25,15 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * Finds actors on other servers for local accounts, through WebFinger or an actor's URL. What's found is stored the same way
- * as an actor that sent an activity, and refreshed by {@link RemoteActors}, which checks the document came from the actor's
- * own server. A WebFinger answer only says where to look, so it can't make this server believe anything about an actor that
+ * Finds actors on other servers for local accounts, through WebFinger, or by URL for {@link RemoteUrlLookup}. What's found
+ * is stored the same way as an actor that sent an activity, and refreshed by {@link RemoteActors}, which checks the document
+ * came from the actor's own server. A WebFinger answer only says where to look, so it can't make this server believe anything about an actor that
  * the actor's server doesn't say.
  */
 @Component
 class RemoteActorLookup implements RemoteActorResolver {
 
     private static final Logger log = LoggerFactory.getLogger(RemoteActorLookup.class);
-
-    private static final int MAX_TRACKED_ACCOUNTS = 10_000;
 
     private static final Pattern USERNAME = Pattern.compile("[^\\s@/?#%]{1,255}");
     private static final Pattern DOMAIN = Pattern.compile("[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?");
@@ -51,33 +44,27 @@ class RemoteActorLookup implements RemoteActorResolver {
 
     private final ActorService actors;
     private final RemoteActors remoteActors;
-    private final ActivityDocuments documents;
     private final FederationHttpClient http;
     private final DomainBlocks blocks;
     private final InstanceProperties instance;
     private final JsonMapper json;
-    private final RateLimiter lookups;
+    private final ResolveLimits limits;
 
     RemoteActorLookup(
             ActorService actors,
             RemoteActors remoteActors,
-            ActivityDocuments documents,
             FederationHttpClient http,
             DomainBlocks blocks,
             InstanceProperties instance,
-            JsonMapper json) {
+            JsonMapper json,
+            ResolveLimits limits) {
         this.actors = actors;
         this.remoteActors = remoteActors;
-        this.documents = documents;
         this.http = http;
         this.blocks = blocks;
         this.instance = instance;
         this.json = json;
-        this.lookups = new RateLimiter(
-                RemoteActorResolver.LOOKUPS_PER_MINUTE,
-                Duration.ofMinutes(1),
-                MAX_TRACKED_ACCOUNTS,
-                Ticker.systemTicker());
+        this.limits = limits;
     }
 
     @Override
@@ -93,9 +80,9 @@ class RemoteActorLookup implements RemoteActorResolver {
         if (stored.filter(RemoteActors::isFresh).isPresent()) {
             return stored.filter(Actor::isActive);
         }
-        countLookup(requester);
+        limits.count(requester);
         return webFinger(username, normalized)
-                .flatMap(answer -> fetch(answer.actor()))
+                .flatMap(answer -> fetch(remoteActors, blocks, answer.actor()))
                 .filter(found -> hasAddress(found, username, normalized))
                 .or(() -> stored)
                 .filter(Actor::isActive);
@@ -124,43 +111,6 @@ class RemoteActorLookup implements RemoteActorResolver {
         return webFinger(actor.username(), actor.domain())
                 .filter(answer -> answer.actor().equals(actor.uri()) && address.equalsIgnoreCase(answer.subject()))
                 .isPresent();
-    }
-
-    @Override
-    public Optional<Actor> resolveUrl(UUID requester, URI url) {
-        if (!"https".equalsIgnoreCase(url.getScheme()) || url.getHost() == null || blocks.isBlocked(url.getHost())) {
-            return Optional.empty();
-        }
-        var stored = actors.findByUri(url).filter(found -> !actors.isLocal(found));
-        if (stored.filter(RemoteActors::isFresh).isPresent()) {
-            return stored.filter(Actor::isActive);
-        }
-        if (url.getHost().equalsIgnoreCase(instance.baseUrl().getHost())) {
-            return Optional.empty();
-        }
-        countLookup(requester);
-        if (stored.isPresent()) {
-            // A copy that can't be refreshed for now is still better than nothing, as for a lookup by address.
-            return fetch(url).or(() -> stored).filter(Actor::isActive);
-        }
-        // A profile page can serve the actor at the same URL, with a different ID, which is then fetched from there.
-        JsonNode document;
-        try {
-            document = documents.fetch(url);
-        } catch (DocumentFetchException e) {
-            log.debug("Couldn't look up {}: {}", url, e.getMessage());
-            return Optional.empty();
-        }
-        if (!ActivityDocuments.isActor(document)) {
-            return Optional.empty();
-        }
-        return parse(document.path("id").stringValue(null)).flatMap(this::fetch).filter(Actor::isActive);
-    }
-
-    private void countLookup(UUID requester) {
-        if (lookups.tryAcquire(requester.toString()).isEmpty()) {
-            throw new ResolveLimitException();
-        }
     }
 
     /**
@@ -203,7 +153,7 @@ class RemoteActorLookup implements RemoteActorResolver {
     /**
      * @return the stored actor, or empty if it can't be fetched or stored
      */
-    private Optional<Actor> fetch(URI actorUri) {
+    static Optional<Actor> fetch(RemoteActors remoteActors, DomainBlocks blocks, URI actorUri) {
         if (blocks.isBlocked(actorUri.getHost())) {
             return Optional.empty();
         }
@@ -216,7 +166,7 @@ class RemoteActorLookup implements RemoteActorResolver {
         }
     }
 
-    private static Optional<URI> parse(String value) {
+    static Optional<URI> parse(String value) {
         if (value == null) {
             return Optional.empty();
         }

@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replies its server lists are fetched in the background. Apps that support Mastodon's async refreshes can tell
   when that's done, and others show what was found when the thread is opened again. Only public and unlisted posts are fetched, and a thread is fetched at most every 15 minutes.
   See `docs/api.md` and `FEDERATION.md`.
+- Searching for a post's link, from apps, finds the post, as on Mastodon. A post from another server that isn't here yet
+  is fetched from its server, when the app asks for that and the post is public or unlisted. This counts toward the same
+  limit of 30 lookups a minute as finding accounts on other servers. See `docs/api.md` and `FEDERATION.md`.
 
 ### Fixed
 

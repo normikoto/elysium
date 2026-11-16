@@ -416,10 +416,15 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
   with `with_suspended`, and of followers and following. An account can still be unfollowed while it's suspended.
 - `:id/followers` and `:id/following` page by the follow, so a cursor from a follow that's since been removed gives an empty
   page. If the account hides them, anyone else gets an empty list.
-- `lookup` and `search` only ask another server about an account for a signed-in user, and `search` only when `resolve` is
-  true. Each user can make 30 of those lookups a minute, and then gets a 429.
-- `search` finds a query that's a `username@domain` or an `https` URL as that one account. Any other query matches the
-  start of the usernames this server knows. Only the first 200 matches can be paged through with `offset`, and an `offset`
+- `lookup` and `search` only ask another server about an account, or `search` about a status, for a signed-in user, and
+  `search` only when `resolve` is true. Each user can make 30 of those lookups a minute, and then gets a 429.
+- `search` finds a query that's a `username@domain` as that one account, and an `https` URL as the one account or status
+  there, and nothing else. A status is found by its URI or by the page its server gave, such as Mastodon's
+  `https://example.com/@alice/1`. A profile page only finds an account with `resolve`. Statuses at a URL are only found
+  for a signed-in user who can see them, even when they block or mute the author, as a status's own thread shows it.
+  With `resolve`, a status from another server that isn't stored is fetched, and only stored and found if it's public or
+  unlisted. A status that's stored already isn't refreshed. Any other query matches the start of the usernames this
+  server knows. Only the first 200 matches can be paged through with `offset`, and an `offset`
   past them returns no accounts. `following` and `exclude_unreviewed` are ignored.
 - `search` only finds statuses for a signed-in user. As on Mastodon, those are the statuses they wrote, favourited, or are
   mentioned in, and public statuses by accounts whose `indexable` is true, newest first. It only finds what the user can
@@ -428,7 +433,7 @@ Accounts and follows follow [Mastodon's accounts API](https://docs.joinmastodon.
     find `cat`. Words in quotes are a phrase, `OR` goes between alternatives, and `-` before a word leaves out statuses
     that have it. Mastodon's operators, such as `from:`, `has:`, and `before:`, aren't supported, and are read as words.
   - Poll options and media descriptions aren't searched, and there are no bookmarks to search.
-  - A status's URL doesn't find it, even with `resolve`, and a `username@domain` or `https` query finds no statuses.
+  - A `username@domain` query finds no statuses, and an `https` query finds only the status at that URL.
   - The user's filters don't leave statuses out, but are given in `filtered`.
   - Only the first 200 statuses can be paged through with `offset`, and `max_id` and `min_id` page through the rest.
     They don't apply to accounts and hashtags. An `account_id` that isn't a valid ID finds no statuses.

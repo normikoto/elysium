@@ -1,6 +1,9 @@
 package dev.biribiri.elysium;
 
 import com.jayway.jsonpath.JsonPath;
+import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
+import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteProfile;
@@ -15,12 +18,15 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,6 +34,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.empty;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -44,6 +53,7 @@ class SearchIntegrationTests {
 
     private static final String PASSWORD = "correct horse battery staple";
     private static final String SEARCH = "/api/v2/search";
+    private static final String PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 
     /**
      * Logging in is slow because of Argon2, so each token is only created once.
@@ -59,8 +69,14 @@ class SearchIntegrationTests {
     @Autowired
     private StatusService statuses;
 
+    @MockitoBean
+    private ActivityDocuments documents;
+    @Autowired
+    private JsonMapper json;
+
     @BeforeEach
     void setUp() throws Exception {
+        doThrow(DocumentFetchException.permanent("Not found", null)).when(documents).fetch(any());
         jdbc.sql("DELETE FROM status").update();
         TestAccounts.makeSureAnAccountExists(actors);
         setIndexable(open(), true);
@@ -187,6 +203,97 @@ class SearchIntegrationTests {
 
         setIndexable(open(), false);
         expectStatuses(search(searcher(), "pangolin"));
+    }
+
+    @Test
+    void findsTheStatusAtAUrl() throws Exception {
+        var author = remoteAuthor(false);
+        var uri = URI.create(author.uri() + "/statuses/" + UUID.randomUUID());
+        var page = URI.create("https://" + author.domain() + "/@s/" + UUID.randomUUID());
+        var remoteId = statuses.storeRemote(new RemoteStatus(uri, page, author.id(), "<p>linked</p>", null, null,
+                Visibility.UNLISTED, false, null, Instant.now())).orElseThrow().toString();
+        var localId = create(closed(), "a local post", "public");
+        var local = "https://search.example/users/closedbook/statuses/" + localId;
+        var hidden = create(closed(), "a followers-only post", "private");
+
+        expectStatuses(byUrl(searcher(), uri.toString()), remoteId);
+        expectStatuses(byUrl(searcher(), page.toString()), remoteId);
+        expectStatuses(byUrl(searcher(), local), localId);
+        expectStatuses(byUrl(searcher(), "https://search.example/users/closedbook/statuses/" + hidden));
+        mockMvc.perform(byUrl(searcher(), uri.toString()))
+                .andExpect(jsonPath("$.accounts", empty()))
+                .andExpect(jsonPath("$.hashtags", empty()));
+        mockMvc.perform(get(SEARCH).param("q", uri.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statuses", empty()));
+        mockMvc.perform(byUrl(searcher(), uri.toString()).param("type", "accounts"))
+                .andExpect(jsonPath("$.accounts", empty()))
+                .andExpect(jsonPath("$.statuses", empty()));
+        expectStatuses(byUrl(searcher(), uri.toString()).param("offset", "1"));
+    }
+
+    @Test
+    void fetchesTheStatusAtAUrlWithResolve() throws Exception {
+        var author = remoteAuthor(false);
+        var id = URI.create(author.uri() + "/statuses/" + UUID.randomUUID());
+        var page = URI.create("https://" + author.domain() + "/@s/" + UUID.randomUUID());
+        serve(page, note(id, author, List.of(PUBLIC)));
+        serve(id, note(id, author, List.of(PUBLIC)));
+
+        expectStatuses(byUrl(searcher(), page.toString()));
+        assertThat(statuses.isStored(id)).isFalse();
+        mockMvc.perform(byUrl(searcher(), page.toString()).param("resolve", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statuses[0].uri").value(id.toString()))
+                .andExpect(jsonPath("$.statuses[0].content").value("<p>fetched</p>"))
+                .andExpect(jsonPath("$.accounts", empty()));
+        assertThat(statuses.isStored(id)).isTrue();
+    }
+
+    @Test
+    void onlyStoresAStatusAtAUrlFromItsOwnServerIfAnyoneCanSeeIt() throws Exception {
+        var author = remoteAuthor(false);
+        var hidden = URI.create(author.uri() + "/statuses/" + UUID.randomUUID());
+        serve(hidden, note(hidden, author, List.of(author.uri() + "/followers")));
+        // A page on one server can't vouch for a note on another.
+        var other = remoteAuthor(false);
+        var claimed = URI.create(author.uri() + "/statuses/" + UUID.randomUUID());
+        var page = URI.create("https://" + other.domain() + "/@s/1");
+        serve(page, note(claimed, author, List.of(PUBLIC)));
+
+        expectStatuses(byUrl(searcher(), hidden.toString()).param("resolve", "true"));
+        expectStatuses(byUrl(searcher(), page.toString()).param("resolve", "true"));
+        assertThat(statuses.isStored(hidden)).isFalse();
+        assertThat(statuses.isStored(claimed)).isFalse();
+    }
+
+    private MockHttpServletRequestBuilder byUrl(String token, String url) {
+        return withToken(get(SEARCH).param("q", url), token);
+    }
+
+    private void serve(URI uri, Map<String, Object> document) throws Exception {
+        doReturn(json.readTree(json.writeValueAsString(document))).when(documents).fetch(uri);
+    }
+
+    private static Map<String, Object> note(URI id, Actor author, List<String> to) {
+        var note = new LinkedHashMap<String, Object>();
+        note.put("@context", "https://www.w3.org/ns/activitystreams");
+        note.put("id", id.toString());
+        note.put("type", "Note");
+        note.put("attributedTo", author.uri().toString());
+        note.put("content", "<p>fetched</p>");
+        note.put("published", Instant.now().minusSeconds(60).toString());
+        note.put("to", to);
+        return note;
+    }
+
+    private Actor remoteAuthor(boolean indexable) {
+        var host = "h" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/s");
+        var profile = new RemoteProfile("", "", "", null, null, List.of(), false, indexable, false, false, null, null);
+        return actors.upsertRemote(new RemoteActorProfile(
+                uri, "s", host, URI.create(uri + "/inbox"), null, null, null, URI.create(uri + "/followers"), null,
+                profile));
     }
 
     private String remote(boolean indexable, String html) {

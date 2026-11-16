@@ -1,6 +1,5 @@
 package dev.biribiri.elysium.actor;
 
-import java.net.URI;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,17 +36,6 @@ public interface RemoteActorResolver {
      * @return the stored actor, or empty if there's none, it's suspended or deleted, or its server is blocked
      */
     Optional<Actor> findStored(String username, String domain);
-
-    /**
-     * Finds the actor at a URL, which can be its ID or a page whose server serves the actor at the same URL, such as a
-     * profile page.
-     *
-     * @param requester the local account asking, whose limit this counts toward
-     * @return the stored actor, or empty if the URL isn't an actor on another server, it can't be fetched right now, or its
-     * server is blocked
-     * @throws ResolveLimitException if the requester has made too many lookups recently
-     */
-    Optional<Actor> resolveUrl(UUID requester, URI url);
 
     /**
      * Thrown when an account has asked for too many lookups recently.
