@@ -8,3 +8,7 @@ CREATE TABLE thread_refresh
     result_count INT                      NOT NULL DEFAULT 0
 );
 CREATE INDEX thread_refresh_started_at_idx ON thread_refresh (started_at);
+
+-- For finding whether any job of a group is queued, by the prefix of its ID, which Jobs.isGroupQueued does for each check on
+-- a thread being fetched. The primary key can't, since its collation doesn't sort by bytes.
+CREATE INDEX scheduled_tasks_instance_idx ON scheduled_tasks (task_name, task_instance COLLATE "C");

@@ -120,12 +120,16 @@ public final class Jobs {
      * Whether any job of a group from {@link #scheduleInGroup} is queued, including one that's failing or parked.
      */
     public static boolean isGroupQueued(JdbcClient jdbc, TaskDescriptor<?> task, String group) {
+        // A range in the C collation, which scheduled_tasks_instance_idx covers, finds the group's IDs as a prefix would,
+        // since '0' comes right after '/'. The primary key's collation doesn't sort that way, so it can't do this.
         return jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM scheduled_tasks
-                                       WHERE task_name = :task AND starts_with(task_instance, :prefix))
+                                       WHERE task_name = :task
+                                         AND task_instance COLLATE "C" >= :from AND task_instance COLLATE "C" < :to)
                         """)
                 .param("task", task.getTaskName())
-                .param("prefix", group + "/")
+                .param("from", group + "/")
+                .param("to", group + "0")
                 .query(Boolean.class)
                 .single();
     }

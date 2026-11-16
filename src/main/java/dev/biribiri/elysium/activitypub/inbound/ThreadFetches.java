@@ -241,7 +241,7 @@ class ThreadFetches implements RemoteThreadFetcher {
     }
 
     private CompletionHandler<ThreadFetchJob> replies(ThreadFetchJob job) {
-        if (statuses.hasFullThread(job.statusId())) {
+        if (isFull(job)) {
             return Jobs.done();
         }
         var parent = statuses.findStored(job.parentId()).filter(found -> found.visibility().isOpen());
@@ -281,7 +281,7 @@ class ThreadFetches implements RemoteThreadFetcher {
     }
 
     private CompletionHandler<ThreadFetchJob> reply(ThreadFetchJob job) {
-        if (statuses.hasFullThread(job.statusId())) {
+        if (isFull(job)) {
             return Jobs.done();
         }
         var parent = statuses.findStored(job.parentId());
@@ -313,6 +313,14 @@ class ThreadFetches implements RemoteThreadFetcher {
         return reply.isEmpty()
                 ? Jobs.done()
                 : readReplies(document.get().path("replies"), reply.get(), job, job.depth() + 1, 0);
+    }
+
+    /**
+     * A job that held a turn checked before it took one, and a thread fills up slowly enough that the few seconds since
+     * don't matter, so it isn't worth walking the thread again.
+     */
+    private boolean isFull(ThreadFetchJob job) {
+        return job.turn() == null && statuses.hasFullThread(job.statusId());
     }
 
     /**

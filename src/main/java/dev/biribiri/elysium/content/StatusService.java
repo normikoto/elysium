@@ -1093,7 +1093,7 @@ public class StatusService {
      * so that fetching more would show nothing new.
      */
     public boolean hasFullThread(UUID id) {
-        return statuses.findDescendants(id, MAX_DESCENDANT_DEPTH, MAX_DESCENDANTS).size() >= MAX_DESCENDANTS;
+        return statuses.countDescendants(id, MAX_DESCENDANT_DEPTH, MAX_DESCENDANTS) >= MAX_DESCENDANTS;
     }
 
     /**
