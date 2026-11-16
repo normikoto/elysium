@@ -199,6 +199,27 @@ class ThreadFetchIntegrationTests {
     }
 
     @Test
+    void aLaterFetchIsNotHeldUpOrCountedByAnEarlierOnesJobs() throws Exception {
+        var parent = noteUri(author);
+        serve(parent, note(parent, author, null, List.of(PUBLIC)));
+        var reply = store(author, parent);
+        fetches.fetchSoon(reply);
+        // As if its jobs were still failing when the thread could be fetched again.
+        jdbc.sql("UPDATE thread_refresh SET started_at = started_at - interval '16 minutes' WHERE status_id = :id")
+                .param("id", reply).update();
+
+        assertThat(fetches.fetchSoon(reply)).hasValueSatisfying(refresh -> assertThat(refresh.running()).isTrue());
+        assertThat(jobs()).isEqualTo(4);
+        drain();
+
+        verify(documents, times(1)).fetch(parent);
+        assertThat(fetches.find(reply)).hasValueSatisfying(refresh -> {
+            assertThat(refresh.running()).isFalse();
+            assertThat(refresh.resultCount()).isOne();
+        });
+    }
+
+    @Test
     void viewingAThreadFetchesItOnlyForSomeoneSignedIn() throws Exception {
         var statusId = store(author, noteUri(author));
         var context = "/api/v1/statuses/" + statusId + "/context";

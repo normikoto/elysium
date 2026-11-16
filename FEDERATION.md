@@ -759,7 +759,7 @@ fetched at most every 15 minutes. Nothing is fetched from this server or a [bloc
   the same host and port. Fetching stops at the first that isn't stored.
 - **Replies:** for a status from another server, its `id` is fetched again, and has to come back with that `id`, attributed
   to its author. Its `replies` can be embedded or an ID, and so can the collection's `first`, and each page's `next` is
-  followed, up to 10 pages. The collection and its pages have to be on the same host and port as the status, and one
+  followed, up to 10 pages, counting a collection fetched by its ID. The collection and its pages have to be on the same host and port as the status, and one
   fetched by its ID has to be a `Collection`, `OrderedCollection`, `CollectionPage`, or `OrderedCollectionPage` with the
   `id` fetched. Up to 20 of each one's `orderedItems`, or `items`, are read, as IDs or objects with one, and an embedded
   reply is only read for its `id`. Each reply is fetched from its `id`, checked as a parent is, and kept only if its

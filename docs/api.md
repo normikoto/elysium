@@ -101,7 +101,7 @@ Statuses follow [Mastodon's statuses API](https://docs.joinmastodon.org/methods/
   lists up to 40 ancestors, and up to 60 descendants at most 20 replies deep, the limits Mastodon uses without a token,
   whoever asks. Statuses the user can't see are left out after those limits apply, so fewer can be listed.
 - `GET /api/v1_alpha/async_refreshes/:id` only knows the refreshes of `GET /api/v1/statuses/:id/context`. One is found for
-  15 minutes after it starts, and only for a user who can see its status. It's `finished` once nothing is left to fetch,
+  a day after it starts, or until its status's thread is fetched again, and only for a user who can see its status. It's `finished` once nothing is left to fetch,
   or after 15 minutes even if some fetches are still waiting. `result_count` includes statuses the user can't see. A
   token with `read:statuses` is enough, where Mastodon wants `read`.
 - `GET /api/v1/timelines/home` is worked out from the statuses stored here each time, rather than kept as a feed, so it

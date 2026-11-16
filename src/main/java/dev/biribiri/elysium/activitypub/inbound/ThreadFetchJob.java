@@ -11,6 +11,8 @@ import java.util.UUID;
  * read the replies to a status in the thread, or fetch one of those replies.
  *
  * @param statusId the status whose thread is being filled in
+ * @param queuedAt when the fetch that this job is part of started, which every job of that fetch shares, so that it tells
+ *                 them apart from a later fetch's
  * @param step     what the job fetches
  * @param parentId for {@link Step#REPLIES}, the status whose replies are read, and for {@link Step#REPLY}, the status that
  *                 the reply has to answer, or null for {@link Step#PARENTS}
@@ -18,7 +20,7 @@ import java.util.UUID;
  *                 the collection or page to read next, or null to start from the status's own document. For
  *                 {@link Step#REPLY}, the reply.
  * @param depth    how many replies down from {@code statusId} the replies being read or fetched are, starting from 1
- * @param pages    how many pages of the replies collection have been read
+ * @param pages    how many pages of the replies collection have been read, counting a collection fetched by its ID
  * @param turn     the turn {@link TargetFetchTurns} gave it for the next fetch, or null if it hasn't waited for one
  */
 record ThreadFetchJob(UUID statusId, Instant queuedAt, Step step, UUID parentId, String target, int depth, int pages,
@@ -59,9 +61,9 @@ record ThreadFetchJob(UUID statusId, Instant queuedAt, Step step, UUID parentId,
     }
 
     /**
-     * A job of its own that fetches one reply to this status.
+     * A job of its own that fetches one reply to this status, as part of the same fetch.
      */
-    ThreadFetchJob reply(UUID parentId, int depth, URI reply, Instant queuedAt) {
+    ThreadFetchJob reply(UUID parentId, int depth, URI reply) {
         return new ThreadFetchJob(statusId, queuedAt, Step.REPLY, parentId, reply.toString(), depth, 0, null);
     }
 }

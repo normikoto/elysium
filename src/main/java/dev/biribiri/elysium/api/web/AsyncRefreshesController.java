@@ -64,7 +64,7 @@ public class AsyncRefreshesController {
                     Its ID comes from the `Mastodon-Async-Refresh` header of \
                     `GET /api/v1/statuses/:id/context`, the only endpoint that sends one. A refresh counts as \
                     finished once nothing more is waiting to be fetched, or 15 minutes after it started, and is found \
-                    for 15 minutes. `result_count` counts the parents and replies it stored, including ones the user \
+                    for a day, or until the thread is fetched again. `result_count` counts the parents and replies it stored, including ones the user \
                     can't see.
 
                     Differences from Mastodon: `read:statuses` is enough, rather than `read`.

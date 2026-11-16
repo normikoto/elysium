@@ -111,24 +111,46 @@ class ThreadFetches implements RemoteThreadFetcher {
     @Override
     public Optional<ThreadRefresh> fetchSoon(UUID statusId) {
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        if (start(statusId, now)) {
-            var group = statusId.toString();
+        // Most views come soon after another, and this saves them the write and row lock that starting takes.
+        var recent = latest(statusId).filter(row -> row.startedAt().isAfter(now.minus(REFETCH_AFTER)));
+        if (recent.isEmpty() && start(statusId, now)) {
+            var group = group(statusId, now);
             Jobs.scheduleInGroup(scheduler, TASK, ThreadFetchJob.parents(statusId, now), group, "parents");
             Jobs.scheduleInGroup(scheduler, TASK, ThreadFetchJob.replies(statusId, now), group, "replies");
         }
         return find(statusId).filter(ThreadRefresh::running);
     }
 
+    /**
+     * Keeps finding a fetch once it's counted as finished, until the job cleanup removes it, so that a client checking on
+     * it is told it's finished rather than that it's gone.
+     */
     @Override
     public Optional<ThreadRefresh> find(UUID statusId) {
-        var now = Instant.now();
-        return jdbc.sql("SELECT started_at, result_count FROM thread_refresh WHERE status_id = :id AND started_at > :after")
+        var after = Instant.now().minus(REFETCH_AFTER);
+        return latest(statusId).map(row -> new ThreadRefresh(
+                statusId,
+                row.startedAt().isAfter(after) && Jobs.isGroupQueued(jdbc, TASK, group(statusId, row.startedAt())),
+                row.resultCount()));
+    }
+
+    private Optional<RefreshRow> latest(UUID statusId) {
+        return jdbc.sql("SELECT started_at, result_count FROM thread_refresh WHERE status_id = :id")
                 .param("id", statusId)
-                .param("after", at(now.minus(REFETCH_AFTER)))
-                .query((rs, row) -> rs.getInt("result_count"))
-                .optional()
-                .map(count -> new ThreadRefresh(
-                        statusId, Jobs.isGroupQueued(jdbc, TASK, statusId.toString()), count));
+                .query((rs, row) -> new RefreshRow(
+                        rs.getObject("started_at", OffsetDateTime.class).toInstant(), rs.getInt("result_count")))
+                .optional();
+    }
+
+    private record RefreshRow(Instant startedAt, int resultCount) {
+    }
+
+    /**
+     * Each fetch of a thread is a group of its own, so that jobs of an earlier one that are still waiting or failing
+     * neither keep a later one running nor stop its jobs from being queued under the same IDs.
+     */
+    private static String group(UUID statusId, Instant startedAt) {
+        return statusId + "@" + ChronoUnit.MICROS.between(Instant.EPOCH, startedAt);
     }
 
     /**
@@ -159,8 +181,12 @@ class ThreadFetches implements RemoteThreadFetcher {
      * Counts a status stored for a thread, for clients deciding whether it's worth asking for the thread again.
      */
     private void stored(ThreadFetchJob job) {
-        jdbc.sql("UPDATE thread_refresh SET result_count = result_count + 1 WHERE status_id = :id")
+        jdbc.sql("""
+                        UPDATE thread_refresh SET result_count = result_count + 1
+                        WHERE status_id = :id AND started_at = :startedAt
+                        """)
                 .param("id", job.statusId())
+                .param("startedAt", at(job.queuedAt()))
                 .update();
     }
 
@@ -173,6 +199,10 @@ class ThreadFetches implements RemoteThreadFetcher {
      * @throws IllegalStateException if a server couldn't be reached, which is worth trying again
      */
     CompletionHandler<ThreadFetchJob> run(ThreadFetchJob job) {
+        // A later fetch of the thread has started, which does everything this would, or it's so old that its row is gone.
+        if (latest(job.statusId()).filter(row -> row.startedAt().equals(job.queuedAt())).isEmpty()) {
+            return Jobs.done();
+        }
         try {
             return switch (job.step()) {
                 case PARENTS -> parents(job);
@@ -241,7 +271,8 @@ class ThreadFetches implements RemoteThreadFetcher {
                     : readReplies(document.get().path("replies"), parent.get(), job, job.depth(), job.pages());
         }
         if (ActorCollections.hasId(document.get(), target, "OrderedCollection", "Collection")) {
-            return readCollection(document.get(), parent.get(), job, job.depth(), job.pages());
+            // Counted as a page, so that a collection whose first is itself, or another collection, can't loop forever.
+            return readCollection(document.get(), parent.get(), job, job.depth(), job.pages() + 1);
         }
         if (ActorCollections.hasId(document.get(), target, "OrderedCollectionPage", "CollectionPage")) {
             return readPage(document.get(), parent.get(), job, job.depth(), job.pages() + 1);
@@ -303,6 +334,9 @@ class ThreadFetches implements RemoteThreadFetcher {
             JsonNode collection, Status parent, ThreadFetchJob job, int depth, int pages) {
         // A collection can list its items itself.
         queueReplies(collection, parent, job, depth);
+        if (pages >= MAX_PAGES) {
+            return Jobs.done();
+        }
         var first = collection.path("first");
         if (first.isObject()) {
             return readPage(first, parent, job, depth, pages + 1);
@@ -332,7 +366,6 @@ class ThreadFetches implements RemoteThreadFetcher {
      * different server.
      */
     private void queueReplies(JsonNode page, Status parent, ThreadFetchJob job, int depth) {
-        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         for (var item : ActorCollections.items(page, MAX_ITEMS)) {
             var id = Optional.ofNullable(ActivityJson.idOf(item))
                     .filter(InboundActivity::isStorableId)
@@ -342,8 +375,10 @@ class ThreadFetches implements RemoteThreadFetcher {
             if (id.isEmpty() || depth >= StatusService.MAX_DESCENDANT_DEPTH && statuses.isStored(id.get())) {
                 continue;
             }
-            Jobs.scheduleInGroup(scheduler, TASK, job.reply(parent.id(), depth, id.get(), now),
-                    job.statusId().toString(), id.get().toString());
+            // Keyed by its parent too, so that a collection listing it under the wrong parent can't keep the right one
+            // from queuing it.
+            Jobs.scheduleInGroup(scheduler, TASK, job.reply(parent.id(), depth, id.get()),
+                    group(job.statusId(), job.queuedAt()), parent.id().toString(), id.get().toString());
         }
     }
 
