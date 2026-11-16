@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   your users' profiles, posts, and follower lists. It's off by default. Turning it on with
   `elysium.federation.authorized-fetch=true` stops blocked servers and suspended accounts on other servers from reading
   them, but web pages stay public. See `docs/configuration.md` and `FEDERATION.md`.
+- Threads fill in from other servers. When someone signed in opens a post's thread, the posts it replies to and the
+  replies its server lists are fetched in the background. Apps that support Mastodon's async refreshes can tell
+  when that's done, and others show what was found when the thread is opened again. Only public and unlisted posts are fetched, and a thread is fetched at most every 15 minutes.
+  See `docs/api.md` and `FEDERATION.md`.
 
 ### Fixed
 

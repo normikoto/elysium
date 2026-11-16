@@ -6,6 +6,7 @@ import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import com.github.kagkarlsson.scheduler.task.helper.CustomTask;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
 import dev.biribiri.elysium.activitypub.signature.Digests;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -100,6 +101,37 @@ public final class Jobs {
     public static <T extends QueuedJob> void scheduleAt(
             SchedulerClient scheduler, TaskDescriptor<T> task, T job, Instant runAt, String... idParts) {
         scheduler.scheduleIfNotExists(task.instance(instanceId(idParts)).data(job).scheduledTo(runAt));
+    }
+
+    /**
+     * Like {@link #schedule}, for a job that's one of a group, so that {@link #isGroupQueued} can tell whether any of the
+     * group is left.
+     *
+     * @param group what the group's jobs share, which has to be short and can't come from another server, since it isn't
+     *              hashed
+     */
+    public static <T extends QueuedJob> void scheduleInGroup(
+            SchedulerClient scheduler, TaskDescriptor<T> task, T job, String group, String... idParts) {
+        scheduler.scheduleIfNotExists(
+                task.instance(group + "/" + instanceId(idParts)).data(job).scheduledTo(job.queuedAt()));
+    }
+
+    /**
+     * Whether any job of a group from {@link #scheduleInGroup} is queued, including one that's failing or parked.
+     */
+    public static boolean isGroupQueued(JdbcClient jdbc, TaskDescriptor<?> task, String group) {
+        // A range in the C collation, which scheduled_tasks_instance_idx covers, finds the group's IDs as a prefix would,
+        // since '0' comes right after '/'. The primary key's collation doesn't sort that way, so it can't do this.
+        return jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM scheduled_tasks
+                                       WHERE task_name = :task
+                                         AND task_instance COLLATE "C" >= :from AND task_instance COLLATE "C" < :to)
+                        """)
+                .param("task", task.getTaskName())
+                .param("from", group + "/")
+                .param("to", group + "0")
+                .query(Boolean.class)
+                .single();
     }
 
     /**

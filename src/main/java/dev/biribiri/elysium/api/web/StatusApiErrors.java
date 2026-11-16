@@ -25,6 +25,7 @@ import java.util.Map;
  */
 @RestControllerAdvice(assignableTypes = {
         AccountsController.class,
+        AsyncRefreshesController.class,
         BlocksController.class,
         FollowRequestsController.class,
         MutesController.class,

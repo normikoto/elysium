@@ -443,7 +443,7 @@ class SecurityConfig {
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         // Idempotency-Key is ignored, but clients that send it would otherwise fail the preflight request.
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
-        configuration.setExposedHeaders(List.of("Link"));
+        configuration.setExposedHeaders(List.of("Link", "Mastodon-Async-Refresh"));
 
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);

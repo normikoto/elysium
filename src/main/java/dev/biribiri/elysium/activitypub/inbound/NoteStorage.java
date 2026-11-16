@@ -174,6 +174,20 @@ class NoteStorage {
     }
 
     /**
+     * Stores a public or unlisted note fetched to fill in a thread here, as a parent or a reply, which the caller has to
+     * have checked belongs there. Like {@link #storeBackfilled}, it sorts by when it was posted and nobody is told about
+     * it, since it can be old. Blocks while fetching the author, so this mustn't be called inside a database transaction.
+     *
+     * @param author the note's only {@code attributedTo}, already checked to be on the note's server
+     */
+    Result storeInThread(RemoteNote note, URI author) {
+        if (note.published() == null) {
+            return Result.IGNORED;
+        }
+        return storeByAuthorUri(note, author, statuses::storeBackfilled);
+    }
+
+    /**
      * For a note fetched on its own rather than sent to someone here, which only anyone can be shown, so its addressing
      * decides nothing else.
      */

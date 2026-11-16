@@ -592,6 +592,27 @@ public class StatusRepository {
     }
 
     /**
+     * Counts what {@link #findDescendants} would list, up to the limit. Without its ordering or its columns, the query can
+     * stop as soon as it's found that many.
+     */
+    public int countDescendants(UUID id, int maxDepth, int limit) {
+        return jdbc.sql("""
+                        WITH RECURSIVE down (id, path) AS (
+                            SELECT id, ARRAY[id] FROM status WHERE id = :id
+                            UNION ALL
+                            SELECT r.id, down.path || r.id FROM status r JOIN down ON r.in_reply_to_id = down.id
+                            WHERE cardinality(down.path) <= :maxDepth AND r.id <> ALL (down.path)
+                        )
+                        SELECT count(*) FROM (SELECT 1\s""" + FROM_ACTIVE
+                        + "JOIN down ON down.id = s.id WHERE s.id <> :id LIMIT :limit) found")
+                .param("id", id)
+                .param("maxDepth", maxDepth)
+                .param("limit", limit)
+                .query(Integer.class)
+                .single();
+    }
+
+    /**
      * Finds a status and stops it from being deleted until the transaction ends, such as so that a reply to it can be
      * inserted without a concurrent delete breaking the foreign key.
      */
