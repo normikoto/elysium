@@ -95,6 +95,8 @@ the API.
 The server's first account becomes an admin, and later accounts are regular users. `/signup` refuses to create the first
 account until `create-user` has been run, even with an invite, so that a stranger can't become the admin.
 
+Admin pages are all linked from `/admin`, and admins have a link to it at the bottom of their settings page.
+
 To give or remove the role:
 ```shell
 java -jar elysium.jar set-role alice admin

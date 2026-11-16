@@ -33,11 +33,14 @@ class SettingsController {
     private final ActorService actors;
     private final ProfileService profiles;
     private final InstanceProperties instance;
+    private final LocalAccounts accounts;
 
-    SettingsController(ActorService actors, ProfileService profiles, InstanceProperties instance) {
+    SettingsController(
+            ActorService actors, ProfileService profiles, InstanceProperties instance, LocalAccounts accounts) {
         this.actors = actors;
         this.profiles = profiles;
         this.instance = instance;
+        this.accounts = accounts;
     }
 
     /**
@@ -152,6 +155,7 @@ class SettingsController {
         model.addAttribute("hideCollections", hideCollections);
         model.addAttribute("manuallyApprovesFollowers", manuallyApprovesFollowers);
         model.addAttribute("indexable", indexable);
+        model.addAttribute("admin", accounts.isAdmin(accountId));
     }
 
     /**

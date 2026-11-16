@@ -1,0 +1,17 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Admin', ~{::content})}">
+<th:block th:fragment="content">
+    <h2>Accounts</h2>
+    <p><a href="/admin/accounts">Accounts</a>: suspend, delete, or reject the media of local and remote accounts</p>
+    <p><a href="/admin/sign-ups">Sign-ups</a>: approve or reject people waiting for an account</p>
+    <p><a href="/admin/invites">Invites</a>: links that let someone sign up</p>
+    <h2>Moderation</h2>
+    <p><a href="/admin/reports">Reports</a>: what people have reported</p>
+    <p><a href="/admin/statuses">Statuses</a>: find and remove posts</p>
+    <p><a href="/admin/domain-blocks">Domain blocks</a>: cut off or limit other servers</p>
+    <h2>Server</h2>
+    <p><a href="/admin/custom-emojis">Custom emoji</a>: emoji people can use in posts and profiles</p>
+    <p><a href="/admin/db-scheduler">Background jobs</a>: see, retry, and delete queued work</p>
+    <p><a href="/settings">Back to settings</a></p>
+</th:block>
+</html>
