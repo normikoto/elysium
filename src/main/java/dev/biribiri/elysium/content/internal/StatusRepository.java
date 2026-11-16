@@ -521,16 +521,25 @@ public class StatusRepository {
     }
 
     /**
+     * Matches a status by the page its server gave, {@code :url}. A note's {@code url} is whatever its server says, so only
+     * a page on the same host and port as the status's URI counts. Otherwise any server could claim another's page, or an
+     * actor's ID, for its own status, and be found instead of what's there.
+     */
+    private static final String BY_OWN_PAGE = """
+            md5(s.url) = md5(:url) AND s.url = :url
+            AND lower(substring(s.url FROM '^[A-Za-z][A-Za-z0-9+.-]*://([^/?#]*)'))
+              = lower(substring(s.uri FROM '^[A-Za-z][A-Za-z0-9+.-]*://([^/?#]*)'))
+            ORDER BY s.id LIMIT 1
+            """;
+
+    /**
      * Finds a status by its URI, or else by the page its server gave, for someone who has its link. Boosts aren't found,
      * since a boost's URI is its {@code Announce}'s, which nobody links to.
      */
     public Optional<Status> findByUriOrUrl(String uriOrUrl) {
         return jdbc.sql(SELECT + "WHERE s.uri = :uri AND s.reblog_of_id IS NULL")
                 .param("uri", uriOrUrl).query(STATUS_MAPPER).optional()
-                .or(() -> jdbc.sql(SELECT + """
-                                WHERE md5(s.url) = md5(:url) AND s.url = :url AND s.reblog_of_id IS NULL
-                                ORDER BY s.id LIMIT 1
-                                """)
+                .or(() -> jdbc.sql(SELECT + "WHERE s.reblog_of_id IS NULL AND " + BY_OWN_PAGE)
                         .param("url", uriOrUrl)
                         .query(STATUS_MAPPER)
                         .optional());
@@ -557,7 +566,7 @@ public class StatusRepository {
      */
     public Optional<Status> findForModeration(String uriOrUrl) {
         return jdbc.sql(MODERATION_SELECT + "s.uri = :uri").param("uri", uriOrUrl).query(STATUS_MAPPER).optional()
-                .or(() -> jdbc.sql(MODERATION_SELECT + "md5(s.url) = md5(:url) AND s.url = :url ORDER BY s.id LIMIT 1")
+                .or(() -> jdbc.sql(MODERATION_SELECT + BY_OWN_PAGE)
                         .param("url", uriOrUrl)
                         .query(STATUS_MAPPER)
                         .optional());

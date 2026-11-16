@@ -83,14 +83,14 @@ class AccountLookup {
         } catch (URISyntaxException e) {
             return Optional.empty();
         }
-        // A stored status isn't refreshed, so there's nothing to ask its server.
+        var stored = actors.findByUri(uri).filter(Actor::isActive);
+        if (resolve && viewer.isPresent() && stored.filter(actors::isLocal).isEmpty()) {
+            // This finds a stored status itself, before asking anyone.
+            return urls.resolveUrl(viewer.get(), uri);
+        }
         var status = statuses.findStoredByUrl(uri.toString());
         if (status.isPresent()) {
             return Optional.of(new RemoteUrlResolver.Found.Post(status.get()));
-        }
-        var stored = actors.findByUri(uri).filter(Actor::isActive);
-        if (resolve && viewer.isPresent() && stored.filter(actors::isLocal).isEmpty()) {
-            return urls.resolveUrl(viewer.get(), uri);
         }
         return stored.map(RemoteUrlResolver.Found.Account::new);
     }

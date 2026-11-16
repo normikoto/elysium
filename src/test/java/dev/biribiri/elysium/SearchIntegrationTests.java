@@ -230,6 +230,13 @@ class SearchIntegrationTests {
                 .andExpect(jsonPath("$.accounts", empty()))
                 .andExpect(jsonPath("$.statuses", empty()));
         expectStatuses(byUrl(searcher(), uri.toString()).param("offset", "1"));
+
+        // Another server can't claim this one's page for its own status.
+        var impostor = remoteAuthor(false);
+        var claimed = URI.create("https://" + author.domain() + "/@s/" + UUID.randomUUID());
+        statuses.storeRemote(new RemoteStatus(URI.create(impostor.uri() + "/statuses/" + UUID.randomUUID()), claimed,
+                impostor.id(), "<p>impostor</p>", null, null, Visibility.PUBLIC, false, null, Instant.now()));
+        expectStatuses(byUrl(searcher(), claimed.toString()));
     }
 
     @Test
