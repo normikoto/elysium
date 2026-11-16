@@ -144,7 +144,8 @@ public class ActivityPubController {
                     suspended user's document has `suspended: true`, the same key, and no profile. When the server \
                     requires signed fetches, an unsigned request gets a minimal document with only the `id`, `type`, \
                     `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, and `publicKey`, \
-                    so that the key can always be read, and a signature that can't be accepted is refused.\s"""
+                    so that the key can always be read. So does one whose signature can't be accepted, unless it's \
+                    from a blocked server or a suspended actor.\s"""
                     + FederationDocs.CONTENT_NEGOTIATION + " " + FederationDocs.VARIES_BY_SIGNATURE,
             parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
             responses = {
@@ -170,7 +171,8 @@ public class ActivityPubController {
         if (actor.get().isDeleted()) {
             return ResponseEntity.status(HttpStatus.GONE).body(Tombstone.from(actor.get()));
         }
-        if (federation.authorizedFetch() && signers.check(request) instanceof FetchSigners.FetchSignature.Unsigned) {
+        // Blocked and suspended signers have already been refused, so anything else that isn't signed is answered as unsigned.
+        if (federation.authorizedFetch() && !(signers.check(request) instanceof FetchSigners.FetchSignature.Signed)) {
             return ResponseEntity.ok(Person.minimal(actor.get(), instance));
         }
         // Not an error, because other servers take any answer that isn't this document as the actor being gone or broken.
@@ -602,7 +604,8 @@ public class ActivityPubController {
                     names the quote as `interactingObject` and the quoted status as `interactionTarget`, and embeds \
                     neither. It's served for as long as the approval stands, and then gets a 404. One for a public or \
                     unlisted quote is served to anyone, and one for a followers-only or direct quote only to a signer \
-                    who can see the quote.\s""" + FederationDocs.DOCUMENT + " " + FederationDocs.VARIES_BY_SIGNATURE,
+                    who can see the quote. A signature is only required if the server requires signed fetches.\s"""
+                    + FederationDocs.DOCUMENT + " " + FederationDocs.VARIES_BY_SIGNATURE,
             parameters = {
                     @Parameter(name = "username", description = "The quoted author's username, matched case-insensitively."),
                     @Parameter(name = "id", description = "The approval's ID.")

@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -134,11 +135,18 @@ class AuthorizedFetchIntegrationTests {
         var someone = remote("someone");
         var wrongKey = new Signer(someone.uri(), someone.domain(), someone.actor(), remote("stranger").privateKey());
 
-        for (var path : List.of("/users/carol", "/users/carol/followers")) {
-            fetch(path, wrongKey).andExpect(status().isUnauthorized());
-            send(get(path).accept(ACTIVITY_JSON).header("Signature", "not a signature"))
-                    .andExpect(status().isBadRequest());
-        }
+        fetch("/users/carol/followers", wrongKey).andExpect(status().isUnauthorized());
+        send(get("/users/carol/followers").accept(ACTIVITY_JSON).header("Signature", "not a signature"))
+                .andExpect(status().isBadRequest());
+        // The actor's key has to stay readable, so its document answers these as unsigned.
+        fetch("/users/carol", wrongKey)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.publicKey.publicKeyPem").exists())
+                .andExpect(jsonPath("$.url").doesNotExist())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, not("no-store, private")));
+        send(get("/users/carol").accept(ACTIVITY_JSON).header("Signature", "not a signature"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").doesNotExist());
     }
 
     @Test

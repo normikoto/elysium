@@ -80,7 +80,7 @@ who they are, so a server you've [blocked](accounts.md#domain-blocks) can still 
 requests, and a blocked server, or a suspended account on another server, is refused.
 
 This doesn't make anything private. Web pages, such as profiles and public posts, can still be read by anyone, and a
-blocked server can read them that way too. It can also make another server's account sign the requests. Servers that
+blocked server can read them that way too. It can also have an account on another server sign the requests for it. Servers that
 never sign their requests can't read your users' posts or follower lists while it's on, though they can still follow your
 users and receive their posts. Mastodon, GoToSocial, and Misskey all sign them.
 

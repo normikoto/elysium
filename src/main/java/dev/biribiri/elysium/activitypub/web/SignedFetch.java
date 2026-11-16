@@ -19,8 +19,8 @@ import java.lang.annotation.Target;
 @interface SignedFetch {
 
     /**
-     * @return true if an unsigned request is still answered, for the handler to serve less. A bad signature is refused
-     * either way.
+     * @return true if an unsigned request is still answered, for the handler to serve less. So is one whose signature
+     * can't be accepted, unless it's from a blocked server or a suspended actor, which are refused either way.
      */
     boolean allowUnsigned() default false;
 }

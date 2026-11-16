@@ -1391,7 +1391,9 @@ off by default. When it's on, a `GET` or `HEAD` of these needs a signature, in e
 An unsigned request for a user's actor document isn't refused, so that a server which fetches keys without signing can
 still check this server's deliveries. It gets a shorter document, as from Mastodon, with only `@context`, `id`, `type`,
 `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, and `publicKey`, and `suspended` for a
-suspended user. A deleted user's `Tombstone` is served to anyone.
+suspended user. So does a request whose signature can't be accepted, such as one whose key can't be fetched right now,
+unless the key is on a blocked domain or the signer is suspended or deleted, which gets a `403`, as Mastodon does. A
+deleted user's `Tombstone` is served to anyone apart from those.
 
 The [instance actor](#instance-actor) and its outbox, custom emoji, WebFinger, NodeInfo, and web pages, including those at
 the same URLs as the documents above, never need a signature.
@@ -1399,10 +1401,12 @@ the same URLs as the documents above, never need a signature.
 | Status | Meaning                                                                                                      |
 |--------|--------------------------------------------------------------------------------------------------------------|
 | `400`  | The signature header can't be read                                                                           |
-| `401`  | There's no signature in a supported format, apart from on an actor document, or it isn't valid               |
+| `401`  | There's no signature in a supported format, or it isn't valid                                                |
 | `403`  | The signature's key is on a [blocked domain](#domain-blocks), or the signer is suspended or deleted          |
 | `429`  | This address has caused too many key fetches, and `Retry-After` says when to try again                       |
 | `503`  | The signer's key can't be fetched right now                                                                  |
+
+An actor document only answers with the `403`.
 
 These are checked before the document is looked up, so a refusal doesn't say whether it exists. Any other valid signature
 is accepted, including an instance actor's, or one from an actor this server hasn't seen before, and gets what an

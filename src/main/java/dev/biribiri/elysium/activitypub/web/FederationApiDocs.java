@@ -114,14 +114,15 @@ class FederationApiDocs implements OperationCustomizer {
 
     private static void describeSignedFetch(io.swagger.v3.oas.models.Operation operation, SignedFetch signedFetch) {
         var responses = operation.getResponses();
-        if (!signedFetch.allowUnsigned()) {
-            addOrExtend(responses, "401", "Signed fetches are required, and there's no signature in a supported format, "
-                    + "or it isn't valid.");
-        } else {
-            addOrExtend(responses, "401", "Signed fetches are required, and the signature isn't valid.");
-        }
         addOrExtend(responses, "403", "Signed fetches are required, and the signer is suspended or deleted, or the "
                 + "signature's key is on a blocked domain.");
+        // Any other failure is answered as an unsigned request.
+        if (signedFetch.allowUnsigned()) {
+            return;
+        }
+        addOrExtend(responses, "400", "Signed fetches are required, and the signature header can't be read.");
+        addOrExtend(responses, "401", "Signed fetches are required, and there's no signature in a supported format, "
+                + "or it isn't valid.");
         addOrExtend(responses, "429", "Signed fetches are required, and this address has caused too many key fetches.");
         responses.get("429").addHeaderObject("Retry-After", new io.swagger.v3.oas.models.headers.Header()
                 .description("Seconds until there's room again.")

@@ -7,6 +7,7 @@ import dev.biribiri.elysium.ratelimit.ClientAddresses;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -44,7 +45,8 @@ class SignedFetchInterceptor implements HandlerInterceptor, WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(this);
+        // After NegotiatedUrlConfig's, so that a refusal still has its Vary: Accept.
+        registry.addInterceptor(this).order(Ordered.LOWEST_PRECEDENCE);
     }
 
     @Override
@@ -69,6 +71,9 @@ class SignedFetchInterceptor implements HandlerInterceptor, WebMvcConfigurer {
                 return false;
             }
             case FetchSignature.Refused(var failure) -> {
+                if (method.getMethodAnnotation(SignedFetch.class).allowUnsigned() && !isRefusal(failure)) {
+                    return true;
+                }
                 response.setStatus(failure.status());
                 if (failure == Failure.FETCH_BUDGET_SPENT) {
                     response.setHeader(HttpHeaders.RETRY_AFTER, budgets.retryAfter(clients.keyFor(request)));
@@ -76,5 +81,13 @@ class SignedFetchInterceptor implements HandlerInterceptor, WebMvcConfigurer {
                 return false;
             }
         }
+    }
+
+    /**
+     * @return true for a signer this server won't answer at all. Other failures, such as a key that can't be fetched right
+     * now, say nothing about who's asking, so they're answered as unsigned where that's allowed, as Mastodon does.
+     */
+    private static boolean isRefusal(Failure failure) {
+        return failure == Failure.DOMAIN_BLOCKED || failure == Failure.ACTOR_SUSPENDED;
     }
 }
