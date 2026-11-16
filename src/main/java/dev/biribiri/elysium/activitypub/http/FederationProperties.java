@@ -11,9 +11,13 @@ import java.util.List;
  *                               test lab, and everything else about a request stays the same.
  * @param sendBlocks             whether a local account's block of a remote actor is sent to the actor as a {@code Block}.
  *                               Without it, the actor's server can tell only that the follows between them ended.
+ * @param authorizedFetch        whether fetches of local users' documents need a valid signature, as with Mastodon's
+ *                               {@code AUTHORIZED_FETCH}. Without it, a blocked server or suspended actor can still read
+ *                               whatever an anonymous request can.
  */
 @ConfigurationProperties("elysium.federation")
 public record FederationProperties(
         @DefaultValue List<String> allowedPrivateNetworks,
-        @DefaultValue("true") boolean sendBlocks) {
+        @DefaultValue("true") boolean sendBlocks,
+        @DefaultValue("false") boolean authorizedFetch) {
 }

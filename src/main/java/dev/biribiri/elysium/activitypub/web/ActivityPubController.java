@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.web;
 
+import dev.biribiri.elysium.activitypub.http.FederationProperties;
 import dev.biribiri.elysium.activitypub.outbound.Notes;
 import dev.biribiri.elysium.activitypub.vocab.Application;
 import dev.biribiri.elysium.activitypub.vocab.Create;
@@ -42,7 +43,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -78,7 +78,7 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.LD_JSON;
 public class ActivityPubController {
 
     /**
-     * For documents that don't read the signature yet, which are served as to an anonymous viewer.
+     * For documents that only serve what anyone can see, so they don't read who signed the request.
      */
     private static final Optional<UUID> ANONYMOUS = Optional.empty();
 
@@ -98,6 +98,7 @@ public class ActivityPubController {
     private final PollService polls;
     private final StatusPinService pins;
     private final CustomEmojis emojis;
+    private final FederationProperties federation;
 
     ActivityPubController(
             ActorService actors,
@@ -113,7 +114,9 @@ public class ActivityPubController {
             QuoteService quotes,
             PollService polls,
             StatusPinService pins,
-            CustomEmojis emojis) {
+            CustomEmojis emojis,
+            FederationProperties federation) {
+        this.federation = federation;
         this.pins = pins;
         this.emojis = emojis;
         this.polls = polls;
@@ -138,7 +141,12 @@ public class ActivityPubController {
                     A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, and the shared inbox \
                     at `/inbox` as `endpoints.sharedInbox`. The profile is in `name`, `summary` (HTML), `icon` and \
                     `image` (WebP `Image`s), and `attachment` (`PropertyValue`s), each left out if it's empty. A \
-                    suspended user's document has `suspended: true`, the same key, and no profile.\s""" + FederationDocs.NEGOTIATED,
+                    suspended user's document has `suspended: true`, the same key, and no profile. When the server \
+                    requires signed fetches, an unsigned request gets a minimal document with only the `id`, `type`, \
+                    `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, and `publicKey`, \
+                    so that the key can always be read. So does one whose signature can't be accepted, unless it's \
+                    from a blocked server or a suspended actor.\s"""
+                    + FederationDocs.CONTENT_NEGOTIATION + " " + FederationDocs.VARIES_BY_SIGNATURE,
             parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The actor, or the profile page for HTML.",
@@ -153,13 +161,19 @@ public class ActivityPubController {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Tombstone.class)),
                     })
             })
-    ResponseEntity<?> actor(@PathVariable String username) {
+    @SignedFetch(allowUnsigned = true)
+    ResponseEntity<?> actor(@PathVariable String username, HttpServletRequest request) {
         var actor = actors.findAnyLocalByUsername(username);
         if (actor.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
+        // Unsigned, so that other servers can tell that the actor is gone, and process its Delete.
         if (actor.get().isDeleted()) {
             return ResponseEntity.status(HttpStatus.GONE).body(Tombstone.from(actor.get()));
+        }
+        // Blocked and suspended signers have already been refused, so anything else that isn't signed is answered as unsigned.
+        if (federation.authorizedFetch() && !(signers.check(request) instanceof FetchSigners.FetchSignature.Signed)) {
+            return ResponseEntity.ok(Person.minimal(actor.get(), instance));
         }
         // Not an error, because other servers take any answer that isn't this document as the actor being gone or broken.
         return ResponseEntity.ok(actor.get().isSuspended()
@@ -168,9 +182,10 @@ public class ActivityPubController {
     }
 
     /**
-     * There's no web page at this URL.
+     * There's no web page at this URL. Browsers can't send a signature from another origin, so that other sites can only
+     * read what an unsigned request gets.
      */
-    @CrossOrigin
+    @CrossOrigin(allowedHeaders = HttpHeaders.ACCEPT)
     @GetMapping(path = "/users/{username}/followers", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     @Operation(
             operationId = "getFollowers",
@@ -192,6 +207,7 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
                     @ApiResponse(responseCode = "410", description = "The user was deleted.")
             })
+    @SignedFetch
     ResponseEntity<?> followers(
             @PathVariable String username,
             @RequestParam(required = false) String page,
@@ -202,7 +218,7 @@ public class ActivityPubController {
     /**
      * Like {@link #followers}.
      */
-    @CrossOrigin
+    @CrossOrigin(allowedHeaders = HttpHeaders.ACCEPT)
     @GetMapping(path = "/users/{username}/following", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     @Operation(
             operationId = "getFollowing",
@@ -224,6 +240,7 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
                     @ApiResponse(responseCode = "410", description = "The user was deleted.")
             })
+    @SignedFetch
     ResponseEntity<?> following(
             @PathVariable String username,
             @RequestParam(required = false) String page,
@@ -268,9 +285,10 @@ public class ActivityPubController {
     }
 
     /**
-     * Like {@link #followers}. Statuses that anyone can see are served whoever asks, so the signature isn't read.
+     * Like {@link #followers}. Only statuses that anyone can see are listed, so the signature is only checked when it's
+     * required.
      */
-    @CrossOrigin
+    @CrossOrigin(allowedHeaders = HttpHeaders.ACCEPT)
     @GetMapping(path = "/users/{username}/outbox", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     @Operation(
             operationId = "getOutbox",
@@ -292,6 +310,7 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
                     @ApiResponse(responseCode = "410", description = "The user was deleted.")
             })
+    @SignedFetch
     ResponseEntity<?> outbox(
             @PathVariable String username,
             @RequestParam(required = false) String page,
@@ -323,7 +342,7 @@ public class ActivityPubController {
      * Like {@link #outbox}. Mastodon lists followers-only pins by ID to a follower's signed fetch, but that would only tell
      * other servers which statuses are pinned, without letting them show any.
      */
-    @CrossOrigin
+    @CrossOrigin(allowedHeaders = HttpHeaders.ACCEPT)
     @GetMapping(path = "/users/{username}/collections/featured", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     @Operation(
             operationId = "getFeatured",
@@ -339,6 +358,7 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
                     @ApiResponse(responseCode = "410", description = "The user was deleted.")
             })
+    @SignedFetch
     ResponseEntity<?> featured(@PathVariable String username) {
         var actor = actors.findAnyLocalByUsername(username);
         var unavailable = unavailable(actor);
@@ -452,6 +472,7 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "404", description = "No publicly fetchable post by this author."),
                     @ApiResponse(responseCode = "406", description = "The Accept header allows neither type.")
             })
+    @SignedFetch
     ResponseEntity<?> likes(@PathVariable String username, @PathVariable String id,
                             @RequestParam(required = false) String page,
                             @RequestParam(name = "max_id", required = false) String maxId) {
@@ -489,6 +510,7 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "404", description = "No publicly fetchable post by this author."),
                     @ApiResponse(responseCode = "406", description = "The Accept header allows neither type.")
             })
+    @SignedFetch
     ResponseEntity<?> shares(@PathVariable String username, @PathVariable String id,
                              @RequestParam(required = false) String page,
                              @RequestParam(name = "max_id", required = false) String maxId) {
@@ -532,8 +554,7 @@ public class ActivityPubController {
     }
 
     /**
-     * This must never require a signature, even if other documents come to. A server checking this server's signature
-     * reads this key, and may need its own request signed in turn, so the two could end up waiting on each other.
+     * This must never be a {@link SignedFetch}, which explains why.
      */
     @CrossOrigin
     @GetMapping(path = InstanceActor.PATH, produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
@@ -583,7 +604,8 @@ public class ActivityPubController {
                     names the quote as `interactingObject` and the quoted status as `interactionTarget`, and embeds \
                     neither. It's served for as long as the approval stands, and then gets a 404. One for a public or \
                     unlisted quote is served to anyone, and one for a followers-only or direct quote only to a signer \
-                    who can see the quote. Answers have `Vary: Signature`.\s""" + FederationDocs.DOCUMENT,
+                    who can see the quote. A signature is only required if the server requires signed fetches.\s"""
+                    + FederationDocs.DOCUMENT + " " + FederationDocs.VARIES_BY_SIGNATURE,
             parameters = {
                     @Parameter(name = "username", description = "The quoted author's username, matched case-insensitively."),
                     @Parameter(name = "id", description = "The approval's ID.")
@@ -599,12 +621,11 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "406", description = "The `Accept` header allows neither type."),
                     @ApiResponse(responseCode = "410", description = "The user was deleted.")
             })
+    @SignedFetch
     ResponseEntity<?> quoteAuthorization(
             @PathVariable String username,
             @PathVariable String id,
-            HttpServletRequest request,
-            HttpServletResponse response) {
-        response.addHeader(HttpHeaders.VARY, FetchSigners.SIGNATURE);
+            HttpServletRequest request) {
         var signer = signers.signer(request).map(Actor::id);
         var author = actors.findAnyLocalByUsername(username);
         var unavailable = unavailable(author);
@@ -632,13 +653,14 @@ public class ActivityPubController {
             operationId = "getNote",
             summary = "Fetch a status as a Note",
             description = """
-                    Public and unlisted statuses are `Note` objects. A signature is read if there is one, but never \
-                    required. A private status is only served to a signer who follows its author and was sent it, \
+                    Public and unlisted statuses are `Note` objects. A signature is read if there is one, and only \
+                    required if the server requires signed fetches. A private status is only served to a signer who follows its author and was sent it, \
                     or that it mentions, and a direct one to a signer it mentions. A signature that \
-                    can't be accepted is answered as if there were none. A deleted public or unlisted status gets a \
+                    can't be accepted is otherwise answered as if there were none. A deleted public or unlisted status gets a \
                     410 with a `Tombstone`, and a deleted private or direct one a 404. Answers have \
-                    `Vary: Signature`, and a private or direct `Note` has `Cache-Control: no-store, private`. A \
-                    browser can't send a `Signature` header from another origin.\s""" + FederationDocs.CONTENT_NEGOTIATION,
+                    `Vary: Signature`, and a private or direct `Note` has `Cache-Control: no-store, private`, as \
+                    does every signed answer when signatures are required. A browser can't send a `Signature` header \
+                    from another origin.\s""" + FederationDocs.CONTENT_NEGOTIATION,
             parameters = {
                     @Parameter(name = "username", description = "The author's username, matched case-insensitively."),
                     @Parameter(name = "id", description = "The status's ID.")
@@ -659,12 +681,11 @@ public class ActivityPubController {
                             @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Tombstone.class)),
                     })
             })
+    @SignedFetch
     ResponseEntity<?> note(
             @PathVariable String username,
             @PathVariable String id,
-            HttpServletRequest request,
-            HttpServletResponse response) {
-        response.addHeader(HttpHeaders.VARY, FetchSigners.SIGNATURE);
+            HttpServletRequest request) {
         // Before anything is looked up, so that how long this takes doesn't depend on whether a private status exists.
         var signer = signers.signer(request).map(Actor::id);
         var author = actors.findAnyLocalByUsername(username);

@@ -72,4 +72,11 @@ class AddressFetchBudgets {
     Duration timeUntilReset(String address) {
         return started.timeUntilReset(address);
     }
+
+    /**
+     * @return the {@code Retry-After} value for a request refused because its address spent its budget
+     */
+    String retryAfter(String address) {
+        return RateLimiter.retryAfterSeconds(timeUntilReset(address));
+    }
 }

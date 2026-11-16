@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Authorized fetch, as with Mastodon's `AUTHORIZED_FETCH`, for other servers to have to sign their requests to read
+  your users' profiles, posts, and follower lists. It's off by default. Turning it on with
+  `elysium.federation.authorized-fetch=true` stops blocked servers and suspended accounts on other servers from reading
+  them, but web pages stay public. See `docs/configuration.md` and `FEDERATION.md`.
+
 ### Fixed
 
 - When a server reused a `Follow`'s ID to follow a second account here, an `Undo` of it could leave one of the two follows

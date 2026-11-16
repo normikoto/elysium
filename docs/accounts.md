@@ -236,7 +236,9 @@ domain's subdomains too, and applies straight away. There are two kinds:
 
 - **Suspending** a server means nothing more is accepted from it or sent to it, and its follows and posts are removed.
   Removing the block, or changing it to only limit the server, doesn't bring those back, so followers on that server have
-  to follow again. See [`FEDERATION.md`](../FEDERATION.md#domain-blocks) for what a suspension doesn't stop.
+  to follow again. It doesn't stop the server from reading your users' public posts and profiles unless you turn on
+  [authorized fetch](configuration.md#authorized-fetch). See [`FEDERATION.md`](../FEDERATION.md#domain-blocks) for
+  what else a suspension doesn't stop.
 - **Limiting** a server lets it federate as usual, apart from what you choose to reject. Rejecting its media shows its
   posts' attachments as links to its server instead of downloading them, and removes the copies already kept, as rejecting
   an account's media does.

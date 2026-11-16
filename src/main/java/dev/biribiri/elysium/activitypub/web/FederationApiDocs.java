@@ -4,6 +4,7 @@ import dev.biribiri.elysium.activitypub.inbound.Inbox;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.models.media.Content;
+import io.swagger.v3.oas.models.media.IntegerSchema;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.ObjectSchema;
 import io.swagger.v3.oas.models.media.StringSchema;
@@ -36,6 +37,8 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.LD_JSON;
  * <li>A body documented as {@code application/activity+json} is also documented as {@code application/ld+json} with the
  * ActivityStreams profile, which is served the same.
  * <li>Every inbox takes the same request, which is described here. {@link InboxController} declares their responses.
+ * <li>A {@link SignedFetch} document gets the answers for a signature that's refused, which {@link SignedFetchInterceptor}
+ * gives the same way for each.
  * </ul>
  */
 @Component
@@ -49,6 +52,10 @@ class FederationApiDocs implements OperationCustomizer {
         }
         if (handlerMethod.getBeanType() == InboxController.class) {
             describeInbox(operation);
+        }
+        var signedFetch = handlerMethod.getMethodAnnotation(SignedFetch.class);
+        if (signedFetch != null) {
+            describeSignedFetch(operation, signedFetch);
         }
         var withBodies = declaredWithBodies(handlerMethod);
         operation.getResponses().forEach((status, response) -> {
@@ -103,6 +110,40 @@ class FederationApiDocs implements OperationCustomizer {
                 "Required for a draft-cavage signature: the body's SHA-256, as `SHA-256=` and then Base64."));
         operation.addParametersItem(header("Content-Digest", false,
                 "Required for an RFC 9421 signature: the body's `sha-256` or `sha-512`, as RFC 9530 describes."));
+    }
+
+    private static void describeSignedFetch(io.swagger.v3.oas.models.Operation operation, SignedFetch signedFetch) {
+        var responses = operation.getResponses();
+        addOrExtend(responses, "403", "Signed fetches are required, and the signer is suspended or deleted, or the "
+                + "signature's key is on a blocked domain.");
+        // Any other failure is answered as an unsigned request.
+        if (signedFetch.allowUnsigned()) {
+            return;
+        }
+        addOrExtend(responses, "400", "Signed fetches are required, and the signature header can't be read.");
+        addOrExtend(responses, "401", "Signed fetches are required, and there's no signature in a supported format, "
+                + "or it isn't valid.");
+        addOrExtend(responses, "429", "Signed fetches are required, and this address has caused too many key fetches.");
+        responses.get("429").addHeaderObject("Retry-After", new io.swagger.v3.oas.models.headers.Header()
+                .description("Seconds until there's room again.")
+                .schema(new IntegerSchema()));
+        addOrExtend(responses, "503", "Signed fetches are required, and the signer's key can't be fetched right now.");
+    }
+
+    /**
+     * Adds a response, or adds to the description of one the handler already declares for another reason.
+     */
+    private static void addOrExtend(ApiResponses responses, String status, String description) {
+        var existing = responses.get(status);
+        if (existing == null) {
+            responses.addApiResponse(status, new io.swagger.v3.oas.models.responses.ApiResponse().description(description));
+        } else {
+            var before = existing.getDescription().strip();
+            if (before.endsWith(".")) {
+                before = before.substring(0, before.length() - 1);
+            }
+            existing.setDescription(before + ", or " + Character.toLowerCase(description.charAt(0)) + description.substring(1));
+        }
     }
 
     private static Parameter header(String name, boolean required, String description) {

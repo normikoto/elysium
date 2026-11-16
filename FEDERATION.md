@@ -34,7 +34,8 @@ Requests that accept HTML instead, including `*/*` or no header, get the user's 
 document's `url` links to that page, which is at the same URL.
 
 Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`, and
-`endpoints.sharedInbox`, which is the [shared inbox](#inboxes) at `/inbox`.
+`endpoints.sharedInbox`, which is the [shared inbox](#inboxes) at `/inbox`. If [signed fetches are required](#authorized-fetch), an unsigned request gets a
+shorter document without the profile.
 
 An actor document also has the user's profile, as Mastodon sends it, and leaves out each part that's empty:
 
@@ -87,7 +88,7 @@ An actor's `outbox` is an `OrderedCollection` at `/users/{username}/outbox`, ser
 same paging, 403, and 410. It lists the user's public and unlisted posts and boosts, newest first, and `totalItems` counts
 them. A post is the `Create` that was [sent](#statuses) for it, embedding the `Note` as it's served now, and a boost is its
 [`Announce`](#boosts). Followers-only and direct posts, followers-only boosts, and boosts of posts that can't be shown are left
-out, so a page can have fewer than 40 items and still have a `next`. Any signature is ignored. The
+out, so a page can have fewer than 40 items and still have a `next`. Any signature is ignored unless [signed fetches are required](#authorized-fetch). The
 [instance actor](#instance-actor)'s outbox, at `/actor/outbox`, is always empty.
 
 Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively. A deleted account's username
@@ -108,8 +109,8 @@ Statuses are `Note` objects at `/users/{username}/statuses/{id}`, which is also 
 served the same way as actor documents: the same `Accept` types get the object, requests that accept HTML get the page,
 and any origin can read both through CORS. Public and unlisted statuses are served to anyone.
 
-A fetch of a `Note` doesn't need a signature, but one is checked if it's sent, and the request is answered as the actor
-that owns the signing key:
+A fetch of a `Note` doesn't need a signature unless [signed fetches are required](#authorized-fetch), but one is checked if it's sent, and the request is
+answered as the actor that owns the signing key:
 
 - A followers-only status is served to an actor that follows its author and was sent its `Create`, including one that
   has unfollowed and followed again since, and to the actors in its `Mention` tags, or in them before an edit. A former
@@ -121,7 +122,7 @@ that owns the signing key:
   actor, so they can't find a followers-only or direct status that wasn't delivered to them.
 - Everyone else gets a 404, the same as for a status that never existed. A signature that can't be accepted, for any
   reason, including a key on a [blocked domain](#domain-blocks), a suspended signer, or a key that can't be fetched right
-  now, gets the answer an unsigned request would. Key fetches count toward the same [limits](#inboxes) as for inboxes.
+  now, gets the answer an unsigned request would, unless [signed fetches are required](#authorized-fetch), when it's refused. Key fetches count toward the same [limits](#inboxes) as for inboxes.
 
 Answers vary by `Signature`, and a followers-only or direct `Note` has `Cache-Control: no-store, private`. Browsers can't
 send a `Signature` header to these URLs from another origin, so what other sites can read through CORS is always the
@@ -778,7 +779,7 @@ stops a `Like` it names from counting if that's processed later, for about 34 da
 A `Note`'s `likes` collection is an `OrderedCollection` with a `totalItems` and a `first` page, paged like
 [followers and following](#actors), with up to 40 `Like` activities a page, newest first. Each has the `id` it was received
 with. It's served with the same media types as the `Note`, and any origin can read it through CORS, but a request that
-accepts HTML is redirected to the status's page, and any signature is ignored. Only public and unlisted statuses have one, and others get a 404, or a
+accepts HTML is redirected to the status's page, and any signature is ignored unless [signed fetches are required](#authorized-fetch). Only public and unlisted statuses have one, and others get a 404, or a
 403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if the suspension ends.
 
 ### Emoji reactions
@@ -873,7 +874,7 @@ A local user can pin up to 5 of their own public, unlisted, or followers-only st
 at `/users/{username}/collections/featured`, is an `OrderedCollection` that lists the public and unlisted ones, the most
 recently pinned first. It isn't paged: each item is the status's `Note`, embedded in `orderedItems` as it's served on its
 own, and `totalItems` counts them. It's served like the [outbox](#actors), with the same media types, CORS, 403, and 410,
-and any signature is ignored.
+and any signature is ignored unless [signed fetches are required](#authorized-fetch).
 
 Pinning a status sends an `Add`, signed as the user, to their followers. Its `object` is the status's ID, and its `target`
 is the `featured` collection. It's addressed like the status, without its mentions, and goes to the followers who were sent
@@ -1219,8 +1220,8 @@ While either blocks the other, nothing new by the user goes straight to the acto
 leave out a blocked actor it mentions or replies to, though its `Delete` doesn't, since the actor can have it from before. A
 user who blocks an actor or its server isn't a recipient of anything that actor sends, and a signed fetch of the user's `Note`
 by that actor, or by any actor on that server, gets a `404`. A blocked actor's server can still get the user's public
-statuses through a shared inbox, for its other users who follow them, and anyone can fetch public statuses without a
-signature.
+statuses through a shared inbox, for its other users who follow them, and unless [signed fetches are required](#authorized-fetch), anyone can fetch public
+statuses without a signature.
 
 ### Reports
 
@@ -1264,7 +1265,8 @@ never says whether admins acted on it.
   though Mastodon would serve it to any current follower.
 - A local user's boost of a status that's removed with its author's account, or with a blocked domain's statuses, goes
   without an `Undo`.
-- Fetches don't need a signature. Only fetches of `Note`s check one, and any signature on other fetches is ignored.
+- Fetches only need a signature if an admin [requires one](#authorized-fetch), which is off by default. Otherwise only
+  fetches of `Note`s and quote approvals check one, and any signature on other fetches is ignored.
 - Backfill only reads the first page of an outbox, and only its `Create`s.
 - A `featured` collection only lists public and unlisted pins, where Mastodon also names followers-only ones to a
   follower's signed fetch. Pins from another server are kept for its followers-only statuses that were sent here, but those
@@ -1338,8 +1340,8 @@ doesn't cover emoji, since they belong to the server. A suspension rejects media
 
 These are an admin's blocks. A user's own block of a server [isn't federated](#blocks), apart from the `Reject`s it sends.
 
-A block doesn't stop a server's users from reading this server's public pages and documents, which need no signature, or
-recall a delivery that's already being sent. It only covers names, so it doesn't apply to a server that moves to an unrelated
+A block doesn't stop a server's users from reading this server's public pages, or its documents unless
+[signed fetches are required](#authorized-fetch), or recall a delivery that's already being sent. It only covers names, so it doesn't apply to a server that moves to an unrelated
 domain, or that's reached by its IP address, and IP addresses can't be blocked.
 
 The list of blocks isn't shown anywhere, but anyone can find out whether a domain is on it. The `403` comes before the
@@ -1349,8 +1351,8 @@ GoToSocial answer the same way.
 ### HTTP Signatures
 
 The server supports [draft-cavage-http-signatures-12](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12)
-and [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures. Inboxes require signatures, and fetches of
-`Note`s check one if it's sent. The only requests this server makes are fetches of keys, actors, outboxes, and other servers' activities
+and [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures. Inboxes require signatures, fetches of
+`Note`s check one if it's sent, and fetches of other documents can be made to [require one](#authorized-fetch). The only requests this server makes are fetches of keys, actors, outboxes, and other servers' activities
 and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Accept`, `Create`, `Update`, `Delete`, `Like`,
 `Announce`, and `Flag`.
 
@@ -1377,6 +1379,43 @@ and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Ac
     Signatures last 5 minutes unless they say otherwise, and at most 12 hours, with up to 1 hour of clock difference
     allowed.
 - **Fetching keys:** Fetches are signed as the [instance actor](#instance-actor), and so are deliveries of `Flag`.
+
+### Authorized fetch
+
+An admin can [require signed fetches](docs/configuration.md#authorized-fetch), as Mastodon's `AUTHORIZED_FETCH` does. It's
+off by default. When it's on, a `GET` or `HEAD` of these needs a signature, in either [format](#http-signatures):
+
+- A user's actor document, and their `followers`, `following`, `outbox`, and `featured` collections and their pages.
+- `Note`s and their `Tombstone`s, a `Note`'s `likes` and `shares`, and `QuoteAuthorization`s.
+
+An unsigned request for a user's actor document isn't refused, so that a server which fetches keys without signing can
+still check this server's deliveries. It gets a shorter document, as from Mastodon, with only `@context`, `id`, `type`,
+`preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, and `publicKey`, and `suspended` for a
+suspended user. So does a request whose signature can't be accepted, such as one whose key can't be fetched right now,
+unless the key is on a blocked domain or the signer is suspended or deleted, which gets a `403`, as Mastodon does. A
+deleted user's `Tombstone` is served to anyone apart from those.
+
+The [instance actor](#instance-actor) and its outbox, custom emoji, WebFinger, NodeInfo, and web pages, including those at
+the same URLs as the documents above, never need a signature.
+
+| Status | Meaning                                                                                                      |
+|--------|--------------------------------------------------------------------------------------------------------------|
+| `400`  | The signature header can't be read                                                                           |
+| `401`  | There's no signature in a supported format, or it isn't valid                                                |
+| `403`  | The signature's key is on a [blocked domain](#domain-blocks), or the signer is suspended or deleted          |
+| `429`  | This address has caused too many key fetches, and `Retry-After` says when to try again                       |
+| `503`  | The signer's key can't be fetched right now                                                                  |
+
+An actor document only answers with the `403`.
+
+These are checked before the document is looked up, so a refusal doesn't say whether it exists. Any other valid signature
+is accepted, including an instance actor's, or one from an actor this server hasn't seen before, and gets what an
+unsigned request gets when this is off, apart from followers-only and direct [`Note`s](#objects). Key fetches count toward
+the same [limits](#inboxes) as for inboxes.
+
+Answers from these URLs vary by `Signature` whether or not this is on, and when it's on, a signed answer has
+`Cache-Control: no-store, private`. Browsers can't send a `Signature` header to these URLs from another origin, so what
+other sites can read through CORS is the unsigned answer: a `401`, or the shorter actor document.
 
 ## WebFinger
 
