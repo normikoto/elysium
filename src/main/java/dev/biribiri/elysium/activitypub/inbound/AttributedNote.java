@@ -4,6 +4,7 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.util.Optional;
@@ -23,9 +24,8 @@ record AttributedNote(RemoteNote note, URI author) {
      * @throws IllegalStateException if the note's server couldn't be reached, which is worth trying again
      */
     static Optional<AttributedNote> fetch(URI id, ActivityDocuments documents) {
-        Optional<RemoteNote> read;
         try {
-            read = RemoteNote.read(documents.fetch(id)).filter(note -> note.id().equals(id));
+            return of(id, documents.fetch(id));
         } catch (DocumentFetchException e) {
             if (e.isTemporary()) {
                 throw new IllegalStateException(e.getMessage(), e);
@@ -33,6 +33,13 @@ record AttributedNote(RemoteNote note, URI author) {
             log.debug("Ignoring note {}, which couldn't be fetched: {}", id, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Like {@link #fetch}, for a document the caller fetched from this ID itself, such as to read more of it.
+     */
+    static Optional<AttributedNote> of(URI id, JsonNode document) {
+        var read = RemoteNote.read(document).filter(note -> note.id().equals(id));
         var attributed = read.flatMap(note -> note.attributedTo().size() == 1
                         ? ActivityObject.parseUri(note.attributedTo().getFirst())
                         : Optional.<URI>empty())

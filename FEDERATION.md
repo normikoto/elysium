@@ -637,7 +637,8 @@ with the author's `followers` collection addressed, or one it addresses. A publi
 user, or every such follower, [blocks](#blocks) the `Note`'s author or its server. That covers a
 reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
 followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
-that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts) or [backfilled](#backfill). A `Question` is stored as a status with a [poll](#receiving-polls), and a `Note` that's a vote in a local poll is
+that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts), [backfilled](#backfill), or
+[fetched for a thread](#fetching-threads). A `Question` is stored as a status with a [poll](#receiving-polls), and a `Note` that's a vote in a local poll is
 [counted](#voting-in-a-local-poll). Other object types, such as `Article` and `Page`, are ignored.
 
 - **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
@@ -746,6 +747,29 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
   its key now answers `404` or `410`, as Mastodon's do, or because the actor is [suspended](#suspended-and-deleted-accounts)
   here. Such a `Delete` is answered with a `202`, but only if the actor is stored here and not already deleted. Otherwise it
   gets the `401` or `403` it would have.
+
+#### Fetching threads
+
+When a local user views a status's thread, what it's missing is fetched in the background, signed as the
+[instance actor](#instance-actor), each fetch once its host has a [turn](#forwarded-activities). A status's thread is
+fetched at most every 15 minutes. Nothing is fetched from this server or a [blocked](#domain-blocks) one.
+
+- **Parents:** a status whose `inReplyTo` isn't stored has that fetched, and then that status's parent, and so on, until
+  40 ancestors are stored. Each has to come back as a `Note` or `Question` with the `id` fetched, attributed to one actor on
+  the same host and port. Fetching stops at the first that isn't stored.
+- **Replies:** for a status from another server, its `id` is fetched again, and has to come back with that `id`, attributed
+  to its author. Its `replies` can be embedded or an ID, and so can the collection's `first`, and each page's `next` is
+  followed, up to 10 pages. The collection and its pages have to be on the same host and port as the status, and one
+  fetched by its ID has to be a `Collection`, `OrderedCollection`, `CollectionPage`, or `OrderedCollectionPage` with the
+  `id` fetched. Up to 20 of each one's `orderedItems`, or `items`, are read, as IDs or objects with one, and an embedded
+  reply is only read for its `id`. Each reply is fetched from its `id`, checked as a parent is, and kept only if its
+  `inReplyTo` is the status whose collection listed it. A reply's own `replies` are read the same way, down to 20 replies
+  deep, including for a reply that was already stored. Fetching stops once 60 replies to the status, and replies to
+  those, are stored.
+- **Storing:** only a public or unlisted status with a `published` is stored, read [as for a `Create`](#receiving-statuses).
+  As with [backfill](#backfill), it's sorted by its `published` time, and local accounts it mentions aren't notified.
+- **Failures:** a `404`, `410`, or other refusal skips what was fetched, and what it would have led to. A server error or
+  timeout is tried again later.
 
 ### Likes
 

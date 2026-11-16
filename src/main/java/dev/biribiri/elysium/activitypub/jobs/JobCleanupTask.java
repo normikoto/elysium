@@ -59,6 +59,10 @@ class JobCleanupTask {
         jdbc.sql("DELETE FROM inbound_activity WHERE received_at < :before")
                 .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();
+        // Long after a thread can be fetched again, which is all a row is for.
+        jdbc.sql("DELETE FROM thread_refresh WHERE started_at < :before")
+                .param("before", before(now, Duration.ofDays(1)))
+                .update();
         jdbc.sql("DELETE FROM undone_follow WHERE undone_at < :before")
                 .param("before", before(now, Jobs.ACTIVITIES_KEPT))
                 .update();

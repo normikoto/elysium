@@ -11,6 +11,7 @@ import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.PollChange;
+import dev.biribiri.elysium.content.RemoteThreadFetcher;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusProperties;
@@ -19,6 +20,7 @@ import dev.biribiri.elysium.content.Visibility;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
@@ -78,11 +80,13 @@ public class StatusesController {
     private final JsonBodies json;
     private final QuoteService quotes;
     private final StatusPinService pins;
+    private final RemoteThreadFetcher threads;
 
     StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes,
-                       BoostService boosts, QuoteService quotes, StatusPinService pins) {
+                       BoostService boosts, QuoteService quotes, StatusPinService pins, RemoteThreadFetcher threads) {
         this.quotes = quotes;
         this.pins = pins;
+        this.threads = threads;
         this.statuses = statuses;
         this.likes = likes;
         this.boosts = boosts;
@@ -325,22 +329,33 @@ public class StatusesController {
                     status it boosts. Lists up to 40 ancestors, and up to 60 \
                     descendants at most 20 replies deep, as Mastodon does for a request without a token, whatever the \
                     token. Statuses the user can't see are left out after those limits apply, so fewer can be listed. \
-                    Only statuses stored here are listed: missing parents and replies aren't fetched from other \
-                    servers.""",
+                    Only statuses stored here are listed. For a request with a token, missing parents, and replies to \
+                    a status from another server, are fetched from other servers in the background, at most every 15 \
+                    minutes for each status, so a later request can list more. While that's running, the response has \
+                    a `Mastodon-Async-Refresh` header, as on Mastodon 4.5, whose `id` can be checked with \
+                    `GET /api/v1_alpha/async_refreshes/:id`. Its `result_count` counts parents as well as replies.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#context"),
             responses = {
-                    @ApiResponse(responseCode = "200", description = "The status's ancestors and descendants."),
+                    @ApiResponse(responseCode = "200", description = "The status's ancestors and descendants.",
+                            headers = @Header(name = AsyncRefreshesController.HEADER, description = """
+                                    Sent while the thread is being fetched from other servers, as \
+                                    `id="<id>", retry=<seconds>, result_count=<count>`.""")),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
             })
-    public ContextResponse context(
+    public ResponseEntity<ContextResponse> context(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
-        return RequestParameters.uuid(id)
-                .flatMap(boosts::original)
-                .flatMap(statusId -> statuses.findContext(statusId, RequestParameters.viewer(token)))
-                .map(context -> new ContextResponse(
-                        responses.list(context.ancestors(), RequestParameters.viewer(token), THREAD),
-                        responses.list(context.descendants(), RequestParameters.viewer(token), THREAD)))
-                .orElseThrow(RecordNotFoundException::new);
+        var viewer = RequestParameters.viewer(token);
+        var statusId = RequestParameters.uuid(id).flatMap(boosts::original).orElseThrow(RecordNotFoundException::new);
+        var context = statuses.findContext(statusId, viewer).orElseThrow(RecordNotFoundException::new);
+        var response = ResponseEntity.ok();
+        // Only for someone signed in, so that anonymous requests can't have this server fetch on demand.
+        if (viewer.isPresent()) {
+            threads.fetchSoon(statusId).ifPresent(refresh ->
+                    response.header(AsyncRefreshesController.HEADER, AsyncRefreshesController.headerValue(refresh)));
+        }
+        return response.body(new ContextResponse(
+                responses.list(context.ancestors(), viewer, THREAD),
+                responses.list(context.descendants(), viewer, THREAD)));
     }
 
     @DeleteMapping("/{id}")

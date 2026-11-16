@@ -54,9 +54,20 @@ import java.util.stream.Stream;
 @Service
 public class StatusService {
 
-    private static final int MAX_ANCESTORS = 40;
-    private static final int MAX_DESCENDANTS = 60;
-    private static final int MAX_DESCENDANT_DEPTH = 20;
+    /**
+     * The most ancestors that {@link #findContext} lists, which is as many as fetching a thread fills in.
+     */
+    public static final int MAX_ANCESTORS = 40;
+
+    /**
+     * The most descendants that {@link #findContext} lists, which is as many as fetching a thread fills in.
+     */
+    public static final int MAX_DESCENDANTS = 60;
+
+    /**
+     * How many levels of replies {@link #findContext} follows.
+     */
+    public static final int MAX_DESCENDANT_DEPTH = 20;
 
     private static final Pattern LANGUAGE = Pattern.compile("[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}");
 
@@ -664,7 +675,8 @@ public class StatusService {
     }
 
     /**
-     * Like {@link #storeRemote}, for an older status fetched from its author's outbox rather than sent here.
+     * Like {@link #storeRemote}, for an older status fetched from its author's outbox, or for its thread, rather than sent
+     * here.
      *
      * <p>Its ID comes from its {@code published} date, or now if that's later, so that it sorts among its author's statuses
      * by when it was posted, rather than putting old ones at the top of every timeline. This is the one exception to IDs
@@ -1058,6 +1070,30 @@ public class StatusService {
             return new StatusContext(
                     ancestors.stream().filter(visible).toList(), descendants.stream().filter(visible).toList());
         });
+    }
+
+    /**
+     * Finds where a status's thread starts among what's stored, for fetching the parents it's missing. That's the status
+     * itself if its parent isn't stored.
+     *
+     * @return empty if the status isn't stored, or as many ancestors as {@link #findContext} lists are stored already
+     */
+    public Optional<Status> findEarliestAncestor(UUID id) {
+        return statuses.findById(id).flatMap(status -> {
+            var ancestors = statuses.findAncestors(id, MAX_ANCESTORS);
+            if (ancestors.size() >= MAX_ANCESTORS) {
+                return Optional.empty();
+            }
+            return Optional.of(ancestors.isEmpty() ? status : ancestors.getFirst());
+        });
+    }
+
+    /**
+     * Whether as many of a status's replies, and theirs, are stored as {@link #findContext} lists, whoever can see them,
+     * so that fetching more would show nothing new.
+     */
+    public boolean hasFullThread(UUID id) {
+        return statuses.findDescendants(id, MAX_DESCENDANT_DEPTH, MAX_DESCENDANTS).size() >= MAX_DESCENDANTS;
     }
 
     /**
