@@ -920,6 +920,22 @@ class FollowIntegrationTests {
     }
 
     @Test
+    void anUndoOfAReusedIdStopsItsFollowOfAnotherAccountThatHasNotBeenHandledYet() {
+        var other = otherAccount();
+        var id = newId();
+        var first = follow(id);
+        followHandler.handle(arrive(first));
+        removeStored(first);
+        var second = arrive(followOf(id, other.uri().toString()));
+
+        undoHandler.handle(arrive(undo(followerUri, "\"" + id + "\"")));
+        followHandler.handle(second);
+
+        assertThat(followsFrom(id)).isEmpty();
+        assertThat(acceptsOf(other)).isEmpty();
+    }
+
+    @Test
     void aRepeatIsStoppedByAnUndoThatGotHereBeforeTheFirstFollow() {
         var activity = follow(newId());
         undoHandler.handle(undo(followerUri, embeddedFollow(activity.id(), followerUri)));

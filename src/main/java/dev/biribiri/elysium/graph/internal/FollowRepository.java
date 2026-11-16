@@ -66,13 +66,12 @@ public class FollowRepository {
      * A server can reuse a {@code Follow}'s ID for another account once the first activity has been cleaned up here, so an
      * ID can be behind follows of more than one account.
      *
-     * @return the follows this activity is behind, in order of who they're of, which is the order to lock them in
+     * @return the follows this activity is behind
      */
     public List<Row> findByActivity(UUID followerId, String activityUri) {
         return jdbc.sql("""
                         SELECT id, followed_id, activity_uri, activity_at, state FROM follow
                         WHERE follower_id = :followerId AND activity_uri = :activityUri
-                        ORDER BY followed_id
                         """)
                 .param("followerId", followerId)
                 .param("activityUri", activityUri)
