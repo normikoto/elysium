@@ -43,6 +43,10 @@ spring.datasource.password=
 # The largest image a custom emoji can have, for those admins add and those downloaded from other servers. Other servers'
 # emoji with larger images are linked to their server.
 #elysium.custom-emojis.max-image-size=256KB
+# The largest emoji pack that can be imported on the admin page, and how many files it can have. The import-emojis command
+# has no such limits.
+#elysium.custom-emojis.max-pack-size=50MB
+#elysium.custom-emojis.max-pack-files=1000
 
 # The largest image, video, and audio file that can be attached to a post. Video and audio keep their metadata.
 #elysium.attachments.max-image-size=16MB

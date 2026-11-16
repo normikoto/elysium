@@ -25,6 +25,41 @@
             <button type="submit">Add</button>
         </form>
 
+        <h2>Import a pack</h2>
+        <p>
+            A pack can be a Misskey export, with a <strong>meta.json</strong>, a Pleroma or Akkoma pack, with a
+            <strong>pack.json</strong>, or a .zip or .tar.gz of images, which are named after their files. Misskey's
+            emoji keep their categories, and other packs' are put in a category named after the pack. Each image is
+            checked as an upload is. A pack can be up to <span th:text="${maxPackSize}">50 MB</span>, with up to
+            <span th:text="${maxPackFiles}">1000</span> files. Use the <strong>import-emojis</strong> command for larger
+            ones, or if importing takes long enough for your proxy to give up.
+        </p>
+        <div th:if="${imported != null}" role="status">
+            <p th:text="|Added ${imported.added().size()}, replaced ${imported.replaced().size()}, skipped ${imported.skipped().size()} that already existed, and couldn't import ${imported.failed().size()}.|"></p>
+            <p th:unless="${imported.skipped().isEmpty()}">
+                Skipped: <span th:text="${#strings.listJoin(imported.skipped(), ', ')}"></span>
+            </p>
+            <ul th:unless="${imported.failed().isEmpty()}">
+                <li th:each="problem : ${imported.failed()}" th:text="|${problem.what()}: ${problem.reason()}|"></li>
+            </ul>
+        </div>
+        <form method="post" enctype="multipart/form-data" th:action="@{/admin/custom-emojis/import}">
+            <label for="pack">Pack</label>
+            <input type="file" id="pack" name="pack" accept=".zip,.tar.gz,.tgz,.tar" required>
+            <label for="import-category">Category (optional, for all of the pack's emoji)</label>
+            <input type="text" id="import-category" name="category" th:value="${importCategory}"
+                   th:maxlength="${maxCategoryLength}" list="categories">
+            <label><input type="checkbox" name="replace" value="true" th:checked="${importReplace == true}">
+                Replace emoji that already exist, keeping them in the posts and reactions that use them</label>
+            <button type="submit">Import</button>
+        </form>
+
+        <h2>Export</h2>
+        <p>
+            <a th:href="@{/admin/custom-emojis/export}">Download every emoji as a pack</a>, including those hidden from
+            pickers. It can be imported here, and by Misskey and Akkoma. See the documentation on custom emoji for how.
+        </p>
+
         <datalist id="categories">
             <option th:each="name : ${categories}" th:value="${name}"></option>
         </datalist>

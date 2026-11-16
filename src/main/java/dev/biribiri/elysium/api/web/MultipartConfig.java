@@ -25,11 +25,12 @@ class MultipartConfig {
     @Bean
     MultipartConfigElement multipartConfigElement(ProfileProperties profiles, AttachmentProperties attachments,
                                                   CustomEmojiProperties emojis) {
+        var largestEmojiFile = Math.max(emojis.maxImageSize().toBytes(), emojis.maxPackSize().toBytes());
         var largestFile = Math.max(Math.max(profiles.maxImageSize().toBytes(), attachments.largest().toBytes()),
-                emojis.maxImageSize().toBytes());
+                largestEmojiFile);
         // A profile can have two images at once, and an attachment a thumbnail.
         var largestRequest = Math.max(Math.max(2 * profiles.maxImageSize().toBytes(),
-                attachments.largest().toBytes() + attachments.maxImageSize().toBytes()), emojis.maxImageSize().toBytes())
+                attachments.largest().toBytes() + attachments.maxImageSize().toBytes()), largestEmojiFile)
                 + FORM.toBytes();
         var factory = new MultipartConfigFactory();
         factory.setMaxFileSize(DataSize.ofBytes(largestFile));

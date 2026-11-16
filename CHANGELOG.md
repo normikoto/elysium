@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/api.md` and `FEDERATION.md`.
 - An admin front page at `/admin`, which links to every admin page. Admins find a link to it on the front page and their
   settings page.
+- Importing and exporting custom emoji packs. Admins can import a Misskey export, a Pleroma or Akkoma pack, or a .zip or
+  .tar.gz of images at `/admin/custom-emojis`, or with the `import-emojis` command for large packs, and choose whether
+  emoji that already exist are skipped or replaced. Exporting, from the page or with `export-emojis`, makes one .zip that
+  this server, Misskey, and Akkoma can all import. The page takes packs of up to 50 MB with up to 1,000 files, which
+  `elysium.custom-emojis.max-pack-size` and `elysium.custom-emojis.max-pack-files` change. See `docs/accounts.md`.
 
 ### Fixed
 

@@ -17,6 +17,8 @@ Set these in your `application.properties`:
 | `elysium.profiles.max-fields`      | Optional. How many fields each profile can have, from 0 to 50. Defaults to `4`, as on Mastodon. Lowering it doesn't remove any, but a profile with more can't save its fields until it has few enough. |
 | `elysium.profiles.max-image-size`  | Optional. The largest avatar or header that can be uploaded, or downloaded from another server, such as `4MB`. Defaults to `8MB`. Larger ones from other servers are linked to their server. |
 | `elysium.custom-emojis.max-image-size` | Optional. The largest image a [custom emoji](accounts.md#custom-emoji) can have, before it's re-encoded, for those admins add and those downloaded from other servers. Defaults to `256KB`, as on Mastodon. Other servers' emoji with larger images are linked to their server. |
+| `elysium.custom-emojis.max-pack-size` | Optional. The largest [emoji pack](accounts.md#importing-and-exporting-packs) that can be imported on the admin page. Defaults to `50MB`. The `import-emojis` command has no limit. |
+| `elysium.custom-emojis.max-pack-files` | Optional. How many files an emoji pack imported on the admin page can have, since each image is converted while the page waits. Defaults to `1000`. The `import-emojis` command has no limit. |
 | `elysium.attachments.max-image-size` | Optional. The largest image that can be attached to a post, before it's re-encoded. Defaults to `16MB`. |
 | `elysium.attachments.max-video-size` | Optional. The largest video that can be attached to a post. Defaults to `100MB`. |
 | `elysium.attachments.max-audio-size` | Optional. The largest audio file that can be attached to a post. Defaults to `40MB`. |

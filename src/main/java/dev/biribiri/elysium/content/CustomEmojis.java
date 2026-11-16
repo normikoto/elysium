@@ -93,19 +93,12 @@ public class CustomEmojis {
      * @throws InvalidCustomEmojiException if the shortcode isn't valid or is taken, or the image can't be used
      */
     public CustomEmoji addLocal(String shortcode, byte[] image, String category) {
-        var name = Shortcodes.parse(shortcode == null ? null : shortcode.strip()).orElseThrow(() ->
-                new InvalidCustomEmojiException("A shortcode has 2 to %d letters, digits, or underscores"
-                        .formatted(Shortcodes.MAX_LENGTH)));
+        var name = shortcode(shortcode);
         var checkedCategory = category(category);
         if (!emojis.findLocal(List.of(name)).isEmpty()) {
             throw taken(name);
         }
-        StoredImage stored;
-        try {
-            stored = images.store(image, ImageKind.EMOJI, properties.maxImageSize());
-        } catch (InvalidImageException e) {
-            throw new InvalidCustomEmojiException(e.getMessage());
-        }
+        var stored = store(image);
         var id = Ids.timeOrdered(Instant.now());
         var emoji = new CustomEmoji(id, name, null, instance.resolve("/emojis/" + id), stored.name(),
                 stored.staticName(), null, checkedCategory, true);
@@ -121,6 +114,70 @@ public class CustomEmojis {
             throw taken(name);
         }
         return emoji;
+    }
+
+    /**
+     * Gives a local emoji a new image and category, keeping its ID, so that posts and reactions that use it keep it.
+     * Other servers keep the image they were sent.
+     *
+     * @param category null or blank for none
+     * @return false if there's no local emoji with the shortcode
+     * @throws InvalidCustomEmojiException if the shortcode or category isn't valid, or the image can't be used
+     */
+    public boolean replaceLocal(String shortcode, byte[] image, String category) {
+        var name = shortcode(shortcode);
+        var checkedCategory = category(category);
+        var existing = emojis.findLocal(List.of(name));
+        if (existing.isEmpty()) {
+            return false;
+        }
+        var stored = store(image);
+        boolean replaced;
+        try {
+            replaced = emojis.replaceLocalImage(existing.getFirst().id(), stored.name(), stored.staticName(),
+                    checkedCategory);
+        } catch (RuntimeException e) {
+            images.delete(stored);
+            throw e;
+        }
+        if (!replaced) {
+            images.delete(stored);
+            return false;
+        }
+        attachments.processDeletions();
+        return true;
+    }
+
+    /**
+     * An emoji's image, as it's kept, for exporting it.
+     */
+    public byte[] readImage(CustomEmoji emoji) {
+        return images.read(emoji.imageName());
+    }
+
+    /**
+     * The largest pack that can be uploaded on the admin page.
+     */
+    public DataSize maxPackSize() {
+        return properties.maxPackSize();
+    }
+
+    public int maxPackFiles() {
+        return properties.maxPackFiles();
+    }
+
+    private static String shortcode(String shortcode) {
+        return Shortcodes.parse(shortcode == null ? null : shortcode.strip()).orElseThrow(() ->
+                new InvalidCustomEmojiException("A shortcode has 2 to %d letters, digits, or underscores"
+                        .formatted(Shortcodes.MAX_LENGTH)));
+    }
+
+    private StoredImage store(byte[] image) {
+        try {
+            return images.store(image, ImageKind.EMOJI, properties.maxImageSize());
+        } catch (InvalidImageException e) {
+            throw new InvalidCustomEmojiException(e.getMessage());
+        }
     }
 
     /**
@@ -395,6 +452,14 @@ public class CustomEmojis {
             // Each batch commits by itself.
         }
         attachments.processDeletions();
+    }
+
+    /**
+     * @return the category as it would be stored, or null for none
+     * @throws InvalidCustomEmojiException if it isn't valid
+     */
+    public static String checkCategory(String category) {
+        return category(category);
     }
 
     private static String category(String category) {
