@@ -155,6 +155,34 @@ public class CustomEmojiRepository {
     }
 
     /**
+     * Gives a local emoji new image files and a category, keeping its ID, so posts and reactions keep it.
+     *
+     * @return whether it was changed, whose old files are then queued for removal. False if it's been removed meanwhile
+     */
+    public boolean replaceLocalImage(UUID id, String imageName, String staticName, String category) {
+        return jdbc.sql("""
+                        WITH old AS (
+                            SELECT id, image_name, static_name FROM custom_emoji
+                            WHERE id = :id AND domain IS NULL FOR UPDATE
+                        ), removed AS (
+                            UPDATE custom_emoji e SET image_name = :imageName, static_name = :staticName,
+                                category = :category, updated_at = now()
+                            FROM old WHERE e.id = old.id
+                            RETURNING old.image_name, old.static_name
+                        ), queued AS (
+                        """ + QUEUE_REMOVED_FILES + """
+                        )
+                        SELECT count(*) FROM removed
+                        """)
+                .param("id", id)
+                .param("imageName", imageName)
+                .param("staticName", staticName)
+                .param("category", category, Types.VARCHAR)
+                .query(Integer.class)
+                .single() > 0;
+    }
+
+    /**
      * @return whether it was removed, whose files are then queued for removal
      */
     public boolean deleteLocal(UUID id) {

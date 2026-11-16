@@ -224,6 +224,47 @@ the emoji with none.
 - Emoji from other servers are downloaded and kept here, as their attachments are, and are removed when no post here uses
   them any more. A domain block that rejects a server's media stops its emoji being downloaded too.
 
+### Importing and exporting packs
+The admin page can import a pack of emoji at once. A pack can be:
+
+- **A Misskey export**: a .zip with a `meta.json`. The emoji keep their categories, and those with none stay uncategorized.
+- **A Pleroma or Akkoma pack**: a .zip with a `pack.json`, as Akkoma's pack archives are, or a pack's folder zipped up.
+  The emoji are put in a category named after the pack's folder, or after the .zip if it has no folder.
+- **A .zip, .tar.gz, or .tar of images**, as Mastodon's `tootctl emoji import` takes. Each emoji is named after its file,
+  so `blobcat.png` becomes `:blobcat:`. The emoji are put in a category as Akkoma's are.
+
+You can give a category for all of a pack's emoji instead. Each image is checked as an upload is, so it has to be within
+the image limit, and one that's too large or isn't an image is listed as not imported without stopping the rest. Emoji
+whose shortcodes already exist are skipped, unless you choose to replace them. A replaced emoji gets the pack's image
+and category, and stays in the posts and reactions that use it, though other servers keep the image they were sent.
+Importing the same pack again only adds what's missing.
+
+The page takes packs of up to 50 MB with up to 1,000 files, which
+[`elysium.custom-emojis.max-pack-size` and `max-pack-files`](configuration.md) change. The page waits while every image
+is converted, so a large pack can take longer than your reverse proxy waits. Import those with the `import-emojis`
+command, which has neither limit:
+
+```shell
+java -jar elysium.jar import-emojis blobs.zip                       # Skip emoji that already exist
+java -jar elysium.jar import-emojis blobs.zip --replace --category Blobs
+
+# Docker Compose: the pack has to be mounted into the container
+docker compose run --rm -v "$PWD/blobs.zip:/tmp/blobs.zip:ro" app import-emojis /tmp/blobs.zip
+```
+
+**Exporting** downloads every emoji as one .zip, from the link on the admin page or with
+`java -jar elysium.jar export-emojis emojis.zip`. Emoji hidden from pickers are included, but the export doesn't record
+that they're hidden, and they're shown in pickers after an import. The export can be imported here, and:
+
+- **On Misskey**, at *Control panel → Custom emoji → Import*, once the .zip is uploaded to the admin's drive. Categories
+  are kept.
+- **On Akkoma or Pleroma**, by unzipping it into a folder of its own in the server's `emoji` directory, such as
+  `instance/static/emoji/myserver/`, and then reloading emoji, or restarting. Pleroma 2.10 and later can also import the .zip
+  through its admin API. Akkoma doesn't support categories, so every emoji goes in the pack's category. Don't upload the
+  .zip as files to an existing Akkoma pack, which would make an emoji of each file in it, the manifests included.
+
+Mastodon can't import it, since `tootctl emoji import` only takes PNG and GIF, and emoji are kept here as WebP.
+
 ## Reports
 People can report an account, and some of its posts, from their app. Other servers can also send reports about accounts
 here. Each admin gets a notification of a new report in their app, and reports are listed at `/admin/reports`, or

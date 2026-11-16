@@ -5,7 +5,10 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.InvalidCustomEmojiException;
+import dev.biribiri.elysium.media.Images;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -16,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -34,10 +39,12 @@ class CustomEmojiPagesController {
     private static final String PATH = "/admin/custom-emojis";
 
     private final CustomEmojis emojis;
+    private final EmojiPacks packs;
     private final InstanceProperties instance;
 
-    CustomEmojiPagesController(CustomEmojis emojis, InstanceProperties instance) {
+    CustomEmojiPagesController(CustomEmojis emojis, EmojiPacks packs, InstanceProperties instance) {
         this.emojis = emojis;
+        this.packs = packs;
         this.instance = instance;
     }
 
@@ -129,6 +136,57 @@ class CustomEmojiPagesController {
     }
 
     /**
+     * Shows what was imported on the page, rather than redirecting, so that the emoji that were skipped or failed can be
+     * listed. Some failing doesn't fail the request, since the rest were imported.
+     */
+    @PostMapping(PATH + "/import")
+    String importPack(
+            @RequestParam(required = false) MultipartFile pack,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String replace,
+            Model model,
+            HttpServletResponse response) throws IOException {
+        Path file = null;
+        try {
+            if (pack == null || pack.isEmpty()) {
+                throw new InvalidCustomEmojiException("Choose a pack");
+            }
+            // Before it's read, since Spring takes files as large as a video.
+            if (pack.getSize() > emojis.maxPackSize().toBytes()) {
+                throw new InvalidCustomEmojiException("A pack can't be larger than %s. Import larger ones from the command line"
+                        .formatted(Images.describe(emojis.maxPackSize())));
+            }
+            file = Files.createTempFile("elysium-emoji-pack-", ".upload");
+            pack.transferTo(file);
+            model.addAttribute("imported",
+                    packs.importPack(file, pack.getOriginalFilename(), category, replace != null, true));
+            model.addAttribute("shortcode", "");
+            model.addAttribute("category", "");
+            return page(model);
+        } catch (InvalidCustomEmojiException e) {
+            model.addAttribute("importCategory", category);
+            model.addAttribute("importReplace", replace != null);
+            return refused(e, model, response);
+        } finally {
+            if (file != null) {
+                Files.deleteIfExists(file);
+            }
+        }
+    }
+
+    /**
+     * One zip that both Misskey and Akkoma can import. It's written while the request waits, rather than as a
+     * StreamingResponseBody, whose async timeout would cut off a large export partway.
+     */
+    @GetMapping(PATH + "/export")
+    void exportPack(HttpServletResponse response) throws IOException {
+        response.setContentType("application/zip");
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                ContentDisposition.attachment().filename(packs.exportName()).build().toString());
+        packs.export(response.getOutputStream());
+    }
+
+    /**
      * Someone else may have removed it already, which is the outcome that was asked for.
      */
     @PostMapping(PATH + "/{id}/delete")
@@ -152,6 +210,8 @@ class CustomEmojiPagesController {
         model.addAttribute("maxCategoryLength", CustomEmojis.MAX_CATEGORY_LENGTH);
         model.addAttribute("uncategorized", CustomEmojis.UNCATEGORIZED);
         model.addAttribute("maxImageSize", emojis.describeMaxImageSize());
+        model.addAttribute("maxPackSize", Images.describe(emojis.maxPackSize()));
+        model.addAttribute("maxPackFiles", emojis.maxPackFiles());
         return "admin-custom-emojis";
     }
 

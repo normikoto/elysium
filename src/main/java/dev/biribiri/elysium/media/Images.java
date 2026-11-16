@@ -85,6 +85,21 @@ public class Images {
     }
 
     /**
+     * @param name a stored image's name, which is checked so that it can't reach outside the media directory
+     * @throws IllegalArgumentException if it isn't the name of an image
+     */
+    public byte[] read(String name) {
+        if (!FileNames.isValid(name)) {
+            throw new IllegalArgumentException("Not the name of an image: " + name);
+        }
+        try {
+            return Files.readAllBytes(properties.directory().resolve(name));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
      * @return the path the image is served at, relative to the server's base URL
      */
     public static String pathOf(String name) {

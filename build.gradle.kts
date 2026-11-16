@@ -37,6 +37,8 @@ dependencies {
     // Spring Boot doesn't manage these versions. Both need their Spring Boot 4 artifacts, not the ones without "4" in the name.
     implementation("com.github.kagkarlsson:db-scheduler-spring-boot-4-starter:17.0.0")
     implementation("info.picocli:picocli:4.7.7")
+    // Reads Mastodon's emoji packs, which are .tar.gz. Spring Boot doesn't manage its version.
+    implementation("org.apache.commons:commons-compress:1.28.0")
     // Images are re-encoded as WebP, which the JDK can't write. This runs the libwebp tools that come in its JAR, so
     // nothing has to be installed.
     implementation("com.sksamuel.scrimage:scrimage-core:4.6.9")

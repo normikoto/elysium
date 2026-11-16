@@ -47,6 +47,8 @@ class CommandRunnerTests {
                         "list-sign-ups",
                         "approve-sign-up",
                         "reject-sign-up",
+                        "import-emojis",
+                        "export-emojis",
                         "help");
     }
 
