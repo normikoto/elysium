@@ -113,6 +113,17 @@ class StatusRemovalIntegrationTests {
     }
 
     @Test
+    void doesntFindAStatusByAPageOnAnotherServer() {
+        var author = remoteAuthor();
+        var impostor = remoteAuthor();
+        var page = URI.create("https://" + author.domain() + "/@r/" + UUID.randomUUID());
+        statuses.storeRemote(remote(URI.create(impostor.uri() + "/notes/" + UUID.randomUUID()), page, impostor,
+                Visibility.PUBLIC)).orElseThrow();
+
+        assertThat(statuses.findForModeration(page.toString())).isEmpty();
+    }
+
+    @Test
     void saysWhenNothingIsFound() throws Exception {
         mockMvc.perform(get(PAGE).session(logIn(ADMIN)).param("q", "https://nowhere.example/notes/1"))
                 .andExpect(status().isNotFound())

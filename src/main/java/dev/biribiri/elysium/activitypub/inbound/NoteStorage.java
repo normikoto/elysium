@@ -188,6 +188,16 @@ class NoteStorage {
     }
 
     /**
+     * Stores a public or unlisted note that a local account looked up by its URL. It's stored as a note in a thread is,
+     * since it can be just as old, and looking it up is no reason to tell anyone it mentions.
+     *
+     * @param author the note's only {@code attributedTo}, already checked to be on the note's server
+     */
+    Result storeLookedUp(RemoteNote note, URI author) {
+        return storeInThread(note, author);
+    }
+
+    /**
      * For a note fetched on its own rather than sent to someone here, which only anyone can be shown, so its addressing
      * decides nothing else.
      */

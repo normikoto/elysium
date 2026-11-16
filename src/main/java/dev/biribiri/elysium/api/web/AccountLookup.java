@@ -4,6 +4,8 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
+import dev.biribiri.elysium.content.RemoteUrlResolver;
+import dev.biribiri.elysium.content.StatusService;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -13,8 +15,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Finds accounts by {@code username@domain} or by URL, for lookups and searches. Only a signed-in user can make this server
- * ask another server, which it does for an account it doesn't know yet, or hasn't refreshed for a while.
+ * Finds accounts by {@code username@domain}, and accounts or statuses by URL, for lookups and searches. Only a signed-in
+ * user can make this server ask another server, which it does for an account or status it doesn't know yet, or an account
+ * it hasn't refreshed for a while.
  */
 @Component
 class AccountLookup {
@@ -22,11 +25,17 @@ class AccountLookup {
     private final ActorService actors;
     private final RemoteActorResolver resolver;
     private final InstanceProperties instance;
+    private final StatusService statuses;
+    private final RemoteUrlResolver urls;
 
-    AccountLookup(ActorService actors, RemoteActorResolver resolver, InstanceProperties instance) {
+    AccountLookup(
+            ActorService actors, RemoteActorResolver resolver, InstanceProperties instance, StatusService statuses,
+            RemoteUrlResolver urls) {
         this.actors = actors;
         this.resolver = resolver;
         this.instance = instance;
+        this.statuses = statuses;
+        this.urls = urls;
     }
 
     /**
@@ -60,11 +69,14 @@ class AccountLookup {
     }
 
     /**
-     * @param url the actor's ID, or a URL its server serves it at, such as its profile page
-     * @return the account, if it exists and is active
+     * Finds the account or status at a URL. A status's page is found by the page its server gave for it, but asking another
+     * server is the only way to find an account by its page.
+     *
+     * @param url an actor's or status's ID, or a URL its server serves it at, such as its page
+     * @return the account, if it exists and is active, or the status, whoever can see it
      * @throws RemoteActorResolver.ResolveLimitException if the viewer has asked other servers too often
      */
-    Optional<Actor> byUrl(String url, Optional<UUID> viewer, boolean resolve) {
+    Optional<RemoteUrlResolver.Found> byUrl(String url, Optional<UUID> viewer, boolean resolve) {
         URI uri;
         try {
             uri = new URI(url.strip());
@@ -72,12 +84,14 @@ class AccountLookup {
             return Optional.empty();
         }
         var stored = actors.findByUri(uri).filter(Actor::isActive);
-        if (stored.isPresent() && actors.isLocal(stored.get())) {
-            return stored;
+        if (resolve && viewer.isPresent() && stored.filter(actors::isLocal).isEmpty()) {
+            // This finds a stored status itself, before asking anyone.
+            return urls.resolveUrl(viewer.get(), uri);
         }
-        if (resolve && viewer.isPresent()) {
-            return resolver.resolveUrl(viewer.get(), uri);
+        var status = statuses.findStoredByUrl(uri.toString());
+        if (status.isPresent()) {
+            return Optional.of(new RemoteUrlResolver.Found.Post(status.get()));
         }
-        return stored;
+        return stored.map(RemoteUrlResolver.Found.Account::new);
     }
 }

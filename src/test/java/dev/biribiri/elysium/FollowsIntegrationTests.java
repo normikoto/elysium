@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
+import dev.biribiri.elysium.content.RemoteUrlResolver;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,6 +80,8 @@ class FollowsIntegrationTests {
     private DomainBlocks blocks;
     @MockitoBean
     private RemoteActorResolver resolver;
+    @MockitoBean
+    private RemoteUrlResolver urls;
 
     @BeforeEach
     void setUp() {
@@ -632,7 +635,7 @@ class FollowsIntegrationTests {
     void searchesForAUrl() throws Exception {
         var remote = remote();
         var profile = URI.create("https://" + remote.domain() + "/@bob");
-        when(resolver.resolveUrl(any(), eq(profile))).thenReturn(Optional.of(remote));
+        when(urls.resolveUrl(any(), eq(profile))).thenReturn(Optional.of(new RemoteUrlResolver.Found.Account(remote)));
 
         mockMvc.perform(withToken(get("/api/v2/search").param("q", profile.toString()).param("resolve", "true"),
                         token("alice")))

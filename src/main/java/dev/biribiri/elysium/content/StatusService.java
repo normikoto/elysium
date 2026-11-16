@@ -966,6 +966,13 @@ public class StatusService {
         return statuses.findByUriForAuthor(uri, authorId);
     }
 
+    /**
+     * Finds a status by its URI, or by the page its server gave, whoever can see it, if its author is active.
+     */
+    public Optional<Status> findStoredByUrl(String uriOrUrl) {
+        return statuses.findByUriOrUrl(uriOrUrl);
+    }
+
     /** Finds a status if this viewer is allowed to see it. */
     public Optional<Status> findVisible(UUID id, Optional<UUID> viewer) {
         return statuses.findById(id).filter(status -> isVisible(status, viewer));

@@ -2,8 +2,6 @@ package dev.biribiri.elysium.activitypub.resolve;
 
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.inbound.RemoteActors;
-import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
-import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
@@ -41,7 +39,6 @@ class RemoteActorLookupTests {
 
     private final ActorService actors = mock();
     private final RemoteActors remoteActors = mock();
-    private final ActivityDocuments documents = mock();
     private final FederationHttpClient http = mock();
     private final DomainBlocks blocks = mock();
 
@@ -50,10 +47,9 @@ class RemoteActorLookupTests {
     @BeforeEach
     void setUp() {
         lookup = new RemoteActorLookup(
-                actors, remoteActors, documents, http, blocks, new InstanceProperties(URI.create("https://local.example")),
-                JSON);
+                actors, remoteActors, http, blocks, new InstanceProperties(URI.create("https://local.example")),
+                JSON, new ResolveLimits());
         when(actors.findRemoteByAcct(anyString(), anyString())).thenReturn(Optional.empty());
-        when(actors.findByUri(any())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -138,15 +134,6 @@ class RemoteActorLookupTests {
     }
 
     @Test
-    void usesAnOlderCopyByUrlWhenTheServerCantBeReached() throws Exception {
-        var bob = actor(Instant.now().minus(Duration.ofDays(2)));
-        when(actors.findByUri(ACTOR)).thenReturn(Optional.of(bob));
-        when(remoteActors.fetchOrRefresh(ACTOR)).thenThrow(new IllegalStateException("down"));
-
-        assertThat(lookup.resolveUrl(REQUESTER, ACTOR)).contains(bob);
-    }
-
-    @Test
     void ignoresLinksThatArentActivityPubDocuments() throws Exception {
         answerWebFinger("""
                 {"links":[{"rel":"self","type":"text/html","href":"https://remote.example/users/bob"}]}
@@ -163,42 +150,14 @@ class RemoteActorLookupTests {
         assertThat(lookup.resolveAcct(REQUESTER, "bob", "local.example")).isEmpty();
         assertThat(lookup.resolveAcct(REQUESTER, "bob", "blocked.example")).isEmpty();
         assertThat(lookup.resolveAcct(REQUESTER, "bob", "blocked.example:8443")).isEmpty();
-        assertThat(lookup.resolveUrl(REQUESTER, URI.create("https://blocked.example/@bob"))).isEmpty();
-        assertThat(lookup.resolveUrl(REQUESTER, URI.create("https://local.example/users/alice"))).isEmpty();
         verify(http, never()).get(any(), any(), any());
-        verify(documents, never()).fetch(any());
     }
 
     @Test
     void refusesWhatIsntAnAddress() throws Exception {
         assertThat(lookup.resolveAcct(REQUESTER, "bob/../x", "remote.example")).isEmpty();
         assertThat(lookup.resolveAcct(REQUESTER, "bob", "remote.example/path")).isEmpty();
-        assertThat(lookup.resolveUrl(REQUESTER, URI.create("http://remote.example/@bob"))).isEmpty();
         verify(http, never()).get(any(), any(), any());
-    }
-
-    @Test
-    void findsTheActorAtAProfileUrl() throws Exception {
-        var profile = URI.create("https://remote.example/@bob");
-        when(documents.fetch(profile)).thenReturn(JSON.readTree("""
-                {"id":"https://remote.example/users/bob","type":"Person"}
-                """));
-        var bob = actor(Instant.now());
-        when(remoteActors.fetchOrRefresh(ACTOR)).thenReturn(bob);
-
-        assertThat(lookup.resolveUrl(REQUESTER, profile)).contains(bob);
-    }
-
-    @Test
-    void findsNothingAtAUrlThatIsntAnActor() throws Exception {
-        var note = URI.create("https://remote.example/notes/1");
-        when(documents.fetch(note)).thenReturn(JSON.readTree("""
-                {"id":"https://remote.example/notes/1","type":"Note"}
-                """));
-
-        assertThat(lookup.resolveUrl(REQUESTER, note)).isEmpty();
-        when(documents.fetch(note)).thenThrow(DocumentFetchException.gone("gone"));
-        assertThat(lookup.resolveUrl(REQUESTER, note)).isEmpty();
     }
 
     @Test
@@ -211,10 +170,8 @@ class RemoteActorLookupTests {
         for (var updatedAt : new Instant[]{Instant.now(), Instant.now().minus(Duration.ofDays(2))}) {
             var bob = suspended(actor(updatedAt));
             when(actors.findRemoteByAcct("bob", "remote.example")).thenReturn(Optional.of(bob));
-            when(actors.findByUri(ACTOR)).thenReturn(Optional.of(bob));
 
             assertThat(lookup.resolveAcct(REQUESTER, "bob", "remote.example")).isEmpty();
-            assertThat(lookup.resolveUrl(REQUESTER, ACTOR)).isEmpty();
         }
     }
 

@@ -118,8 +118,8 @@ answered as the actor that owns the signing key:
   served to followers who have been following since before it was posted.
 - A direct status is served to the actors in its `Mention` tags, or in them before an edit.
 - Only the signer counts. An instance actor, or any other actor, isn't served a status because other actors on its
-  server can see it. This matches Mastodon. Misskey's lookups, and Mastodon's searches, are signed as their instance
-  actor, so they can't find a followers-only or direct status that wasn't delivered to them.
+  server can see it. This matches Mastodon. Misskey's lookups, and Mastodon's and this server's searches, are signed as
+  their instance actor, so they can't find a followers-only or direct status that wasn't delivered to them.
 - Everyone else gets a 404, the same as for a status that never existed. A signature that can't be accepted, for any
   reason, including a key on a [blocked domain](#domain-blocks), a suspended signer, or a key that can't be fetched right
   now, gets the answer an unsigned request would, unless [signed fetches are required](#authorized-fetch), when it's refused. Key fetches count toward the same [limits](#inboxes) as for inboxes.
@@ -747,6 +747,23 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
   its key now answers `404` or `410`, as Mastodon's do, or because the actor is [suspended](#suspended-and-deleted-accounts)
   here. Such a `Delete` is answered with a `202`, but only if the actor is stored here and not already deleted. Otherwise it
   gets the `401` or `403` it would have.
+
+#### Looking up statuses
+
+When a local user searches for a URL, and their app asks this server to look it up, the URL is fetched signed as the
+[instance actor](#instance-actor), unless it's already stored here as a status's `id` or `url`, or as an actor's `id`.
+Nothing is fetched from this server or a [blocked](#domain-blocks) one, and each user can make 30 of these lookups, and
+lookups of accounts, a minute.
+
+- What's served at the URL decides what it is. An [actor](#profiles-from-other-servers) is fetched again from its `id`,
+  as for a profile page.
+- A `Note` or `Question` can have an `id` other than the URL, as a status's page does on Mastodon. Unless that `id` is
+  stored here, it's fetched from its `id` if it isn't the URL, and has to come back with that `id`, attributed to one
+  actor on the same host and port. A page can name a status on another server that's stored here, and only finds that.
+- Only a public or unlisted status with a `published` is stored, read [as for a `Create`](#receiving-statuses). As with
+  [threads](#fetching-threads), it's sorted by its `published` time, and local accounts it mentions aren't notified.
+  What it replies to, or quotes, isn't fetched then.
+- A `404`, `410`, server error, or timeout finds nothing, and isn't tried again.
 
 #### Fetching threads
 
