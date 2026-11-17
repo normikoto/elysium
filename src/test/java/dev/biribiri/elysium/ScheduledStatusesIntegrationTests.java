@@ -260,6 +260,30 @@ class ScheduledStatusesIntegrationTests {
                 .andExpect(jsonPath("$.media_attachments[0].id").value(media));
     }
 
+    @Test
+    void limitsHowMuchMediaCanBeHeld() throws Exception {
+        var first = scheduleId("fern", "Held", later(), uploadId("fern"));
+        var fern = actors.findLocalByUsername("fern").orElseThrow().id();
+        jdbc.sql("""
+                        INSERT INTO media_attachment (id, account_id, type, file_name, scheduled_status_id)
+                        SELECT gen_random_uuid(), :fern, 'image', 'held-' || n || '.webp', :scheduled
+                        FROM generate_series(2, :max) AS n
+                        """)
+                .param("fern", fern)
+                .param("scheduled", UUID.fromString(first))
+                .param("max", ScheduledStatusService.MAX_HELD_MEDIA)
+                .update();
+        var media = uploadId("fern");
+        mockMvc.perform(schedule("fern", "One too many", later()).param("media_ids[]", media))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(schedule("fern", "No media", later())).andExpect(status().isOk());
+        // The upload wasn't taken, so it can still be posted.
+        mockMvc.perform(withToken(post("/api/v1/statuses"), "fern")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Now").param("media_ids[]", media))
+                .andExpect(status().isOk());
+    }
+
     // Posting
 
     @Test
@@ -315,6 +339,56 @@ class ScheduledStatusesIntegrationTests {
         scheduled.publishDue();
         assertThat(count("SELECT count(*) FROM status")).isZero();
         assertThat(count("SELECT count(*) FROM scheduled_status WHERE id = '" + moved + "'")).isEqualTo(1);
+    }
+
+    @Test
+    void waitsWhileTheAuthorIsSuspended() throws Exception {
+        var id = scheduleId("gus", "While suspended", later());
+        var gus = actors.findLocalByUsername("gus").orElseThrow().id();
+        makeDue(id);
+        actors.suspend(gus);
+        try {
+            scheduled.publishDue();
+            assertThat(count("SELECT count(*) FROM status")).isZero();
+            assertThat(count("SELECT count(*) FROM scheduled_status")).isEqualTo(1);
+        } finally {
+            actors.unsuspend(gus);
+        }
+        scheduled.publishDue();
+        assertThat(count("SELECT count(*) FROM status WHERE text = 'While suspended'")).isEqualTo(1);
+    }
+
+    @Test
+    void triesOneThatKeepsFailingLessOftenAndThenDropsIt() throws Exception {
+        var media = uploadId("alice");
+        var id = scheduleId("alice", "Unreadable", later(), media);
+        var broken = scheduleId("alice", "Broken", later());
+        var fine = scheduleId("alice", "Fine", later());
+        jdbc.sql("UPDATE scheduled_status SET params = jsonb_set(params, '{contentType}', '\"text/bogus\"') WHERE id IN (:ids)")
+                .param("ids", List.of(UUID.fromString(id), UUID.fromString(broken)))
+                .update();
+        makeDue(id);
+        makeDue(broken);
+        makeDue(fine);
+
+        scheduled.publishDue();
+        assertThat(count("SELECT count(*) FROM status WHERE text = 'Fine'")).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM scheduled_status WHERE failures = 1 AND retry_at > now()"))
+                .isEqualTo(2);
+        // Not tried again until it's time.
+        assertThat(scheduled.publishDue()).isZero();
+
+        jdbc.sql("UPDATE scheduled_status SET failures = 4, retry_at = now() - interval '1 second' WHERE id = :id")
+                .param("id", UUID.fromString(id))
+                .update();
+        scheduled.publishDue();
+        assertThat(count("SELECT count(*) FROM scheduled_status WHERE id = '" + id + "'")).isZero();
+        assertThat(count("SELECT count(*) FROM scheduled_status WHERE id = '" + broken + "'")).isEqualTo(1);
+        // Its media can be posted again.
+        mockMvc.perform(withToken(post("/api/v1/statuses"), "alice")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "Again").param("media_ids[]", media))
+                .andExpect(status().isOk());
     }
 
     // Helpers

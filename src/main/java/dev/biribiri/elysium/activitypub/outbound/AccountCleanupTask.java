@@ -98,8 +98,9 @@ class AccountCleanupTask {
                 reactions.removeForActor(actor.id());
                 pins.removeForActor(actor.id());
                 polls.removeForActor(actor.id());
-                statuses.removeAllBy(actor.id());
+                // Before its statuses, so that none is posted after they've been removed.
                 scheduled.removeAllBy(actor.id());
+                statuses.removeAllBy(actor.id());
                 // Uploads it hadn't posted too, which removing its statuses doesn't reach.
                 attachments.removeAllBy(actor.id());
                 follows.removeForActor(actor.id());

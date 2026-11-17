@@ -14,6 +14,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -125,12 +126,15 @@ public class ScheduledStatusRepository {
     }
 
     /**
-     * @return the IDs of those that are due, soonest first
+     * @return the IDs of those that are due and aren't waiting to be tried again, soonest first. A suspended or deleted
+     * author's are left out, so that a suspended account keeps them, as it keeps its statuses
      */
     public List<UUID> findDue(int limit) {
         return jdbc.sql("""
-                        SELECT id FROM scheduled_status WHERE scheduled_at <= now()
-                        ORDER BY scheduled_at, id LIMIT :limit
+                        SELECT s.id FROM scheduled_status s
+                        JOIN actor a ON a.id = s.actor_id AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        WHERE s.scheduled_at <= now() AND (s.retry_at IS NULL OR s.retry_at <= now())
+                        ORDER BY s.scheduled_at, s.id LIMIT :limit
                         """)
                 .param("limit", limit)
                 .query(UUID.class)
@@ -172,25 +176,53 @@ public class ScheduledStatusRepository {
     }
 
     public boolean reschedule(UUID id, UUID actorId, Instant scheduledAt) {
-        return jdbc.sql("UPDATE scheduled_status SET scheduled_at = :scheduledAt WHERE id = :id AND actor_id = :actorId")
+        return jdbc.sql("""
+                        UPDATE scheduled_status SET scheduled_at = :scheduledAt, failures = 0, retry_at = NULL
+                        WHERE id = :id AND actor_id = :actorId
+                        """)
                 .param("id", id)
                 .param("actorId", actorId)
                 .param("scheduledAt", Timestamp.from(scheduledAt))
                 .update() == 1;
     }
 
-    public boolean delete(UUID id) {
-        return jdbc.sql("DELETE FROM scheduled_status WHERE id = :id").param("id", id).update() == 1;
+    /**
+     * Counts a failed attempt to post one, and puts off the next for twice as long as the one before.
+     *
+     * @param firstWait how long to wait after the first failure
+     * @return how many attempts have failed, or 0 if it's gone
+     */
+    public int recordFailure(UUID id, Duration firstWait) {
+        // The right-hand side reads failures from before this update.
+        return jdbc.sql("""
+                        UPDATE scheduled_status
+                        SET failures = failures + 1,
+                            retry_at = now() + make_interval(secs => :firstWait * power(2, failures))
+                        WHERE id = :id
+                        RETURNING failures
+                        """)
+                .param("id", id)
+                .param("firstWait", firstWait.toSeconds())
+                .query(Integer.class)
+                .optional()
+                .orElse(0);
     }
 
     /**
-     * @return the IDs of an account's
+     * Locks one, for dropping it, without reading what it's to be posted with, which may be what can't be read.
+     *
+     * @return whether it's there
      */
-    public List<UUID> findIdsBy(UUID actorId) {
-        return jdbc.sql("SELECT id FROM scheduled_status WHERE actor_id = :actorId")
-                .param("actorId", actorId)
+    public boolean lock(UUID id) {
+        return jdbc.sql("SELECT id FROM scheduled_status WHERE id = :id FOR UPDATE")
+                .param("id", id)
                 .query(UUID.class)
-                .list();
+                .optional()
+                .isPresent();
+    }
+
+    public boolean delete(UUID id) {
+        return jdbc.sql("DELETE FROM scheduled_status WHERE id = :id").param("id", id).update() == 1;
     }
 
     public void removeAllBy(UUID actorId) {

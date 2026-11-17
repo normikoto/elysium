@@ -8,6 +8,11 @@ CREATE TABLE scheduled_status
     -- What the status is to be posted with, other than its media, as the request gave it. It's checked again when it's
     -- posted, since what it replies to or quotes can change in between.
     params       JSONB       NOT NULL,
+    -- How many times posting it has failed for a reason other than it no longer being postable, and when to try again,
+    -- so that one that keeps failing waits longer each time, and is dropped in the end, rather than being tried every
+    -- run and holding up the others.
+    failures     SMALLINT    NOT NULL DEFAULT 0,
+    retry_at     TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -160,7 +160,8 @@ public class StatusesController {
                     `2030-01-01T09:00:00Z`, at least 5 minutes ahead, or the request gets a 422. A user can have up \
                     to\s""" + ScheduledStatusService.TOTAL_LIMIT + """
                      scheduled, and\s""" + ScheduledStatusService.DAILY_LIMIT + """
-                     for one day in UTC, as on Mastodon. The status is checked as if it were posted now, and again \
+                     for one day in UTC, as on Mastodon, and at most\s""" + ScheduledStatusService.MAX_HELD_MEDIA + """
+                     uploads held for them. The status is checked as if it were posted now, and again \
                     when it's posted, within about a minute of its time. See `GET /api/v1/scheduled_statuses` for what \
                     happens to one that can no longer be posted then.
                     - A poll can have 2 to\s""" + Poll.MAX_OPTIONS + """

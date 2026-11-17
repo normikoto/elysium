@@ -62,8 +62,10 @@ public class ScheduledStatusesController {
 
                     Differences from Mastodon: a status is posted within about a minute of its time, and is checked \
                     again then. One that can no longer be posted, because what it replies to or quotes has been \
-                    deleted, it's no longer allowed to quote, or the user is suspended, is dropped, and its media \
-                    becomes unattached uploads for an hour by default, so that it can be posted again.
+                    deleted or it's no longer allowed to quote, is dropped, and its media becomes unattached uploads \
+                    for an hour by default, so that it can be posted again. While the user is suspended, nothing is \
+                    posted, and what came due is posted once the suspension ends. One that fails to post for another \
+                    reason is tried again, and dropped after about an hour and a quarter.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "scheduled_statuses/#get"),

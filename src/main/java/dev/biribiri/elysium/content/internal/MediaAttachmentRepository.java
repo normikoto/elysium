@@ -102,7 +102,21 @@ public class MediaAttachmentRepository {
     public int countAttachable(UUID accountId) {
         return jdbc.sql("""
                         SELECT count(*) FROM media_attachment
-                        WHERE account_id = :accountId AND status_id IS NULL AND removable_after > now()
+                        WHERE account_id = :accountId AND status_id IS NULL AND scheduled_status_id IS NULL
+                            AND removable_after > now()
+                        """)
+                .param("accountId", accountId)
+                .query(Integer.class)
+                .single();
+    }
+
+    /**
+     * Uploads of this account's that are held for its scheduled statuses.
+     */
+    public int countHeld(UUID accountId) {
+        return jdbc.sql("""
+                        SELECT count(*) FROM media_attachment
+                        WHERE account_id = :accountId AND scheduled_status_id IS NOT NULL
                         """)
                 .param("accountId", accountId)
                 .query(Integer.class)
@@ -115,7 +129,8 @@ public class MediaAttachmentRepository {
     public Optional<MediaAttachment> findAttachable(UUID id, UUID accountId) {
         return jdbc.sql("SELECT " + COLUMNS + """
                          FROM media_attachment
-                        WHERE id = :id AND account_id = :accountId AND status_id IS NULL AND removable_after > now()
+                        WHERE id = :id AND account_id = :accountId AND status_id IS NULL AND scheduled_status_id IS NULL
+                            AND removable_after > now()
                         """)
                 .param("id", id)
                 .param("accountId", accountId)
@@ -133,7 +148,8 @@ public class MediaAttachmentRepository {
         }
         return jdbc.sql("SELECT " + COLUMNS + """
                          FROM media_attachment
-                        WHERE id IN (:ids) AND account_id = :accountId AND status_id IS NULL AND removable_after > now()
+                        WHERE id IN (:ids) AND account_id = :accountId AND status_id IS NULL AND scheduled_status_id IS NULL
+                            AND removable_after > now()
                         FOR UPDATE
                         """)
                 .param("ids", ids)

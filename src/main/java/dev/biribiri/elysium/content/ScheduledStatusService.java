@@ -43,6 +43,21 @@ public class ScheduledStatusService {
     public static final int DAILY_LIMIT = 25;
 
     /**
+     * The most uploads that an account can have held for its scheduled statuses, enough for a day's worth of statuses
+     * with the most media each. Held uploads don't expire, so without this they'd be a way around the limit on uploads
+     * waiting to be posted.
+     */
+    public static final int MAX_HELD_MEDIA = DAILY_LIMIT * MediaAttachments.MAX_PER_STATUS;
+
+    /**
+     * How many times posting one can fail for an unexpected reason before it's dropped. Each wait is twice the one
+     * before, starting from {@link #FIRST_RETRY}, so a scheduled status rides out an outage of over an hour.
+     */
+    static final int MAX_ATTEMPTS = 5;
+
+    private static final Duration FIRST_RETRY = Duration.ofMinutes(5);
+
+    /**
      * How many {@link #publishDue} posts in one run. The rest wait for the next.
      */
     private static final int BATCH_SIZE = 100;
@@ -88,6 +103,10 @@ public class ScheduledStatusService {
             scheduled.lockActor(authorId);
             checkLimits(authorId, at, null);
             var claimed = statuses.claimMedia(draft.mediaIds(), authorId);
+            if (!claimed.isEmpty() && media.countHeld(authorId) + claimed.size() > MAX_HELD_MEDIA) {
+                throw new InvalidStatusException(
+                        "An account can't have more than %d uploads held for scheduled statuses".formatted(MAX_HELD_MEDIA));
+            }
             scheduled.insert(id, authorId, at, draft);
             media.hold(id, authorId, claimed);
             return withMedia(scheduled.find(id, authorId).orElseThrow());
@@ -147,11 +166,12 @@ public class ScheduledStatusService {
     }
 
     /**
-     * Posts the statuses that are due. One that can no longer be posted, because what it replies to or quotes has gone,
-     * its quote is no longer allowed, or its author is suspended or deleted, is dropped, as on Mastodon, and its media is
-     * released as {@link #cancel} does. Each is posted at most once, however many times this runs.
+     * Posts the statuses that are due. One that can no longer be posted, because what it replies to or quotes has gone or
+     * its quote is no longer allowed, is dropped, as on Mastodon, and its media is released as {@link #cancel} does. A
+     * suspended author's wait, and are posted if the suspension ends. One that fails for any other reason is tried
+     * again later, and dropped after {@link #MAX_ATTEMPTS}. Each is posted at most once, however many times this runs.
      *
-     * @return how many were posted or dropped
+     * @return how many were tried
      */
     public int publishDue() {
         var due = scheduled.findDue(BATCH_SIZE);
@@ -159,11 +179,29 @@ public class ScheduledStatusService {
             try {
                 publish(id);
             } catch (RuntimeException e) {
-                // Left for the next run, rather than holding up the rest.
-                log.warn("Couldn't post scheduled status {}", id, e);
+                failed(id, e);
             }
         }
         return due.size();
+    }
+
+    private void failed(UUID id, RuntimeException cause) {
+        try {
+            var failures = scheduled.recordFailure(id, FIRST_RETRY);
+            if (failures >= MAX_ATTEMPTS) {
+                log.warn("Dropped scheduled status {} after {} failed attempts to post it", id, failures, cause);
+                transaction.executeWithoutResult(tx -> {
+                    if (scheduled.lock(id)) {
+                        drop(id);
+                    }
+                });
+            } else if (failures > 0) {
+                log.warn("Couldn't post scheduled status {}, and will try again", id, cause);
+            }
+        } catch (RuntimeException e) {
+            cause.addSuppressed(e);
+            log.warn("Couldn't post scheduled status {}, or record that it failed", id, cause);
+        }
     }
 
     private void publish(UUID id) {
@@ -172,8 +210,8 @@ public class ScheduledStatusService {
             return;
         }
         var status = withMedia(found.get());
+        // Suspended or deleted since it was found to be due. A deleted account's are removed with its other data.
         if (actors.findLocalById(status.authorId()).isEmpty()) {
-            dropIfDue(id);
             return;
         }
         try {
