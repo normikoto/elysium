@@ -14,6 +14,8 @@ import java.util.List;
  * @param headerUrl an HTTPS URL, or null if there isn't one
  * @param published when its server says it was created, or null if it doesn't
  * @param url       its profile page, or null if the document doesn't give one
+ * @param alsoKnownAs the accounts it says are also it
+ * @param movedTo   the account it says it has moved to, or null
  */
 public record RemoteProfile(
         String displayName,
@@ -27,7 +29,9 @@ public record RemoteProfile(
         boolean bot,
         boolean group,
         Instant published,
-        URI url) {
+        URI url,
+        List<URI> alsoKnownAs,
+        URI movedTo) {
 
     public static final RemoteProfile EMPTY =
             new RemoteProfile("", "", "", null, null, List.of(), false, false, false, false, null, null);
@@ -41,5 +45,26 @@ public record RemoteProfile(
 
     public RemoteProfile {
         fields = List.copyOf(fields);
+        alsoKnownAs = List.copyOf(alsoKnownAs);
+    }
+
+    /**
+     * One that doesn't say it's moved, or is also another account.
+     */
+    public RemoteProfile(
+            String displayName,
+            String note,
+            String noteHtml,
+            URI avatarUrl,
+            URI headerUrl,
+            List<Field> fields,
+            boolean manuallyApprovesFollowers,
+            boolean indexable,
+            boolean bot,
+            boolean group,
+            Instant published,
+            URI url) {
+        this(displayName, note, noteHtml, avatarUrl, headerUrl, fields, manuallyApprovesFollowers, indexable, bot, group,
+                published, url, List.of(), null);
     }
 }

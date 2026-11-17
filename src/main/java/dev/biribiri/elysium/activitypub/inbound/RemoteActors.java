@@ -128,6 +128,34 @@ public class RemoteActors {
     }
 
     /**
+     * Fetches an actor's document whether or not it's stored, never settling for an older copy, for when what it says right
+     * now matters: whether it lists another account in {@code alsoKnownAs}, which it may have only just started to. Blocks
+     * while fetching, so this mustn't be called inside a database transaction.
+     *
+     * @return the stored actor, or empty if it isn't active or its domain is blocked
+     * @throws PermanentJobFailure if the actor can't be fetched or stored. Anything else thrown is worth trying again.
+     */
+    public Optional<Actor> fetchFresh(URI uri) {
+        checkUri(uri);
+        if (blocks.isBlocked(uri.getHost())) {
+            return Optional.empty();
+        }
+        var existing = actors.findByUri(uri);
+        if (existing.filter(actor -> !actor.isActive()).isPresent()) {
+            return Optional.empty();
+        }
+        var document = fetch(uri, false).orElseThrow();
+        if (existing.isPresent()) {
+            signatures.forgetChangedKeys(uri, document);
+        }
+        var profile = RemoteActorDocument.read(uri, document);
+        if (blocks.isBlocked(uri.getHost())) {
+            return Optional.empty();
+        }
+        return Optional.of(store(profile, RemoteActorDocument.emoji(document))).filter(Actor::isActive);
+    }
+
+    /**
      * The emoji are stored with the profile that lists them, since one stored by itself could be removed as unused before
      * the profile keeps it.
      */

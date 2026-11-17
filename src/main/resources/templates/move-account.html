@@ -1,0 +1,30 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Move your account', ~{::content})}">
+<th:block th:fragment="content">
+    <th:block th:if="${movedTo != null}">
+        <p>
+            This account is marked as moved to <a th:href="${movedTo}" th:text="${movedTo}" rel="nofollow noopener"></a>.
+            It still works here, but other servers may show it as moved.
+        </p>
+        <form method="post" th:action="@{/settings/move/cancel}">
+            <button type="submit">Stop showing this account as moved</button>
+        </form>
+        <p>Followers who were moved stay with the new account.</p>
+    </th:block>
+    <p>
+        Moving your account asks your followers' servers to have them follow another account instead, and marks this one as
+        moved. Your posts, and the accounts you follow, stay here. First, add this account as an alias on the new one.
+    </p>
+    <p th:text="|You can move once every ${cooldownDays} days.|"></p>
+    <p class="notice" role="status" th:if="${nextMoveAt != null}" th:text="|You can next move after ${nextMoveAt}.|"></p>
+    <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+    <form method="post" th:action="@{/settings/move}">
+        <label for="address">The new account's address, such as @alice@example.com</label>
+        <input type="text" id="address" name="address" required autocomplete="off" spellcheck="false">
+        <label for="password">Your password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+        <button type="submit">Move followers</button>
+    </form>
+    <p><a href="/settings">Back to settings</a></p>
+</th:block>
+</html>

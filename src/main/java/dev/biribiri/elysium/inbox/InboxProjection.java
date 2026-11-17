@@ -14,6 +14,7 @@ import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
 import dev.biribiri.elysium.graph.AccountBlocked;
 import dev.biribiri.elysium.graph.FollowEstablished;
+import dev.biribiri.elysium.graph.FollowMoved;
 import dev.biribiri.elysium.graph.FollowRequestAuthorized;
 import dev.biribiri.elysium.graph.FollowRequestReceived;
 import dev.biribiri.elysium.inbox.internal.ConversationRepository;
@@ -208,6 +209,16 @@ public class InboxProjection {
         if (conversations.currentFollow(event.followId(), event.followerId(), event.followedId())) {
             notified(event.followedId(), notifications.insert(event.followedId(), event.followerId(), "follow", event.followId(), null, event.followId()));
         }
+    }
+
+    /**
+     * Mastodon's {@code move}, from the account that moved, which is shown with the account it moved to.
+     */
+    @ApplicationModuleListener
+    public void on(FollowMoved event) {
+        notifications.lock();
+        conversations.holdActors(List.of(event.followerId(), event.fromId(), event.toId()));
+        notified(event.followerId(), notifications.insertMove(event.followerId(), event.fromId(), event.moveId(), event.toId()));
     }
 
     @ApplicationModuleListener

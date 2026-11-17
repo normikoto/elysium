@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.InstanceProperties;
@@ -22,6 +23,7 @@ import java.util.List;
  * @param followingCount for a remote account, only the accounts on this server it follows
  * @param hideCollections whether a local account hides its followers and following, or null for a remote account, whose
  *                        server decides
+ * @param moved           the account this one moved to, without its own {@code moved}, or null
  */
 @Schema(name = "Account", description = """
         Mastodon's Account entity. An account on another server shows the profile from its actor document, as of when \
@@ -61,7 +63,12 @@ record AccountResponse(
         @Schema(description = """
                 Whether the account hides who's in its followers and following, or null for an account on another \
                 server.""")
-        @JsonProperty("hide_collections") Boolean hideCollections
+        @JsonProperty("hide_collections") Boolean hideCollections,
+        @Schema(description = """
+                The account this one has moved to, which is left out if it hasn't moved, or that account is suspended, \
+                deleted, or on a blocked server. That account's own `moved` is always left out. A local account that's \
+                moved keeps working.""")
+        @JsonInclude(JsonInclude.Include.NON_NULL) AccountResponse moved
 ) {
 
     private static final String PLACEHOLDER_IMAGE_PATH = "/images/missing.png";
@@ -127,7 +134,14 @@ record AccountResponse(
                         : LocalDate.ofInstant(stats.lastStatusAt(), ZoneOffset.UTC).toString(),
                 emojis,
                 profile.fields().stream().map(field -> Field.of(field, field.valueHtml())).toList(),
-                hideCollections);
+                hideCollections,
+                null);
+    }
+
+    AccountResponse withMoved(AccountResponse moved) {
+        return new AccountResponse(id, username, acct, displayName, locked, bot, group, discoverable, indexable, createdAt,
+                note, url, uri, avatar, avatarStatic, header, headerStatic, followersCount, followingCount, statusesCount,
+                lastStatusAt, emojis, fields, hideCollections, moved);
     }
 
     private static String url(ProfileImage image, boolean still, String placeholder, InstanceProperties instance) {

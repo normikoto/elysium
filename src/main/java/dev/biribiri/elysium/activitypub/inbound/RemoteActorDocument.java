@@ -35,6 +35,11 @@ final class RemoteActorDocument {
     static final int MAX_FIELD_NAME = 255;
     static final int MAX_FIELD_VALUE_HTML = 2_000;
 
+    /**
+     * Mastodon lets its users list as many as they like, but a move only needs the one being moved from.
+     */
+    static final int MAX_ALIASES = 20;
+
     private static final Set<String> BOT_TYPES = Set.of("Service", "Application");
 
     private RemoteActorDocument() {
@@ -96,7 +101,7 @@ final class RemoteActorDocument {
                 publicKeyPem(document.path("publicKey")),
                 followers,
                 featured,
-                profile(document));
+                profile(uri, document));
     }
 
     /**
@@ -106,7 +111,7 @@ final class RemoteActorDocument {
         return RemoteEmojis.read(document.path("tag"));
     }
 
-    private static RemoteProfile profile(JsonNode document) {
+    private static RemoteProfile profile(URI uri, JsonNode document) {
         var types = ActivityJson.types(document.path("type"));
         var noteHtml = html(ActivityJson.naturalText(document, "summary"), MAX_NOTE_HTML).orElse("");
         return new RemoteProfile(
@@ -121,7 +126,34 @@ final class RemoteActorDocument {
                 types.stream().anyMatch(BOT_TYPES::contains),
                 types.contains("Group"),
                 RemoteNote.timestamp(document.path("published")),
-                profileUrl(document.path("url")));
+                profileUrl(document.path("url")),
+                aliases(uri, document.path("alsoKnownAs")),
+                otherActor(uri, ActivityJson.idOf(document.path("movedTo"))));
+    }
+
+    /**
+     * Other actors' URIs, which are only believed once those actors' own documents agree, so they can be on any server.
+     */
+    private static List<URI> aliases(URI uri, JsonNode alsoKnownAs) {
+        return ActivityJson.ids(alsoKnownAs).stream()
+                .map(id -> otherActor(uri, id))
+                .filter(alias -> alias != null)
+                .distinct()
+                .limit(MAX_ALIASES)
+                .toList();
+    }
+
+    /**
+     * @return the URI of an actor other than {@code uri}, or null if it isn't an HTTPS URL that can be stored
+     */
+    private static URI otherActor(URI uri, String value) {
+        if (value == null || !InboundActivity.isStorableId(value)) {
+            return null;
+        }
+        return ActivityObject.parseUri(value)
+                .filter(other -> "https".equalsIgnoreCase(other.getScheme()) && other.getHost() != null)
+                .filter(other -> !other.equals(uri))
+                .orElse(null);
     }
 
     /**

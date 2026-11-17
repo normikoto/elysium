@@ -29,6 +29,15 @@ public interface RemoteActorResolver {
     Optional<Actor> resolveAcct(UUID requester, String username, String domain);
 
     /**
+     * Like {@link #resolveAcct}, but always fetches the actor's document, for when what it says right now matters, such as
+     * whether it lists an account that's moving to it.
+     *
+     * @return the stored actor, or empty if there's no such actor, it can't be fetched right now, or its server is blocked
+     * @throws ResolveLimitException if the requester has made too many lookups recently
+     */
+    Optional<Actor> resolveAcctFresh(UUID requester, String username, String domain);
+
+    /**
      * Finds an actor that's already stored, without asking its server, so this never makes a request and doesn't count
      * toward any limit. A stored actor can be on a domain that's been blocked since, until its removal has run, so this
      * leaves those out, as {@link #resolveAcct} does.

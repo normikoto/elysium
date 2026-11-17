@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.outbound;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.actor.AccountMigrations;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -25,8 +26,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses, attachments, follows, blocks, mutes, filters, lists, profile, and the reports by
- * and about it, and who its followers-only statuses were sent to, and a suspended remote actor's follows, which would otherwise
+ * Removes a deleted account's statuses, attachments, follows, blocks, mutes, filters, lists, profile, moves, and the reports
+ * by and about it, and who its followers-only statuses were sent to, and a suspended remote actor's follows, which would otherwise
  * give it a way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that
  * they come back if the suspension is undone. A suspended local account keeps everything, for the same reason. This looks
  * at the actor's state now, so it's safe to run again, and does nothing for a suspension that's since ended.
@@ -52,13 +53,15 @@ class AccountCleanupTask {
     private final StatusPinService pins;
     private final PostFilters filters;
     private final AccountLists lists;
+    private final AccountMigrations migrations;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
                        LikeService likes, ReactionService reactions, MediaAttachments attachments,
                        FollowersOnlyRecipients followersOnly,
                        PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
-                       PostFilters filters, AccountLists lists) {
+                       PostFilters filters, AccountLists lists, AccountMigrations migrations) {
+        this.migrations = migrations;
         this.lists = lists;
         this.filters = filters;
         this.pins = pins;
@@ -105,6 +108,7 @@ class AccountCleanupTask {
                 lists.removeForActor(actor.id());
                 inbox.removeForActor(actor.id());
                 reports.removeForActor(actor.id());
+                migrations.removeForActor(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {
                 follows.removeForActor(actor.id());
             }

@@ -21,6 +21,8 @@ import java.util.SequencedSet;
  * @param indexable whether anyone's search can find its public statuses
  * @param updatedAt null if it's never been changed
  * @param remote    what only an account on another server has, or null for a local one
+ * @param alsoKnownAs the accounts it says are also it, which an account has to list before another can move to it
+ * @param movedTo   the account it has moved to, or null
  */
 public record Profile(
         String displayName,
@@ -31,7 +33,9 @@ public record Profile(
         boolean manuallyApprovesFollowers,
         boolean indexable,
         Instant updatedAt,
-        Remote remote) {
+        Remote remote,
+        List<URI> alsoKnownAs,
+        URI movedTo) {
 
     public static final Profile EMPTY = new Profile("", "", null, null, List.of(), false, false, null);
 
@@ -49,6 +53,7 @@ public record Profile(
 
     public Profile {
         fields = List.copyOf(fields);
+        alsoKnownAs = List.copyOf(alsoKnownAs);
     }
 
     /**
@@ -63,7 +68,8 @@ public record Profile(
             boolean manuallyApprovesFollowers,
             boolean indexable,
             Instant updatedAt) {
-        this(displayName, note, avatar, header, fields, manuallyApprovesFollowers, indexable, updatedAt, null);
+        this(displayName, note, avatar, header, fields, manuallyApprovesFollowers, indexable, updatedAt, null, List.of(),
+                null);
     }
 
     /**

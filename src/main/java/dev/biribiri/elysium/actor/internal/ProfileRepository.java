@@ -25,6 +25,7 @@ public class ProfileRepository {
      * @param avatar the copy kept here, or null if there isn't one
      * @param header the copy kept here, or null if there isn't one
      * @param remote null for a local account's profile
+     * @param movedTo null if it hasn't moved
      */
     public record Row(
             UUID actorId,
@@ -35,7 +36,13 @@ public class ProfileRepository {
             boolean manuallyApprovesFollowers,
             boolean indexable,
             Instant updatedAt,
-            Remote remote) {
+            Remote remote,
+            List<URI> alsoKnownAs,
+            URI movedTo) {
+
+        public Row {
+            alsoKnownAs = List.copyOf(alsoKnownAs);
+        }
 
         public Row(
                 UUID actorId,
@@ -46,7 +53,8 @@ public class ProfileRepository {
                 boolean manuallyApprovesFollowers,
                 boolean indexable,
                 Instant updatedAt) {
-            this(actorId, displayName, note, avatar, header, manuallyApprovesFollowers, indexable, updatedAt, null);
+            this(actorId, displayName, note, avatar, header, manuallyApprovesFollowers, indexable, updatedAt, null, List.of(),
+                    null);
         }
     }
 
@@ -81,7 +89,7 @@ public class ProfileRepository {
     private static final String COLUMNS = """
             actor_id, display_name, note, avatar, avatar_static, header, header_static, manually_approves_followers,
             indexable, updated_at, note_html, avatar_remote_url, avatar_cache_given_up, header_remote_url, header_cache_given_up, url,
-            bot, group_actor, published""";
+            bot, group_actor, published, also_known_as, moved_to_uri""";
 
     private final JdbcClient jdbc;
 
@@ -198,7 +206,8 @@ public class ProfileRepository {
                             manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, note_html = :noteHtml,
                             avatar_remote_url = :avatarUrl, avatar_cache_given_up = :avatarGivenUp,
                             header_remote_url = :headerUrl, header_cache_given_up = :headerGivenUp, url = :url, bot = :bot,
-                            group_actor = :group, published = :published, updated_at = clock_timestamp()
+                            group_actor = :group, published = :published, also_known_as = CAST(:alsoKnownAs AS text[]),
+                            moved_to_uri = :movedTo, updated_at = clock_timestamp()
                         WHERE actor_id = :actorId
                         """)
                 .param("actorId", row.actorId())
@@ -219,6 +228,56 @@ public class ProfileRepository {
                 .param("bot", remote.bot())
                 .param("group", remote.group())
                 .param("published", time(remote.published()))
+                .param("alsoKnownAs", strings(row.alsoKnownAs()))
+                .param("movedTo", string(row.movedTo()))
+                .update();
+    }
+
+    /**
+     * Saves which accounts a local account says are also it. The profile has to be locked.
+     *
+     * @return when it was saved, from the database's clock
+     */
+    public Instant saveAliases(UUID actorId, List<URI> alsoKnownAs) {
+        return jdbc.sql("""
+                        UPDATE profile SET also_known_as = CAST(:alsoKnownAs AS text[]), updated_at = clock_timestamp()
+                        WHERE actor_id = :actorId
+                        RETURNING updated_at
+                        """)
+                .param("actorId", actorId)
+                .param("alsoKnownAs", strings(alsoKnownAs))
+                .query(OffsetDateTime.class)
+                .single()
+                .toInstant();
+    }
+
+    /**
+     * Saves where a local account has moved to. The profile has to be locked.
+     *
+     * @param movedTo null when it's no longer moved
+     * @return when it was saved, from the database's clock
+     */
+    public Instant saveMovedTo(UUID actorId, URI movedTo) {
+        return jdbc.sql("""
+                        UPDATE profile SET moved_to_uri = :movedTo, updated_at = clock_timestamp()
+                        WHERE actor_id = :actorId
+                        RETURNING updated_at
+                        """)
+                .param("actorId", actorId)
+                .param("movedTo", string(movedTo))
+                .query(OffsetDateTime.class)
+                .single()
+                .toInstant();
+    }
+
+    /**
+     * Marks an account on another server as moved, as a {@code Move} it sent says, until its actor document is fetched
+     * again.
+     */
+    public void markRemoteMoved(UUID actorId, URI movedTo) {
+        jdbc.sql("UPDATE profile SET moved_to_uri = :movedTo WHERE actor_id = :actorId AND note_html IS NOT NULL")
+                .param("actorId", actorId)
+                .param("movedTo", movedTo.toString())
                 .update();
     }
 
@@ -429,7 +488,17 @@ public class ProfileRepository {
                 rs.getBoolean("manually_approves_followers"),
                 rs.getBoolean("indexable"),
                 instant(rs.getObject("updated_at", OffsetDateTime.class)),
-                remote);
+                remote,
+                uris((String[]) rs.getArray("also_known_as").getArray()),
+                uri(rs.getString("moved_to_uri")));
+    }
+
+    private static List<URI> uris(String[] values) {
+        return Arrays.stream(values).map(URI::create).toList();
+    }
+
+    private static String[] strings(List<URI> uris) {
+        return uris.stream().map(URI::toString).toArray(String[]::new);
     }
 
     private static URI uri(String value) {

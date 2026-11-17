@@ -372,4 +372,17 @@ public class BlockRepository {
      */
     public record Row(UUID id, UUID accountId, UUID targetId, String activityUri, Instant activityAt) {
     }
+
+    /**
+     * @return the local accounts that block the account
+     */
+    public List<UUID> findLocalBlockerIds(UUID targetId) {
+        return jdbc.sql("""
+                        SELECT b.account_id FROM account_block b JOIN actor a ON a.id = b.account_id AND a.is_local
+                        WHERE b.target_id = :target
+                        """)
+                .param("target", targetId)
+                .query(UUID.class)
+                .list();
+    }
 }

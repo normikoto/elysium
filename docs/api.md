@@ -344,7 +344,7 @@ Follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/noti
 ### Types
 
 Only these types are generated: `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`,
-`poll`, `admin.report`, and `pleroma:emoji_reaction`, which [Emoji reactions](#emoji-reactions) describes.
+`poll`, `move`, `admin.report`, and `pleroma:emoji_reaction`, which [Emoji reactions](#emoji-reactions) describes.
 
 - A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user quoted.
 - A `poll` arrives within about a minute of a poll ending, for its author if they're a local user, and for each local
@@ -353,6 +353,9 @@ Only these types are generated: `mention`, `follow`, `follow_request`, `favourit
   being an admin stops seeing them, in lists and counts, until it's an admin again. Its `account` is the reporter,
   which for a report from another server is whoever sent it there, usually that server's instance actor. Blocking or
   muting the reporter doesn't hide it.
+- A `move` goes to each local follower that was moved when an account moved. Its `account` is the old account, and
+  `target` the new one, as on Mastodon. A follower who couldn't be moved, because the new account blocks them, gets
+  none. Grouped notifications don't include `target`, so clients use the sample account's `moved`.
 - A `follow_request` notification is removed once the request is approved, refused, or withdrawn, as on Mastodon.
   Approving it doesn't add a `follow` notification.
 - Notifications of subscribed accounts' posts and edits, and `admin.sign_up`, await their features.
@@ -553,6 +556,8 @@ Only these exist:
 - `followers_count` and `following_count` only count accounts on this server, and `hide_collections` is null.
 - `discoverable` is always false. `indexable` is what the actor document said when this server last fetched it.
 - `GET /api/v1/accounts/:id/statuses` only lists its statuses stored here.
+- `moved` is the account its actor document or `Move` last said it moved to. It's left out if that account isn't stored
+  here, or is suspended, deleted, or on a blocked server.
 
 ### Profile
 
@@ -725,6 +730,12 @@ with the `admin:read:accounts` and `admin:write:accounts` scopes.
 
 There's no API for people to delete their own accounts, so that an application can't do it with a token. It's only on
 the `/settings/delete-account` page. People can also hide their followers and following on the `/settings` page.
+
+## Moving your account
+
+As on Mastodon, there's no API for aliases or moving. They're on the `/settings/aliases` and `/settings/move` pages. A
+local account that has moved has `moved` set, as one on another server does, but keeps working: it can still post and
+follow, and can stop being shown as moved. The `moved` account never has a `moved` of its own.
 
 ## API documentation
 

@@ -63,6 +63,10 @@ class SecurityConfig {
     static final String DELETE_ACCOUNT_PATH = "/settings/delete-account";
     static final String SETTINGS_PATH = "/settings";
     static final String CHANGE_PASSWORD_PATH = SETTINGS_PATH + "/password";
+    static final String ALIASES_PATH = SETTINGS_PATH + "/aliases";
+    static final String ALIASES_REMOVE_PATH = ALIASES_PATH + "/remove";
+    static final String MOVE_PATH = SETTINGS_PATH + "/move";
+    static final String MOVE_CANCEL_PATH = MOVE_PATH + "/cancel";
     static final String TWO_FACTOR_LOGIN_PATH = LOGIN_PATH + "/two-factor";
     static final String TWO_FACTOR_SETTINGS_PATH = SETTINGS_PATH + "/two-factor";
     static final String TWO_FACTOR_SETUP_PATH = TWO_FACTOR_SETTINGS_PATH + "/setup";
@@ -229,6 +233,8 @@ class SecurityConfig {
                 pathPattern(HttpMethod.GET, DELETE_ACCOUNT_PATH),
                 pathPattern(HttpMethod.GET, SETTINGS_PATH),
                 pathPattern(HttpMethod.GET, CHANGE_PASSWORD_PATH),
+                pathPattern(HttpMethod.GET, ALIASES_PATH),
+                pathPattern(HttpMethod.GET, MOVE_PATH),
                 pathPattern(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH),
                 pathPattern(HttpMethod.GET, AUTHORIZED_APPS_PATH));
 
@@ -277,6 +283,9 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, SETTINGS_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, CHANGE_PASSWORD_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, CHANGE_PASSWORD_PATH).authenticated()
+                        .requestMatchers(HttpMethod.GET, ALIASES_PATH, MOVE_PATH).authenticated()
+                        .requestMatchers(HttpMethod.POST, ALIASES_PATH, ALIASES_REMOVE_PATH, MOVE_PATH, MOVE_CANCEL_PATH)
+                        .authenticated()
                         .requestMatchers(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, TWO_FACTOR_SETUP_PATH, TWO_FACTOR_CONFIRM_PATH,
                                 TWO_FACTOR_DISABLE_PATH, RECOVERY_CODES_PATH).authenticated()

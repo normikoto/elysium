@@ -154,6 +154,26 @@ first, as on Mastodon. Either way, people here can find posts they wrote, favour
 are told about the choice and decide what their own search does with it. Posts on other servers are only found when their
 author has made the same choice there.
 
+## Moving accounts
+People can move their followers to another account, here or on another server, as on Mastodon. Moving can't be undone
+for the followers who were moved: stopping being shown as moved doesn't bring them back.
+
+- **Moving here:** they add their old account as an alias at `/settings/aliases`, then move it from its own server.
+- **Moving away:** they add this account as an alias on the new one, then enter its address and their password at
+  `/settings/move`. An account can only move once every 30 days.
+
+When an account moves, wherever it is:
+
+- People here who follow it follow the new account instead, and are notified. One the new account blocks keeps following
+  the old one. Following an account that approves followers by hand waits for its approval.
+- The new account is put in the lists that had the old one.
+- People here who block or mute the old account block or mute the new one too, unless they follow it.
+- A moved account here keeps its posts, and the accounts it follows aren't moved. It keeps working, but shows as moved,
+  and other servers may treat it as closed. Its owner can stop it showing as moved at `/settings/move`.
+
+Other servers only move their people's follows if the new account lists the old one as an alias first. Only one move from
+an account on another server is acted on each week.
+
 ## Profiles
 People can change their profile at `/settings`, or from an app: a display name of up to 30 characters, a bio of up to 500,
 an avatar, a header, and up to 4 fields, each a name and a value. You can change how many fields there can be with
