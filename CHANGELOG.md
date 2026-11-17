@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this server, Misskey, and Akkoma can all import. The page takes packs of up to 50 MB with up to 1,000 files, which
   `elysium.custom-emojis.max-pack-size` and `elysium.custom-emojis.max-pack-files` change. See `docs/accounts.md`.
 
+### Changed
+
+- Requests to the inboxes that are unsigned, wrongly signed, or too large are now limited by address, so a reverse proxy
+  no longer has to limit them. An address that has 60 refused in a minute gets a `429` until the minute is up, and
+  `elysium.federation.inbox-limits.refused-per-minute` changes this. Valid deliveries don't count, so another server
+  only gets near the limit in a burst of signatures that can't be checked, such as just after it changes its keys. The
+  limit is skipped for requests from the server's own network, which usually means a proxy is hiding its clients'
+  addresses. A proxy limit on inbox requests is still worth keeping, to stop floods before they reach the server. See
+  `docs/configuration.md`.
+
 ### Fixed
 
 - Finding a post at `/admin/statuses` by its link could show a post from another server that claimed that link as its own

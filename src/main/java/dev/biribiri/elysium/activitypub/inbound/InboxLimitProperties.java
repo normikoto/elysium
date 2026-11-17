@@ -10,7 +10,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Limits on the activities that each server can have stored, which {@link ServerActivityLimits} enforces.
+ * Limits on the activities that each server can have stored, which {@link ServerActivityLimits} enforces, and on the
+ * inbox requests that each address can have refused.
  *
  * @param activitiesPerMinute how many activities one server can deliver a minute
  * @param dataPerHour         how much one server's activities can add up to in an hour, counting their bodies. This can't
@@ -18,15 +19,20 @@ import java.util.stream.Collectors;
  * @param exemptDomains       domains, along with their subdomains, that aren't limited, such as a large server an admin
  *                            trusts. Each is in {@link DomainName}'s form, and can't be a public suffix such as
  *                            {@code co.uk}, which would exempt everyone under it.
+ * @param refusedPerMinute    how many inbox requests one address can have refused a minute for what anyone can send
+ *                            without a key, such as a missing or invalid signature. Exempt domains don't affect this,
+ *                            since these requests have no signer to go by.
  */
 @ConfigurationProperties("elysium.federation.inbox-limits")
 public record InboxLimitProperties(
         @DefaultValue("" + DEFAULT_ACTIVITIES_PER_MINUTE) int activitiesPerMinute,
         @DefaultValue(DEFAULT_MEGABYTES_PER_HOUR + "MB") DataSize dataPerHour,
-        @DefaultValue Set<String> exemptDomains) {
+        @DefaultValue Set<String> exemptDomains,
+        @DefaultValue("" + DEFAULT_REFUSED_PER_MINUTE) int refusedPerMinute) {
 
     public static final int DEFAULT_ACTIVITIES_PER_MINUTE = 120;
     public static final int DEFAULT_MEGABYTES_PER_HOUR = 20;
+    public static final int DEFAULT_REFUSED_PER_MINUTE = 60;
 
     private static final DataSize DEFAULT_DATA_PER_HOUR = DataSize.ofMegabytes(DEFAULT_MEGABYTES_PER_HOUR);
     private static final String EXEMPT_DOMAINS = "elysium.federation.inbox-limits.exempt-domains";
@@ -35,6 +41,10 @@ public record InboxLimitProperties(
         if (activitiesPerMinute < 1) {
             throw new IllegalArgumentException(
                     "elysium.federation.inbox-limits.activities-per-minute must be at least 1");
+        }
+        if (refusedPerMinute < 1) {
+            throw new IllegalArgumentException(
+                    "elysium.federation.inbox-limits.refused-per-minute must be at least 1");
         }
         // A setting that's present but empty, such as from an empty variable in .env, binds as null.
         if (dataPerHour == null) {
