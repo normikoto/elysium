@@ -108,8 +108,10 @@ tasks.bootRun {
 }
 
 tasks.bootBuildImage {
-    // compose.yaml runs this tag, so it doesn't need updating whenever the version changes.
+    // compose.federation.yaml runs this tag, so it doesn't need updating whenever the version changes.
     tags.add("elysium:latest")
+    // Paketo writes this as the org.opencontainers.image.source label, which links the published image to the repository.
+    environment.put("BP_OCI_SOURCE", "https://github.com/normikoto/elysium")
     // The builder otherwise always mounts /var/run/docker.sock, which fails with rootless Docker. Binding the client's
     // socket path instead can fail with Docker Desktop or Colima, where that path isn't in the daemon's VM, so it can be
     // turned off with -PbindDockerHostToBuilder=false.
