@@ -22,6 +22,10 @@ federation/smoke.sh gotosocial                   # Or mastodon, or misskey. Need
 No linter or formatter is configured. CI runs `./gradlew test`, and the federation smoke tests. See
 `federation/README.md` for the lab and for debugging its failures.
 
+Publishing a GitHub release runs `.github/workflows/release.yml`, which attaches the JAR and config files to the release
+and pushes the images to `ghcr.io`. It fails unless `version` in `build.gradle.kts` matches the tag, so the release pull
+request sets it before tagging.
+
 If you run the application outside Gradle, such as from an IDE, activate the `dev` profile yourself.
 
 ## Architecture

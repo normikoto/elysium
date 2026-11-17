@@ -1,12 +1,10 @@
-# Production. Build the image with ./gradlew bootBuildImage, copy .env.example to .env and edit it, then run
-# docker compose up -d. For local development, see compose.dev.yaml instead.
+# Production. Copy .env.example to .env and edit it, then run docker compose up -d. See docs/installation.md. For local
+# development, see compose.dev.yaml instead.
 name: elysium-prod
 
 services:
   app:
-    image: 'elysium:latest'
-    # This image only exists locally, so don't let a missing one pull something else with the same name from Docker Hub.
-    pull_policy: never
+    image: 'ghcr.io/normikoto/elysium:latest'
     restart: unless-stopped
     depends_on:
       postgres:

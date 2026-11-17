@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Each release now has the server as a JAR, and a container image on `ghcr.io/normikoto/elysium` for amd64 and arm64
+  machines, so installing no longer needs a checkout or a JDK. See `docs/installation.md`.
+
+### Changed
+
+- `compose.yaml` runs the image from the newest release, rather than one built locally. To upgrade with Docker Compose,
+  download the release's `compose.yaml` over yours and keep your `.env`, then run `docker compose pull` and
+  `docker compose up -d`. To keep running an image you build yourself, see "Building from source" in
+  `docs/installation.md`.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added

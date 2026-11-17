@@ -4,18 +4,34 @@
 A public server must run behind a reverse proxy, such as nginx or Caddy, that handles HTTPS. See
 [Reverse proxies](configuration.md#reverse-proxies) for what to set up, on the proxy and on the server.
 
-## Building
-You'll need JDK 25 or later installed on your system. Run the following:
+## Downloading
+Each [release](https://github.com/normikoto/elysium/releases) has the server as a JAR, which needs Java 25 or later to
+run. To download the newest one and check that it arrived intact:
+```shell
+curl -fLO https://github.com/normikoto/elysium/releases/latest/download/elysium.jar
+curl -fLO https://github.com/normikoto/elysium/releases/latest/download/elysium.jar.sha256
+sha256sum -c elysium.jar.sha256
+```
+
+It should print `elysium.jar: OK`. Copy `elysium.jar` into a suitable location. With Docker Compose, you don't need the
+JAR: see [Running with Docker Compose](#running-with-docker-compose).
+
+### Building from source
+To run a version that isn't released, such as one with your own changes, you'll need JDK 25 or later. In a checkout of
+the repository, run:
 ```shell
 ./gradlew bootJar
 ```
 
-Copy the resulting `build/libs/elysium.jar` into a suitable location.
+This builds `build/libs/elysium.jar`. To build a container image instead, run `./gradlew bootBuildImage`, which builds
+`elysium:latest`. To run it with Docker Compose, set `image: 'elysium:latest'` and `pull_policy: never` in
+`compose.yaml`, so that Docker doesn't look for it online. If the image build can't connect to Docker, which can happen
+with Docker Desktop or Colima, build it with `./gradlew bootBuildImage -PbindDockerHostToBuilder=false`.
 
 ## Running
 To run:
 ```shell
-# Copy from application.properties.example in this repo
+# Copy from application.properties.example, which each release has too
 export SPRING_CONFIG_ADDITIONAL_LOCATION=/path/to/application.properties
 export SPRING_PROFILES_ACTIVE=prod
 java -jar elysium.jar
@@ -26,17 +42,14 @@ up along with the database. See [Configuration](configuration.md) for the settin
 [Accounts and sign-ups](accounts.md) to create your first account. A public server also needs a [reverse proxy](#before-going-live).
 
 ## Running with Docker Compose
-`compose.yaml` runs the server and a PostgreSQL database. You'll need Docker, as well as JDK 25 or later to build the
-image:
+`compose.yaml` runs the server and a PostgreSQL database. The server's image comes from each release, for amd64 and
+arm64 machines, so you only need Docker. In an empty directory:
 ```shell
-./gradlew bootBuildImage
-cp .env.example .env
+curl -fLO https://github.com/normikoto/elysium/releases/latest/download/compose.yaml
+curl -fL -o .env https://github.com/normikoto/elysium/releases/latest/download/.env.example
 # Edit .env to set your server's URL and a database password...
 docker compose up -d
 ```
-
-If the image build can't connect to Docker, which can happen with Docker Desktop or Colima, build it with
-`./gradlew bootBuildImage -PbindDockerHostToBuilder=false`.
 
 PostgreSQL isn't reachable from outside its Docker network, and its data is kept in the `postgres-data` volume.
 Uploaded images are kept in the `media-data` volume, so back up both together. The
@@ -45,7 +58,12 @@ the only way to reach the server, `server.forward-headers-strategy=native` is al
 [set the forwarded headers itself](configuration.md#reverse-proxies). Otherwise clients may be able to get around the rate
 limits by making up their addresses.
 
-To upgrade, run `./gradlew bootBuildImage` again, then `docker compose up -d`.
+To upgrade to the newest release, download its `compose.yaml` over yours, since a release can pass new settings on
+from `.env`, and keep your `.env`. Then run:
+```shell
+docker compose pull
+docker compose up -d
+```
 
 ## Running as a service
 If you're using a Linux distribution with systemd, you can use the `elysium.service` file to start the application on
@@ -55,9 +73,13 @@ boot. It runs the server as a dedicated `elysium` user, in a sandbox. Like any p
 # Create the user and group
 useradd --system --user-group --home-dir /opt/elysium --shell /usr/sbin/nologin elysium
 
+# Download the service file and the example config, next to the JAR you downloaded
+curl -fLO https://github.com/normikoto/elysium/releases/latest/download/elysium.service
+curl -fLO https://github.com/normikoto/elysium/releases/latest/download/application.properties.example
+
 # Install the JAR. The server only needs to read it, so root keeps ownership.
 install -d -m 755 /opt/elysium
-install -m 644 build/libs/elysium.jar /opt/elysium/elysium.jar
+install -m 644 elysium.jar /opt/elysium/elysium.jar
 
 # Install your config, which only the elysium group can read because it contains your database password
 install -d -m 750 -g elysium /etc/elysium
