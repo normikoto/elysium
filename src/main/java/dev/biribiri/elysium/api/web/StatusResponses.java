@@ -312,7 +312,8 @@ class StatusResponses {
 
     /**
      * The parents the viewer can see. A public reply can have a parent the viewer can't, such as its author's own
-     * followers-only status, and its ID would tell them that the parent exists, and what its URI is.
+     * followers-only status. Naming it would tell them that it exists, and for a local one its URI too, which is built
+     * from its ID, though its {@code Note} leaves the parent out.
      */
     private Set<UUID> shownParents(List<Status> all, Optional<UUID> viewer) {
         var parentIds = all.stream().map(Status::inReplyToId).filter(Objects::nonNull).distinct().toList();
