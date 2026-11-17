@@ -24,6 +24,7 @@ import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.StatusDeleted;
+import dev.biribiri.elysium.content.ScheduledStatusService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,6 +81,8 @@ class AccountCleanupIntegrationTests {
     private MediaProperties media;
     @Autowired
     private AccountLists lists;
+    @Autowired
+    private ScheduledStatusService scheduled;
 
     private Actor local;
 
@@ -103,6 +106,20 @@ class AccountCleanupIntegrationTests {
 
         await().atMost(WAIT).until(() -> files.stream().noneMatch(Files::exists));
         assertThat(count("SELECT count(*) FROM media_attachment WHERE account_id = :id", local.id())).isZero();
+    }
+
+    @Test
+    void deletingAnAccountRemovesItsScheduledStatusesAndTheirMedia() throws IOException {
+        var held = upload();
+        scheduled.schedule(local.id(), new NewStatus("Later", "", null, Visibility.PUBLIC, false, null,
+                List.of(held.id())), Instant.now().plus(Duration.ofDays(1)));
+        var file = media.directory().resolve(held.fileName());
+        assertThat(file).exists();
+
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM scheduled_status WHERE actor_id = :id", local.id()) == 0);
+        await().atMost(WAIT).until(() -> !Files.exists(file));
     }
 
     private MediaAttachment upload() throws IOException {

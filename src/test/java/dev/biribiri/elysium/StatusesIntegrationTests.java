@@ -308,8 +308,8 @@ class StatusesIntegrationTests {
     }
 
     @Test
-    void rejectsFeaturesThatDoNotExistYet() throws Exception {
-        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Hello\", \"scheduled_at\": \"2030-01-01T00:00:00Z\"}"))
+    void rejectsAScheduledAtThatIsNotATime() throws Exception {
+        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Hello\", \"scheduled_at\": true}"))
                 .andExpect(status().isUnprocessableContent());
         mockMvc.perform(createRequest(alice(), "Hello").param("scheduled_at", "x"))
                 .andExpect(status().isUnprocessableContent());

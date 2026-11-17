@@ -102,7 +102,21 @@ public class MediaAttachmentRepository {
     public int countAttachable(UUID accountId) {
         return jdbc.sql("""
                         SELECT count(*) FROM media_attachment
-                        WHERE account_id = :accountId AND status_id IS NULL AND removable_after > now()
+                        WHERE account_id = :accountId AND status_id IS NULL AND scheduled_status_id IS NULL
+                            AND removable_after > now()
+                        """)
+                .param("accountId", accountId)
+                .query(Integer.class)
+                .single();
+    }
+
+    /**
+     * Uploads of this account's that are held for its scheduled statuses.
+     */
+    public int countHeld(UUID accountId) {
+        return jdbc.sql("""
+                        SELECT count(*) FROM media_attachment
+                        WHERE account_id = :accountId AND scheduled_status_id IS NOT NULL
                         """)
                 .param("accountId", accountId)
                 .query(Integer.class)
@@ -115,7 +129,8 @@ public class MediaAttachmentRepository {
     public Optional<MediaAttachment> findAttachable(UUID id, UUID accountId) {
         return jdbc.sql("SELECT " + COLUMNS + """
                          FROM media_attachment
-                        WHERE id = :id AND account_id = :accountId AND status_id IS NULL AND removable_after > now()
+                        WHERE id = :id AND account_id = :accountId AND status_id IS NULL AND scheduled_status_id IS NULL
+                            AND removable_after > now()
                         """)
                 .param("id", id)
                 .param("accountId", accountId)
@@ -133,7 +148,8 @@ public class MediaAttachmentRepository {
         }
         return jdbc.sql("SELECT " + COLUMNS + """
                          FROM media_attachment
-                        WHERE id IN (:ids) AND account_id = :accountId AND status_id IS NULL AND removable_after > now()
+                        WHERE id IN (:ids) AND account_id = :accountId AND status_id IS NULL AND scheduled_status_id IS NULL
+                            AND removable_after > now()
                         FOR UPDATE
                         """)
                 .param("ids", ids)
@@ -187,7 +203,7 @@ public class MediaAttachmentRepository {
         }
         jdbc.sql("""
                         UPDATE media_attachment
-                        SET status_id = :statusId, removable_after = NULL,
+                        SET status_id = :statusId, scheduled_status_id = NULL, removable_after = NULL,
                             position = array_position(CAST(:ids AS uuid[]), id) - 1
                         WHERE id = ANY (CAST(:ids AS uuid[])) AND account_id = :accountId
                             AND (status_id = :statusId OR status_id IS NULL)
@@ -195,6 +211,72 @@ public class MediaAttachmentRepository {
                 .param("statusId", statusId)
                 .param("accountId", accountId)
                 .param("ids", ids.stream().map(UUID::toString).toArray(String[]::new))
+                .update();
+    }
+
+    /**
+     * Holds uploads for a scheduled status, in the order given. They should have been locked with
+     * {@link #findAttachableAndLock} in the same transaction.
+     */
+    public void hold(UUID scheduledStatusId, UUID accountId, List<UUID> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        jdbc.sql("""
+                        UPDATE media_attachment
+                        SET scheduled_status_id = :scheduledStatusId, removable_after = NULL,
+                            position = array_position(CAST(:ids AS uuid[]), id) - 1
+                        WHERE id = ANY (CAST(:ids AS uuid[])) AND account_id = :accountId AND status_id IS NULL
+                        """)
+                .param("scheduledStatusId", scheduledStatusId)
+                .param("accountId", accountId)
+                .param("ids", ids.stream().map(UUID::toString).toArray(String[]::new))
+                .update();
+    }
+
+    /**
+     * @return what's held for a scheduled status, in order, locked until the transaction ends
+     */
+    public List<MediaAttachment> findHeldAndLock(UUID scheduledStatusId) {
+        return jdbc.sql("SELECT " + COLUMNS + """
+                         FROM media_attachment WHERE scheduled_status_id = :scheduledStatusId
+                        ORDER BY position, id FOR UPDATE
+                        """)
+                .param("scheduledStatusId", scheduledStatusId)
+                .query(MAPPER)
+                .list();
+    }
+
+    /**
+     * @return what's held for each scheduled status, in order, for each one that has any
+     */
+    public Map<UUID, List<MediaAttachment>> findHeld(Collection<UUID> scheduledStatusIds) {
+        if (scheduledStatusIds.isEmpty()) {
+            return Map.of();
+        }
+        var found = new HashMap<UUID, List<MediaAttachment>>();
+        jdbc.sql("SELECT scheduled_status_id, " + COLUMNS + """
+                         FROM media_attachment WHERE scheduled_status_id IN (:ids)
+                        ORDER BY scheduled_status_id, position, id
+                        """)
+                .param("ids", scheduledStatusIds)
+                .query((rs, row) -> Map.entry(rs.getObject("scheduled_status_id", UUID.class), map(rs, row)))
+                .list()
+                .forEach(entry -> found.computeIfAbsent(entry.getKey(), id -> new ArrayList<>()).add(entry.getValue()));
+        return found;
+    }
+
+    /**
+     * Stops holding uploads for a scheduled status, which makes them unattached uploads again until then, so that they can
+     * be posted another way.
+     */
+    public void release(UUID scheduledStatusId, Instant removableAfter) {
+        jdbc.sql("""
+                        UPDATE media_attachment SET scheduled_status_id = NULL, removable_after = :removableAfter
+                        WHERE scheduled_status_id = :scheduledStatusId
+                        """)
+                .param("scheduledStatusId", scheduledStatusId)
+                .param("removableAfter", timestamp(removableAfter))
                 .update();
     }
 
@@ -262,13 +344,14 @@ public class MediaAttachmentRepository {
     }
 
     /**
-     * @return whether it was removed, which it isn't if it's attached to a status
+     * @return whether it was removed, which it isn't if it's attached to a status or held for a scheduled one
      */
     public boolean deleteUnattached(UUID id, UUID accountId) {
         return jdbc.sql("""
                         WITH removed AS (
                             DELETE FROM media_attachment
                             WHERE id = :id AND account_id = :accountId AND status_id IS NULL
+                                AND scheduled_status_id IS NULL
                             RETURNING file_name, preview_name
                         ), queued AS (
                         """ + QUEUE_REMOVED_FILES + """
@@ -293,9 +376,11 @@ public class MediaAttachmentRepository {
                             DELETE FROM media_attachment
                             WHERE id IN (
                                 SELECT id FROM media_attachment
-                                WHERE status_id IS NULL AND (removable_after IS NULL OR removable_after < now())
+                                WHERE status_id IS NULL AND scheduled_status_id IS NULL
+                                    AND (removable_after IS NULL OR removable_after < now())
                                 LIMIT :limit
-                            ) AND status_id IS NULL AND (removable_after IS NULL OR removable_after < now())
+                            ) AND status_id IS NULL AND scheduled_status_id IS NULL
+                                AND (removable_after IS NULL OR removable_after < now())
                             RETURNING file_name, preview_name
                         ), queued AS (
                         """ + QUEUE_REMOVED_FILES + """

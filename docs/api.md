@@ -26,7 +26,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 
 ### Posting
 
-- Scheduled posts aren't implemented, and `scheduled_at` with a value gets a 422 rather than being ignored.
+- `scheduled_at` schedules the status instead, and the response is a `ScheduledStatus`. See
+  [Scheduled statuses](#scheduled-statuses).
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
 - `visibility` defaults to `public` only when it's missing. An empty value, a repeated value, and `visibility[]` are
   rejected.
@@ -299,6 +300,37 @@ Follow [Mastodon's polls API](https://docs.joinmastodon.org/methods/polls/).
 - A poll from another server has the counts its server last sent, and a vote from here is added to them until its server
   sends new ones. `GET /api/v1/polls/:id` asks that server for new counts in the background when they're more than 5
   minutes old, so a later request has them. It also asks once the poll ends.
+
+## Scheduled statuses
+
+Follow [Mastodon's scheduled statuses API](https://docs.joinmastodon.org/methods/scheduled_statuses/), with the
+`read:statuses` and `write:statuses` scopes.
+
+- `scheduled_at` in `POST /api/v1/statuses` has to be an ISO 8601 date and time with an offset, such as
+  `2030-01-01T09:00:00Z`. It has to be more than a minute ahead, rather than Mastodon's 5 minutes. A user can have up
+  to 300 scheduled, with at most 25 on one day in UTC, as on Mastodon. Anything else gets a 422.
+- A `scheduled_at` in the past posts the status now, and the response is a `Status`, as on Mastodon.
+- A scheduled status is checked when it's scheduled, as if it were posted then, and gets the same errors. It's checked
+  again when it's posted, within about a minute of its time.
+- A scheduled status that can no longer be posted is dropped, as on Mastodon, with no notification. That happens when
+  what it replies to or quotes has been deleted or can't be seen, or it's no longer allowed to quote. Its media becomes
+  unattached uploads for an hour by default, as a deleted status's does.
+- While the user is suspended, their scheduled statuses aren't posted. Any that came due in the meantime are posted
+  once the suspension ends.
+- If posting one fails for some other reason, such as the database being unavailable, it's tried again later, waiting
+  longer each time, and dropped after about an hour and a quarter.
+- Its media is held for it, and doesn't expire or count toward the limit on uploads waiting to be posted. A user can
+  have at most 100 uploads held, and a status that would hold more gets a 422. Held media can't be attached to another
+  status, and `DELETE /api/v1/media/:id` gets a 422 for it. `GET` and `PUT /api/v1/media/:id` don't
+  find it.
+- `DELETE /api/v1/scheduled_statuses/:id` makes its media unattached uploads for an hour by default, so that it can be
+  posted another way.
+- `PUT /api/v1/scheduled_statuses/:id` only changes `scheduled_at`, as on Mastodon, which is required, and has the same
+  limits. A time in the past gets a 422 there, as on Mastodon.
+- `params` has the fields the request gave, and also `quoted_status_id`, `quote_approval_policy`, `local_only`, and
+  `content_type`. `idempotency`, `scheduled_at`, and `application_id` are always null, and a poll's `expires_in` is a
+  string, as on Mastodon.
+- When it's posted, its `created_at` is when it was posted, and a poll's `expires_in` counts from then.
 
 ## Uploads
 

@@ -40,6 +40,7 @@ import java.util.Map;
         AdminAccountsController.class,
         AdminReportsController.class,
         ReportsController.class,
+        ScheduledStatusesController.class,
         DomainBlocksController.class,
         FiltersController.class,
         ListsController.class,

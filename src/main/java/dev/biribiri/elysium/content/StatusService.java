@@ -151,36 +151,38 @@ public class StatusService {
      * @throws QuotedStatusNotFoundException if the status to quote doesn't exist or the author can't see it
      */
     public Status create(UUID authorId, NewStatus draft) {
-        var text = normalize(draft.text());
-        // A content warning that can't be seen would hide nothing, but would still mark the status as sensitive.
-        var spoilerText = looksBlank(normalize(draft.spoilerText())) ? "" : normalize(draft.spoilerText());
-        var language = draft.language() == null || draft.language().isBlank() ? null : draft.language().strip();
-        var mediaIds = checkMediaIds(draft.mediaIds());
-        validate(text, spoilerText, language);
-        if (mediaIds.isEmpty()) {
-            requireText(text);
-        }
-        var poll = draft.poll() == null ? null : PollService.check(draft.poll());
-        if (poll != null && !mediaIds.isEmpty()) {
-            throw new InvalidStatusException(MEDIA_AND_POLL);
-        }
+        return create(authorId, draft, mediaIds -> Optional.of(claimMedia(mediaIds, authorId))).orElseThrow();
+    }
 
-        var author = actors.findLocalById(authorId)
-                .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
-        // Before looking up mentions on other servers, so that a reply to nothing doesn't make those requests or use up the
-        // author's lookups. The parent is checked again under a lock below, since it can be deleted in between.
-        var replyingTo = draft.inReplyToId() == null ? null
-                : findVisible(draft.inReplyToId(), Optional.of(authorId)).orElseThrow(ReplyParentNotFoundException::new);
-        var quoting = draft.quotedStatusId() == null ? null : quotable(draft.quotedStatusId(), authorId);
-        // Replying to or quoting a local-only status keeps the conversation here, as on glitch-soc, so that its URI isn't
-        // sent to another server in inReplyTo or quote.
-        var localOnly = draft.localOnly()
-                || (replyingTo != null && replyingTo.localOnly())
-                || (quoting != null && quoting.status().localOnly());
-        // Quoting another server's status would have to send this one to it, to ask for its approval.
-        if (localOnly && quoting != null && !quoting.local()) {
-            throw new InvalidStatusException(LOCAL_ONLY_REMOTE_QUOTE);
-        }
+    /**
+     * Runs the checks that {@link #create} would, without posting anything or looking up mentions, for a status to be
+     * posted later. Its media isn't checked against the author's uploads, which is left to whoever holds them.
+     *
+     * @throws InvalidStatusException       if the status breaks a validation rule
+     * @throws ReplyParentNotFoundException if the status being replied to doesn't exist or the author can't see it
+     * @throws QuotedStatusNotFoundException if the status to quote doesn't exist or the author can't see it
+     */
+    void check(UUID authorId, NewStatus draft) {
+        prepare(authorId, draft);
+    }
+
+    /**
+     * Like {@link #create}, for a status whose media comes from somewhere other than the author's unattached uploads.
+     *
+     * @param claim called in the transaction that creates the status, before anything is written, with the media IDs the
+     *              draft has. It returns the media to attach, in order, or empty to post nothing
+     * @return the status, or empty if {@code claim} said not to post it
+     */
+    Optional<Status> create(UUID authorId, NewStatus draft, Function<List<UUID>, Optional<List<UUID>>> claim) {
+        var prepared = prepare(authorId, draft);
+        var text = prepared.text();
+        var spoilerText = prepared.spoilerText();
+        var language = prepared.language();
+        var mediaIds = prepared.mediaIds();
+        var poll = prepared.poll();
+        var author = prepared.author();
+        var quoting = prepared.quoting();
+        var localOnly = prepared.localOnly();
         // Quoting a followers-only status, which only its author can, keeps the quote among the same followers.
         var visibility = quoting != null && quoting.status().visibility() == Visibility.PRIVATE && draft.visibility().isOpen()
                 ? Visibility.PRIVATE : draft.visibility();
@@ -196,7 +198,11 @@ public class StatusService {
 
         return transaction.execute(tx -> {
             // Before the status, so that one that can't have them isn't given an ID.
-            var claimed = claimMedia(mediaIds, authorId);
+            var claiming = claim.apply(mediaIds);
+            if (claiming.isEmpty()) {
+                return Optional.<Status>empty();
+            }
+            var claimed = claiming.get();
             var parent = draft.inReplyToId() == null
                     ? Optional.<Status>empty()
                     : Optional.of(statuses.findByIdAndLock(draft.inReplyToId())
@@ -254,8 +260,49 @@ public class StatusService {
             }
             events.publishEvent(new StatusStored(id));
             events.publishEvent(new StatusPublished(id, authorId));
-            return status;
+            return Optional.of(status);
         });
+    }
+
+    /**
+     * What a draft has once it's been checked, before mentions are looked up.
+     */
+    private record Prepared(String text, String spoilerText, String language, List<UUID> mediaIds, NewPoll poll,
+                            Actor author, Quoting quoting, boolean localOnly) {
+    }
+
+    private Prepared prepare(UUID authorId, NewStatus draft) {
+        var text = normalize(draft.text());
+        // A content warning that can't be seen would hide nothing, but would still mark the status as sensitive.
+        var spoilerText = looksBlank(normalize(draft.spoilerText())) ? "" : normalize(draft.spoilerText());
+        var language = draft.language() == null || draft.language().isBlank() ? null : draft.language().strip();
+        var mediaIds = checkMediaIds(draft.mediaIds());
+        validate(text, spoilerText, language);
+        if (mediaIds.isEmpty()) {
+            requireText(text);
+        }
+        var poll = draft.poll() == null ? null : PollService.check(draft.poll());
+        if (poll != null && !mediaIds.isEmpty()) {
+            throw new InvalidStatusException(MEDIA_AND_POLL);
+        }
+
+        var author = actors.findLocalById(authorId)
+                .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
+        // Before looking up mentions on other servers, so that a reply to nothing doesn't make those requests or use up the
+        // author's lookups. The parent is checked again under a lock, since it can be deleted in between.
+        var replyingTo = draft.inReplyToId() == null ? null
+                : findVisible(draft.inReplyToId(), Optional.of(authorId)).orElseThrow(ReplyParentNotFoundException::new);
+        var quoting = draft.quotedStatusId() == null ? null : quotable(draft.quotedStatusId(), authorId);
+        // Replying to or quoting a local-only status keeps the conversation here, as on glitch-soc, so that its URI isn't
+        // sent to another server in inReplyTo or quote.
+        var localOnly = draft.localOnly()
+                || (replyingTo != null && replyingTo.localOnly())
+                || (quoting != null && quoting.status().localOnly());
+        // Quoting another server's status would have to send this one to it, to ask for its approval.
+        if (localOnly && quoting != null && !quoting.local()) {
+            throw new InvalidStatusException(LOCAL_ONLY_REMOTE_QUOTE);
+        }
+        return new Prepared(text, spoilerText, language, mediaIds, poll, author, quoting, localOnly);
     }
 
     /**
@@ -549,7 +596,7 @@ public class StatusService {
      * @throws InvalidStatusException if one isn't the author's, is attached already, or has expired, or they can't go
      *                                together
      */
-    private List<UUID> claimMedia(List<UUID> ids, UUID authorId) {
+    List<UUID> claimMedia(List<UUID> ids, UUID authorId) {
         if (ids.isEmpty()) {
             return ids;
         }

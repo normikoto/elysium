@@ -15,6 +15,7 @@ import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.PostingDefaults;
+import dev.biribiri.elysium.content.ScheduledStatusService;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;
 import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.BlockService;
@@ -26,7 +27,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses, attachments, follows, blocks, mutes, filters, lists, profile, moves, and the reports
+ * Removes a deleted account's statuses, scheduled statuses, attachments, follows, blocks, mutes, filters, lists, profile, moves, and the reports
  * by and about it, and who its followers-only statuses were sent to, and a suspended remote actor's follows, which would otherwise
  * give it a way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that
  * they come back if the suspension is undone. A suspended local account keeps everything, for the same reason. This looks
@@ -54,13 +55,16 @@ class AccountCleanupTask {
     private final PostFilters filters;
     private final AccountLists lists;
     private final AccountMigrations migrations;
+    private final ScheduledStatusService scheduled;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
                        LikeService likes, ReactionService reactions, MediaAttachments attachments,
                        FollowersOnlyRecipients followersOnly,
                        PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
-                       PostFilters filters, AccountLists lists, AccountMigrations migrations) {
+                       PostFilters filters, AccountLists lists, AccountMigrations migrations,
+                       ScheduledStatusService scheduled) {
+        this.scheduled = scheduled;
         this.migrations = migrations;
         this.lists = lists;
         this.filters = filters;
@@ -94,6 +98,8 @@ class AccountCleanupTask {
                 reactions.removeForActor(actor.id());
                 pins.removeForActor(actor.id());
                 polls.removeForActor(actor.id());
+                // Before its statuses, so that none is posted after they've been removed.
+                scheduled.removeAllBy(actor.id());
                 statuses.removeAllBy(actor.id());
                 // Uploads it hadn't posted too, which removing its statuses doesn't reach.
                 attachments.removeAllBy(actor.id());
