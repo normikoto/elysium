@@ -46,7 +46,7 @@ up along with the database. See [Configuration](configuration.md) for the settin
 arm64 machines, so you only need Docker. In an empty directory:
 ```shell
 curl -fLO https://github.com/normikoto/elysium/releases/latest/download/compose.yaml
-curl -fL -o .env https://github.com/normikoto/elysium/releases/latest/download/.env.example
+curl -fL -o .env https://github.com/normikoto/elysium/releases/latest/download/env.example
 # Edit .env to set your server's URL and a database password...
 docker compose up -d
 ```
