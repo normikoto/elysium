@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.BoostService;
@@ -13,6 +14,7 @@ import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.PollChange;
 import dev.biribiri.elysium.content.RemoteThreadFetcher;
+import dev.biribiri.elysium.content.ScheduledStatusService;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusProperties;
@@ -43,6 +45,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -82,9 +87,14 @@ public class StatusesController {
     private final QuoteService quotes;
     private final StatusPinService pins;
     private final RemoteThreadFetcher threads;
+    private final ScheduledStatusService scheduled;
+    private final InstanceProperties instance;
 
     StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes,
-                       BoostService boosts, QuoteService quotes, StatusPinService pins, RemoteThreadFetcher threads) {
+                       BoostService boosts, QuoteService quotes, StatusPinService pins, RemoteThreadFetcher threads,
+                       ScheduledStatusService scheduled, InstanceProperties instance) {
+        this.scheduled = scheduled;
+        this.instance = instance;
         this.quotes = quotes;
         this.pins = pins;
         this.threads = threads;
@@ -97,9 +107,9 @@ public class StatusesController {
 
     @PostMapping(consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
-    public StatusResponse createFromForm(
+    public Object createFromForm(
             @AuthenticationPrincipal TokenPrincipal token, @RequestParam MultiValueMap<String, String> form) {
-        rejectUnsupported(form);
+        rejectRepeatedVisibility(form);
         return create(token, withLists(form));
     }
 
@@ -146,8 +156,13 @@ public class StatusesController {
             description = """
                     Differences from Mastodon:
 
-                    - Scheduled statuses aren't supported, and `scheduled_at` with a value gets a 422 rather than \
-                    being ignored. An empty value is allowed.
+                    - `scheduled_at` has to be an ISO 8601 date and time with an offset, such as \
+                    `2030-01-01T09:00:00Z`, at least 5 minutes ahead, or the request gets a 422. A user can have up \
+                    to\s""" + ScheduledStatusService.TOTAL_LIMIT + """
+                     scheduled, and\s""" + ScheduledStatusService.DAILY_LIMIT + """
+                     for one day in UTC, as on Mastodon. The status is checked as if it were posted now, and again \
+                    when it's posted, within about a minute of its time. See `GET /api/v1/scheduled_statuses` for what \
+                    happens to one that can no longer be posted then.
                     - A poll can have 2 to\s""" + Poll.MAX_OPTIONS + """
                      options of up to\s""" + Poll.MAX_OPTION_CHARACTERS + """
                      characters each, which have to be different, and be open for\s""" + Poll.MIN_EXPIRATION + """
@@ -185,21 +200,24 @@ public class StatusesController {
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
             responses = {
-                    @ApiResponse(responseCode = "200", description = "The new status."),
+                    @ApiResponse(responseCode = "200", description = """
+                            The new status, or the scheduled status if `scheduled_at` was given.""",
+                            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(
+                                    oneOf = {StatusResponse.class, ScheduledStatusResponse.class}))),
                     @ApiResponse(responseCode = "404", description = """
                             `in_reply_to_id` or `quoted_status_id` isn't a status the user can see."""),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
                             The status is empty or too long, media can't be attached, a value is unsupported or of the \
-                            wrong type, a local-only status quotes one from another server, or the token \
-                            has no user.""")
+                            wrong type, a local-only status quotes one from another server, `scheduled_at` is too \
+                            soon or the user has scheduled too many, or the token has no user.""")
             })
     @RequestBody(required = true, content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NewStatusBody.class)))
-    public StatusResponse createFromJson(@AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request)
+    public Object createFromJson(@AuthenticationPrincipal TokenPrincipal token, HttpServletRequest request)
             throws IOException {
         var body = json.read(request, statuses.maxStoredCharacters() * MAX_BYTES_PER_CHARACTER + OTHER_FIELDS_BYTES);
-        rejectUnsupported(body);
+        rejectRepeatedVisibility(body);
         return create(token, body);
     }
 
@@ -699,8 +717,12 @@ public class StatusesController {
                 .orElseThrow(RecordNotFoundException::new);
     }
 
-    private StatusResponse create(TokenPrincipal token, Map<String, ?> parameters) {
+    /**
+     * @return the status, or the scheduled status if it's to be posted later
+     */
+    private Object create(TokenPrincipal token, Map<String, ?> parameters) {
         var author = requireUser(token);
+        var scheduledAt = scheduledAt(parameters.get("scheduled_at"));
         var draft = new NewStatus(
                 RequestParameters.string(parameters, "status"),
                 RequestParameters.string(parameters, "spoiler_text"),
@@ -714,7 +736,32 @@ public class StatusesController {
                 poll(parameters.get("poll")),
                 RequestParameters.flag(parameters, "local_only"),
                 contentType(parameters));
+        if (scheduledAt != null) {
+            return ScheduledStatusResponse.from(scheduled.schedule(author, draft, scheduledAt), instance);
+        }
         return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
+    }
+
+    /**
+     * @return null if it's missing or empty, which posts the status now
+     */
+    static Instant scheduledAt(Object value) {
+        return switch (value) {
+            case null -> null;
+            case String string when string.isEmpty() -> null;
+            case String string -> {
+                try {
+                    yield OffsetDateTime.parse(string).toInstant();
+                } catch (DateTimeParseException e) {
+                    throw invalidScheduledAt();
+                }
+            }
+            default -> throw invalidScheduledAt();
+        };
+    }
+
+    private static InvalidRequestException invalidScheduledAt() {
+        return new InvalidRequestException("Validation failed: scheduled_at must be an ISO 8601 date and time");
     }
 
     private StatusResponse edit(TokenPrincipal token, String id, Map<String, ?> parameters) {
@@ -802,30 +849,20 @@ public class StatusesController {
     }
 
     /**
-     * Ignoring these would do the wrong thing without telling anyone. For example, a scheduled status would be published
-     * right away. Clients can still send them empty.
-     *
-     * <p>A visibility that can't be read as one value is also rejected here, because reading only part of it could make
-     * a status public.
+     * A visibility that can't be read as one value is rejected, because reading only part of it could make a status
+     * public.
      */
-    private static void rejectUnsupported(Map<String, ?> parameters) {
+    private static void rejectRepeatedVisibility(Map<String, ?> parameters) {
         parameters.forEach((name, value) -> {
             var repeated = name.equals("visibility") && value instanceof Collection<?> values && values.size() > 1;
             if (repeated || name.startsWith("visibility[")) {
                 throw new InvalidRequestException("Validation failed: visibility must be a single value");
             }
-            rejectIfPresent(name, value, name.equals("scheduled_at"));
         });
     }
 
     private static boolean isPoll(String name) {
         return name.equals("poll") || name.startsWith("poll[");
-    }
-
-    private static void rejectIfPresent(String name, Object value, boolean unsupported) {
-        if (unsupported && isPresent(value)) {
-            throw new InvalidRequestException("Validation failed: " + name + " is not supported");
-        }
     }
 
     private static boolean isPresent(Object value) {
@@ -949,7 +986,9 @@ public class StatusesController {
             List<String> media_ids,
             @Schema(description = "A poll, which can't go with media.")
             PollBody poll,
-            @Schema(description = "Not supported, and only accepted when empty.")
+            @Schema(description = """
+                    When to post the status, as an ISO 8601 date and time at least 5 minutes ahead. Missing or empty \
+                    posts it now. With a value, the response is a ScheduledStatus.""", format = "date-time")
             String scheduled_at,
             @Schema(description = """
                     The status to quote, which the user has to be able to see, and be allowed to quote. Quoting a \

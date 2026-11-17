@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   days. Their account keeps working here, but shows as moved. When an account that people here follow moves, they're
   moved to follow the new account, with its lists, blocks, and mutes carried over, and get a `move` notification. See
   `docs/accounts.md`, `docs/api.md`, and `FEDERATION.md`.
+- Scheduled posts, as on Mastodon, for apps that support them. A post can be scheduled at least 5 minutes ahead, and is
+  posted within about a minute of its time. Each user can have up to 300 scheduled, and 25 on one day. One that can no
+  longer be posted then, such as a reply to a post that's been deleted, is dropped. See `docs/api.md`.
 
 ## [0.2.1] - 2026-11-17
 
