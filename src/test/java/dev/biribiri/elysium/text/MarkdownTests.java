@@ -119,4 +119,32 @@ class MarkdownTests {
         assertThat(Mentions.find(text)).extracting(Mentions.Match::username).containsExactly("alice");
         assertThat(Hashtags.names(text)).containsExactly("real");
     }
+
+    @Test
+    void keepsMentionsAndHashtagsWhole() {
+        var html = Markdown.render("hi @_alice_ #__init__", mention ->
+                new PlainText.MentionLink(URI.create("https://b.example/users/_alice_"), "_alice_@b.example"), TAGS);
+        assertThat(html).contains("@<span>_alice_</span>").contains("#<span>__init__</span>").doesNotContain("<em>")
+                .doesNotContain("<strong>");
+        assertThat(Mentions.find(Markdown.linkableText("hi @_alice_"))).extracting(Mentions.Match::username)
+                .containsExactly("_alice_");
+    }
+
+    @Test
+    void keepsUrlsInParenthesesWhole() {
+        var url = "https://a.example/__init__/x";
+        assertThat(render("(" + url + ")")).isEqualTo("<p>(" + link(url, url) + ")</p>");
+    }
+
+    @Test
+    void matchesALinksLabelToItsReferenceWhenItHasAMention() {
+        assertThat(render("[@_a_]\n\n[@_a_]: https://a.example")).isEqualTo("<p>" + link("https://a.example", "@_a_") + "</p>");
+    }
+
+    @Test
+    void leavesNoNewLinesBetweenLinesOrBeforeNestedLists() {
+        assertThat(render("a\\\nb")).isEqualTo("<p>a<br>b</p>");
+        assertThat(render("a  \nb")).isEqualTo("<p>a<br>b</p>");
+        assertThat(render("- a\n  - b")).isEqualTo("<ul><li>a<ul><li>b</li></ul></li></ul>");
+    }
 }

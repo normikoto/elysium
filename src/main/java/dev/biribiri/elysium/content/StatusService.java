@@ -187,7 +187,8 @@ public class StatusService {
         var quotePolicy = !visibility.isOpen() ? QuotePolicy.NOBODY
                 : draft.quotePolicy() != null ? draft.quotePolicy() : postingDefaults.quotePolicy(authorId);
         var contentType = draft.contentType();
-        var mentioned = resolveMentions(author, linkable(text, contentType));
+        var linkable = linkable(text, contentType);
+        var mentioned = resolveMentions(author, linkable);
         var content = quoting == null ? render(text, contentType, mentioned)
                 : withQuoteFallback(render(text, contentType, mentioned), text, quoting.status().link(),
                 quoting.status().uri());
@@ -245,7 +246,7 @@ public class StatusService {
                 mentions.putIfAbsent(quoted.actorId(), true);
             }
             statuses.insertMentions(id, mentions);
-            statuses.insertTags(id, Hashtags.names(linkable(text, contentType)));
+            statuses.insertTags(id, Hashtags.names(linkable));
             emojis.insertForStatus(id, localEmojis);
             threads.assign(status, parent.map(Status::uri).orElse(null));
             if (quoted != null) {
@@ -296,7 +297,8 @@ public class StatusService {
         if (draft.quotedStatusId() != null && (quote == null || !draft.quotedStatusId().equals(quote.quotedStatusId()))) {
             throw new InvalidStatusException("What a status quotes can't be changed");
         }
-        var mentioned = resolveMentions(author, linkable(text, contentType));
+        var linkable = linkable(text, contentType);
+        var mentioned = resolveMentions(author, linkable);
         var content = withQuoteFallback(render(text, contentType, mentioned), text, quote);
 
         var edited = transaction.execute(tx -> {
@@ -385,7 +387,7 @@ public class StatusService {
                         change.focus() == null ? attachment.focus() : change.focus());
             }
             var addedMentions = statuses.replaceMentions(id, mentionedIds(mentioned, authorId));
-            statuses.replaceTags(id, Hashtags.names(linkable(text, contentType)));
+            statuses.replaceTags(id, Hashtags.names(linkable));
             var pollOptions = switch (pollEdit) {
                 case REMOVE -> List.<String>of();
                 case REPLACE, HIDE_TOTALS -> newPoll.options();

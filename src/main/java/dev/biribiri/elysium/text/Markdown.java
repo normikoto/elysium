@@ -5,6 +5,7 @@ import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.node.AbstractVisitor;
 import org.commonmark.node.Code;
 import org.commonmark.node.FencedCodeBlock;
+import org.commonmark.node.HardLineBreak;
 import org.commonmark.node.Heading;
 import org.commonmark.node.HtmlBlock;
 import org.commonmark.node.HtmlInline;
@@ -24,6 +25,8 @@ import org.jsoup.nodes.TextNode;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -32,6 +35,7 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Renders a status written in Markdown as the HTML that clients expect. URLs, mentions, and hashtags are linked as
@@ -83,30 +87,41 @@ public final class Markdown {
     }
 
     /**
-     * Parses the text with each URL that {@link Urls} finds kept whole. CommonMark would otherwise read a {@code _} or
-     * {@code *} in one as emphasis, which would cut the URL short before it's linked. Each URL is swapped for a
-     * placeholder that Markdown leaves alone, and put back everywhere a placeholder can end up, including code and link
-     * titles. Text that already has the placeholder's characters is parsed as it is, rather than risk mixing them
-     * up.
+     * Parses the text with each URL, mention, and hashtag kept whole. CommonMark would otherwise read a {@code _} or
+     * {@code *} in one as emphasis, as in {@code @_alice_}, which would cut it short before it's linked. Each is swapped
+     * for a placeholder that Markdown leaves alone, and put back everywhere a placeholder can end up, including code and
+     * link titles. The same text always gets the same placeholder, so that a link's label still matches its reference.
+     * Text that already has the placeholder's characters is parsed as it is, rather than risk mixing them up.
      */
     private static Node parse(String text) {
         // A link's destination, or an autolink, is read whole already, and Urls would run on past its closing bracket.
         var urls = Urls.find(text).stream()
-                .filter(url -> url.start() == 0
-                        || (text.charAt(url.start() - 1) != '(' && text.charAt(url.start() - 1) != '<'))
-                .map(url -> new Urls.Match(url.start(), protectedEnd(text, url)))
+                .filter(url -> !text.startsWith("](", url.start() - 2)
+                        && (url.start() == 0 || text.charAt(url.start() - 1) != '<'))
+                .map(url -> new Span(url.start(), protectedEnd(text, url)));
+        // Neither overlaps a URL, since both leave out those inside one, or each other.
+        var mentions = Mentions.find(text).stream().map(mention -> new Span(mention.start(), mention.end()));
+        var hashtags = Hashtags.find(text).stream().map(tag -> new Span(tag.start(), tag.end()));
+        var spans = Stream.of(urls, mentions, hashtags).flatMap(Function.identity())
+                .filter(span -> span.end() > span.start())
+                .sorted(Comparator.comparingInt(Span::start))
                 .toList();
-        if (urls.isEmpty() || text.indexOf(PLACEHOLDER_START) >= 0 || text.indexOf(PLACEHOLDER_END) >= 0) {
+        if (spans.isEmpty() || text.indexOf(PLACEHOLDER_START) >= 0 || text.indexOf(PLACEHOLDER_END) >= 0) {
             return PARSER.parse(text);
         }
         var found = new ArrayList<String>();
+        var indexes = new HashMap<String, Integer>();
         var protectedText = new StringBuilder();
         var position = 0;
-        for (var url : urls) {
-            protectedText.append(text, position, url.start())
-                    .append(PLACEHOLDER_START).append(found.size()).append(PLACEHOLDER_END);
-            found.add(text.substring(url.start(), url.end()));
-            position = url.end();
+        for (var span : spans) {
+            var value = text.substring(span.start(), span.end());
+            var index = indexes.computeIfAbsent(value, key -> {
+                found.add(key);
+                return found.size() - 1;
+            });
+            protectedText.append(text, position, span.start())
+                    .append(PLACEHOLDER_START).append(index).append(PLACEHOLDER_END);
+            position = span.end();
         }
         protectedText.append(text, position, text.length());
         var document = PARSER.parse(protectedText.toString());
@@ -129,6 +144,9 @@ public final class Markdown {
             }
         }
         return end;
+    }
+
+    private record Span(int start, int end) {
     }
 
     private static String restore(String value, List<String> urls) {
@@ -230,10 +248,13 @@ public final class Markdown {
         for (var node : document.body().getAllElements().stream()
                 .filter(element -> CONTAINERS.contains(element.normalName()))
                 .flatMap(element -> element.textNodes().stream())
-                .filter(TextNode::isBlank)
-                .filter(node -> !node.parent().nameIs("li") || nextToBlock(node))
                 .toList()) {
-            node.remove();
+            if (node.isBlank() && (!node.parent().nameIs("li") || nextToBlock(node))) {
+                node.remove();
+            } else if (node.nextSibling() instanceof Element next && BLOCKS.contains(next.normalName())) {
+                // A list item's text before a list inside it, as in "- a" with "  - b" under it.
+                node.text(node.getWholeText().stripTrailing());
+            }
         }
         document.outputSettings().prettyPrint(false);
         return document.body().html();
@@ -313,13 +334,13 @@ public final class Markdown {
     /**
      * What Mastodon's sanitizer would change, written as it would come out: headings as bold paragraphs, rather than
      * text that runs into the next paragraph, no rules, and images as links, with their descriptions as the links' text,
-     * since clients and other servers don't show images in a status.
+     * since clients and other servers don't show images in a status. A line break is written as a soft one is.
      */
     private record MastodonBlocks(HtmlNodeRendererContext context) implements NodeRenderer {
 
         @Override
         public Set<Class<? extends Node>> getNodeTypes() {
-            return Set.of(Heading.class, ThematicBreak.class, Image.class);
+            return Set.of(Heading.class, ThematicBreak.class, Image.class, HardLineBreak.class);
         }
 
         @Override
@@ -348,6 +369,9 @@ public final class Markdown {
                     writer.text(shown);
                     writer.tag("/a");
                 }
+                // Without the new line that the renderer would put after it, which shows as a blank line in clients that
+                // keep white space.
+                case HardLineBreak ignored -> writer.raw("<br>");
                 default -> {
                 }
             }
