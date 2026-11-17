@@ -224,7 +224,8 @@ class MoveAccountIntegrationTests {
     void movingToAnAccountOnAnotherServerFetchesItAgain() throws Exception {
         var alice = account();
         var target = remote(List.of(alice.uri()));
-        when(resolver.resolveAcctFresh(any(), eq(target.username()), eq(target.domain()))).thenReturn(Optional.of(target));
+        when(resolver.resolveAcctFresh(any(), eq(target.username()), eq(target.domain()), eq(alice.uri())))
+                .thenReturn(Optional.of(target));
         var session = TestOAuth.logIn(mockMvc, alice.username(), PASSWORD);
 
         move(session, "@" + target.username() + "@" + target.domain(), PASSWORD).andExpect(redirectedUrl("/settings/move"));

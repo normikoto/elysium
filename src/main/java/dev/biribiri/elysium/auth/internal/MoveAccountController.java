@@ -90,7 +90,7 @@ class MoveAccountController {
         limits.loginSucceeded(request);
         try {
             // Fetched again, since the account may have only just listed this one.
-            var target = targets.find(accountId, address, true);
+            var target = targets.findFresh(accountId, address, account.uri());
             if (target.isEmpty()) {
                 return failed(accountId, HttpStatus.UNPROCESSABLE_CONTENT, "That account couldn't be found.", model, response);
             }

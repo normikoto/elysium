@@ -25,6 +25,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -109,6 +110,21 @@ class MoveIntegrationTests {
         await().atMost(WAIT).until(() -> outbound(follower.id()).stream().anyMatch(body -> body.contains("\"Follow\"")
                 && body.contains(newUri)));
         assertThat(outbound(follower.id())).anyMatch(body -> body.contains("\"Undo\"") && body.contains(oldUri));
+    }
+
+    @Test
+    void findsTheOldAccountAmongMoreAliasesThanAreKept() {
+        var aliases = new ArrayList<String>();
+        for (var i = 0; i < 30; i++) {
+            aliases.add("https://elsewhere.test/users/" + i);
+        }
+        aliases.add(oldUri);
+        stub(newUri, aliases);
+
+        handler.handle(move(newId(), oldUri, newUri));
+
+        await().atMost(WAIT).until(() -> follows(follower.id(), newUri).isPresent());
+        assertThat(follows(follower.id(), oldUri)).isEmpty();
     }
 
     @Test

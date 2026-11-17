@@ -112,7 +112,7 @@ class MoveChecks {
         if (actor.isEmpty() || migrations.recentlyMoved(actor.get().id())) {
             return;
         }
-        var target = isLocal(targetUri) ? actors.findLocalByUri(targetUri) : remoteActors.fetchFresh(targetUri);
+        var target = isLocal(targetUri) ? actors.findLocalByUri(targetUri) : remoteActors.fetchFresh(targetUri, actorUri);
         if (target.isEmpty()) {
             log.debug("Ignoring Move {}, since {} can't be used", activityId, targetUri);
             return;

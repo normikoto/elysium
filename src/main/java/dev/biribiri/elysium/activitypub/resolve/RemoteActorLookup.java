@@ -69,13 +69,11 @@ class RemoteActorLookup implements RemoteActorResolver {
 
     @Override
     public Optional<Actor> resolveAcct(UUID requester, String username, String domain) {
-        if (!USERNAME.matcher(username).matches() || !DOMAIN.matcher(domain).matches()) {
+        var remoteDomain = remoteDomain(username, domain);
+        if (remoteDomain.isEmpty()) {
             return Optional.empty();
         }
-        var normalized = domain.toLowerCase(Locale.ROOT);
-        if (normalized.equals(instance.domain()) || blocks.isBlocked(hostOf(normalized))) {
-            return Optional.empty();
-        }
+        var normalized = remoteDomain.get();
         var stored = actors.findRemoteByAcct(username, normalized);
         if (stored.filter(RemoteActors::isFresh).isPresent()) {
             return stored.filter(Actor::isActive);
@@ -89,7 +87,25 @@ class RemoteActorLookup implements RemoteActorResolver {
     }
 
     @Override
-    public Optional<Actor> resolveAcctFresh(UUID requester, String username, String domain) {
+    public Optional<Actor> resolveAcctFresh(UUID requester, String username, String domain, URI alias) {
+        var remoteDomain = remoteDomain(username, domain);
+        if (remoteDomain.isEmpty()) {
+            return Optional.empty();
+        }
+        var normalized = remoteDomain.get();
+        limits.count(requester);
+        var stored = actors.findRemoteByAcct(username, normalized);
+        // A stored actor is fetched from its URI, which skips WebFinger, as its address was checked when it was stored.
+        var uri = stored.map(Actor::uri).or(() -> webFinger(username, normalized).map(WebFingerAnswer::actor));
+        return uri.flatMap(found -> fetchFresh(found, alias))
+                .filter(found -> stored.isPresent() || hasAddress(found, username, normalized))
+                .filter(Actor::isActive);
+    }
+
+    /**
+     * @return the domain, normalized, or empty if the address can't be looked up: it's malformed, this server's, or blocked
+     */
+    private Optional<String> remoteDomain(String username, String domain) {
         if (!USERNAME.matcher(username).matches() || !DOMAIN.matcher(domain).matches()) {
             return Optional.empty();
         }
@@ -97,18 +113,12 @@ class RemoteActorLookup implements RemoteActorResolver {
         if (normalized.equals(instance.domain()) || blocks.isBlocked(hostOf(normalized))) {
             return Optional.empty();
         }
-        limits.count(requester);
-        var stored = actors.findRemoteByAcct(username, normalized);
-        // A stored actor is fetched from its URI, which skips WebFinger, as its address was checked when it was stored.
-        var uri = stored.map(Actor::uri).or(() -> webFinger(username, normalized).map(WebFingerAnswer::actor));
-        return uri.flatMap(this::fetchFresh)
-                .filter(found -> stored.isPresent() || hasAddress(found, username, normalized))
-                .filter(Actor::isActive);
+        return Optional.of(normalized);
     }
 
-    private Optional<Actor> fetchFresh(URI actorUri) {
+    private Optional<Actor> fetchFresh(URI actorUri, URI alias) {
         try {
-            return remoteActors.fetchFresh(actorUri);
+            return remoteActors.fetchFresh(actorUri, alias);
         } catch (RuntimeException e) {
             log.debug("Couldn't fetch {}: {}", actorUri, e.getMessage());
             return Optional.empty();

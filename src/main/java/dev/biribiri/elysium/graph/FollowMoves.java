@@ -107,6 +107,6 @@ public class FollowMoves {
      * Whether any local account has a block or a mute of the account that a move would carry over.
      */
     public boolean hasLocalBlocksOrMutes(UUID actorId) {
-        return !blockRows.findLocalBlockerIds(actorId).isEmpty() || mutes.hasLocalMuters(actorId);
+        return blockRows.hasLocalBlockers(actorId) || mutes.hasLocalMuters(actorId);
     }
 }

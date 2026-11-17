@@ -460,7 +460,8 @@ was stored before. A part that can't be used is left out, without refusing the a
   or HTTPS `href` is taken. An actor without `indexable`, or with anything but `true`, isn't indexable, so its public
   statuses are only found here by the users who favourited them or are mentioned in them. A `type` of `Service` or `Application` marks the account as a bot, and `Group` as a group.
 - `alsoKnownAs`, one ID or an array of IDs or objects with one, of which the first 20 HTTPS URLs are kept, on any server,
-  and `movedTo`, an ID or an object with one. Clients are shown the account as moved while `movedTo` names an actor that's
+  and `movedTo`, an ID or an object with one. A fetch made to check a [move](#moving-accounts) finds the old account
+  anywhere in the list. Clients are shown the account as moved while `movedTo` names an actor that's
   stored here and active.
 
 Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit. Each

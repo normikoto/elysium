@@ -115,16 +115,7 @@ public class RemoteActors {
             log.debug("Keeping the older copy of {}: {}", uri, e.getMessage());
             return existing;
         }
-        // Before the document is checked, so that a key it drops isn't still trusted when the rest can't be used. The
-        // document came from the actor's own URI, so it speaks for the actor's keys whatever else is wrong with it.
-        signatures.forgetChangedKeys(uri, document);
-        var profile = RemoteActorDocument.read(uri, document);
-        // Fetching can take a while, and a block can have landed since the job started. A suspension or deletion is left
-        // alone by the upsert.
-        if (blocks.isBlocked(uri.getHost())) {
-            return Optional.empty();
-        }
-        return Optional.of(store(profile, RemoteActorDocument.emoji(document))).filter(Actor::isActive);
+        return storeFetched(uri, document, true, null);
     }
 
     /**
@@ -132,10 +123,12 @@ public class RemoteActors {
      * now matters: whether it lists another account in {@code alsoKnownAs}, which it may have only just started to. Blocks
      * while fetching, so this mustn't be called inside a database transaction.
      *
+     * @param alias an account that's checked for in the actor's {@code alsoKnownAs}, which is then stored even if the
+     *              document lists more aliases than are kept
      * @return the stored actor, or empty if it isn't active or its domain is blocked
      * @throws PermanentJobFailure if the actor can't be fetched or stored. Anything else thrown is worth trying again.
      */
-    public Optional<Actor> fetchFresh(URI uri) {
+    public Optional<Actor> fetchFresh(URI uri, URI alias) {
         checkUri(uri);
         if (blocks.isBlocked(uri.getHost())) {
             return Optional.empty();
@@ -144,11 +137,21 @@ public class RemoteActors {
         if (existing.filter(actor -> !actor.isActive()).isPresent()) {
             return Optional.empty();
         }
-        var document = fetch(uri, false).orElseThrow();
-        if (existing.isPresent()) {
+        return storeFetched(uri, fetch(uri, false).orElseThrow(), existing.isPresent(), alias);
+    }
+
+    /**
+     * @param stored whether the actor was already stored, whose keys may then have changed
+     */
+    private Optional<Actor> storeFetched(URI uri, JsonNode document, boolean stored, URI alias) {
+        if (stored) {
+            // Before the document is checked, so that a key it drops isn't still trusted when the rest can't be used. The
+            // document came from the actor's own URI, so it speaks for the actor's keys whatever else is wrong with it.
             signatures.forgetChangedKeys(uri, document);
         }
-        var profile = RemoteActorDocument.read(uri, document);
+        var profile = RemoteActorDocument.read(uri, document, alias);
+        // Fetching can take a while, and a block can have landed since the job started. A suspension or deletion is left
+        // alone by the upsert.
         if (blocks.isBlocked(uri.getHost())) {
             return Optional.empty();
         }

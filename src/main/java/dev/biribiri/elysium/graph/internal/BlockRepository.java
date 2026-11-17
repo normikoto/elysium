@@ -374,6 +374,19 @@ public class BlockRepository {
     }
 
     /**
+     * @return whether a local account blocks the account
+     */
+    public boolean hasLocalBlockers(UUID targetId) {
+        return jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM account_block b JOIN actor a ON a.id = b.account_id AND a.is_local
+                                       WHERE b.target_id = :target)
+                        """)
+                .param("target", targetId)
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
      * @return the local accounts that block the account
      */
     public List<UUID> findLocalBlockerIds(UUID targetId) {

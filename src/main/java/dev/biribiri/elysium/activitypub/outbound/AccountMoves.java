@@ -10,6 +10,7 @@ import dev.biribiri.elysium.activitypub.vocab.Move;
 import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.actor.AccountMigrations;
 import dev.biribiri.elysium.actor.AccountMoved;
+import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.context.annotation.Lazy;
@@ -64,7 +65,8 @@ public class AccountMoves {
 
     @ApplicationModuleListener
     public void on(AccountMoved event) {
-        var target = actors.findById(event.targetId());
+        // A target that's been suspended or deleted since is no longer worth moving to, as FollowerMoveTask also decides.
+        var target = actors.findById(event.targetId()).filter(Actor::isActive);
         if (target.isEmpty()) {
             return;
         }

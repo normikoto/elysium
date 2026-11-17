@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,12 +30,24 @@ class MigrationTargets {
 
     /**
      * @param address what was typed in
-     * @param fresh   whether an account on another server's document has to be fetched again, rather than a recent copy
-     *                used, because what it says right now matters
      * @return the account, or empty if there's none to be found
      * @throws RemoteActorResolver.ResolveLimitException if the requester has looked up too many accounts recently
      */
-    Optional<Actor> find(UUID requester, String address, boolean fresh) {
+    Optional<Actor> find(UUID requester, String address) {
+        return find(requester, address, null);
+    }
+
+    /**
+     * Like {@link #find(UUID, String)}, but an account on another server's document is fetched again rather than a recent
+     * copy used, since whether it lists the requester as an alias may have only just changed.
+     *
+     * @param mover the requester's URI, which is kept in what's stored of the account's aliases if it lists it
+     */
+    Optional<Actor> findFresh(UUID requester, String address, URI mover) {
+        return find(requester, address, mover);
+    }
+
+    private Optional<Actor> find(UUID requester, String address, URI mover) {
         if (address == null) {
             return Optional.empty();
         }
@@ -54,6 +67,8 @@ class MigrationTargets {
         if (domain.equals(instance.domain())) {
             return actors.findLocalByUsername(username);
         }
-        return fresh ? resolver.resolveAcctFresh(requester, username, domain) : resolver.resolveAcct(requester, username, domain);
+        return mover != null
+                ? resolver.resolveAcctFresh(requester, username, domain, mover)
+                : resolver.resolveAcct(requester, username, domain);
     }
 }

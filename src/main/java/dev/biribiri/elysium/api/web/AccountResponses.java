@@ -141,9 +141,11 @@ class AccountResponses {
         if (movedTo.isEmpty()) {
             return;
         }
-        var targets = actors.findByUris(movedTo.values()).stream()
-                .filter(Actor::isActive)
-                .filter(target -> actors.isLocal(target) || !domainBlocks.isBlocked(target.uri().getHost()))
+        var active = actors.findByUris(movedTo.values()).stream().filter(Actor::isActive).toList();
+        var blocked = domainBlocks.blockedHosts(active.stream().filter(target -> !actors.isLocal(target))
+                .map(Actor::domain).toList());
+        var targets = active.stream()
+                .filter(target -> actors.isLocal(target) || !blocked.contains(target.domain()))
                 .toList();
         var targetResponses = byId(targets, profiles.findAll(targets.stream().map(Actor::id).toList()), false);
         var byUri = targets.stream().collect(Collectors.toMap(Actor::uri, target -> targetResponses.get(target.id())));

@@ -342,6 +342,22 @@ class RemoteActorDocumentTests {
     }
 
     @Test
+    void keepsTheAliasAMoveIsCheckedForPastTheCap() {
+        var aliases = new StringBuilder();
+        for (var i = 0; i < 30; i++) {
+            aliases.append(i == 0 ? "" : ",").append("\"https://old.test/users/").append(i).append('"');
+        }
+        var checked = URI.create("https://old.test/users/25");
+
+        var profile = RemoteActorDocument.read(ACTOR, document(",\"alsoKnownAs\":[" + aliases + "]"), checked).profile();
+
+        assertThat(profile.alsoKnownAs()).hasSize(RemoteActorDocument.MAX_ALIASES).contains(checked);
+        assertThat(RemoteActorDocument.read(ACTOR, document(",\"alsoKnownAs\":[" + aliases + "]"),
+                URI.create("https://old.test/users/99")).profile().alsoKnownAs())
+                .doesNotContain(URI.create("https://old.test/users/99"));
+    }
+
+    @Test
     void readsWhereTheActorMovedTo() {
         assertThat(RemoteActorDocument.read(ACTOR, document(",\"movedTo\":\"https://new.test/users/bob\"")).profile()
                 .movedTo()).isEqualTo(URI.create("https://new.test/users/bob"));

@@ -104,7 +104,8 @@ public class MuteRepository {
                         FROM account_mute m
                         JOIN actor a ON a.id = m.account_id AND a.is_local
                         WHERE m.target_id = :from AND m.account_id <> :to AND (m.expires_at IS NULL OR m.expires_at > now())
-                          AND NOT EXISTS (SELECT 1 FROM follow f WHERE f.follower_id = m.account_id AND f.followed_id = :to)
+                          AND NOT EXISTS (SELECT 1 FROM follow f WHERE f.follower_id = m.account_id AND f.followed_id = :to
+                                          AND f.state = 'accepted')
                         ON CONFLICT (account_id, target_id) DO NOTHING
                         """)
                 .param("from", fromId)

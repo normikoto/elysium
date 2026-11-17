@@ -75,16 +75,18 @@ public class AccountMoveRepository {
     }
 
     /**
-     * Deletes the moves by or to an account.
+     * Deletes the moves an account made. Moves to it are kept, since they're the other account's, and its wait before
+     * moving again comes from them.
      */
     public void deleteForActor(UUID actorId) {
-        jdbc.sql("DELETE FROM account_move WHERE actor_id = :actorId OR target_id = :actorId")
+        jdbc.sql("DELETE FROM account_move WHERE actor_id = :actorId")
                 .param("actorId", actorId)
                 .update();
     }
 
     /**
-     * Deletes a batch of the moves by or to a server's accounts.
+     * Deletes a batch of the moves made by a server's accounts. Moves to them are kept, as for
+     * {@link #deleteForActor}.
      *
      * @param domain as actors have it
      * @return how many were deleted, which is 0 once there are none left
@@ -94,8 +96,7 @@ public class AccountMoveRepository {
                         DELETE FROM account_move WHERE id IN (
                             SELECT m.id FROM account_move m
                             JOIN actor a ON a.id = m.actor_id
-                            JOIN actor t ON t.id = m.target_id
-                            WHERE (a.domain = :domain AND NOT a.is_local) OR (t.domain = :domain AND NOT t.is_local)
+                            WHERE a.domain = :domain AND NOT a.is_local
                             LIMIT :limit
                         )
                         """)

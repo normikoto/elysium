@@ -47,7 +47,7 @@ class AccountAliasesController {
             HttpServletResponse response) {
         var accountId = accountId(authentication);
         try {
-            var alias = targets.find(accountId, address, false);
+            var alias = targets.find(accountId, address);
             if (alias.isEmpty()) {
                 return failed(accountId, HttpStatus.UNPROCESSABLE_CONTENT, "That account couldn't be found.", model, response);
             }

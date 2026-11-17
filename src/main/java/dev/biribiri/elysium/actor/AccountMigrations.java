@@ -216,14 +216,16 @@ public class AccountMigrations {
     }
 
     /**
-     * Removes the moves by or to an account, for when it's deleted. Safe to repeat.
+     * Removes the moves an account made, for when it's deleted. Moves to it stay, so that whoever moved there still has to
+     * wait before moving again. Safe to repeat.
      */
     public void removeForActor(UUID actorId) {
         moves.deleteForActor(actorId);
     }
 
     /**
-     * Removes the moves by or to a server's accounts, for when it's blocked. Safe to stop partway, and to repeat.
+     * Removes the moves made by a server's accounts, for when it's blocked. Moves to them stay, as for
+     * {@link #removeForActor}. Safe to stop partway, and to repeat.
      *
      * @param domain as actors have it
      */
