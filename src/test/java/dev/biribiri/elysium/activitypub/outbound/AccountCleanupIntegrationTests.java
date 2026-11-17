@@ -111,6 +111,28 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAccountRemovesItsMovesButKeepsMovesToIt() {
+        var other = newLocal();
+        var follower = newLocal();
+        jdbc.sql("INSERT INTO account_move (id, actor_id, target_id) VALUES (gen_random_uuid(), :other, :id)")
+                .param("other", other.id()).param("id", local.id()).update();
+        jdbc.sql("INSERT INTO account_move (id, actor_id, target_id) VALUES (gen_random_uuid(), :id, :other)")
+                .param("other", other.id()).param("id", local.id()).update();
+        jdbc.sql("""
+                        INSERT INTO inbox_notification (id, recipient_id, sender_id, type, source_id, target_id, created_at)
+                        VALUES (gen_random_uuid(), :follower, :other, 'move', gen_random_uuid(), :id, now())
+                        """)
+                .param("follower", follower.id()).param("other", other.id()).param("id", local.id()).update();
+
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM account_move WHERE actor_id = :id", local.id()) == 0);
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM inbox_notification WHERE target_id = :id", local.id()) == 0);
+        // The other account's, whose wait before moving again comes from it.
+        assertThat(count("SELECT count(*) FROM account_move WHERE target_id = :id", local.id())).isOne();
+    }
+
+    @Test
     void deletingAnAccountRemovesItsPostingDefaults() {
         jdbc.sql("INSERT INTO posting_default (actor_id, quote_policy) VALUES (:id, 'nobody')")
                 .param("id", local.id()).update();

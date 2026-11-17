@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Moving accounts, as on Mastodon. Someone moving here adds their old account as an alias at `/settings/aliases` first.
+  Someone moving away moves their followers at `/settings/move`, which needs their password and works once every 30
+  days. Their account keeps working here, but shows as moved. When an account that people here follow moves, they're
+  moved to follow the new account, with its lists, blocks, and mutes carried over, and get a `move` notification. See
+  `docs/accounts.md`, `docs/api.md`, and `FEDERATION.md`.
+
 ## [0.2.1] - 2026-11-17
 
 ### Added

@@ -92,4 +92,37 @@ public class MuteRepository {
      */
     public record Mute(boolean notifications, Instant expiresAt) {
     }
+
+    /**
+     * Gives local accounts that mute {@code fromId} the same mute of {@code toId}, for when one moves to the other, as
+     * Mastodon does. Accounts that follow {@code toId} chose to, so they're left out, and so is an existing mute.
+     */
+    public void copyLocalMutes(UUID fromId, UUID toId) {
+        jdbc.sql("""
+                        INSERT INTO account_mute (id, account_id, target_id, notifications, expires_at)
+                        SELECT gen_random_uuid(), m.account_id, :to, m.notifications, m.expires_at
+                        FROM account_mute m
+                        JOIN actor a ON a.id = m.account_id AND a.is_local
+                        WHERE m.target_id = :from AND m.account_id <> :to AND (m.expires_at IS NULL OR m.expires_at > now())
+                          AND NOT EXISTS (SELECT 1 FROM follow f WHERE f.follower_id = m.account_id AND f.followed_id = :to
+                                          AND f.state = 'accepted')
+                        ON CONFLICT (account_id, target_id) DO NOTHING
+                        """)
+                .param("from", fromId)
+                .param("to", toId)
+                .update();
+    }
+
+    /**
+     * @return whether a local account has a mute of the account that hasn't expired
+     */
+    public boolean hasLocalMuters(UUID targetId) {
+        return jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM account_mute m JOIN actor a ON a.id = m.account_id AND a.is_local
+                                       WHERE m.target_id = :target AND (m.expires_at IS NULL OR m.expires_at > now()))
+                        """)
+                .param("target", targetId)
+                .query(Boolean.class)
+                .single();
+    }
 }

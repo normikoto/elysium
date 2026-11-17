@@ -1,0 +1,27 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Account aliases', ~{::content})}">
+<th:block th:fragment="content">
+    <p>
+        Before you move another account to this one, add it here. Other servers only move its followers once this account
+        lists it. Adding an alias doesn't change anything else.
+    </p>
+    <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+    <ul th:unless="${aliases.isEmpty()}">
+        <li th:each="alias : ${aliases}">
+            <form method="post" th:action="@{/settings/aliases/remove}">
+                <a th:href="${alias}" th:text="${alias}" rel="nofollow noopener"></a>
+                <input type="hidden" name="uri" th:value="${alias}">
+                <button type="submit">Remove</button>
+            </form>
+        </li>
+    </ul>
+    <p th:if="${aliases.isEmpty()}">There are no aliases yet.</p>
+    <form method="post" th:action="@{/settings/aliases}" th:if="${aliases.size() < maxAliases}">
+        <label for="address">The old account's address, such as @alice@example.com</label>
+        <input type="text" id="address" name="address" required autocomplete="off" spellcheck="false">
+        <button type="submit">Add alias</button>
+    </form>
+    <p th:unless="${aliases.size() < maxAliases}" th:text="|An account can have up to ${maxAliases} aliases.|"></p>
+    <p><a href="/settings">Back to settings</a></p>
+</th:block>
+</html>

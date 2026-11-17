@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Component
 class InboxResponses {
@@ -57,7 +58,9 @@ class InboxResponses {
     }
 
     List<NotificationResponse> notifications(UUID viewer, List<Notification> found) {
-        var accountMap = accounts(found.stream().map(Notification::accountId).toList());
+        var accountMap = accounts(Stream.concat(
+                found.stream().map(Notification::accountId),
+                found.stream().map(Notification::targetId).filter(Objects::nonNull)).distinct().toList());
         var statusMap = statuses(viewer, found.stream().map(Notification::statusId).filter(Objects::nonNull).toList(),
                 NOTIFICATIONS);
         var reportMap = reports(found.stream().map(Notification::reportId).filter(Objects::nonNull).toList());
@@ -68,6 +71,7 @@ class InboxResponses {
                 .filter(n -> n.statusId() == null || statusMap.containsKey(n.statusId()))
                 .filter(n -> n.reportId() == null || reportMap.containsKey(n.reportId()))
                 .filter(n -> n.reactionId() == null || reactionMap.containsKey(n.reactionId()))
+                .filter(n -> n.targetId() == null || accountMap.containsKey(n.targetId()))
                 .map(n -> {
                     var reaction = n.reactionId() == null ? null : reactionMap.get(n.reactionId());
                     var emoji = reaction == null || reaction.emojiId() == null ? null : emojiMap.get(reaction.emojiId());
@@ -76,7 +80,8 @@ class InboxResponses {
                             n.groupKey() == null ? "ungrouped-" + n.id() : n.groupKey(),
                             n.reportId() == null ? null : reportMap.get(n.reportId()),
                             reaction == null ? null : ReactionService.nameOf(reaction.name(), emoji),
-                            emoji == null ? null : emoji.url(instance).toString());
+                            emoji == null ? null : emoji.url(instance).toString(),
+                            n.targetId() == null ? null : accountMap.get(n.targetId()));
                 }).toList();
     }
 

@@ -7,9 +7,10 @@ The extent of this support and its limitations are what's described in the rest 
 
 - [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `EmojiReact`,
   `Announce`, and `Block` and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note` or a
-  `Question`, `Update` of an actor, a `Note`, or a `Question`, `Delete`, and `Flag`, and sending `Follow`, `Like`, `EmojiReact`,
-  `Announce`, and `Block` and their
-  `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, `Delete`, and `Flag`
+  `Question`, `Update` of an actor, a `Note`, or a `Question`, `Delete`, `Flag`, and `Move`, and sending `Follow`, `Like`,
+  `EmojiReact`, `Announce`, and `Block` and their
+  `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, `Delete`, `Flag`, and
+  `Move`
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -18,6 +19,8 @@ The extent of this support and its limitations are what's described in the rest 
 - [FEP-044f: Consent-respecting quote posts](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as
   [Quotes](#quotes) describes
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
+- [FEP-7628: Move actor](https://codeberg.org/fediverse/fep/src/branch/main/fep/7628/fep-7628.md), with Mastodon's terms
+  and only `movedTo`, as [Moving accounts](#moving-accounts) describes
 - [FEP-c0e0: Emoji reactions](https://codeberg.org/fediverse/fep/src/branch/main/fep/c0e0/fep-c0e0.md), as
   [Emoji reactions](#emoji-reactions) describes
 - [FEP-e232: Object Links](https://codeberg.org/fediverse/fep/src/branch/main/fep/e232/fep-e232.md), only for quotes
@@ -50,6 +53,8 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
   URL in a value is a link with `rel="me nofollow noopener noreferrer"`. Whether this server has verified the link isn't
   sent, since each server checks for itself.
 - `published`, when the account was created, and `updated`, when the profile last changed, both to the second.
+- `alsoKnownAs`, the accounts the user has added as aliases, which can [move here](#moving-accounts), and `movedTo`, the
+  account the user has moved to.
 
 `manuallyApprovesFollowers` is always included, and is true when the user [approves followers by hand](#follows).
 `indexable` is always included too, as Mastodon sends it, and is true when the user lets anyone's search find their public
@@ -59,11 +64,13 @@ same way.
 The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields,
 `Hashtag` (`as:Hashtag`), `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`), and `toot`
 (`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`), `indexable` (`toot:indexable`), and `Emoji`
-(`toot:Emoji`). `featured` is the user's
+(`toot:Emoji`). It also adds `alsoKnownAs` (`as:alsoKnownAs`) and `movedTo` (`as:movedTo`), both `@id`s, as Mastodon
+defines them, rather than FEP-7628's IRIs. `featured` is the user's
 [pinned statuses](#pinned-statuses), at `/users/{username}/collections/featured`. A suspended user's document leaves it
 out.
 
-When a user changes their profile, whether they approve followers by hand, or whether they're indexable, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
+When a user changes their profile, whether they approve followers by hand, whether they're indexable, or their aliases, or
+stops being marked as moved, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
 `{actor-uri}#profile/{milliseconds}`. It's addressed to the public, with the followers collection in `cc`, and its
 `object` is the actor document, without a `@context` of its own, as it is when it's sent. A save that changes nothing
 sends nothing, and neither does verifying a field. These aren't ordered, so a server that's been down can get an older
@@ -288,8 +295,8 @@ that was reached has room again. Counts are kept in memory, and restarting reset
 
 Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
 one worked. Activities are processed in no particular order. `Follow`, `Like`, `Announce`, `Block`, their `Undo`s, `Accept`
-and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, `Delete`, `Flag`, and `Add` and `Remove`
-of a [pinned status](#pinned-statuses) are acted on, and other types are ignored.
+and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, `Delete`, `Flag`, [`Move`](#moving-accounts),
+and `Add` and `Remove` of a [pinned status](#pinned-statuses) are acted on, and other types are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
@@ -452,6 +459,10 @@ was stored before. A part that can't be used is left out, without refusing the a
 - `manuallyApprovesFollowers`, `indexable`, `published`, and `url`, a URL or a `Link`, of which the first with an HTTP
   or HTTPS `href` is taken. An actor without `indexable`, or with anything but `true`, isn't indexable, so its public
   statuses are only found here by the users who favourited them or are mentioned in them. A `type` of `Service` or `Application` marks the account as a bot, and `Group` as a group.
+- `alsoKnownAs`, one ID or an array of IDs or objects with one, of which the first 20 HTTPS URLs are kept, on any server,
+  and `movedTo`, an ID or an object with one. A fetch made to check a [move](#moving-accounts) finds the old account
+  anywhere in the list. Clients are shown the account as moved while `movedTo` names an actor that's
+  stored here and active.
 
 Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit. Each
 has to be within 8 MB by default, which an admin [can change](docs/configuration.md), and is kept as WebP. One that's too
@@ -1343,6 +1354,64 @@ never says whether admins acted on it.
   servers either.
 - Once `elysium.federation.send-blocks` is turned off, lifting a block that was sent before then sends no `Undo`, so the
   other server keeps it.
+- A local account that has [moved](#moving-accounts) keeps working, where Mastodon's can only be deleted or redirected
+  back. Following a local account that approves followers by hand still waits for its approval when the follow is moved
+  there, where Mastodon skips that for its own accounts.
+- A `Move` from the new account, FEP-7628's pull mode, is ignored, as on Mastodon.
+
+### Moving accounts
+
+This follows FEP-7628's push mode, as Mastodon does: the account that moved sends the `Move`, and its followers' servers
+move their followers. Only followers move. Posts and the accounts the user follows stay where they were.
+
+**Receiving a `Move`:** its `object`, an ID or an object with one, has to be its `actor`, and its `target` an HTTPS URL of
+another actor. Anything else is ignored, as Mastodon ignores it. Then:
+
+- It's only acted on if a local user follows, blocks, or mutes the actor. Otherwise only the actor's document is fetched
+  again, 5 minutes later, as for an [`Update`](#profiles-from-other-servers).
+- The `target`'s document is fetched again, signed by the instance actor, and has to list the actor in `alsoKnownAs`, and
+  not have a `movedTo` of its own. So the new account has to list the old one before the `Move` is sent. The old
+  account's own `movedTo` isn't needed, since servers cache actor documents: the account is shown as moved from then on,
+  and its document is fetched again 5 minutes later.
+- A `Move` that fails those checks is dropped. Only one `Move` from an account is acted on each 7 days, as on Mastodon, and
+  a repeat of the same `id` does nothing.
+- Each local user who follows the old account is sent to follow the new one, with a new
+  [`Follow`](#following-other-actors), and an `Undo` of their `Follow` of the old account is sent straight away. A user the
+  new account blocks keeps following the old one. A user the new account's server hasn't accepted yet waits, as any
+  follow does.
+- Local users who block the old account, and don't follow the new one, block it too, and a [`Block`](#blocks) is sent. Mutes
+  are copied the same way, and aren't sent.
+
+A `target` on this server is checked the same way, against the aliases its user has added.
+
+**Moving to a local account:** the user adds their old account as an alias first, which sends an `Update` of their actor
+with it in `alsoKnownAs`, and the old account's server then sends its `Move`.
+
+**Moving a local account to another:**
+
+- Its document has `movedTo`, the new account's URI, and its followers' servers get an `Update` of the actor with the ID
+  `{actor-uri}#moved/{milliseconds}`, then a `Move`, both signed by the actor and delivered to the same inboxes as other
+  activities to its followers.
+- Local followers are moved as for a `Move` that's received, without anything being sent for them.
+- The new account is fetched again just before, and has to list the old one in `alsoKnownAs`, and not have moved itself.
+  An account can only move once each 30 days.
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice#moves/1763380800000",
+  "type": "Move",
+  "actor": "https://elysium.example/users/alice",
+  "object": "https://elysium.example/users/alice",
+  "target": "https://remote.example/users/alice",
+  "to": ["https://elysium.example/users/alice/followers"]
+}
+```
+
+A local account that has moved keeps working: it can still post, follow, and receive activities. FEP-7628 asks for
+`copiedTo` instead of `movedTo` in that case, but Mastodon, GoToSocial, and Misskey only read `movedTo`, so that's what's
+sent, and other servers may treat the account as inactive. The user can stop it being shown as moved, which sends an
+`Update` without `movedTo`. Followers who were moved stay with the new account.
 
 ### Suspended and deleted accounts
 

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.actor;
 
+import java.net.URI;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -27,6 +28,17 @@ public interface RemoteActorResolver {
      * @throws ResolveLimitException if the requester has made too many lookups recently
      */
     Optional<Actor> resolveAcct(UUID requester, String username, String domain);
+
+    /**
+     * Like {@link #resolveAcct}, but always fetches the actor's document, for when what it says right now matters: whether
+     * it lists an account that's moving to it.
+     *
+     * @param alias the account that's moving, which is kept in the stored {@code alsoKnownAs} if the document lists it,
+     *              however many other aliases it lists
+     * @return the stored actor, or empty if there's no such actor, it can't be fetched right now, or its server is blocked
+     * @throws ResolveLimitException if the requester has made too many lookups recently
+     */
+    Optional<Actor> resolveAcctFresh(UUID requester, String username, String domain, URI alias);
 
     /**
      * Finds an actor that's already stored, without asking its server, so this never makes a request and doesn't count

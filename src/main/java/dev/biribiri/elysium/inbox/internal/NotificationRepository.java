@@ -31,8 +31,10 @@ public class NotificationRepository {
     private static final String FROM = """
              FROM inbox_notification n JOIN actor a ON a.id = n.sender_id
              LEFT JOIN status s ON s.id = n.status_id
+             LEFT JOIN actor t ON t.id = n.target_id
              WHERE n.recipient_id = :viewer AND NOT n.dismissed AND
             """ + InboxSql.active("a")
+            + " AND (n.target_id IS NULL OR (t.id IS NOT NULL AND " + InboxSql.active("t") + "))"
             + " AND (n.type <> '" + ADMIN_REPORT + "' OR " + AdminRole.viewerIsAdmin() + ")"
             + " AND (n.type = '" + ADMIN_REPORT + "' OR " + InboxSql.notHidden("a") + ")"
             + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + InboxSql.visible("s") + "))";
@@ -44,7 +46,7 @@ public class NotificationRepository {
             rs.getObject("id", UUID.class), rs.getString("type"),
             rs.getObject("created_at", OffsetDateTime.class).toInstant(), rs.getObject("sender_id", UUID.class),
             rs.getObject("status_id", UUID.class), rs.getString("group_key"), rs.getObject("report_id", UUID.class),
-            rs.getObject("reaction_id", UUID.class));
+            rs.getObject("reaction_id", UUID.class), rs.getObject("target_id", UUID.class));
 
     private final JdbcClient jdbc;
 
@@ -106,7 +108,7 @@ public class NotificationRepository {
      * Each reaction is its own, since grouping them would lose which emoji each one is.
      */
     public Optional<UUID> insertReaction(UUID recipient, UUID sender, UUID reaction, UUID status) {
-        return insert(recipient, sender, Notification.REACTION, reaction, status, null, null, null, null, reaction);
+        return insert(recipient, sender, Notification.REACTION, reaction, status, null, null, null, null, reaction, null);
     }
 
     public Optional<UUID> insertFavourite(UUID recipient, UUID sender, UUID like, UUID status) {
@@ -144,6 +146,15 @@ public class NotificationRepository {
     }
 
     /**
+     * @param sender the account that moved
+     * @param move   what identifies the move, so that a repeat adds nothing
+     * @param target the account it moved to
+     */
+    public Optional<UUID> insertMove(UUID recipient, UUID sender, UUID move, UUID target) {
+        return insert(recipient, sender, "move", move, null, null, null, null, null, null, target);
+    }
+
+    /**
      * Nothing is added from a sender the recipient hides notifications from, as on Mastodon, so ending a mute doesn't bring
      * back what was sent during it.
      *
@@ -152,12 +163,12 @@ public class NotificationRepository {
     private Optional<UUID> insert(
             UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog,
             UUID report) {
-        return insert(recipient, sender, type, source, status, follow, like, reblog, report, null);
+        return insert(recipient, sender, type, source, status, follow, like, reblog, report, null, null);
     }
 
     private Optional<UUID> insert(
             UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog,
-            UUID report, UUID reaction) {
+            UUID report, UUID reaction, UUID target) {
         if (jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM inbox_notification
                         WHERE recipient_id = :recipient AND type = :type AND source_id = :source)
@@ -183,13 +194,13 @@ public class NotificationRepository {
         var inserted = jdbc.sql("""
                         INSERT INTO inbox_notification
                         (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, reblog_id,
-                         report_id, reaction_id, created_at, group_key)
+                         report_id, reaction_id, target_id, created_at, group_key)
                         VALUES (:id, :recipient, :sender, :type, :source, :status, :follow, :like, :reblog, :report,
-                                :reaction, :created, :group)
+                                :reaction, :target, :created, :group)
                         ON CONFLICT (recipient_id, type, source_id) DO NOTHING
                         """).param("id", id).param("recipient", recipient).param("sender", sender).param("type", type)
                 .param("source", source).param("status", status, Types.OTHER).param("follow", follow, Types.OTHER)
-                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("report", report, Types.OTHER).param("reaction", reaction, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
+                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("report", report, Types.OTHER).param("reaction", reaction, Types.OTHER).param("target", target, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
         if (inserted == 0) {
             return Optional.empty();
         }
@@ -256,7 +267,7 @@ public class NotificationRepository {
                         ORDER BY e.id %s LIMIT 1
                     ) next WHERE cardinality(chosen.visited) < :limit
                 )
-                SELECT n.id, n.type, n.created_at, n.sender_id, n.status_id, n.report_id, n.reaction_id,
+                SELECT n.id, n.type, n.created_at, n.sender_id, n.status_id, n.report_id, n.reaction_id, n.target_id,
                        chosen.effective_key AS group_key
                 FROM chosen JOIN inbox_notification n ON n.id = chosen.id ORDER BY n.id %s
                 """.formatted(eligible, direction, comparison, direction, direction);

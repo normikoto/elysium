@@ -9,9 +9,11 @@ import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.text.Shortcodes;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +36,7 @@ class AccountResponses {
     private final ProfileService profiles;
     private final PostingDefaults postingDefaults;
     private final CustomEmojis emojis;
+    private final DomainBlocks domainBlocks;
 
     AccountResponses(
             ActorService actors,
@@ -42,7 +45,9 @@ class AccountResponses {
             InstanceProperties instance,
             ProfileService profiles,
             PostingDefaults postingDefaults,
-            CustomEmojis emojis) {
+            CustomEmojis emojis,
+            DomainBlocks domainBlocks) {
+        this.domainBlocks = domainBlocks;
         this.postingDefaults = postingDefaults;
         this.emojis = emojis;
         this.actors = actors;
@@ -61,7 +66,7 @@ class AccountResponses {
      */
     CredentialAccountResponse credential(Actor actor) {
         var profile = profiles.find(actor.id());
-        var account = byId(List.of(actor), Map.of(actor.id(), profile)).get(actor.id());
+        var account = byId(List.of(actor), Map.of(actor.id(), profile), true).get(actor.id());
         return CredentialAccountResponse.from(account, profile, follows.countRequests(actor.id()),
                 postingDefaults.quotePolicy(actor.id()));
     }
@@ -78,10 +83,13 @@ class AccountResponses {
      * @return a response for each account, by its ID
      */
     Map<UUID, AccountResponse> byId(Collection<Actor> found) {
-        return byId(found, profiles.findAll(found.stream().map(Actor::id).toList()));
+        return byId(found, profiles.findAll(found.stream().map(Actor::id).toList()), true);
     }
 
-    private Map<UUID, AccountResponse> byId(Collection<Actor> found, Map<UUID, Profile> profilesById) {
+    /**
+     * @param withMoved whether to include the accounts these have moved to, which aren't included in those
+     */
+    private Map<UUID, AccountResponse> byId(Collection<Actor> found, Map<UUID, Profile> profilesById, boolean withMoved) {
         var ids = found.stream().map(Actor::id).toList();
         var stats = statuses.statsFor(ids);
         var counts = follows.countsFor(ids);
@@ -117,6 +125,35 @@ class AccountResponses {
                     accountEmojis,
                     instance));
         }
+        if (withMoved) {
+            addMoved(responses, profilesById);
+        }
         return responses;
+    }
+
+    private void addMoved(Map<UUID, AccountResponse> responses, Map<UUID, Profile> profilesById) {
+        var movedTo = new HashMap<UUID, URI>();
+        profilesById.forEach((id, profile) -> {
+            if (profile.movedTo() != null && responses.containsKey(id)) {
+                movedTo.put(id, profile.movedTo());
+            }
+        });
+        if (movedTo.isEmpty()) {
+            return;
+        }
+        var active = actors.findByUris(movedTo.values()).stream().filter(Actor::isActive).toList();
+        var blocked = domainBlocks.blockedHosts(active.stream().filter(target -> !actors.isLocal(target))
+                .map(Actor::domain).toList());
+        var targets = active.stream()
+                .filter(target -> actors.isLocal(target) || !blocked.contains(target.domain()))
+                .toList();
+        var targetResponses = byId(targets, profiles.findAll(targets.stream().map(Actor::id).toList()), false);
+        var byUri = targets.stream().collect(Collectors.toMap(Actor::uri, target -> targetResponses.get(target.id())));
+        movedTo.forEach((id, uri) -> {
+            var target = byUri.get(uri);
+            if (target != null) {
+                responses.put(id, responses.get(id).withMoved(target));
+            }
+        });
     }
 }

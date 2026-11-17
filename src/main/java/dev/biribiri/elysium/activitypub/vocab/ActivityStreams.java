@@ -47,13 +47,19 @@ public final class ActivityStreams {
     static final List<Object> PERSON_CONTEXT = List.of(
             CONTEXT,
             "https://w3id.org/security/v1",
-            Map.of("schema", "http://schema.org#", "PropertyValue", "schema:PropertyValue", "value", "schema:value",
-                    Hashtag.CONTEXT_TERM, Hashtag.CONTEXT_IRI,
-                    Emoji.CONTEXT_TERM, Emoji.CONTEXT_IRI,
-                    "manuallyApprovesFollowers", "as:manuallyApprovesFollowers",
-                    "toot", "http://joinmastodon.org/ns#",
-                    "featured", Map.of("@id", "toot:featured", "@type", "@id"),
-                    "indexable", "toot:indexable"));
+            Map.ofEntries(
+                    Map.entry("schema", "http://schema.org#"),
+                    Map.entry("PropertyValue", "schema:PropertyValue"),
+                    Map.entry("value", "schema:value"),
+                    Map.entry(Hashtag.CONTEXT_TERM, Hashtag.CONTEXT_IRI),
+                    Map.entry(Emoji.CONTEXT_TERM, Emoji.CONTEXT_IRI),
+                    Map.entry("manuallyApprovesFollowers", "as:manuallyApprovesFollowers"),
+                    // Mastodon's terms, rather than FEP-7628's, since they're the ones other servers read.
+                    Map.entry("alsoKnownAs", Map.of("@id", "as:alsoKnownAs", "@type", "@id")),
+                    Map.entry("movedTo", Map.of("@id", "as:movedTo", "@type", "@id")),
+                    Map.entry("toot", "http://joinmastodon.org/ns#"),
+                    Map.entry("featured", Map.of("@id", "toot:featured", "@type", "@id")),
+                    Map.entry("indexable", "toot:indexable")));
 
     /**
      * The {@code @context} of an actor document or activity saying that the actor is suspended, which adds Mastodon's term for

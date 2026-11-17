@@ -35,6 +35,11 @@ final class RemoteActorDocument {
     static final int MAX_FIELD_NAME = 255;
     static final int MAX_FIELD_VALUE_HTML = 2_000;
 
+    /**
+     * Mastodon lets its users list as many as they like, but a move only needs the one being moved from.
+     */
+    static final int MAX_ALIASES = 20;
+
     private static final Set<String> BOT_TYPES = Set.of("Service", "Application");
 
     private RemoteActorDocument() {
@@ -61,6 +66,14 @@ final class RemoteActorDocument {
      * @throws PermanentJobFailure if the document can't be used
      */
     static RemoteActorProfile read(URI uri, JsonNode document) {
+        return read(uri, document, null);
+    }
+
+    /**
+     * @param alias an account to keep in {@code alsoKnownAs} if the document lists it, even past {@link #MAX_ALIASES}, for
+     *              a fetch made to check whether a move from that account is allowed. Null for none.
+     */
+    static RemoteActorProfile read(URI uri, JsonNode document, URI alias) {
         if (!uri.toString().equals(document.path("id").stringValue(null))) {
             throw refused(uri, "has a different id");
         }
@@ -96,7 +109,7 @@ final class RemoteActorDocument {
                 publicKeyPem(document.path("publicKey")),
                 followers,
                 featured,
-                profile(document));
+                profile(uri, document, alias));
     }
 
     /**
@@ -106,7 +119,7 @@ final class RemoteActorDocument {
         return RemoteEmojis.read(document.path("tag"));
     }
 
-    private static RemoteProfile profile(JsonNode document) {
+    private static RemoteProfile profile(URI uri, JsonNode document, URI alias) {
         var types = ActivityJson.types(document.path("type"));
         var noteHtml = html(ActivityJson.naturalText(document, "summary"), MAX_NOTE_HTML).orElse("");
         return new RemoteProfile(
@@ -121,7 +134,42 @@ final class RemoteActorDocument {
                 types.stream().anyMatch(BOT_TYPES::contains),
                 types.contains("Group"),
                 RemoteNote.timestamp(document.path("published")),
-                profileUrl(document.path("url")));
+                profileUrl(document.path("url")),
+                aliases(uri, document.path("alsoKnownAs"), alias),
+                otherActor(uri, ActivityJson.idOf(document.path("movedTo"))));
+    }
+
+    /**
+     * Other actors' URIs, which are only believed once those actors' own documents agree, so they can be on any server.
+     */
+    private static List<URI> aliases(URI uri, JsonNode alsoKnownAs, URI keep) {
+        var all = ActivityJson.ids(alsoKnownAs).stream()
+                .map(id -> otherActor(uri, id))
+                .filter(alias -> alias != null)
+                .distinct()
+                .toList();
+        if (all.size() <= MAX_ALIASES) {
+            return all;
+        }
+        var kept = new ArrayList<>(all.subList(0, MAX_ALIASES));
+        // Servers don't agree on an order, so the one a move is checked for could be anywhere in a long list.
+        if (keep != null && all.contains(keep) && !kept.contains(keep)) {
+            kept.set(MAX_ALIASES - 1, keep);
+        }
+        return kept;
+    }
+
+    /**
+     * @return the URI of an actor other than {@code uri}, or null if it isn't an HTTPS URL that can be stored
+     */
+    private static URI otherActor(URI uri, String value) {
+        if (value == null || !InboundActivity.isStorableId(value)) {
+            return null;
+        }
+        return ActivityObject.parseUri(value)
+                .filter(other -> "https".equalsIgnoreCase(other.getScheme()) && other.getHost() != null)
+                .filter(other -> !other.equals(uri))
+                .orElse(null);
     }
 
     /**

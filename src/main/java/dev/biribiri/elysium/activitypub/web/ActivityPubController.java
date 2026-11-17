@@ -140,8 +140,9 @@ public class ActivityPubController {
             description = """
                     A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, and the shared inbox \
                     at `/inbox` as `endpoints.sharedInbox`. The profile is in `name`, `summary` (HTML), `icon` and \
-                    `image` (WebP `Image`s), and `attachment` (`PropertyValue`s), each left out if it's empty. A \
-                    suspended user's document has `suspended: true`, the same key, and no profile. When the server \
+                    `image` (WebP `Image`s), and `attachment` (`PropertyValue`s), each left out if it's empty. \
+                    `alsoKnownAs` lists the accounts that can move to this one, and `movedTo` is the account this one \
+                    moved to, which it keeps working after. A suspended user's document has `suspended: true`, the same key, and no profile. When the server \
                     requires signed fetches, an unsigned request gets a minimal document with only the `id`, `type`, \
                     `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, and `publicKey`, \
                     so that the key can always be read. So does one whose signature can't be accepted, unless it's \

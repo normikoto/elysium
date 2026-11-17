@@ -95,7 +95,9 @@ public class ProfileService {
                     row.indexable(),
                     row.updatedAt(),
                     remote == null ? null : new Profile.Remote(
-                            remote.noteHtml(), remote.url(), remote.bot(), remote.group(), remote.published())));
+                            remote.noteHtml(), remote.url(), remote.bot(), remote.group(), remote.published()),
+                    row.alsoKnownAs(),
+                    row.movedTo()));
         }
         return found;
     }
@@ -134,7 +136,9 @@ public class ProfileService {
                         profile.url(),
                         profile.bot(),
                         profile.group(),
-                        profile.published()));
+                        profile.published()),
+                profile.alsoKnownAs(),
+                profile.movedTo());
         if (!row.equals(old)) {
             profiles.saveRemote(row);
         }
@@ -308,7 +312,10 @@ public class ProfileService {
                         choose(change.header(), header, old.header(), removed),
                         change.manuallyApprovesFollowers().orElse(old.manuallyApprovesFollowers()),
                         change.indexable().orElse(old.indexable()),
-                        old.updatedAt());
+                        old.updatedAt(),
+                        null,
+                        old.alsoKnownAs(),
+                        old.movedTo());
                 var oldFields = fields.isPresent() ? profiles.findFields(List.of(actorId)) : List.<ProfileRepository.FieldRow>of();
                 var newFields = fields.map(list -> keepVerification(list, actorId, oldFields));
                 // A form sends everything each time it's saved, and other servers shouldn't hear about nothing.

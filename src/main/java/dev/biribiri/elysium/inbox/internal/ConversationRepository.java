@@ -240,6 +240,7 @@ public class ConversationRepository {
         jdbc.sql("""
                         DELETE FROM inbox_notification
                         WHERE recipient_id = ANY(CAST(:ids AS uuid[])) OR sender_id = ANY(CAST(:ids AS uuid[]))
+                           OR target_id = ANY(CAST(:ids AS uuid[]))
                         """).param("ids", ids).update();
         jdbc.sql("DELETE FROM inbox_marker WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
         jdbc.sql("DELETE FROM inbox_follow_group WHERE recipient_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();

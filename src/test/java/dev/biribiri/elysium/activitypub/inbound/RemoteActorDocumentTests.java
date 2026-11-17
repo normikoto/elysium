@@ -312,6 +312,62 @@ class RemoteActorDocumentTests {
         assertThatThrownBy(() -> RemoteActorDocument.read(ACTOR, document)).isInstanceOf(PermanentJobFailure.class);
     }
 
+    @Test
+    void readsAliasesOnAnyServer() {
+        var profile = RemoteActorDocument.read(ACTOR, document("""
+                ,"alsoKnownAs":["https://old.test/users/bob",{"id":"https://older.test/@bob"},
+                 "https://old.test/users/bob","http://plain.test/bob","not a uri","%s"]""".formatted(ACTOR))).profile();
+
+        assertThat(profile.alsoKnownAs()).containsExactly(
+                URI.create("https://old.test/users/bob"), URI.create("https://older.test/@bob"));
+    }
+
+    @Test
+    void readsOneAliasThatIsntInAnArray() {
+        var profile = RemoteActorDocument.read(ACTOR, document(",\"alsoKnownAs\":\"https://old.test/users/bob\"")).profile();
+
+        assertThat(profile.alsoKnownAs()).containsExactly(URI.create("https://old.test/users/bob"));
+    }
+
+    @Test
+    void keepsAtMostTwentyAliases() {
+        var aliases = new StringBuilder();
+        for (var i = 0; i < 30; i++) {
+            aliases.append(i == 0 ? "" : ",").append("\"https://old.test/users/").append(i).append('"');
+        }
+
+        var profile = RemoteActorDocument.read(ACTOR, document(",\"alsoKnownAs\":[" + aliases + "]")).profile();
+
+        assertThat(profile.alsoKnownAs()).hasSize(RemoteActorDocument.MAX_ALIASES);
+    }
+
+    @Test
+    void keepsTheAliasAMoveIsCheckedForPastTheCap() {
+        var aliases = new StringBuilder();
+        for (var i = 0; i < 30; i++) {
+            aliases.append(i == 0 ? "" : ",").append("\"https://old.test/users/").append(i).append('"');
+        }
+        var checked = URI.create("https://old.test/users/25");
+
+        var profile = RemoteActorDocument.read(ACTOR, document(",\"alsoKnownAs\":[" + aliases + "]"), checked).profile();
+
+        assertThat(profile.alsoKnownAs()).hasSize(RemoteActorDocument.MAX_ALIASES).contains(checked);
+        assertThat(RemoteActorDocument.read(ACTOR, document(",\"alsoKnownAs\":[" + aliases + "]"),
+                URI.create("https://old.test/users/99")).profile().alsoKnownAs())
+                .doesNotContain(URI.create("https://old.test/users/99"));
+    }
+
+    @Test
+    void readsWhereTheActorMovedTo() {
+        assertThat(RemoteActorDocument.read(ACTOR, document(",\"movedTo\":\"https://new.test/users/bob\"")).profile()
+                .movedTo()).isEqualTo(URI.create("https://new.test/users/bob"));
+        assertThat(RemoteActorDocument.read(ACTOR, document(",\"movedTo\":{\"id\":\"https://new.test/users/bob\"}"))
+                .profile().movedTo()).isEqualTo(URI.create("https://new.test/users/bob"));
+        assertThat(RemoteActorDocument.read(ACTOR, document(",\"movedTo\":\"" + ACTOR + "\"")).profile().movedTo())
+                .isNull();
+        assertThat(RemoteActorDocument.read(ACTOR, document("")).profile().movedTo()).isNull();
+    }
+
     private static JsonNode document(String extra) {
         return json("{\"id\":\"" + ACTOR + "\",\"type\":\"Person\",\"preferredUsername\":\"bob\","
                 + "\"inbox\":\"https://remote.test/ap/users/1/inbox\"" + extra + "}");

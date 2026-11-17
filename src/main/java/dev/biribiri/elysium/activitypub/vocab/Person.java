@@ -28,6 +28,10 @@ import java.util.List;
  *                   {@linkplain #minimal minimal} document, since a false one would say the actor isn't locked
  * @param indexable  whether any server's search may find the actor's public statuses, left out of a minimal document
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
+ * @param alsoKnownAs the accounts that can move to this one, left out if there are none
+ * @param movedTo    the account this one has moved to, left out if it hasn't. The account keeps working here, but other
+ *                   servers treat it as moved, which is why FEP-7628's {@code copiedTo} isn't sent instead: they don't
+ *                   read it.
  * @param suspended  true if the actor is suspended. Otherwise this is left out, as other servers treat a missing one as false.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -54,6 +58,8 @@ public record Person(
         Boolean indexable,
         String published,
         String updated,
+        List<URI> alsoKnownAs,
+        URI movedTo,
         Boolean suspended
 ) {
 
@@ -128,6 +134,8 @@ public record Person(
                 profile.indexable(),
                 ActivityStreams.time(actor.createdAt()),
                 ActivityStreams.time(profile.updatedAt()),
+                profile.alsoKnownAs().isEmpty() ? null : profile.alsoKnownAs(),
+                profile.movedTo(),
                 null);
     }
 
@@ -168,6 +176,8 @@ public record Person(
                 null,
                 null,
                 null,
+                null,
+                null,
                 actor.isSuspended() ? true : null);
     }
 
@@ -183,6 +193,6 @@ public record Person(
                 context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, featured,
                 endpoints,
                 publicKey, icon, image, attachment, tag, manuallyApprovesFollowers, indexable, published, updated,
-                suspended);
+                alsoKnownAs, movedTo, suspended);
     }
 }

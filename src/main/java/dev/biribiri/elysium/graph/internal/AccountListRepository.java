@@ -155,4 +155,23 @@ public class AccountListRepository {
         jdbc.sql("DELETE FROM account_list_member WHERE list_id = :list AND target_id = ANY (CAST(:accounts AS uuid[]))")
                 .param("list", listId).param("accounts", accountIds.toArray(UUID[]::new)).update();
     }
+
+    /**
+     * Puts {@code toId} in each of the owner's lists that has {@code fromId}, for when the owner's follow moves from one to
+     * the other. The owner has to follow {@code toId} already, or have asked to, as every member does.
+     */
+    public void copyMembers(UUID ownerId, UUID fromId, UUID toId) {
+        jdbc.sql("""
+                        INSERT INTO account_list_member (id, list_id, account_id, target_id, created_at)
+                        SELECT gen_random_uuid(), m.list_id, m.account_id, :to, m.created_at
+                        FROM account_list_member m
+                        JOIN follow f ON f.follower_id = m.account_id AND f.followed_id = :to
+                        WHERE m.account_id = :owner AND m.target_id = :from
+                        ON CONFLICT (list_id, target_id) DO NOTHING
+                        """)
+                .param("owner", ownerId)
+                .param("from", fromId)
+                .param("to", toId)
+                .update();
+    }
 }
