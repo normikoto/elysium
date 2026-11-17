@@ -8,12 +8,12 @@ Set these in your `application.properties`:
 
 | Property                           | Description                                                                                                                                             |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `elysium.instance.base-url`        | Required. Public URL of the server, with no path. A real server must use a public HTTPS URL. Actor URIs and the instance domain come from it, so don't change it after federating. |
-| `elysium.registration.mode`        | Optional. Who can create an account at `/signup`, once the first account exists: `open` for anyone who confirms their email address, `approval` to also need an admin to approve each one, or `closed` for only people with an invite. Defaults to `closed`. `open` and `approval` need an SMTP server. The first account has to come from the `create-user` command. See [Accounts and sign-ups](accounts.md). |
-| `spring.mail.host`                 | Optional. The SMTP server that sends email, such as the links that confirm a sign-up's address. Also set `spring.mail.port`, `spring.mail.username`, and `spring.mail.password` if it needs them, and `spring.mail.properties.mail.smtp.starttls.required=true` unless it uses port 465 with `spring.mail.protocol=smtps`. Without a host, no email is sent. |
+| `elysium.instance.base-url`        | Required. The server's public HTTPS URL, with no path, such as `https://social.example`. Other servers know your users by it, so don't change it after federating. |
+| `elysium.registration.mode`        | Optional. Who can create an account at `/signup`: `open`, `approval`, or `closed`. Defaults to `closed`. See [Sign-ups](accounts.md#sign-ups) for what each allows and what it needs. |
+| `spring.mail.host`                 | Optional. The SMTP server that sends email, such as the links that confirm a sign-up's address. Without one, no email is sent. See [Email](#email). |
 | `elysium.mail.from`                | Required once `spring.mail.host` is set. The address that email comes from, which your SMTP server has to allow. |
 | `elysium.rate-limit.enabled`       | Optional. Set to `false` to turn off the limits on logins, sign-ups, and app registrations, if you enforce your own elsewhere. Defaults to `true`. See [Rate limits](accounts.md#rate-limits). |
-| `elysium.statuses.max-characters`  | Optional. The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Defaults to `5000`. Lowering it doesn't affect existing statuses. |
+| `elysium.statuses.max-characters`  | Optional. The most characters a new post can have, counting its content warning. Each URL counts as 23 characters. Defaults to `5000`. Lowering it doesn't affect existing posts. |
 | `elysium.profiles.max-fields`      | Optional. How many fields each profile can have, from 0 to 50. Defaults to `4`, as on Mastodon. Lowering it doesn't remove any, but a profile with more can't save its fields until it has few enough. |
 | `elysium.profiles.max-image-size`  | Optional. The largest avatar or header that can be uploaded, or downloaded from another server, such as `4MB`. Defaults to `8MB`. Larger ones from other servers are linked to their server. |
 | `elysium.custom-emojis.max-image-size` | Optional. The largest image a [custom emoji](accounts.md#custom-emoji) can have, before it's re-encoded, for those admins add and those downloaded from other servers. Defaults to `256KB`, as on Mastodon. Other servers' emoji with larger images are linked to their server. |
@@ -42,6 +42,13 @@ Set these in your `application.properties`:
 | `db-scheduler.polling-strategy-upper-limit-fraction-of-threads` | Set to `1.0` along with `LOCK_AND_FETCH`. Leave it unset otherwise. |
 
 You also need to point `spring.datasource.*` at your PostgreSQL database. Migrations run automatically on startup.
+
+## Email
+Email is needed for the `open` and `approval` [sign-up modes](accounts.md#sign-ups). Along with `spring.mail.host` and
+`elysium.mail.from`:
+- Set `spring.mail.port`, `spring.mail.username`, and `spring.mail.password` if your SMTP server needs them.
+- Set `spring.mail.properties.mail.smtp.starttls.required=true`, so that email isn't sent unencrypted, unless the server
+  uses port 465 with `spring.mail.protocol=smtps`.
 
 ## Media
 

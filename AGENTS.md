@@ -130,7 +130,8 @@ change. New settings an operator would use also belong in `application.propertie
 Each document has one audience. Keep each fact short, put it in one place, and link to it from elsewhere. Describe only
 what its readers can observe or have to do, and leave out how the server is built: class names, tables, job internals,
 the order things happen in inside the server, exact retention times, and edge cases its readers won't notice.
-`federation/README.md` and `docs/federation-plan.md` are the exception, since they're for contributors.
+`federation/README.md` and `docs/federation-plan.md` are the exception, since they're for contributors. Follow
+`.claude/rules/documentation.md` for how to write warnings, settings, commands, and procedures.
 
 - **`README.md`, `CHANGELOG.md`, and `docs/` other than `docs/api.md`** are for instance admins. Write only what an admin
   needs to install, configure, operate, or understand the server's visible behavior: settings, commands, what happens to
