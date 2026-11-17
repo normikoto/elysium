@@ -153,6 +153,10 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 - `summary`: the content warning, as plain text rather than HTML, which matches Mastodon.
 - `inReplyTo`: the parent status.
 - `contentMap`: the `content` under its language, if one is set.
+- `source`: for a status written in Markdown, the text as written, with `mediaType` `text/markdown`, as Misskey and
+  Pleroma send it. `content` is still the HTML to show, and only uses the tags that
+  [statuses from other servers](#receiving-statuses) keep, so headings are bold paragraphs and images are links. A plain
+  text status has no `source`. A `source` that another server sends is ignored.
 - `tag`: a `Mention` for each account the status mentions, with the actor's ID as `href` and its full address, such as
   `@bob@example.com`, as `name`. Mentioned accounts that have since been suspended or deleted are left out. Then a
   `Hashtag` for each of its hashtags, up to 100, with `#` and the normalized name as `name`, such as `#café`, and this
@@ -1333,6 +1337,8 @@ never says whether admins acted on it.
 - A `featured` collection only lists public and unlisted pins, where Mastodon also names followers-only ones to a
   follower's signed fetch. Pins from another server are kept for its followers-only statuses that were sent here, but those
   aren't fetched.
+- Mastodon doesn't send `source`. A status written in Markdown here has one, as on Misskey and Pleroma, and its
+  `content` uses the same tags as any other.
 - Mastodon has no [local-only statuses](#local-only-statuses). They work like glitch-soc's, which aren't sent to other
   servers either.
 - Once `elysium.federation.send-blocks` is turned off, lifting a block that was sent before then sends no `Undo`, so the

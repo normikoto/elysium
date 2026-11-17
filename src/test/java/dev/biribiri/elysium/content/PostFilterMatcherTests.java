@@ -87,6 +87,6 @@ class PostFilterMatcherTests {
     private static Status status(UUID id, UUID reblogOfId, String text) {
         return new Status(id, URI.create("https://example.test/s/" + id), UUID.randomUUID(), text, "<p>" + text + "</p>",
                 "warning", null, Visibility.PUBLIC, false, false, null, null, null, null, Instant.now(), null,
-                reblogOfId, 0, null, null, false);
+                reblogOfId, 0, null, null, false, ContentType.PLAIN);
     }
 }

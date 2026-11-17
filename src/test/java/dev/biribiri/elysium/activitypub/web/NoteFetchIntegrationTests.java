@@ -6,6 +6,7 @@ import dev.biribiri.elysium.activitypub.web.RemoteSigners.Signer;
 import dev.biribiri.elysium.activitypub.signature.CavageRequestSigner;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -202,6 +203,23 @@ class NoteFetchIntegrationTests {
         statuses.delete(status.id(), alice().id());
 
         fetch(status, mentioned).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void sendsTheMarkdownThatAStatusWasWrittenIn() throws Exception {
+        var markdown = statuses.create(alice().id(), new NewStatus(
+                "**bold**", null, null, Visibility.PUBLIC, false, null, List.of(), null, null, null, false,
+                ContentType.MARKDOWN));
+        var plain = post("**plain**", Visibility.PUBLIC);
+
+        fetch(markdown, remote("reader"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("<p><strong>bold</strong></p>"))
+                .andExpect(jsonPath("$.source.content").value("**bold**"))
+                .andExpect(jsonPath("$.source.mediaType").value("text/markdown"));
+        fetch(plain, remote("otherreader"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").doesNotExist());
     }
 
     @Test

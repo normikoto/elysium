@@ -65,6 +65,13 @@ public final class PlainText {
         return paragraph.lines().map(line -> renderLine(line, LINK, mentions, tagBase)).collect(Collectors.joining("<br>"));
     }
 
+    /**
+     * Renders one line of a status, for {@link Markdown}, which splits the text itself.
+     */
+    static String renderLine(String line, Function<Mentions.Match, MentionLink> mentions, URI tagBase) {
+        return renderLine(line, LINK, mentions, tagBase);
+    }
+
     private record Span(int start, int end, String html) {
     }
 

@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver.ResolveLimitException;
+import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.RemoteUrlResolver.Found;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -184,7 +185,8 @@ class RemoteUrlLookupTests {
 
     private static Status status() {
         return new Status(UUID.randomUUID(), NOTE, UUID.randomUUID(), "hi", "<p>hi</p>", null, null, Visibility.PUBLIC,
-                false, false, null, null, null, null, Instant.now(), null, null, 0, null, null, false);
+                false, false, null, null, null, null, Instant.now(), null, null, 0, null, null, false,
+                ContentType.PLAIN);
     }
 
     private static Actor suspended(Actor actor) {

@@ -61,7 +61,11 @@ record InstanceResponse(
     record Statuses(
             @JsonProperty("max_characters") int maxCharacters,
             @JsonProperty("max_media_attachments") int maxMediaAttachments,
-            @JsonProperty("characters_reserved_per_url") int charactersReservedPerUrl
+            @JsonProperty("characters_reserved_per_url") int charactersReservedPerUrl,
+            @Schema(description = """
+                    What a status's text can be written in, for `content_type`, as glitch-soc gives it. Mastodon \
+                    doesn't send this.""")
+            @JsonProperty("supported_mime_types") List<String> supportedMimeTypes
     ) {
     }
 

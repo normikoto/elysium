@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content.internal;
 
 import dev.biribiri.elysium.actor.Indexable;
 import dev.biribiri.elysium.content.AccountStats;
+import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.DeletedStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
@@ -44,7 +45,7 @@ public class StatusRepository {
     private static final String COLUMNS = """
             s.id, s.uri, s.actor_id, s.text, s.content, s.spoiler_text, s.language, s.visibility, s.sensitive, s.reply,
             s.in_reply_to_id, s.in_reply_to_account_id, s.in_reply_to_uri, s.url, s.published_at, s.edited_at, s.reblog_of_id,
-            s.quote_automatic, s.quote_manual, s.note_updated_at, s.local_only""";
+            s.quote_automatic, s.quote_manual, s.note_updated_at, s.local_only, s.content_type""";
 
     /**
      * For a query with no viewer, which serves people who aren't logged in and other servers. A viewer is always an account
@@ -170,7 +171,8 @@ public class StatusRepository {
                 rs.getLong("replies_count"),
                 ContentRows.quoteApproval(rs),
                 ContentRows.instantOrNull(rs.getObject("note_updated_at", OffsetDateTime.class)),
-                rs.getBoolean("local_only"));
+                rs.getBoolean("local_only"),
+                ContentType.fromValue(rs.getString("content_type")).orElseThrow());
     }
 
     /**
@@ -205,11 +207,11 @@ public class StatusRepository {
                         INSERT INTO status (id, uri, actor_id, text, content, spoiler_text, language, visibility, sensitive,
                                             reply, in_reply_to_id, in_reply_to_account_id, in_reply_to_uri, url,
                                             published_at, edited_at, reblog_of_id, activity_at, quote_automatic,
-                                            quote_manual, local_only)
+                                            quote_manual, local_only, content_type)
                         VALUES (:id, :uri, :actorId, :text, :content, :spoilerText, :language, :visibility, :sensitive,
                                 :reply, :inReplyToId, :inReplyToAccountId, :inReplyToUri, :url, :publishedAt, :editedAt,
                                 :reblogOfId, :activityAt, CAST(:quoteAutomatic AS text[]), CAST(:quoteManual AS text[]),
-                                :localOnly)
+                                :localOnly, :contentType)
                         ON CONFLICT DO NOTHING
                         """)
                 .param("reblogOfId", status.reblogOfId(), Types.OTHER)
@@ -229,6 +231,7 @@ public class StatusRepository {
                 .param("visibility", status.visibility().value())
                 .param("sensitive", status.sensitive())
                 .param("localOnly", status.localOnly())
+                .param("contentType", status.contentType().value())
                 .param("reply", status.reply())
                 .param("inReplyToId", status.inReplyToId(), Types.OTHER)
                 .param("inReplyToAccountId", status.inReplyToAccountId(), Types.OTHER)
@@ -323,7 +326,7 @@ public class StatusRepository {
                         AND published_at < :editedAt
                         AND NOT EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)""",
                 Map.of("uri", uri.toString(), "actorId", actorId),
-                text, content, spoilerText, language, sensitive, editedAt);
+                text, content, null, spoilerText, language, sensitive, editedAt);
     }
 
     /**
@@ -332,13 +335,13 @@ public class StatusRepository {
      * @return whether the status was changed, which it isn't if it's someone else's, a boost, or isn't local
      */
     public boolean editLocal(
-            UUID id, UUID actorId, String text, String content, String spoilerText, String language, boolean sensitive,
-            Instant editedAt) {
+            UUID id, UUID actorId, String text, String content, ContentType contentType, String spoilerText,
+            String language, boolean sensitive, Instant editedAt) {
         return edit("""
                         id = :id AND actor_id = :actorId AND reblog_of_id IS NULL
                         AND EXISTS (SELECT 1 FROM actor a WHERE a.id = :actorId AND a.is_local)""",
                 Map.of("id", id, "actorId", actorId),
-                text, content, spoilerText, language, sensitive, editedAt).isPresent();
+                text, content, contentType, spoilerText, language, sensitive, editedAt).isPresent();
     }
 
     /**
@@ -346,11 +349,12 @@ public class StatusRepository {
      * it's read, so two edits at once can't both keep the same earlier version: the second waits, then reads the first's.
      * Only the {@link #MAX_VERSIONS} latest versions are kept, since another server can send any number of edits.
      *
-     * @param condition which status, from columns of {@code status}
+     * @param condition   which status, from columns of {@code status}
+     * @param contentType what the new text is written in, or null to keep it, as for a status from another server
      */
     private Optional<UUID> edit(
-            String condition, Map<String, Object> parameters, String text, String content, String spoilerText,
-            String language, boolean sensitive, Instant editedAt) {
+            String condition, Map<String, Object> parameters, String text, String content, ContentType contentType,
+            String spoilerText, String language, boolean sensitive, Instant editedAt) {
         var edited = jdbc.sql("""
                         WITH old AS (
                             SELECT id, text, content, spoiler_text, language, sensitive,
@@ -363,7 +367,8 @@ public class StatusRepository {
                             FOR NO KEY UPDATE
                         ), replaced AS (
                             UPDATE status s SET text = :text, content = :content, spoiler_text = :spoilerText,
-                                                language = :language, sensitive = :sensitive, edited_at = :editedAt
+                                                language = :language, sensitive = :sensitive, edited_at = :editedAt,
+                                                content_type = coalesce(:contentType, s.content_type)
                             FROM old WHERE s.id = old.id
                             RETURNING old.*
                         )
@@ -376,6 +381,7 @@ public class StatusRepository {
                 .params(parameters)
                 .param("text", text)
                 .param("content", content)
+                .param("contentType", contentType == null ? null : contentType.value(), Types.VARCHAR)
                 .param("spoilerText", spoilerText)
                 .param("language", language, Types.VARCHAR)
                 .param("sensitive", sensitive)

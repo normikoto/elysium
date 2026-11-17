@@ -7,6 +7,7 @@ import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.QuotePolicy;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.Poll;
@@ -175,6 +176,11 @@ public class StatusesController {
                     - `local_only`, as on glitch-soc, keeps the status on this server: it isn't sent to other servers, \
                     and only accounts logged in here can see it. A reply to or quote of a local-only status is \
                     local-only too, and a local-only status that quotes a status from another server gets a 422.
+                    - `content_type`, as on glitch-soc, Pleroma, and Akkoma, is `text/plain`, the default, or \
+                    `text/markdown`, and anything else gets a 422. Markdown keeps only the formatting that Mastodon \
+                    shows: headings are bold paragraphs, images are links, rules are dropped, tables stay as text, and HTML is \
+                    shown as text. A mention or hashtag in code or in a link's text isn't linked, and doesn't notify \
+                    anyone or tag the status.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
@@ -253,6 +259,8 @@ public class StatusesController {
                     empty `language`, so a language can't be removed. `visibility` and `in_reply_to_id` are ignored.
                     - `quoted_status_id` can only name the status it quotes already, and anything else gets a 422, \
                     since what a status quotes can't be changed.
+                    - `content_type` is `text/plain` or `text/markdown`, as for a new status. A missing one keeps \
+                    what the status was written in, and `GET /api/v1/statuses/:id/source` gives it.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#edit"),
@@ -280,8 +288,10 @@ public class StatusesController {
     @Operation(
             operationId = "getStatusSource",
             summary = "View a status's source",
-            description = "Gives the text and content warning of one of the user's own statuses, for editing it. "
-                    + ApiDocs.NEEDS_USER,
+            description = """
+                    Gives the text and content warning of one of the user's own statuses, for editing it. Unlike \
+                    Mastodon's, it also has `content_type`, as on glitch-soc and Pleroma, which is `text/plain` or \
+                    `text/markdown`.\s""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#source"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status's source."),
@@ -673,6 +683,15 @@ public class StatusesController {
     }
 
     /**
+     * @return what the text is written in, or null if it wasn't given
+     */
+    private static ContentType contentType(Map<String, ?> parameters) {
+        var value = RequestParameters.string(parameters, "content_type");
+        return value == null ? null : ContentType.fromValue(value).orElseThrow(() -> new InvalidRequestException(
+                "Validation failed: content_type must be text/plain or text/markdown"));
+    }
+
+    /**
      * Quoting a boost quotes the status it boosts, as on Mastodon.
      */
     private UUID quoted(String id) {
@@ -693,7 +712,8 @@ public class StatusesController {
                 quoted(RequestParameters.string(parameters, "quoted_status_id")),
                 quotePolicy(parameters),
                 poll(parameters.get("poll")),
-                RequestParameters.flag(parameters, "local_only"));
+                RequestParameters.flag(parameters, "local_only"),
+                contentType(parameters));
         return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
     }
 
@@ -709,7 +729,8 @@ public class StatusesController {
                 MediaAttributes.read(parameters.get("media_attributes")),
                 quoted(RequestParameters.string(parameters, "quoted_status_id")),
                 quotePolicy(parameters),
-                parameters.containsKey("poll") ? new PollChange(poll(parameters.get("poll"))) : null);
+                parameters.containsKey("poll") ? new PollChange(poll(parameters.get("poll"))) : null,
+                contentType(parameters));
         return statuses.edit(statusId, author, draft)
                 .map(found -> responses.one(found, Optional.of(author)))
                 .orElseThrow(RecordNotFoundException::new);
@@ -845,7 +866,8 @@ public class StatusesController {
     @Schema(name = "StatusEdit")
     private record StatusEditBody(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = """
-                    The new text, as plain text. Mentions are looked up again, as for a new status.""")
+                    The new text, as `content_type` says it's written. Mentions are looked up again, as for a new \
+                    status.""")
             String status,
             @Schema(description = "A content warning, shown in place of the text until it's opened. Missing means none.")
             String spoiler_text,
@@ -867,7 +889,10 @@ public class StatusesController {
             String quoted_status_id,
             @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
                     Who can quote it. Missing keeps who can. Ignored for a followers-only or direct status.""")
-            String quote_approval_policy) {
+            String quote_approval_policy,
+            @Schema(allowableValues = {"text/plain", "text/markdown"}, description = """
+                    What the text is written in. Missing keeps what the status was written in.""")
+            String content_type) {
     }
 
     /**
@@ -901,9 +926,9 @@ public class StatusesController {
     @Schema(name = "NewStatus")
     private record NewStatusBody(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = """
-                    The text, as plain text. URLs, mentions, and hashtags are linked. A mention of an \
-                    account that can't be found, or one past the limit on lookups of accounts on other servers, stays \
-                    as text.""")
+                    The text, as `content_type` says it's written. URLs, mentions, and hashtags are linked. A mention \
+                    of an account that can't be found, or one past the limit on lookups of accounts on other servers, \
+                    stays as text.""")
             String status,
             @Schema(description = "A content warning, shown in place of the text until it's opened.")
             String spoiler_text,
@@ -938,6 +963,10 @@ public class StatusesController {
                     Whether the status stays on this server, unsent to other servers and only shown to accounts \
                     logged in here. A reply to or quote of a local-only status is local-only whatever this says.""",
                     defaultValue = "false")
-            Boolean local_only) {
+            Boolean local_only,
+            @Schema(allowableValues = {"text/plain", "text/markdown"}, defaultValue = "text/plain", description = """
+                    What the text is written in. Markdown keeps only what Mastodon shows, and HTML in it is shown as \
+                    text.""")
+            String content_type) {
     }
 }

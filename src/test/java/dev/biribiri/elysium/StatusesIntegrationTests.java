@@ -49,6 +49,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -56,6 +57,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -613,6 +615,43 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.spoiler_text").value("Link"));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/source"), bob())).andExpect(status().isNotFound());
         mockMvc.perform(get("/api/v1/statuses/" + id + "/source")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void rendersMarkdownAndKeepsItThroughEdits() throws Exception {
+        var id = expectCreated(createRequest(alice(), "**Hi** @bob\n\n`@carol #code` #real")
+                .param("content_type", "text/markdown"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), alice()))
+                .andExpect(jsonPath("$.content").value(startsWith("<p><strong>Hi</strong> <span class=\"h-card\"")))
+                .andExpect(jsonPath("$.content").value(containsString("<code>@carol #code</code>")))
+                .andExpect(jsonPath("$.mentions[*].username").value(contains("bob")))
+                .andExpect(jsonPath("$.tags[*].name").value(contains("real")));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/source"), alice()))
+                .andExpect(jsonPath("$.content_type").value("text/markdown"));
+
+        edit(alice(), id, "*Still* Markdown");
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), alice()))
+                .andExpect(jsonPath("$.content").value("<p><em>Still</em> Markdown</p>"));
+
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id), alice())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "*Still* Markdown")
+                        .param("content_type", "text/plain"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("<p>*Still* Markdown</p>"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/source"), alice()))
+                .andExpect(jsonPath("$.content_type").value("text/plain"));
+    }
+
+    @Test
+    void refusesAContentTypeItCanNotRender() throws Exception {
+        mockMvc.perform(createRequest(alice(), "<b>Hi</b>").param("content_type", "text/html"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Hi\", \"content_type\": 1}"))
+                .andExpect(status().isUnprocessableContent());
+        var id = expectCreated(createRequest(alice(), "*Hi*").param("content_type", ""));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/source"), alice()))
+                .andExpect(jsonPath("$.content_type").value("text/plain"));
     }
 
     @Test
@@ -1236,6 +1275,8 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.configuration.statuses.max_characters").value(5000))
                 .andExpect(jsonPath("$.configuration.statuses.max_media_attachments").value(4))
                 .andExpect(jsonPath("$.configuration.statuses.characters_reserved_per_url").value(23))
+                .andExpect(jsonPath("$.configuration.statuses.supported_mime_types")
+                        .value(contains("text/plain", "text/markdown")))
                 .andExpect(jsonPath("$.configuration.media_attachments.supported_mime_types", not(empty())))
                 .andExpect(jsonPath("$.configuration.polls.max_options").value(4))
                 .andExpect(jsonPath("$.configuration.accounts.max_featured_tags").value(0))

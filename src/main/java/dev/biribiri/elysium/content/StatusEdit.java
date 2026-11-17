@@ -16,14 +16,23 @@ import java.util.UUID;
  * @param quotedStatusId the status it quotes, or null to keep what it quotes. A quote can't be changed, as on Mastodon
  * @param quotePolicy    who can quote it, or null to keep that
  * @param poll           what to do to its poll, or null to keep the one it has, or that it has none
+ * @param contentType    what the new text is written in, or null to keep what the status was written in
  */
 public record StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
                          List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy,
-                         PollChange poll) {
+                         PollChange poll, ContentType contentType) {
 
     public StatusEdit {
         mediaIds = mediaIds == null ? null : List.copyOf(mediaIds);
         mediaChanges = mediaChanges == null ? List.of() : List.copyOf(mediaChanges);
+    }
+
+    /**
+     * An edit that keeps what the status was written in.
+     */
+    public StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
+                      List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy, PollChange poll) {
+        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quotedStatusId, quotePolicy, poll, null);
     }
 
     public StatusEdit(String text, String spoilerText, String language, Boolean sensitive) {

@@ -31,6 +31,7 @@ import java.util.UUID;
  *                           status
  * @param localOnly          whether it stays on this server: it's never sent to or served to another server, and only
  *                           accounts logged in here can see it. Always false for a status from another server
+ * @param contentType        what its text is written in. Always plain text for a status from another server or a boost
  */
 public record Status(
         UUID id,
@@ -53,7 +54,8 @@ public record Status(
         long repliesCount,
         QuoteApproval quoteApproval,
         Instant noteUpdatedAt,
-        boolean localOnly
+        boolean localOnly,
+        ContentType contentType
 ) {
 
     public boolean isReblog() {
