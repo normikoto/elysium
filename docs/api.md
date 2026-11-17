@@ -76,6 +76,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   user doesn't follow appear in notifications, and direct messages in conversations, rather than in the home timeline.
 - `mentions` leaves out accounts that have been suspended or deleted since. For a status from another server, it also
   leaves out local accounts that it was sent to without mentioning them, which can still see it.
+- A reply whose parent the viewer can't see, such as a public reply to its author's own followers-only status, has a null
+  `in_reply_to_id` and `in_reply_to_account_id`. Mastodon names the parent whoever can see it.
 - `local_only=true` keeps a status on this server, as on glitch-soc, alongside any `visibility`.
   - It isn't sent to other servers, and only accounts on this server can see it, through an app or logged in to the
     website. Anyone else gets a 404, and it's left out of what they can list, such as the public timeline and an

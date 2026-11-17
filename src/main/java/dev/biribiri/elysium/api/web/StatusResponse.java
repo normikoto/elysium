@@ -18,6 +18,7 @@ import java.util.UUID;
 @Schema(name = "Status", description = """
         Mastodon's Status entity. Cards don't exist yet, so `card` is always null. `url` is null only for a boost, and \
         for a followers-only or direct status from this server it leads to a page that's only shown to someone logged in to this server's website who can see the status. A boost has the boosted status in `reblog`, and no content of its own. \
+        `in_reply_to_id` and `in_reply_to_account_id` are null when the viewer can't see the parent. \
         `reblogs_count`, `favourites_count` and `quotes_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
         a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
         edited, or null if it never was.""")
@@ -100,12 +101,14 @@ record StatusResponse(
     }
 
     /**
+     * @param showsParent whether the viewer can see the status's parent. If not, neither the parent nor its author is
+     *                    named, as when the parent isn't stored
      * @param reblog the boosted status, for a boost, or null
      * @param pinned   whether the viewer pinned it, which only its author can have
      * @param filtered the viewer's filters that it matches, or null if there's no viewer
      */
     static StatusResponse from(
-            Status status, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
+            Status status, boolean showsParent, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
             List<CustomEmojiResponse> emojis, List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
             Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll, boolean pinned,
             List<FilterResponse.ResultResponse> filtered, List<ReactionResponse> reactions) {
@@ -113,8 +116,8 @@ record StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
                 status.editedAt() == null ? null : ApiTimestamps.format(status.editedAt()),
-                string(status.inReplyToId()),
-                string(status.inReplyToAccountId()),
+                showsParent ? string(status.inReplyToId()) : null,
+                showsParent ? string(status.inReplyToAccountId()) : null,
                 status.sensitive(),
                 status.spoilerText(),
                 status.visibility().value(),
