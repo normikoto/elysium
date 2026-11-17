@@ -24,7 +24,8 @@ No linter or formatter is configured. CI runs `./gradlew test`, and the federati
 
 Publishing a GitHub release runs `.github/workflows/release.yml`, which attaches the JAR and config files to the release
 and pushes the images to `ghcr.io`. It fails unless `version` in `build.gradle.kts` matches the tag, so the release pull
-request sets it before tagging.
+request sets it before tagging. GitHub makes a new package private, so after the first release's images are pushed, make
+the package public in its settings, or `docker compose pull` fails for everyone else.
 
 If you run the application outside Gradle, such as from an IDE, activate the `dev` profile yourself.
 

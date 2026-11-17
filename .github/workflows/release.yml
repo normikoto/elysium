@@ -30,11 +30,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '25'
-      - uses: gradle/actions/setup-gradle@v6
       # The version is set in the release pull request, before tagging, and NodeInfo reports it. Building a tag whose
       # version doesn't match would publish artifacts under the wrong version.
       - name: Check that the tag matches the version in build.gradle.kts
@@ -42,7 +37,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
-          version=$(./gradlew -q properties --property version | sed -n 's/^version: //p')
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' build.gradle.kts)
           if [ "v$version" != "$TAG" ]; then
             echo "::error::build.gradle.kts has version $version, which doesn't match the tag $TAG"
             exit 1
@@ -95,6 +90,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     permissions:
+      contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7
@@ -118,10 +114,12 @@ jobs:
           docker push "$IMAGE:${TAG#v}-$ARCH"
 
   manifest:
-    needs: image
+    # Waits for the JAR too, so that a release whose files failed to attach doesn't become latest.
+    needs: [jar, image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      contents: read
       packages: write
     steps:
       - uses: docker/setup-buildx-action@v4
@@ -130,14 +128,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      # A prerelease doesn't take latest, which compose.yaml runs.
+      # Only GitHub's latest release takes latest, which compose.yaml runs. That leaves out prereleases, and also a rerun
+      # for an older release or a fix to an older line, which would otherwise move latest back.
       - name: Tag the images for both architectures as one
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=${TAG#v}
           tags=(--tag "$IMAGE:$version")
-          if [ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = false ]; then
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG" ]; then
             tags+=(--tag "$IMAGE:latest")
           fi
           docker buildx imagetools create "${tags[@]}" "$IMAGE:$version-amd64" "$IMAGE:$version-arm64"
