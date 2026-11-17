@@ -28,9 +28,10 @@ import java.util.UUID;
 public class ScheduledStatusService {
 
     /**
-     * How far ahead a status has to be scheduled, as on Mastodon, which posts it at once otherwise.
+     * How far ahead a status has to be scheduled. Mastodon asks for 5 minutes, but statuses are posted within about a
+     * minute of their time here, so a shorter wait still means something.
      */
-    public static final Duration MINIMUM_OFFSET = Duration.ofMinutes(5);
+    public static final Duration MINIMUM_OFFSET = Duration.ofMinutes(1);
 
     /**
      * The most that an account can have scheduled, as on Mastodon.
@@ -263,9 +264,8 @@ public class ScheduledStatusService {
     }
 
     private static void checkTime(Instant at) {
-        if (at.isBefore(Instant.now().plus(MINIMUM_OFFSET))) {
-            throw new InvalidStatusException(
-                    "A status has to be scheduled at least %d minutes ahead".formatted(MINIMUM_OFFSET.toMinutes()));
+        if (!at.isAfter(Instant.now().plus(MINIMUM_OFFSET))) {
+            throw new InvalidStatusException("A status has to be scheduled more than a minute ahead");
         }
     }
 

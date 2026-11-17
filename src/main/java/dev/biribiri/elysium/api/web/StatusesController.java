@@ -157,7 +157,8 @@ public class StatusesController {
                     Differences from Mastodon:
 
                     - `scheduled_at` has to be an ISO 8601 date and time with an offset, such as \
-                    `2030-01-01T09:00:00Z`, at least 5 minutes ahead, or the request gets a 422. A user can have up \
+                    `2030-01-01T09:00:00Z`. It has to be more than a minute ahead, rather than Mastodon's 5 minutes, \
+                    or the request gets a 422. One in the past posts the status now, as on Mastodon. A user can have up \
                     to\s""" + ScheduledStatusService.TOTAL_LIMIT + """
                      scheduled, and\s""" + ScheduledStatusService.DAILY_LIMIT + """
                      for one day in UTC, as on Mastodon, and at most\s""" + ScheduledStatusService.MAX_HELD_MEDIA + """
@@ -737,7 +738,8 @@ public class StatusesController {
                 poll(parameters.get("poll")),
                 RequestParameters.flag(parameters, "local_only"),
                 contentType(parameters));
-        if (scheduledAt != null) {
+        // A time that's passed posts the status now, as on Mastodon, so a client whose clock is a little ahead still posts.
+        if (scheduledAt != null && scheduledAt.isAfter(Instant.now())) {
             return ScheduledStatusResponse.from(scheduled.schedule(author, draft, scheduledAt), instance);
         }
         return responses.one(statuses.create(author, draft), RequestParameters.viewer(token));
@@ -988,8 +990,8 @@ public class StatusesController {
             @Schema(description = "A poll, which can't go with media.")
             PollBody poll,
             @Schema(description = """
-                    When to post the status, as an ISO 8601 date and time at least 5 minutes ahead. Missing or empty \
-                    posts it now. With a value, the response is a ScheduledStatus.""", format = "date-time")
+                    When to post the status, as an ISO 8601 date and time more than a minute ahead. Missing, empty, \
+                    or in the past posts it now. Otherwise the response is a ScheduledStatus.""", format = "date-time")
             String scheduled_at,
             @Schema(description = """
                     The status to quote, which the user has to be able to see, and be allowed to quote. Quoting a \

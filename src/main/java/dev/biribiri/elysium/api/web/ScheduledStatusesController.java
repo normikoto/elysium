@@ -131,7 +131,8 @@ public class ScheduledStatusesController {
             summary = "Change when a scheduled status is posted",
             description = """
                     Only `scheduled_at` can be changed, as on Mastodon. It has the same limits as when the status was \
-                    scheduled, though the status already counts toward the total.
+                    scheduled, though the status already counts toward the total, and a time in the past gets a 422, \
+                    as on Mastodon.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "scheduled_statuses/#update"),
@@ -204,7 +205,7 @@ public class ScheduledStatusesController {
     @Schema(name = "ScheduledStatusUpdate")
     private record UpdateBody(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time", description = """
-                    When to post the status, as an ISO 8601 date and time at least 5 minutes ahead.""")
+                    When to post the status, as an ISO 8601 date and time more than a minute ahead.""")
             String scheduled_at) {
     }
 }

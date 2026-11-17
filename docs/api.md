@@ -307,8 +307,9 @@ Follow [Mastodon's scheduled statuses API](https://docs.joinmastodon.org/methods
 `read:statuses` and `write:statuses` scopes.
 
 - `scheduled_at` in `POST /api/v1/statuses` has to be an ISO 8601 date and time with an offset, such as
-  `2030-01-01T09:00:00Z`. It has to be at least 5 minutes ahead, and a user can have up to 300 scheduled, with at most
-  25 on one day in UTC, as on Mastodon. Anything else gets a 422.
+  `2030-01-01T09:00:00Z`. It has to be more than a minute ahead, rather than Mastodon's 5 minutes. A user can have up
+  to 300 scheduled, with at most 25 on one day in UTC, as on Mastodon. Anything else gets a 422.
+- A `scheduled_at` in the past posts the status now, and the response is a `Status`, as on Mastodon.
 - A scheduled status is checked when it's scheduled, as if it were posted then, and gets the same errors. It's checked
   again when it's posted, within about a minute of its time.
 - A scheduled status that can no longer be posted is dropped, as on Mastodon, with no notification. That happens when
@@ -325,7 +326,7 @@ Follow [Mastodon's scheduled statuses API](https://docs.joinmastodon.org/methods
 - `DELETE /api/v1/scheduled_statuses/:id` makes its media unattached uploads for an hour by default, so that it can be
   posted another way.
 - `PUT /api/v1/scheduled_statuses/:id` only changes `scheduled_at`, as on Mastodon, which is required, and has the same
-  limits.
+  limits. A time in the past gets a 422 there, as on Mastodon.
 - `params` has the fields the request gave, and also `quoted_status_id`, `quote_approval_policy`, `local_only`, and
   `content_type`. `idempotency`, `scheduled_at`, and `application_id` are always null, and a poll's `expires_in` is a
   string, as on Mastodon.

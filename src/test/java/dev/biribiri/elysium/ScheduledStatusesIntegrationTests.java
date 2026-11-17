@@ -116,9 +116,7 @@ class ScheduledStatusesIntegrationTests {
 
     @Test
     void refusesATimeThatIsTooSoonOrUnreadable() throws Exception {
-        mockMvc.perform(schedule("alice", "Soon", Instant.now().plus(Duration.ofMinutes(4)).toString()))
-                .andExpect(status().isUnprocessableContent());
-        mockMvc.perform(schedule("alice", "Past", "2000-01-01T00:00:00Z"))
+        mockMvc.perform(schedule("alice", "Soon", Instant.now().plus(Duration.ofSeconds(50)).toString()))
                 .andExpect(status().isUnprocessableContent());
         mockMvc.perform(schedule("alice", "Bad", "tomorrow"))
                 .andExpect(status().isUnprocessableContent());
@@ -128,6 +126,28 @@ class ScheduledStatusesIntegrationTests {
                 .andExpect(status().isUnprocessableContent());
         assertThat(count("SELECT count(*) FROM scheduled_status")).isZero();
         assertThat(count("SELECT count(*) FROM status")).isZero();
+    }
+
+    @Test
+    void schedulesAsSoonAsAMinuteAhead() throws Exception {
+        mockMvc.perform(schedule("alice", "Soon", Instant.now().plus(Duration.ofSeconds(90)).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.params.text").value("Soon"));
+        assertThat(count("SELECT count(*) FROM status")).isZero();
+    }
+
+    @Test
+    void postsAtOnceWhenTheTimeHasPassed() throws Exception {
+        mockMvc.perform(schedule("alice", "Past", "2000-01-01T00:00:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("<p>Past</p>"))
+                .andExpect(jsonPath("$.created_at").value(org.hamcrest.Matchers.not(containsString("2000-"))));
+        assertThat(count("SELECT count(*) FROM status WHERE text = 'Past'")).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM scheduled_status")).isZero();
+        // Rescheduling to a time that's passed is refused, as on Mastodon.
+        var id = scheduleId("alice", "Later", later());
+        mockMvc.perform(reschedule("alice", id, "2000-01-01T00:00:00Z"))
+                .andExpect(status().isUnprocessableContent());
     }
 
     @Test
