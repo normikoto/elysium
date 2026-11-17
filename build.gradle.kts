@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "dev.biribiri"
-version = "0.2.1-SNAPSHOT"
+version = "0.2.1"
 description = "elysium"
 
 java {
