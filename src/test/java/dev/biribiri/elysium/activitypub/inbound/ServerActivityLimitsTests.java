@@ -144,7 +144,7 @@ class ServerActivityLimitsTests {
     @ValueSource(strings = {"https://mastodon.social", "*.mastodon.social", "mastodon.social:443", "1.2.3.4", "social"})
     void refusesAnExemptDomainThatIsNotADomain(String domain) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofMegabytes(1), Set.of(domain)))
+                .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofMegabytes(1), Set.of(domain), 1))
                 .withMessageContaining("exempt-domains");
     }
 
@@ -152,15 +152,18 @@ class ServerActivityLimitsTests {
     @ValueSource(strings = {"co.uk", "github.io", "social"})
     void refusesAnExemptDomainThatAnyoneCanRegisterUnder(String domain) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofMegabytes(1), Set.of(domain)));
+                .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofMegabytes(1), Set.of(domain), 1));
     }
 
     @Test
     void refusesADataLimitBelowTheLargestActivity() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofBytes(MIB - 1), Set.of()));
+                .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofBytes(MIB - 1), Set.of(), 1));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new InboxLimitProperties(0, DataSize.ofMegabytes(1), Set.of()));
+                .isThrownBy(() -> new InboxLimitProperties(0, DataSize.ofMegabytes(1), Set.of(), 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofMegabytes(1), Set.of(), 0))
+                .withMessageContaining("refused-per-minute");
     }
 
     @Test
@@ -175,6 +178,7 @@ class ServerActivityLimitsTests {
         assertThat(properties.dataPerHour()).isEqualTo(DataSize.ofMegabytes(20));
         assertThat(properties.exemptDomains()).isEmpty();
         assertThat(properties.activitiesPerMinute()).isEqualTo(120);
+        assertThat(properties.refusedPerMinute()).isEqualTo(30);
     }
 
     private boolean admitted(ServerActivityLimits limits, String host, int bytes) {
@@ -183,7 +187,7 @@ class ServerActivityLimitsTests {
 
     private ServerActivityLimits limits(int activitiesPerMinute, int mibPerHour, Set<String> exempt) {
         return new ServerActivityLimits(
-                new InboxLimitProperties(activitiesPerMinute, DataSize.ofMegabytes(mibPerHour), exempt), now::get);
+                new InboxLimitProperties(activitiesPerMinute, DataSize.ofMegabytes(mibPerHour), exempt, 1), now::get);
     }
 
     private static URI actor(String host) {

@@ -62,6 +62,21 @@ class RateLimiterTests {
     }
 
     @Test
+    void checkingForRoomDoesntTakeASlot() {
+        assertThat(limiter.hasRoom("key")).isTrue();
+        assertThat(limiter.hasRoom("key")).isTrue();
+        limiter.tryAcquire("key");
+        assertThat(limiter.hasRoom("key")).isTrue();
+        limiter.tryAcquire("key");
+
+        assertThat(limiter.hasRoom("key")).isFalse();
+        assertThat(limiter.hasRoom("other")).isTrue();
+
+        advance(WINDOW);
+        assertThat(limiter.hasRoom("key")).isTrue();
+    }
+
+    @Test
     void releasingGivesASlotBack() {
         limiter.tryAcquire("key");
         var slot = limiter.tryAcquire("key").orElseThrow();

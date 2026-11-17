@@ -34,6 +34,7 @@ Set these in your `application.properties`:
 | `elysium.federation.inbox-limits.activities-per-minute` | Optional. How many activities each other server can deliver a minute. Defaults to `120`. See [Inbox limits](#inbox-limits). |
 | `elysium.federation.inbox-limits.data-per-hour` | Optional. How much data each other server's activities can add up to in an hour, such as `50MB`. It can't be less than `1MB`. Defaults to `20MB`. |
 | `elysium.federation.inbox-limits.exempt-domains` | Optional. A comma-separated list of domains, such as `mastodon.social`, that aren't limited, along with their subdomains. Enter only the domain, with no `https://` or wildcard. A suffix that anyone can register under, such as `co.uk`, isn't allowed. Empty by default. |
+| `elysium.federation.inbox-limits.refused-per-minute` | Optional. How many requests to the inboxes each address can have refused a minute, for being unsigned, having a signature that's wrong, or being too large. Defaults to `30`. |
 | `elysium.federation.send-blocks` | Optional. Set to `false` to stop telling people on other servers that a user has blocked them. Their server then keeps showing them the user's public posts. The follows between them end on both servers either way. Defaults to `true`. See [Blocks and mutes](accounts.md#blocks-and-mutes). |
 | `elysium.federation.authorized-fetch` | Optional. Set to `true` to make other servers sign their requests to read your users' profiles, posts, and follower lists. Defaults to `false`. See [Authorized fetch](#authorized-fetch). |
 | `elysium.federation.allowed-private-networks` | Optional, and should not normally be set. A comma-separated list of private networks, such as `172.30.0.0/24`, that requests to other servers may reach. Anyone can make the server send requests, so this would let them reach anything on these networks. Only for testing with servers on a private network. |
@@ -72,8 +73,14 @@ small server federating with large ones, while stopping one server from filling 
 
 A server is counted by its domain, so `a.example.com` and `b.example.com` share one limit. If you trust a busy server
 that's reaching its limit, add it to `elysium.federation.inbox-limits.exempt-domains` rather than raising the limits for
-every server. These limits don't apply to requests that aren't signed, or whose signature is wrong, which is why a public
-server needs a [reverse proxy that limits them](#reverse-proxies).
+every server.
+
+Anyone can send requests that aren't signed, or whose signature is wrong, each with up to 1 MiB of data, and the server
+has to read every one. These are limited by address instead: one that has 30 refused in a minute, by default, gets a `429`
+for everything it sends to the inboxes until the minute is up, including valid deliveries, which are tried again later.
+Only these refusals count, so real servers don't reach this limit, however much they deliver. Exempt domains don't affect
+it. IPv6 addresses are counted by their /64 network, and the limit only works if the server sees each client's own address,
+so check your [reverse proxy](#reverse-proxies).
 
 ## Authorized fetch
 By default, anyone can read your users' public posts, profiles, and follower lists as ActivityPub documents, without saying
@@ -126,12 +133,11 @@ Each copy of the server only streams what it handles itself, so with more than o
 copy handled. Streaming connections count towards `elysium.streaming.max-connections`, and past it new ones are refused.
 
 ## Reverse proxies
-A public server needs a reverse proxy in front of it, to handle HTTPS, and to limit how many requests each address can
-send to the inboxes. The server limits what other servers can deliver, but not requests that aren't signed or whose
-signature is wrong. Anyone can send those, each with up to 1 MiB of data, and the server has to read every one.
-
-The limit has to be generous, because valid deliveries count too, and a large server sends them from only a few addresses.
-For example, with nginx:
+A public server needs a reverse proxy in front of it, to handle HTTPS. The server [limits](#inbox-limits) what can be sent
+to its inboxes on its own, but a request still takes a connection before the server can refuse it. To stop floods before
+they reach the server, you can also limit how many requests each address can send to the inboxes. This limit has to be
+generous, because valid deliveries count too, and a large server sends them from only a few addresses. For example, with
+nginx:
 ```nginx
 # In the http block
 limit_req_zone $binary_remote_addr zone=elysium_inbox:10m rate=10r/s;

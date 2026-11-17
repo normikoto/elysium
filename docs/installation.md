@@ -1,10 +1,8 @@
 # Installation
 
 ## Before going live
-A public server must run behind a reverse proxy, such as nginx or Caddy, that handles HTTPS and limits how many requests
-each address can send to the inboxes. The server doesn't limit inbox requests that aren't signed, or whose signature is
-wrong, so without the proxy's limit, anyone can keep it busy reading them. See [Reverse proxies](configuration.md#reverse-proxies)
-for what to set up, on the proxy and on the server.
+A public server must run behind a reverse proxy, such as nginx or Caddy, that handles HTTPS. See
+[Reverse proxies](configuration.md#reverse-proxies) for what to set up, on the proxy and on the server.
 
 ## Building
 You'll need JDK 25 or later installed on your system. Run the following:
@@ -44,8 +42,8 @@ PostgreSQL isn't reachable from outside its Docker network, and its data is kept
 Uploaded images are kept in the `media-data` volume, so back up both together. The
 server listens on `127.0.0.1:8080`, so you need a reverse proxy on the same host to handle HTTPS. Because the proxy is
 the only way to reach the server, `server.forward-headers-strategy=native` is already set. The proxy still needs to
-[set the forwarded headers itself and limit inbox requests](configuration.md#reverse-proxies). Otherwise clients may be
-able to get around the rate limits by making up their addresses, and anyone can keep the server busy with inbox requests.
+[set the forwarded headers itself](configuration.md#reverse-proxies). Otherwise clients may be able to get around the rate
+limits by making up their addresses.
 
 To upgrade, run `./gradlew bootBuildImage` again, then `docker compose up -d`.
 

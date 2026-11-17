@@ -35,9 +35,9 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
  * Receives activities from other servers. All inboxes do the same thing, because who an activity is for comes from the
  * activity rather than the URL it was sent to.
  *
- * <p>Two things are limited: the key fetches that an address can cause, through {@link AddressFetchBudgets}, and the
- * activities each server can have stored, which {@link Inbox} checks. Requests that are unsigned or fail their signature
- * aren't limited, which is left to a reverse proxy.
+ * <p>Three things are limited: the key fetches that an address can cause, through {@link AddressFetchBudgets}, the
+ * requests an address can have refused without needing a key, through {@link RefusedDeliveries}, and the activities each
+ * server can have stored, which {@link Inbox} checks.
  */
 @RestController
 @Tag(name = FederationDocs.ACTIVITYPUB_TAG)
@@ -56,7 +56,8 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
 @ApiResponse(responseCode = "413", description = "The body is over " + Inbox.MAX_BODY_BYTES / (1024 * 1024) + " MiB.")
 @ApiResponse(responseCode = "415", description = "The `Content-Type` isn't one of those accepted.")
 @ApiResponse(responseCode = "429", description = """
-        This address has caused too many key fetches, or the signer's server has delivered too much.""",
+        This address has caused too many key fetches or had too many requests refused, or the signer's server has \
+        delivered too much.""",
         headers = @Header(name = "Retry-After", description = "Seconds until there's room again.",
                 schema = @Schema(type = "integer")))
 @ApiResponse(responseCode = "503", description = "The sender's key can't be fetched right now.")
@@ -69,18 +70,21 @@ class InboxController {
     private final SignatureVerifier verifier;
     private final ClientAddresses clients;
     private final AddressFetchBudgets budgets;
+    private final RefusedDeliveries refusals;
 
     InboxController(
             ActorService actors,
             Inbox inbox,
             SignatureVerifier verifier,
             ClientAddresses clients,
-            AddressFetchBudgets budgets) {
+            AddressFetchBudgets budgets,
+            RefusedDeliveries refusals) {
         this.actors = actors;
         this.inbox = inbox;
         this.verifier = verifier;
         this.clients = clients;
         this.budgets = budgets;
+        this.refusals = refusals;
     }
 
     @PostMapping(path = "/users/{username}/inbox", consumes = {ACTIVITY_JSON, ANY_LD_JSON})
@@ -125,12 +129,18 @@ class InboxController {
     }
 
     private ResponseEntity<Void> receive(HttpServletRequest request) throws IOException {
+        var address = clients.keyFor(request);
+        if (refusals.isOverLimit(address)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header(HttpHeaders.RETRY_AFTER, refusals.retryAfter(address))
+                    .build();
+        }
         var body = readBody(request);
         if (body == null) {
+            refusals.countTooLarge(address);
             return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
         }
 
-        var address = clients.keyFor(request);
         // Called with no transaction open, because this can wait on another server.
         var data = HttpRequestData.from(request, body);
         try {
@@ -142,6 +152,7 @@ class InboxController {
                 return respond(unverified.get());
             }
             log.debug("Refusing a delivery: {}", e.getMessage());
+            refusals.count(address, e.failure());
             var response = ResponseEntity.status(e.failure().status());
             if (e.failure() == Failure.FETCH_BUDGET_SPENT) {
                 response.header(HttpHeaders.RETRY_AFTER, budgets.retryAfter(address));

@@ -70,6 +70,15 @@ public final class RateLimiter {
     }
 
     /**
+     * Whether the key could take a slot now, without taking one. For a check that has to happen before it's known whether
+     * an attempt counts.
+     */
+    public boolean hasRoom(String key) {
+        var current = windows.getIfPresent(key);
+        return current == null || hasEnded(current, ticker.read()) || current.count() < limit;
+    }
+
+    /**
      * How long until the key's current window ends, or zero if it has none.
      */
     public Duration timeUntilReset(String key) {
