@@ -94,6 +94,19 @@ class RefusedDeliveriesIntegrationTests {
         mockMvc.perform(from(address, signed(activity()))).andExpect(status().isAccepted());
     }
 
+    /**
+     * The base URL is public, so a request from a private address is probably the proxy's, and stands for every client.
+     */
+    @Test
+    void skipsTheLimitForWhatSeemsToBeAProxy() throws Exception {
+        var address = "10.0.0.1";
+        for (var i = 0; i < 5; i++) {
+            mockMvc.perform(from(address, unsigned(activity()))).andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(from(address, signed(activity()))).andExpect(status().isAccepted());
+    }
+
     private String activity() {
         var id = alice.uri() + "/activities/" + UUID.randomUUID();
         return "{\"id\":\"" + id + "\",\"type\":\"Test\",\"actor\":\"" + alice.uri() + "\"}";

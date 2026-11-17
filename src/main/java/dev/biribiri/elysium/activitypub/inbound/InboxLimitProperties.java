@@ -32,7 +32,7 @@ public record InboxLimitProperties(
 
     public static final int DEFAULT_ACTIVITIES_PER_MINUTE = 120;
     public static final int DEFAULT_MEGABYTES_PER_HOUR = 20;
-    public static final int DEFAULT_REFUSED_PER_MINUTE = 30;
+    public static final int DEFAULT_REFUSED_PER_MINUTE = 60;
 
     private static final DataSize DEFAULT_DATA_PER_HOUR = DataSize.ofMegabytes(DEFAULT_MEGABYTES_PER_HOUR);
     private static final String EXEMPT_DOMAINS = "elysium.federation.inbox-limits.exempt-domains";

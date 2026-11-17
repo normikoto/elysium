@@ -161,6 +161,10 @@ class ServerActivityLimitsTests {
                 .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofBytes(MIB - 1), Set.of(), 1));
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new InboxLimitProperties(0, DataSize.ofMegabytes(1), Set.of(), 1));
+    }
+
+    @Test
+    void refusesARefusalLimitBelowOne() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new InboxLimitProperties(1, DataSize.ofMegabytes(1), Set.of(), 0))
                 .withMessageContaining("refused-per-minute");
@@ -178,7 +182,7 @@ class ServerActivityLimitsTests {
         assertThat(properties.dataPerHour()).isEqualTo(DataSize.ofMegabytes(20));
         assertThat(properties.exemptDomains()).isEmpty();
         assertThat(properties.activitiesPerMinute()).isEqualTo(120);
-        assertThat(properties.refusedPerMinute()).isEqualTo(30);
+        assertThat(properties.refusedPerMinute()).isEqualTo(60);
     }
 
     private boolean admitted(ServerActivityLimits limits, String host, int bytes) {

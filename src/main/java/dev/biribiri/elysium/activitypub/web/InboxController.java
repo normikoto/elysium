@@ -130,14 +130,18 @@ class InboxController {
 
     private ResponseEntity<Void> receive(HttpServletRequest request) throws IOException {
         var address = clients.keyFor(request);
-        if (refusals.isOverLimit(address)) {
+        // Behind a proxy that hides its clients' addresses, one sender could otherwise stop every server delivering.
+        var countRefusals = !clients.seemsToBeAProxy(request);
+        if (countRefusals && refusals.isOverLimit(address)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                     .header(HttpHeaders.RETRY_AFTER, refusals.retryAfter(address))
                     .build();
         }
         var body = readBody(request);
         if (body == null) {
-            refusals.countTooLarge(address);
+            if (countRefusals) {
+                refusals.countTooLarge(address);
+            }
             return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
         }
 
@@ -152,7 +156,9 @@ class InboxController {
                 return respond(unverified.get());
             }
             log.debug("Refusing a delivery: {}", e.getMessage());
-            refusals.count(address, e.failure());
+            if (countRefusals) {
+                refusals.count(address, e.failure());
+            }
             var response = ResponseEntity.status(e.failure().status());
             if (e.failure() == Failure.FETCH_BUDGET_SPENT) {
                 response.header(HttpHeaders.RETRY_AFTER, budgets.retryAfter(address));

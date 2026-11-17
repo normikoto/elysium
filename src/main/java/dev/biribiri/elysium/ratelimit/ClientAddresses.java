@@ -46,6 +46,22 @@ public class ClientAddresses {
     }
 
     /**
+     * Whether this request's address is on the server's own host or private network, although its base URL is public. That
+     * usually means it's the address of a reverse proxy that isn't passing on its clients' addresses, so every client would
+     * share one count.
+     *
+     * <p>A limit that would lock everyone out when one client reaches it can skip such requests, failing open rather than
+     * letting one client stop all the others.
+     */
+    public boolean seemsToBeAProxy(HttpServletRequest request) {
+        try {
+            return publicBaseUrl && isLocalNetwork(InetAddress.ofLiteral(request.getRemoteAddr()));
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /**
      * @return the key to count anything from this address under, which is the same for every spelling of it
      */
     public static String keyFor(InetAddress address) {

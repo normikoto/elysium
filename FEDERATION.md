@@ -262,10 +262,14 @@ Key fetches are limited by address: requests from one address can start 30 a min
 counts if it starts a fetch, so one signed with a key this server already has isn't limited, and neither is one waiting on
 a fetch that's already running. IPv6 addresses are counted by their /64 network.
 
-An address can also have at most 30 requests a minute refused, by default, with a `400` or `401` for its signature, or a
-`413`. Past that, everything it sends to an inbox gets a `429` until the minute is up, before its body is read, including
-valid deliveries. No other response counts, so a server that signs its requests correctly isn't affected, however much it
-delivers. Admins can change this limit, as described in [Configuration](docs/configuration.md#inbox-limits).
+An address can also have at most 60 requests a minute refused, by default, with a `413`, or with a `400` or `401` for a
+signature that's missing, can't be read, or doesn't match its key, including when the key's document can't be found. A
+`401` for a key whose document answers `410 Gone` doesn't count. Past that, everything it sends to an inbox gets a `429`
+until the minute is up, before its body is read, including valid deliveries. No other response counts, so however much a
+server delivers, it only gets near the limit with a burst of signatures this server can't check. That can happen just
+after it changes its keys, since a key that was fetched recently isn't fetched again at once, or when it signs with keys
+whose documents answer `404` rather than `410` after their actors are deleted. Admins can change this limit, as described
+in [Configuration](docs/configuration.md#inbox-limits).
 
 Each server can also deliver at most 120 activities a minute, with bodies adding up to at most 20 MiB an hour, by default.
 Admins can change these, and remove them for servers they trust, as described in

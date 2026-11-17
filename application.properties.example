@@ -76,7 +76,7 @@ spring.datasource.password=
 #elysium.federation.inbox-limits.exempt-domains=
 # How many requests to the inboxes each address can have refused a minute, for being unsigned, wrongly signed, or too
 # large. Past that, it gets a 429 for everything it sends to the inboxes until the minute is up.
-#elysium.federation.inbox-limits.refused-per-minute=30
+#elysium.federation.inbox-limits.refused-per-minute=60
 
 # Whether a user's block of someone on another server is sent to them, so that their server can stop showing them the
 # user's posts. Either way, the follows between them end on both servers. See docs/accounts.md.

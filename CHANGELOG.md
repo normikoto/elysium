@@ -34,10 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Requests to the inboxes that are unsigned, wrongly signed, or too large are now limited by address, so a reverse proxy
-  no longer has to limit them. An address that has 30 refused in a minute gets a `429` until the minute is up, and
-  `elysium.federation.inbox-limits.refused-per-minute` changes this. Valid deliveries don't count, so this doesn't
-  affect other servers that sign their requests correctly. A proxy limit on inbox requests is still worth keeping, to
-  stop floods before they reach the server. See `docs/configuration.md`.
+  no longer has to limit them. An address that has 60 refused in a minute gets a `429` until the minute is up, and
+  `elysium.federation.inbox-limits.refused-per-minute` changes this. Valid deliveries don't count, so another server
+  only gets near the limit in a burst of signatures that can't be checked, such as just after it changes its keys. The
+  limit is skipped for requests from the server's own network, which usually means a proxy is hiding its clients'
+  addresses. A proxy limit on inbox requests is still worth keeping, to stop floods before they reach the server. See
+  `docs/configuration.md`.
 
 ### Fixed
 

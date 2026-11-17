@@ -16,9 +16,15 @@ import java.time.Duration;
  * count them against. This counts only refusals, rather than every request as a reverse proxy would, so the many valid
  * deliveries that a large server sends from a few addresses don't count.
  *
- * <p>Other refusals don't count, because real servers cause them. A key that's gone or can't be fetched happens to deleted
- * actors and servers that are down, and a blocked or suspended signer can share its address with servers that aren't, on a
- * host for many servers. Making those cost a sender something is left to {@link AddressFetchBudgets}.
+ * <p>Other refusals don't count, because real servers cause them often. A key that's gone or can't be fetched happens to
+ * deleted actors and servers that are down, and a blocked or suspended signer can share its address with servers that
+ * aren't, on a host for many servers. Making those cost a sender something is left to {@link AddressFetchBudgets}. A real
+ * server can still be refused for a key whose document is missing, or one it changed since this server last fetched it,
+ * but those can't be left out, because a lookup that found nothing is remembered, so anyone could send them without
+ * causing a fetch. The default limit leaves room for a burst of them.
+ *
+ * <p>Requests are counted once they're refused, so requests that are running at once aren't limited until they finish.
+ * Capping those per address would also refuse a large server's deliveries, so that's left to a reverse proxy.
  *
  * <p>The check comes before the body is read, so an address over the limit is turned away for the rest of the minute, valid
  * deliveries included. Senders try again after a {@code 429}, so these aren't lost.
