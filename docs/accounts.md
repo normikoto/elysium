@@ -48,7 +48,7 @@ Once the first account exists, people can create their own at `/signup`. Who can
 | `approval`         | Anyone who confirms their email address, but they also have to wait for an admin   |
 
 `open` and `approval` need an SMTP server to send the confirmation links, set with
-[`spring.mail.host` and `elysium.mail.from`](configuration.md). The server won't start in those modes without one.
+[`spring.mail.host` and `elysium.mail.from`](configuration.md#email). The server won't start in those modes without one.
 
 Someone signing up without an invite gives an email address, and gets a link to confirm it. The link works for a day. Until
 they've confirmed it, they can't log in, and nobody else can see the account or take its username or address. If the email
@@ -130,8 +130,9 @@ These apply straight away, but when a command does it, other servers may only be
 - Other servers [are told](../FEDERATION.md#suspended-and-deleted-accounts), and it keeps its followers. New posts that were
   still being sent are dropped.
 
-**Suspending an account on another server** refuses everything from it, stops sending to it, and removes its follows, which
-don't come back if the suspension ends. Its posts stored here are hidden, and come back if the suspension ends. To cut off a whole server, use a [domain block](#domain-blocks).
+**Suspending an account on another server** removes its follows, and they don't come back if the suspension ends. While
+it's suspended, everything from it is refused, nothing is sent to it, and its posts stored here are hidden. The posts come
+back if the suspension ends. To cut off a whole server, use a [domain block](#domain-blocks).
 
 **Rejecting an account's media**, at `/admin/accounts`, is for an account on another server whose posts are fine but whose
 attachments you don't want kept here. Its attachments are shown as links to its server instead of being downloaded, and the

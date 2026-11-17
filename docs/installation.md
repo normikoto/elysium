@@ -84,3 +84,21 @@ The sandbox makes the filesystem read-only apart from private `/tmp` and `/var/t
 isn't private, and `/var/lib/elysium`, where uploaded images are kept. Back that up along with the database. It also hides `/home`, `/root` and `/run/user`, so `java` and the JAR must be installed outside them. If
 you need the server to write somewhere, or to listen on a port below 1024, the comments in `elysium.service` explain what
 to change.
+
+## Checking that it works
+Once the server has started, ask it whether it's ready, on the host it runs on:
+```shell
+curl http://127.0.0.1:8080/actuator/health
+```
+
+It should answer with `"status":"UP"`. If it doesn't answer, the log says why: see `docker compose logs app` with Docker
+Compose, or `journalctl -u elysium` for the service.
+
+Once you've [created your first account](accounts.md), such as `alice`, and set up the reverse proxy, check that other
+servers can find it through your public URL:
+```shell
+curl 'https://social.example/.well-known/webfinger?resource=acct:alice@social.example'
+```
+
+The JSON it answers with should link to `https://social.example/users/alice`. If the link has the wrong address, check
+`elysium.instance.base-url`. If nothing answers, check the [reverse proxy](configuration.md#reverse-proxies).
