@@ -970,8 +970,11 @@ public class StatusService {
     public List<Status> findVisible(Collection<UUID> ids, UUID viewer) {
         if (ids.isEmpty()) return List.of();
         var found = statuses.findByIds(ids);
-        var followed = Set.copyOf(follows.followedIds(viewer));
-        var mentioned = statuses.mentioning(ids, viewer);
+        // Follows and mentions only matter for what isVisibleTo doesn't already show, and most statuses are open.
+        var hidden = found.stream().filter(status -> !status.isVisibleTo(Optional.of(viewer))).toList();
+        Set<UUID> followed = hidden.stream().anyMatch(status -> status.visibility() == Visibility.PRIVATE)
+                ? Set.copyOf(follows.followedIds(viewer)) : Set.of();
+        Set<UUID> mentioned = hidden.isEmpty() ? Set.of() : statuses.mentioning(hidden.stream().map(Status::id).toList(), viewer);
         var refusing = blocks.refusing(viewer, found.stream().map(Status::actorId).collect(Collectors.toSet()));
         var local = found.stream().anyMatch(Status::localOnly) && actors.isLocal(viewer);
         return found.stream()

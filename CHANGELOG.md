@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page. A post is now only found by a page on its own server.
 - When a server reused a `Follow`'s ID to follow a second account here, an `Undo` of it could leave one of the two follows
   behind, and still send its `Accept`. It now removes both.
+- A public or unlisted reply to a followers-only or direct post told apps which post it answered and who wrote it, so
+  anyone who could see the reply could tell that the hidden post existed. Apps now only see that when they can see the
+  post, as web pages already did.
 
 ## [0.1.0] - 2026-11-15
 

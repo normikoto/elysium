@@ -228,6 +228,7 @@ class StatusResponses {
         var quoteCounts = quotes.acceptedCounts(ids);
         var pollsById = polls.findAll(ids, viewer);
         var pinned = pins.pinnedIds(all, viewer);
+        var shownParents = shownParents(all, viewer);
         var matcher = viewer.map(filters::matcher).orElse(PostFilterMatcher.NONE);
         var byId = all.stream().collect(Collectors.toMap(Status::id, Function.identity(), (a, b) -> a));
         var matches = new HashMap<UUID, List<PostFilterMatch>>();
@@ -250,6 +251,7 @@ class StatusResponses {
                 status, status.quoteApproval(), localAuthors.contains(status.actorId()), decisions.get(status.id()));
         StatusBuilder basic = (status, reblog, quote) -> StatusResponse.from(
                 status,
+                status.inReplyToId() == null || shownParents.contains(status.inReplyToId()),
                 accountResponses.get(status.actorId()),
                 mentions.getOrDefault(status.id(), List.of()).stream()
                         .map(actor -> MentionResponse.from(actor, actors.isLocal(actor)))
@@ -306,6 +308,17 @@ class StatusResponses {
     @FunctionalInterface
     private interface StatusBuilder {
         StatusResponse apply(Status status, StatusResponse reblog, Object quote);
+    }
+
+    /**
+     * The parents the viewer can see. A public reply can have a parent the viewer can't, such as its author's own
+     * followers-only status. Naming it would tell them that it exists, and for a local one its URI too, which is built
+     * from its ID, though its {@code Note} leaves the parent out.
+     */
+    private Set<UUID> shownParents(List<Status> all, Optional<UUID> viewer) {
+        var parentIds = all.stream().map(Status::inReplyToId).filter(Objects::nonNull).distinct().toList();
+        if (parentIds.isEmpty()) return Set.of();
+        return visible(parentIds, viewer).stream().map(Status::id).collect(Collectors.toUnmodifiableSet());
     }
 
     private List<Status> visible(List<UUID> ids, Optional<UUID> viewer) {

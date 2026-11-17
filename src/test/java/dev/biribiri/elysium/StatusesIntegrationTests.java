@@ -884,6 +884,33 @@ class StatusesIntegrationTests {
     }
 
     @Test
+    void aReplyOnlyNamesAParentTheViewerCanSee() throws Exception {
+        var hidden = create(alice(), "Secret", "private");
+        var reply = create(alice(), "Public reply", "public", hidden);
+        follow(bobId(), aliceId(), "accepted");
+
+        for (var token : List.of(alice(), bob())) {
+            mockMvc.perform(withToken(get("/api/v1/statuses/" + reply), token))
+                    .andExpect(jsonPath("$.in_reply_to_id").value(hidden))
+                    .andExpect(jsonPath("$.in_reply_to_account_id").value(aliceId()));
+        }
+        for (var request : List.of(get("/api/v1/statuses/" + reply), withToken(get("/api/v1/statuses/" + reply), carol()))) {
+            mockMvc.perform(request)
+                    .andExpect(jsonPath("$.in_reply_to_id").value(nullValue()))
+                    .andExpect(jsonPath("$.in_reply_to_account_id").value(nullValue()));
+        }
+        mockMvc.perform(get(TIMELINE))
+                .andExpect(jsonPath("$[0].id").value(reply))
+                .andExpect(jsonPath("$[0].in_reply_to_id").value(nullValue()));
+
+        var boost = mockMvc.perform(withToken(post("/api/v1/statuses/" + reply + "/reblog"), carol()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + JsonPath.read(boost, "$.id")), carol()))
+                .andExpect(jsonPath("$.reblog.in_reply_to_id").value(nullValue()))
+                .andExpect(jsonPath("$.reblog.in_reply_to_account_id").value(nullValue()));
+    }
+
+    @Test
     void leavesOutStatusesWhoseAuthorCannotBeLoaded() throws Exception {
         var orphan = create(token("dave", "read write"), "Orphan");
         var kept = create(bob(), "Kept");
