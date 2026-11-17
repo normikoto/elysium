@@ -68,14 +68,16 @@ jobs:
       - run: sha256sum elysium.jar > elysium.jar.sha256
         working-directory: build/libs
       # The config files are attached too, so the installation steps can download a release's files without a checkout.
-      # --clobber replaces what an earlier run of the same release uploaded.
+      # --clobber replaces what an earlier run of the same release uploaded. .env.example goes up as env.example, because
+      # GitHub renames an asset whose name starts with a dot to default.env.example.
       - name: Attach the files to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release upload "$TAG" --clobber
-          build/libs/elysium.jar build/libs/elysium.jar.sha256
-          compose.yaml .env.example elysium.service application.properties.example
+        run: |
+          cp .env.example env.example
+          gh release upload "$TAG" --clobber \
+            build/libs/elysium.jar build/libs/elysium.jar.sha256 \
+            compose.yaml env.example elysium.service application.properties.example
 
   image:
     needs: test
