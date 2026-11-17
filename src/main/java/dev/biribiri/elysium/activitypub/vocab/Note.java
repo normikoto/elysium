@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.vocab;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.Visibility;
@@ -24,6 +25,8 @@ import java.util.Map;
  *                   sends and reads this as plain text, so escaping it would show the escapes in its content warnings.
  * @param inReplyTo  the parent status, or null if this isn't a reply or the parent can't be shown
  * @param contentMap the content under its language, or null if no language is set
+ * @param source     the text as the author wrote it in Markdown, as Misskey and Pleroma send it, for servers that render
+ *                   it themselves, or null for plain text, which says nothing {@code content} doesn't
  * @param tag        the accounts it mentions, then its hashtags, or null if it has neither
  * @param attachment its attachments, in order, or null if it has none
  * @param quote              the status it quotes, as FEP-044f has it, or null if it doesn't quote one
@@ -54,6 +57,7 @@ public record Note(
         String summary,
         URI inReplyTo,
         Map<String, String> contentMap,
+        Source source,
         List<Tag> tag,
         List<Document> attachment,
         URI likes,
@@ -102,6 +106,12 @@ public record Note(
         terms.put("automaticApproval", Map.of("@id", "gts:automaticApproval", "@type", "@id"));
         terms.put("manualApproval", Map.of("@id", "gts:manualApproval", "@type", "@id"));
         return Collections.unmodifiableMap(terms);
+    }
+
+    /**
+     * ActivityStreams' {@code source}: what {@code content} was rendered from.
+     */
+    public record Source(String content, String mediaType) {
     }
 
     /**
@@ -193,6 +203,8 @@ public record Note(
                 status.spoilerText().isEmpty() ? null : status.spoilerText(),
                 inReplyTo,
                 status.language() == null ? null : Map.of(status.language(), status.content()),
+                status.contentType() == ContentType.MARKDOWN ? new Source(status.text(), status.contentType().value())
+                        : null,
                 tags(mentions, hashtags, emojis, shownQuote),
                 attachments.isEmpty() ? null : List.copyOf(attachments),
                 URI.create(status.uri() + "/likes"),
@@ -226,7 +238,7 @@ public record Note(
     public Note withoutContext() {
         return new Note(
                 null, id, type, attributedTo, url, published, updated, to, cc, content, sensitive, summary, inReplyTo,
-                contentMap, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote, quoteAuthorization,
+                contentMap, source, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote, quoteAuthorization,
                 interactionPolicy, oneOf, anyOf, endTime, closed, votersCount);
     }
 
@@ -236,7 +248,7 @@ public record Note(
     public Note withUpdated(Instant updated) {
         return new Note(
                 context, id, type, attributedTo, url, published, ActivityStreams.time(updated), to, cc, content, sensitive,
-                summary, inReplyTo, contentMap, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote,
+                summary, inReplyTo, contentMap, source, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote,
                 quoteAuthorization, interactionPolicy, oneOf, anyOf, endTime, closed, votersCount);
     }
 }

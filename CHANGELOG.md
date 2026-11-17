@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local-only posts, which are never sent to other servers, and only people on this server can see. Apps that support
   glitch-soc's `local_only` can post them. Replies to them, quotes of them, and boosts of them are local-only too. See
   `docs/api.md` and `FEDERATION.md`.
+- Posts written in Markdown, from apps that support glitch-soc's or Pleroma's `content_type`, such as Phanpy. Plain text
+  stays the default. Formatting that other servers don't show, such as headings, images, and tables, is simplified or
+  dropped, so a post looks the same everywhere. See `docs/api.md` and `FEDERATION.md`.
 - An admin front page at `/admin`, which links to every admin page. Admins find a link to it on the front page and their
   settings page.
 - Importing and exporting custom emoji packs. Admins can import a Misskey export, a Pleroma or Akkoma pack, or a .zip or

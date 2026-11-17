@@ -83,6 +83,16 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   - A reply to, quote of, or boost of a local-only status is local-only too. A local-only status that quotes a status
     from another server gets a 422. An edit can't change it.
   - Statuses have `local_only`, which is always false for one from another server.
+- `content_type` can be `text/markdown` on a new status or in `PUT /api/v1/statuses/:id`, as on glitch-soc, Pleroma, and
+  Akkoma, rather than `text/plain`, which is the default. Anything else, such as `text/html`, gets a 422.
+  - An edit with no `content_type` keeps what the status was written in, and `GET /api/v1/statuses/:id/source` has
+    `content_type`. `configuration.statuses.supported_mime_types` in `GET /api/v1/instance` and `GET /api/v2/instance`
+    lists both.
+  - Markdown is CommonMark with `~~strikethrough~~`, and a single new line is a line break. Its `content` only has what
+    Mastodon shows: headings are bold paragraphs, an image is a link to it with its description as the text, rules are
+    dropped, there are no tables, and only `http` and `https` links are kept. HTML in the text is shown as text.
+  - URLs, mentions, and hashtags are linked as in plain text, except in code and in a link's text, where they also don't
+    notify anyone or tag the status. The length limit counts the text as written, including its Markdown.
 
 ### Emoji and hashtags
 

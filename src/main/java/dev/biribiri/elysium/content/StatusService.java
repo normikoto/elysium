@@ -17,6 +17,7 @@ import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.text.Hashtags;
+import dev.biribiri.elysium.text.Markdown;
 import dev.biribiri.elysium.text.Mentions;
 import dev.biribiri.elysium.text.PlainText;
 import dev.biribiri.elysium.text.RemoteHtml;
@@ -185,9 +186,12 @@ public class StatusService {
                 ? Visibility.PRIVATE : draft.visibility();
         var quotePolicy = !visibility.isOpen() ? QuotePolicy.NOBODY
                 : draft.quotePolicy() != null ? draft.quotePolicy() : postingDefaults.quotePolicy(authorId);
-        var mentioned = resolveMentions(author, text);
-        var content = quoting == null ? render(text, mentioned)
-                : withQuoteFallback(render(text, mentioned), text, quoting.status().link(), quoting.status().uri());
+        var contentType = draft.contentType();
+        var linkable = linkable(text, contentType);
+        var mentioned = resolveMentions(author, linkable);
+        var content = quoting == null ? render(text, contentType, mentioned)
+                : withQuoteFallback(render(text, contentType, mentioned), text, quoting.status().link(),
+                quoting.status().uri());
         var localEmojis = localEmojiIds(text, spoilerText, poll == null ? List.of() : poll.options());
 
         return transaction.execute(tx -> {
@@ -228,7 +232,8 @@ public class StatusService {
                     0,
                     quotePolicy.approval(),
                     null,
-                    localOnly);
+                    localOnly,
+                    contentType);
             statuses.insert(status);
             media.attach(id, authorId, claimed);
             if (poll != null) {
@@ -241,7 +246,7 @@ public class StatusService {
                 mentions.putIfAbsent(quoted.actorId(), true);
             }
             statuses.insertMentions(id, mentions);
-            statuses.insertTags(id, Hashtags.names(text));
+            statuses.insertTags(id, Hashtags.names(linkable));
             emojis.insertForStatus(id, localEmojis);
             threads.assign(status, parent.map(Status::uri).orElse(null));
             if (quoted != null) {
@@ -282,15 +287,19 @@ public class StatusService {
                 .orElseThrow(() -> new IllegalArgumentException("The author isn't a local account"));
         // Before looking up mentions, so that trying to edit someone else's status makes no requests. It's checked again
         // under a lock below.
-        if (statuses.findById(id).filter(found -> isEditableBy(found, authorId)).isEmpty()) {
+        var editable = statuses.findById(id).filter(found -> isEditableBy(found, authorId));
+        if (editable.isEmpty()) {
             return Optional.empty();
         }
+        // Rendered before the lock below, so a concurrent edit that changes it is overwritten with what this rendered.
+        var contentType = draft.contentType() == null ? editable.get().contentType() : draft.contentType();
         var quote = quotes.find(id).orElse(null);
         if (draft.quotedStatusId() != null && (quote == null || !draft.quotedStatusId().equals(quote.quotedStatusId()))) {
             throw new InvalidStatusException("What a status quotes can't be changed");
         }
-        var mentioned = resolveMentions(author, text);
-        var content = withQuoteFallback(render(text, mentioned), text, quote);
+        var linkable = linkable(text, contentType);
+        var mentioned = resolveMentions(author, linkable);
+        var content = withQuoteFallback(render(text, contentType, mentioned), text, quote);
 
         var edited = transaction.execute(tx -> {
             var found = statuses.findByIdForEdit(id).filter(candidate -> isEditableBy(candidate, authorId));
@@ -332,7 +341,7 @@ public class StatusService {
                     .filter(change -> isChange(byId.get(change.id()), change))
                     .toList();
             // The content links each mention, so it changes whenever they do.
-            var unchanged = text.equals(old.text()) && content.equals(old.content())
+            var unchanged = text.equals(old.text()) && content.equals(old.content()) && contentType == old.contentType()
                     && spoilerText.equals(old.spoilerText()) && Objects.equals(newLanguage, old.language())
                     && sensitive == old.sensitive() && mediaIds.equals(currentIds) && describe.isEmpty()
                     && pollEdit == PollEdit.KEEP;
@@ -353,7 +362,8 @@ public class StatusService {
             var next = since.truncatedTo(ChronoUnit.SECONDS).plusSeconds(1);
             var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
             var editedAt = now.isBefore(next) ? next : now;
-            if (!statuses.editLocal(id, authorId, text, content, spoilerText, newLanguage, sensitive, editedAt)) {
+            if (!statuses.editLocal(id, authorId, text, content, contentType, spoilerText, newLanguage, sensitive,
+                    editedAt)) {
                 return new Edited(Optional.<Status>empty(), false);
             }
             switch (pollEdit) {
@@ -377,7 +387,7 @@ public class StatusService {
                         change.focus() == null ? attachment.focus() : change.focus());
             }
             var addedMentions = statuses.replaceMentions(id, mentionedIds(mentioned, authorId));
-            statuses.replaceTags(id, Hashtags.names(text));
+            statuses.replaceTags(id, Hashtags.names(linkable));
             var pollOptions = switch (pollEdit) {
                 case REMOVE -> List.<String>of();
                 case REPLACE, HIDE_TOTALS -> newPoll.options();
@@ -592,13 +602,25 @@ public class StatusService {
         return boosts.findLocal(statusId).stream().map(StatusBoost::actorId).toList();
     }
 
-    private String render(String text, Map<String, Actor> mentioned) {
+    private String render(String text, ContentType contentType, Map<String, Actor> mentioned) {
         if (text.isEmpty()) {
             return "";
         }
-        return PlainText.render(text, match -> Optional.ofNullable(mentioned.get(acct(match)))
+        Function<Mentions.Match, PlainText.MentionLink> links = match -> Optional.ofNullable(mentioned.get(acct(match)))
                 .map(actor -> new PlainText.MentionLink(actor.uri(), actor.username() + "@" + actor.domain()))
-                .orElse(null), instance.baseUrl());
+                .orElse(null);
+        return switch (contentType) {
+            case PLAIN -> PlainText.render(text, links, instance.baseUrl());
+            case MARKDOWN -> Markdown.render(text, links, instance.baseUrl());
+        };
+    }
+
+    /**
+     * The text that mentions and hashtags are found in: only where they're linked, so that one in Markdown's code
+     * doesn't notify anyone or tag the status.
+     */
+    private static String linkable(String text, ContentType contentType) {
+        return contentType == ContentType.MARKDOWN ? Markdown.linkableText(text) : text;
     }
 
     /**
@@ -745,7 +767,8 @@ public class StatusService {
                     0,
                     remote.quotePolicy(),
                     null,
-                    false);
+                    false,
+                    ContentType.PLAIN);
             if (!statuses.insert(status)) {
                 return Optional.<UUID>empty();
             }

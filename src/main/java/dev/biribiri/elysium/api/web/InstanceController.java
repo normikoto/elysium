@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.content.AttachmentProperties;
+import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.StatusPinService;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +28,8 @@ import java.util.Map;
 @Tag(name = "Instance", description = "Information about the server.",
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/"))
 public class InstanceController {
+
+    private static final List<String> CONTENT_TYPES = Arrays.stream(ContentType.values()).map(ContentType::value).toList();
 
     /**
      * Clients parse this to detect features, so it has to start with a Mastodon version number.
@@ -99,7 +103,8 @@ public class InstanceController {
                 new InstanceResponse.Configuration(
                         new InstanceResponse.Accounts(0, StatusPinService.MAX_PER_ACCOUNT, profiles.maxFields()),
                         new InstanceResponse.Statuses(
-                                maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl()),
+                                maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl(),
+                                CONTENT_TYPES),
                         mediaAttachments(),
                         new InstanceResponse.Polls(Poll.MAX_OPTIONS, Poll.MAX_OPTION_CHARACTERS, Poll.MIN_EXPIRATION,
                                 Poll.MAX_EXPIRATION)),
@@ -142,7 +147,8 @@ public class InstanceController {
                         Map.of("streaming", instance.baseUrl().toString().replaceFirst("^http", "ws")),
                         new InstanceResponse.Accounts(0, StatusPinService.MAX_PER_ACCOUNT, profiles.maxFields()),
                         new InstanceResponse.Statuses(
-                                maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl()),
+                                maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl(),
+                                CONTENT_TYPES),
                         mediaAttachments(),
                         new InstanceResponse.Polls(Poll.MAX_OPTIONS, Poll.MAX_OPTION_CHARACTERS, Poll.MIN_EXPIRATION,
                                 Poll.MAX_EXPIRATION),

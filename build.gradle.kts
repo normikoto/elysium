@@ -43,6 +43,9 @@ dependencies {
     // nothing has to be installed.
     implementation("com.sksamuel.scrimage:scrimage-core:4.6.9")
     implementation("com.sksamuel.scrimage:scrimage-webp:4.6.9")
+    // Parses statuses written in Markdown. Spring Boot doesn't manage its version.
+    implementation("org.commonmark:commonmark:0.32.0")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.32.0")
     // Reads the pages that profile fields link to, to check that they link back.
     implementation("org.jsoup:jsoup:1.23.2")
     // Two-factor login: TOTP codes, and the QR code that adds an account to an authenticator app. Neither has dependencies.
