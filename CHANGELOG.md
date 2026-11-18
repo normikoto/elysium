@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Approving a follow request gives you a follow notification from the new follower, in place of the request's
+  notification. Requests approved before upgrading don't get one.
 - Each kind of upload is held to its own size limits before it's received. Before, every upload could be as large as the
   largest limit, such as a 100 MB avatar, before it was refused. Uploads now have to say how large they are, and one sent
   in chunks without a size is refused. Browsers and nginx always give the size, but behind a proxy that passes request
