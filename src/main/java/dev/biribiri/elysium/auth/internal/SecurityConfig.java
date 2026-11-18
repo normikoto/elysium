@@ -327,7 +327,10 @@ class SecurityConfig {
                                     + (failure instanceof PasswordHashingBusyException ? "?busy" : "?error"));
                         })
                         .permitAll())
-                .logout(withDefaults())
+                // A saved page was dropped with the session before it moved to a cookie. Without this, the next person to log in
+                // on a shared browser would be sent to it, such as the last person's pending authorization.
+                .logout(logout -> logout.addLogoutHandler(
+                        (request, response, _) -> requestCache.removeRequest(request, response)))
                 // Sessions expire, so an admin who reloads a page needs a way back in. Other requests get
                 // a bare 403. The job UI's API calls are among them, because they couldn't use a login page as a response.
                 .exceptionHandling(exceptions -> exceptions

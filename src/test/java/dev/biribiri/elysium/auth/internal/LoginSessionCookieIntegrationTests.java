@@ -130,6 +130,37 @@ class LoginSessionCookieIntegrationTests {
     }
 
     /**
+     * On a shared browser, the next person to log in mustn't be sent to a page the last one was on its way to.
+     */
+    @Test
+    void loggingOutForgetsTheSavedPage() throws Exception {
+        TestAccounts.makeSureAnAccountExists(actors);
+        var username = "u" + UUID.randomUUID().toString().replace("-", "").substring(0, 25);
+        accounts.createAccount(username, PASSWORD).orElseThrow();
+        var loginPage = send(HttpRequest.newBuilder(uri("/login")).GET(), null);
+        var token = CSRF_TOKEN.matcher(loginPage.body());
+        assertThat(token.find()).isTrue();
+        var login = logIn(username, token.group(1), value(setCookie(loginPage, "XSRF-TOKEN=")));
+        var session = value(setCookie(login, "SESSION="));
+
+        // Logging in replaces the token, and the next page that needs one sets it.
+        var page = send(HttpRequest.newBuilder(uri("/settings/delete-account")).header("Accept", "text/html").GET(), session);
+        var pageToken = CSRF_TOKEN.matcher(page.body());
+        assertThat(pageToken.find()).isTrue();
+        var cookies = session + "; " + value(setCookie(page, "XSRF-TOKEN="));
+        var anonymous = HttpRequest.newBuilder(uri("/settings/delete-account")).header("Accept", "text/html").GET();
+        var savedPage = value(setCookie(send(anonymous, null), "SAVED-PAGE="));
+
+        var logout = send(HttpRequest.newBuilder(uri("/logout"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "_csrf=" + URLEncoder.encode(pageToken.group(1), StandardCharsets.UTF_8))), cookies + "; " + savedPage);
+
+        assertThat(logout.statusCode()).isEqualTo(302);
+        assertThat(setCookie(logout, "SAVED-PAGE=")).startsWith("SAVED-PAGE=;").contains("Max-Age=0");
+    }
+
+    /**
      * Sessions are stored in the database, so one for every visit would let anyone fill it.
      */
     @Test
