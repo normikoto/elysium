@@ -271,6 +271,22 @@ class NotificationIntegrationTests {
     }
 
     @Test
+    void requestsApprovedByUnlockingTheAccountNotifyAsFollows() throws Exception {
+        profiles.update(bob.id(), ProfileChange.NONE.withManuallyApprovesFollowers(true));
+        follows.follow(alice, bob);
+        follows.follow(carol, bob);
+        settled();
+
+        profiles.update(bob.id(), ProfileChange.NONE.withManuallyApprovesFollowers(false));
+        settled();
+
+        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
+                .andExpect(jsonPath("$[*].type").value(contains("follow", "follow")))
+                .andExpect(jsonPath("$[*].account.id")
+                        .value(containsInAnyOrder(carol.id().toString(), alice.id().toString())));
+    }
+
+    @Test
     void groupedPaginationDoesNotReturnEmptyPagesOfRepeatedGroupMembers() throws Exception {
         follows.follow(alice, bob);
         settled();

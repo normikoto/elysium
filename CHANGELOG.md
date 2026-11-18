@@ -24,8 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Approving a follow request gives you a follow notification from the new follower, in place of the request's
-  notification. That includes requests approved automatically, which can give several at once, such as when you stop
+- Approving a follow request gives the user a follow notification from the new follower, in place of the request's
+  notification. That includes requests approved automatically, which can give several at once, such as when a user stops
   approving followers by hand. Requests approved before upgrading don't get one.
 - Each kind of upload is held to its own size limits before it's received. Before, every upload could be as large as the
   largest limit, such as a 100 MB avatar, before it was refused. Uploads now have to say how large they are, and one sent
