@@ -362,9 +362,10 @@ class ProfileIntegrationTests {
                 .andExpect(jsonPath("$.created_at").value("2020-03-04T00:00:00Z"))
                 .andExpect(jsonPath("$.url").value("https://" + host + "/@bob"))
                 .andExpect(jsonPath("$.uri").value(uri.toString()))
-                // Not downloaded yet, so it's its server's copy.
-                .andExpect(jsonPath("$.avatar").value(avatar.toString()))
-                .andExpect(jsonPath("$.avatar_static").value(avatar.toString()))
+                // Not downloaded yet, so it's the proxy, which downloads it.
+                .andExpect(jsonPath("$.avatar").value("https://profiles.example/media_proxy/accounts/" + bob.id() + "/avatar"))
+                .andExpect(jsonPath("$.avatar_static")
+                        .value("https://profiles.example/media_proxy/accounts/" + bob.id() + "/avatar/static"))
                 .andExpect(jsonPath("$.header").value(startsWith("https://profiles.example/media/")))
                 .andExpect(jsonPath("$.fields", hasSize(1)))
                 .andExpect(jsonPath("$.fields[0].value").value("<a href=\"https://bob.test\">bob.test</a>"))
@@ -395,8 +396,9 @@ class ProfileIntegrationTests {
 
         mockMvc.perform(get("/api/v1/accounts/" + carol.id()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.avatar").value(avatar.toString()))
-                .andExpect(jsonPath("$.avatar_static").value(avatar.toString()))
+                .andExpect(jsonPath("$.avatar").value("https://profiles.example/media_proxy/accounts/" + carol.id() + "/avatar"))
+                .andExpect(jsonPath("$.avatar_static")
+                        .value("https://profiles.example/media_proxy/accounts/" + carol.id() + "/avatar/static"))
                 .andExpect(jsonPath("$.header").value(startsWith("https://profiles.example/media/")));
         mockMvc.perform(get(URI.create(copy).getPath())).andExpect(status().isNotFound());
         assertThat(profiles.findImageToDownload(carol.id(), false)).contains(avatar);

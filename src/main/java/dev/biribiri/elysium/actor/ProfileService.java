@@ -6,6 +6,7 @@ import dev.biribiri.elysium.media.ImageKind;
 import dev.biribiri.elysium.media.Images;
 import dev.biribiri.elysium.media.InvalidImageException;
 import dev.biribiri.elysium.media.StoredImage;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -50,6 +51,7 @@ public class ProfileService {
     private final ProfileProperties properties;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate transaction;
+    private final boolean remoteCopies;
 
     private static final int REMOVAL_BATCH = 500;
     private static final Duration REMOTE_LINK_CHECK_INTERVAL = Duration.ofMinutes(1);
@@ -63,7 +65,11 @@ public class ProfileService {
             Images images,
             ProfileProperties properties,
             ApplicationEventPublisher events,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            // Attachments' setting, which covers profile images too, read by name since this module can't depend on
+            // content.
+            @Value("${elysium.attachments.remote-cache-enabled:true}") boolean remoteCopies) {
+        this.remoteCopies = remoteCopies;
         this.profiles = profiles;
         this.actors = actors;
         this.images = images;
@@ -93,8 +99,10 @@ public class ProfileService {
             found.put(row.actorId(), new Profile(
                     row.displayName(),
                     row.note(),
-                    image(row.avatar(), remote == null ? null : remote.avatarUrl()),
-                    image(row.header(), remote == null ? null : remote.headerUrl()),
+                    remote == null ? image(row.avatar(), null) : remoteImage(row.actorId(), false, row.avatar(),
+                            remote.avatarUrl(), remote.avatarGivenUp()),
+                    remote == null ? image(row.header(), null) : remoteImage(row.actorId(), true, row.header(),
+                            remote.headerUrl(), remote.headerGivenUp()),
                     fields.getOrDefault(row.actorId(), List.of()),
                     row.manuallyApprovesFollowers(),
                     row.indexable(),
@@ -185,6 +193,24 @@ public class ProfileService {
     }
 
     /**
+     * Like {@link #find}, for only one image, without reading the rest of the profile.
+     *
+     * @param header whether it's the header rather than the avatar
+     * @return empty if the account has no such image
+     */
+    public Optional<ProfileImage> findImage(UUID actorId, boolean header) {
+        return profiles.find(List.of(actorId)).stream().findFirst().map(row -> {
+            var remote = row.remote();
+            if (remote == null) {
+                return image(header ? row.header() : row.avatar(), null);
+            }
+            return header
+                    ? remoteImage(actorId, true, row.header(), remote.headerUrl(), remote.headerGivenUp())
+                    : remoteImage(actorId, false, row.avatar(), remote.avatarUrl(), remote.avatarGivenUp());
+        });
+    }
+
+    /**
      * @param header whether it's the header rather than the avatar
      * @return where to download an account on another server's image from, if it isn't kept here and should be
      */
@@ -256,8 +282,9 @@ public class ProfileService {
     }
 
     /**
-     * Removes the copies of accounts on other servers' avatars and headers that were kept before a time. Each is linked to
-     * until its account is fetched again, and then downloaded again. Safe to stop partway, and to repeat.
+     * Removes the copies of accounts on other servers' avatars and headers that were kept before a time. Each is downloaded
+     * again through {@link ProfileImage#PROXY_PATH} when it's next viewed, or when its account is next fetched. Safe to
+     * stop partway, and to repeat.
      */
     public void pruneRemoteImages(Instant before) {
         for (var header : new boolean[]{false, true}) {
@@ -540,6 +567,18 @@ public class ProfileService {
             removed.add(old);
         }
         return uploaded;
+    }
+
+    /**
+     * One that isn't kept here, but can be, is served through the proxy, which downloads it, so that browsers don't fetch
+     * it from its server, even after its copy has been removed to save space. With copies turned off, it's a link.
+     */
+    private ProfileImage remoteImage(UUID actorId, boolean header, StoredImage image, URI remoteUrl, boolean givenUp) {
+        if (image != null || remoteUrl == null || givenUp || !remoteCopies) {
+            return image(image, remoteUrl);
+        }
+        return new ProfileImage(ProfileImage.proxyPathOf(actorId, header, false),
+                ProfileImage.proxyPathOf(actorId, header, true), remoteUrl);
     }
 
     /**

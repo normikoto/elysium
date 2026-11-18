@@ -64,14 +64,16 @@ yourself.
 The server also keeps copies of the attachments on other servers' posts that it stores, so that your users' browsers
 load them from you rather than from those servers, which would see their addresses. Copies are checked and re-encoded
 like uploads, and ones over the same size limits, or that aren't an accepted format, are linked instead. A copy is
-removed after `remote-cache-retention`, and the attachment is linked to its server again. Each other server can only
-have `remote-download-budget` downloaded in an hour, and past that its attachments are linked. These copies can take a
-lot of space on a server that follows many accounts, so lower the retention, or turn copies off, if you're short of
-disk.
+removed after `remote-cache-retention`, and downloaded again the next time someone views the post. One that hasn't been
+downloaded yet is downloaded as soon as someone views it. Each other server can only have `remote-download-budget`
+downloaded in an hour, and past that its attachments are linked until someone views them once there's room again. These
+copies can take a lot of space on a server that follows many accounts. Lowering the retention removes copies sooner,
+whether or not they're still viewed, so posts people keep viewing are downloaded again more often. Turn copies off if
+you're short of disk.
 
 Avatars and headers of accounts on other servers are copied the same way, and count toward the same hourly limit. Their
-copies are also removed after `remote-cache-retention`, and they're linked to until the account's profile is next
-fetched, which copies them again. They're also replaced when the account changes its image, and removed when its server
+copies are also removed after `remote-cache-retention`, and downloaded again the next time someone views the account,
+or when its profile is next fetched. They're also replaced when the account changes its image, and removed when its server
 is blocked or its media is rejected.
 
 ## Inbox limits

@@ -136,8 +136,8 @@ back if the suspension ends. To cut off a whole server, use a [domain block](#do
 
 **Rejecting an account's media**, at `/admin/accounts`, is for an account on another server whose posts are fine but whose
 attachments you don't want kept here. Its attachments are shown as links to its server instead of being downloaded, and the
-copies already kept are removed. Allowing its media again shows them as what they are, but still as links, since they aren't
-downloaded again.
+copies already kept are removed. Allowing its media again shows them as what they are, and downloads them again when
+someone views them, apart from ones that couldn't be kept before.
 
 **Deleting a local account** can't be undone. Its posts and follows are removed, and other servers are asked to remove it
 too, which they may not do. Its username can't be used again, because other servers can still know it. Accounts on other

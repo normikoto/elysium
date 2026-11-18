@@ -27,8 +27,8 @@ import java.util.List;
  */
 @Schema(name = "Account", description = """
         Mastodon's Account entity. An account on another server shows the profile from its actor document, as of when \
-        it was last fetched. Its avatar and header are links to its server until they're downloaded, and stay links if \
-        they can't be, or its media is rejected. An account with no name shows its username as `display_name`. \
+        it was last fetched. Its avatar and header are `/media_proxy/` URLs that download them until they're kept here, \
+        and links to its server if they can't be, or its media is rejected. An account with no name shows its username as `display_name`. \
         `discoverable` is always false.""")
 record AccountResponse(
         String id,

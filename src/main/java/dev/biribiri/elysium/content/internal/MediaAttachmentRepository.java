@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.content.AttachmentProperties;
 import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.Focus;
 import dev.biribiri.elysium.content.MediaAttachment;
@@ -31,7 +32,8 @@ public class MediaAttachmentRepository {
 
     private static final String COLUMNS = """
             id, account_id, status_id, type, file_name, preview_name, content_type, file_size, width, height,
-            preview_width, preview_height, description, focus_x, focus_y, blurhash, remote_url, rejected, created_at""";
+            preview_width, preview_height, description, focus_x, focus_y, blurhash, remote_url, rejected, created_at,
+            remote_url IS NOT NULL AND file_name IS NULL AND cached_at IS NOT NULL AS given_up""";
 
     /**
      * Turns the rows a statement returns into names to remove. It's appended to a CTE named {@code removed} that returns
@@ -45,12 +47,14 @@ public class MediaAttachmentRepository {
 
     private static final int BATCH_SIZE = 1000;
 
-    private static final RowMapper<MediaAttachment> MAPPER = MediaAttachmentRepository::map;
+    private final RowMapper<MediaAttachment> mapper = this::map;
 
     private final JdbcClient jdbc;
+    private final boolean remoteCopies;
 
-    MediaAttachmentRepository(JdbcClient jdbc) {
+    MediaAttachmentRepository(JdbcClient jdbc, AttachmentProperties properties) {
         this.jdbc = jdbc;
+        this.remoteCopies = properties.remoteCacheEnabled();
     }
 
     /**
@@ -134,7 +138,7 @@ public class MediaAttachmentRepository {
                         """)
                 .param("id", id)
                 .param("accountId", accountId)
-                .query(MAPPER)
+                .query(mapper)
                 .optional();
     }
 
@@ -154,7 +158,7 @@ public class MediaAttachmentRepository {
                         """)
                 .param("ids", ids)
                 .param("accountId", accountId)
-                .query(MAPPER)
+                .query(mapper)
                 .list();
     }
 
@@ -162,7 +166,7 @@ public class MediaAttachmentRepository {
         return jdbc.sql("SELECT " + COLUMNS + " FROM media_attachment WHERE id = :id AND account_id = :accountId")
                 .param("id", id)
                 .param("accountId", accountId)
-                .query(MAPPER)
+                .query(mapper)
                 .optional();
     }
 
@@ -172,7 +176,7 @@ public class MediaAttachmentRepository {
     public List<MediaAttachment> findByStatusAndLock(UUID statusId) {
         return jdbc.sql("SELECT " + COLUMNS + " FROM media_attachment WHERE status_id = :statusId ORDER BY position, id FOR UPDATE")
                 .param("statusId", statusId)
-                .query(MAPPER)
+                .query(mapper)
                 .list();
     }
 
@@ -186,7 +190,7 @@ public class MediaAttachmentRepository {
         var found = new HashMap<UUID, List<MediaAttachment>>();
         jdbc.sql("SELECT " + COLUMNS + " FROM media_attachment WHERE status_id IN (:statusIds) ORDER BY status_id, position, id")
                 .param("statusIds", statusIds)
-                .query(MAPPER)
+                .query(mapper)
                 .list()
                 .forEach(attachment -> found.computeIfAbsent(attachment.statusId(), id -> new ArrayList<>()).add(attachment));
         return found;
@@ -243,7 +247,7 @@ public class MediaAttachmentRepository {
                         ORDER BY position, id FOR UPDATE
                         """)
                 .param("scheduledStatusId", scheduledStatusId)
-                .query(MAPPER)
+                .query(mapper)
                 .list();
     }
 
@@ -452,6 +456,18 @@ public class MediaAttachmentRepository {
     }
 
     /**
+     * Finds another server's attachment that's still on its status, as the proxy serves it.
+     */
+    public Optional<MediaAttachment> findRemote(UUID id) {
+        return jdbc.sql("SELECT " + COLUMNS + """
+                         FROM media_attachment WHERE id = :id AND remote_url IS NOT NULL AND status_id IS NOT NULL
+                        """)
+                .param("id", id)
+                .query(mapper)
+                .optional();
+    }
+
+    /**
      * Records the copy of another server's attachment that's been downloaded, unless it's been removed, rejected, or
      * downloaded since.
      *
@@ -480,13 +496,14 @@ public class MediaAttachmentRepository {
     }
 
     /**
-     * Stops another server's attachment from being downloaded again, for one that can't be, so that it stays a link.
+     * Stops another server's attachment from being downloaded again, for one that can't be, so that it stays a link. The
+     * size of any earlier copy is cleared, so that {@link #allowForDomain} doesn't take it for one a rejection removed.
      *
      * @param type what it turned out to be, or null to keep what its server said
      */
     public void giveUpCaching(UUID id, AttachmentType type) {
         jdbc.sql("""
-                        UPDATE media_attachment SET cached_at = now(), type = coalesce(:type, type)
+                        UPDATE media_attachment SET cached_at = now(), type = coalesce(:type, type), file_size = NULL
                         WHERE id = :id AND file_name IS NULL AND cached_at IS NULL
                         """)
                 .param("id", id)
@@ -495,8 +512,8 @@ public class MediaAttachmentRepository {
     }
 
     /**
-     * Removes copies of other servers' attachments that were downloaded before a time, which are linked again afterward.
-     * They aren't downloaded again.
+     * Removes copies of other servers' attachments that were downloaded before a time. Each goes back to not having been
+     * tried, so that the proxy downloads it again the next time it's viewed.
      *
      * @return how many were removed, which is at most one batch
      */
@@ -508,7 +525,7 @@ public class MediaAttachmentRepository {
                             LIMIT :limit
                             FOR UPDATE SKIP LOCKED
                         ), removed AS (
-                            UPDATE media_attachment m SET file_name = NULL, preview_name = NULL
+                            UPDATE media_attachment m SET file_name = NULL, preview_name = NULL, cached_at = NULL
                             FROM old WHERE m.id = old.id
                             RETURNING old.file_name, old.preview_name
                         ), queued AS (
@@ -575,7 +592,8 @@ public class MediaAttachmentRepository {
 
     /**
      * Stops rejecting a server's actors' attachments, other than those of actors whose own are rejected, or that another
-     * block still covers, in one batch. They're linked to again, and aren't downloaded.
+     * block still covers, in one batch. One whose copy the rejection removed can be downloaded again, which {@code
+     * file_size} shows, since only a copy sets it on a remote attachment. One that was given up stays a link.
      *
      * @return how many were changed, which is at most one batch
      */
@@ -592,7 +610,8 @@ public class MediaAttachmentRepository {
 
     private int allow(String actors, Map<String, Object> parameters) {
         return jdbc.sql("""
-                        UPDATE media_attachment SET rejected = false
+                        UPDATE media_attachment SET rejected = false,
+                            cached_at = CASE WHEN file_name IS NULL AND file_size IS NOT NULL THEN NULL ELSE cached_at END
                         WHERE id IN (
                             SELECT m.id FROM media_attachment m
                             JOIN actor a ON a.id = m.account_id
@@ -626,7 +645,10 @@ public class MediaAttachmentRepository {
         return instant == null ? null : Timestamp.from(instant);
     }
 
-    private static MediaAttachment map(ResultSet rs, int row) throws SQLException {
+    /**
+     * With copies turned off, one that isn't kept is shown as given up, so that it's linked rather than proxied.
+     */
+    private MediaAttachment map(ResultSet rs, int row) throws SQLException {
         var focusX = rs.getObject("focus_x", Double.class);
         var focusY = rs.getObject("focus_y", Double.class);
         var remoteUrl = rs.getString("remote_url");
@@ -648,6 +670,7 @@ public class MediaAttachmentRepository {
                 rs.getString("blurhash"),
                 remoteUrl == null ? null : URI.create(remoteUrl),
                 rs.getBoolean("rejected"),
+                rs.getBoolean("given_up") || (remoteUrl != null && !remoteCopies && rs.getString("file_name") == null),
                 rs.getTimestamp("created_at").toInstant());
     }
 }

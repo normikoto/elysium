@@ -404,8 +404,8 @@ public class ProfileRepository {
 
     /**
      * Drops a batch of the copies of avatars or headers of accounts on another server that were kept before a time. Unlike
-     * {@link #uncacheImages(UUID)}, they're downloaded again the next time their profile is fetched, since an account
-     * that's still around is fetched again, and one that isn't never is.
+     * {@link #uncacheImages(UUID)}, they're downloaded again, through the proxy when they're next viewed, or the next time
+     * their profile is fetched.
      *
      * @param header whether it's headers rather than avatars
      */
