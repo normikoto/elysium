@@ -147,7 +147,9 @@ People can delete their own account at `/settings/delete-account`, with their pa
 who follows them and who they follow, from other people and other servers, which still see how many there are. They can
 also choose to approve followers by hand, there or from an app, and then approve or refuse each request in an app. A
 request that's waiting doesn't make someone a follower, so they don't see followers-only posts. Turning it off approves
-every request that's waiting, and turning it on keeps the followers they already have.
+every request that's waiting, and turning it on keeps the followers they already have. At `/settings`, they can also
+approve requests from people they follow straight away. Turning that on approves the requests already waiting from
+people they follow.
 
 People can choose, at `/settings` or from an app, whether anyone can find their public posts by searching. It's off at
 first, as on Mastodon. Either way, people here can find posts they wrote, favourited, or are mentioned in. Other servers

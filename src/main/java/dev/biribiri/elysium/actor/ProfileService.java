@@ -330,15 +330,40 @@ public class ProfileService {
     }
 
     /**
-     * Whether requests to follow a local account wait for its approval. This holds the setting until the caller's
-     * transaction ends, so that a request can't be left waiting by an account that has just stopped approving them:
-     * {@link FollowerApprovalTurnedOff} is only published once the change commits, and it can't commit before this.
+     * How requests to follow a local account are decided. This holds the settings until the caller's transaction ends, so
+     * that a request can't be left waiting by an account that has just stopped approving them, or started approving the
+     * accounts it follows: {@link FollowerApprovalTurnedOff} and {@link FollowedApprovalTurnedOn} are only published once
+     * the change commits, and it can't commit before this.
      *
      * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public boolean lockFollowerApproval(UUID actorId) {
+    public FollowerApproval lockFollowerApproval(UUID actorId) {
         return profiles.lockFollowerApproval(actorId);
+    }
+
+    /**
+     * Whether a local account that approves its followers by hand approves requests from accounts it follows straight away.
+     */
+    public boolean approvesFollowed(UUID actorId) {
+        return profiles.approvesFollowed(actorId);
+    }
+
+    /**
+     * Changes {@link #approvesFollowed}. Turning it on publishes {@link FollowedApprovalTurnedOn}, so that the requests
+     * already waiting from accounts it follows are approved.
+     *
+     * @return false if there's no active local account to change
+     */
+    @Transactional
+    public boolean setApprovesFollowed(UUID actorId, boolean value) {
+        if (actors.findLocalById(actorId).isEmpty()) {
+            return false;
+        }
+        if (!profiles.setApprovesFollowed(actorId, value) && value) {
+            events.publishEvent(new FollowedApprovalTurnedOn(actorId));
+        }
+        return true;
     }
 
     /**

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.actor.internal;
 
+import dev.biribiri.elysium.actor.FollowerApproval;
 import dev.biribiri.elysium.media.StoredImage;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -161,12 +162,46 @@ public class ProfileRepository {
      * of it waits for the request being decided, and a request waits for the change, so none is left waiting after the
      * account stops approving them.
      */
-    public boolean lockFollowerApproval(UUID actorId) {
-        return jdbc.sql("SELECT manually_approves_followers FROM profile WHERE actor_id = :actorId FOR SHARE")
+    public FollowerApproval lockFollowerApproval(UUID actorId) {
+        return jdbc.sql("""
+                        SELECT manually_approves_followers, approves_followed FROM profile
+                        WHERE actor_id = :actorId FOR SHARE
+                        """)
+                .param("actorId", actorId)
+                .query((rs, n) -> new FollowerApproval(
+                        rs.getBoolean("manually_approves_followers"), rs.getBoolean("approves_followed")))
+                .optional()
+                .orElse(FollowerApproval.NONE);
+    }
+
+    public boolean approvesFollowed(UUID actorId) {
+        return jdbc.sql("SELECT approves_followed FROM profile WHERE actor_id = :actorId")
                 .param("actorId", actorId)
                 .query(Boolean.class)
                 .optional()
                 .orElse(false);
+    }
+
+    /**
+     * Kept apart from {@link #save}, since other servers never see it, and changing it shouldn't tell them the profile
+     * changed.
+     *
+     * @return the value it had before
+     */
+    public boolean setApprovesFollowed(UUID actorId, boolean value) {
+        jdbc.sql("INSERT INTO profile (actor_id) VALUES (:actorId) ON CONFLICT DO NOTHING")
+                .param("actorId", actorId)
+                .update();
+        return jdbc.sql("""
+                        UPDATE profile SET approves_followed = :value
+                        FROM (SELECT approves_followed AS before FROM profile WHERE actor_id = :actorId FOR UPDATE) old
+                        WHERE actor_id = :actorId
+                        RETURNING old.before
+                        """)
+                .param("actorId", actorId)
+                .param("value", value)
+                .query(Boolean.class)
+                .single();
     }
 
     /**

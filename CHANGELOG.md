@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scheduled posts, as on Mastodon, for apps that support them. A post can be scheduled more than a minute ahead, and is
   posted within about a minute of its time. Each user can have up to 300 scheduled, and 25 on one day. One that can no
   longer be posted then, such as a reply to a post that's been deleted, is dropped. See `docs/api.md`.
+- People who approve followers by hand can choose at `/settings` to approve requests from people they follow straight
+  away. Turning it on approves those requests that are already waiting. See `docs/accounts.md`.
 
 ### Changed
 

@@ -33,6 +33,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -87,7 +88,7 @@ class FollowsIntegrationTests {
     void setUp() {
         TestAccounts.makeSureAnAccountExists(actors);
         jdbc.sql("DELETE FROM follow").update();
-        jdbc.sql("UPDATE profile SET manually_approves_followers = false").update();
+        jdbc.sql("UPDATE profile SET manually_approves_followers = false, approves_followed = false").update();
         for (var username : List.of("alice", "bob", "carol")) {
             actors.findLocalByUsername(username).ifPresent(actor -> actors.setHidesCollections(actor.id(), false));
         }
@@ -289,6 +290,64 @@ class FollowsIntegrationTests {
         follow("alice", account("carol"));
         mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", account("carol").id().toString()),
                         token("alice")))
+                .andExpect(jsonPath("$[0].following").value(true));
+    }
+
+    @Test
+    void aLockedAccountCanApproveRequestsFromAccountsItFollowsStraightAway() throws Exception {
+        var alice = account("alice");
+        var carol = account("carol");
+        account("bob");
+        lock("carol", true);
+        follow("carol", alice);
+        follow("alice", carol);
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("carol")))
+                .andExpect(jsonPath("$[*].username", contains("alice")));
+        unfollow("alice", carol);
+
+        approveFollowed("carol", true);
+        follow("alice", carol);
+        follow("bob", carol);
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", carol.id().toString()), token("alice")))
+                .andExpect(jsonPath("$[0].following").value(true))
+                .andExpect(jsonPath("$[0].requested").value(false));
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("carol")))
+                .andExpect(jsonPath("$[*].username", contains("bob")));
+    }
+
+    @Test
+    void aFollowThatIsStillWaitingDoesntApproveARequest() throws Exception {
+        var alice = account("alice");
+        var carol = account("carol");
+        lock("alice", true);
+        lock("carol", true);
+        approveFollowed("carol", true);
+        follow("carol", alice);
+
+        follow("alice", carol);
+
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("carol")))
+                .andExpect(jsonPath("$[*].username", contains("alice")));
+    }
+
+    @Test
+    void approvingRequestsFromAccountsItFollowsApprovesThoseWaiting() throws Exception {
+        var alice = account("alice");
+        var carol = account("carol");
+        account("bob");
+        lock("carol", true);
+        follow("alice", carol);
+        follow("bob", carol);
+        follow("carol", alice);
+
+        approveFollowed("carol", true);
+
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(get("/api/v1/accounts/" + carol.id()))
+                .andExpect(jsonPath("$.followers_count").value(1)));
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("carol")))
+                .andExpect(jsonPath("$[*].username", contains("bob")));
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", carol.id().toString()), token("alice")))
                 .andExpect(jsonPath("$[0].following").value(true));
     }
 
@@ -502,7 +561,8 @@ class FollowsIntegrationTests {
         mockMvc.perform(get("/settings").session(session))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("name=\"hideCollections\"")))
-                .andExpect(content().string(containsString("name=\"manuallyApprovesFollowers\"")));
+                .andExpect(content().string(containsString("name=\"manuallyApprovesFollowers\"")))
+                .andExpect(content().string(containsString("name=\"approvesFollowed\"")));
         mockMvc.perform(post("/settings").session(session).with(csrf()).param("hideCollections", "true"))
                 .andExpect(redirectedUrl("/settings?saved"));
         assertThat(actors.hidesCollections(account("alice").id())).isTrue();
@@ -514,6 +574,25 @@ class FollowsIntegrationTests {
         mockMvc.perform(post("/settings").session(session).with(csrf()).param("manuallyApprovesFollowers", "true"))
                 .andExpect(redirectedUrl("/settings?saved"));
         mockMvc.perform(get("/api/v1/accounts/" + account("alice").id())).andExpect(jsonPath("$.locked").value(true));
+    }
+
+    @Test
+    void approvingRequestsFromAccountsItFollowsIsntPartOfTheProfile() throws Exception {
+        var alice = account("alice");
+        var updatedAt = profileUpdatedAt(alice);
+
+        approveFollowed("alice", true);
+
+        assertThat(profileUpdatedAt(alice)).isEqualTo(updatedAt);
+        var session = TestOAuth.logIn(mockMvc, "alice", PASSWORD);
+        mockMvc.perform(get("/settings").session(session))
+                .andExpect(content().string(containsString("name=\"approvesFollowed\" value=\"true\" checked")));
+
+        approveFollowed("alice", false);
+
+        mockMvc.perform(get("/settings").session(session))
+                .andExpect(content().string(
+                        not(containsString("name=\"approvesFollowed\" value=\"true\" checked"))));
     }
 
     @Test
@@ -679,6 +758,37 @@ class FollowsIntegrationTests {
                         .content("{\"locked\":" + locked + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.locked").value(locked));
+    }
+
+    /**
+     * Saves the settings form with this and what the account has now, since a box that isn't ticked is sent as off.
+     */
+    private void approveFollowed(String username, boolean approves) throws Exception {
+        token(username);
+        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
+        var request = post("/settings").session(session).with(csrf());
+        if (actors.hidesCollections(account(username).id())) {
+            request.param("hideCollections", "true");
+        }
+        var locked = jdbc.sql("SELECT manually_approves_followers FROM profile WHERE actor_id = :id")
+                .param("id", account(username).id())
+                .query(Boolean.class)
+                .optional()
+                .orElse(false);
+        if (locked) {
+            request.param("manuallyApprovesFollowers", "true");
+        }
+        if (approves) {
+            request.param("approvesFollowed", "true");
+        }
+        mockMvc.perform(request).andExpect(redirectedUrl("/settings?saved"));
+    }
+
+    private Optional<String> profileUpdatedAt(Actor actor) {
+        return jdbc.sql("SELECT updated_at::text FROM profile WHERE actor_id = :id")
+                .param("id", actor.id())
+                .query(String.class)
+                .optional();
     }
 
     private void unfollow(String username, Actor followed) throws Exception {

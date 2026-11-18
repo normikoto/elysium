@@ -627,6 +627,8 @@ Only these exist:
 
 - Following an account on another server returns `requested: true` until that server accepts, even if it doesn't
   approve followers by hand.
+- Following a `locked` account here that follows you can return `following: true` straight away, when its user has
+  chosen at `/settings` to approve requests from people they follow. Clients can't read or change that choice.
 - Following yourself, or an account on a server the admin has blocked, gets a 422. Following an account when either
   blocks the other, or on a server the user has blocked, gets a 403, as on Mastodon.
 - `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true

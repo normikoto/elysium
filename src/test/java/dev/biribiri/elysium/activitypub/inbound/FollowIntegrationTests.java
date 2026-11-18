@@ -1000,6 +1000,29 @@ class FollowIntegrationTests {
     }
 
     @Test
+    void aFollowFromAnActorTheLockedAccountFollowsIsAcceptedWhenItChoseThat() {
+        lock(true);
+        var first = newId();
+        followHandler.handle(follow(first));
+        undoHandler.handle(undo(followerUri, embeddedFollow(first, followerUri)));
+        jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
+                        VALUES (:id, :follower, :followed, 'accepted', :activity)
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("follower", followed.id())
+                .param("followed", follower().id())
+                .param("activity", followed.uri() + "#follows/" + UUID.randomUUID())
+                .update();
+        assertThat(profiles.setApprovesFollowed(followed.id(), true)).isTrue();
+
+        followHandler.handle(follow(newId()));
+
+        assertThat(state()).isEqualTo("accepted");
+        assertThat(answers("Accept")).hasSize(1);
+    }
+
+    @Test
     void anUndoWithdrawsAWaitingRequest() {
         lock(true);
         var followId = newId();

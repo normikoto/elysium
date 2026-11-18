@@ -60,10 +60,11 @@ public class FollowService {
 
     /**
      * Makes a local account follow another account. A local account is followed straight away, unless it approves its
-     * followers by hand, when the request waits for it and {@link FollowRequestReceived} is published. An account on another
-     * server has to answer first, so the follow waits for that, and {@link FollowRequested} is published so that it's asked.
-     * Asking it again while it's waiting publishes that again, as its server may have lost the request. Following an
-     * account already followed or asked does nothing else.
+     * followers by hand, when the request waits for it and {@link FollowRequestReceived} is published. That's not so if it
+     * approves requests from accounts it follows, and follows this one. An account on another server has to answer first,
+     * so the follow waits for that, and {@link FollowRequested} is published so that it's asked. Asking it again
+     * while it's waiting publishes that again, as its server may have lost the request. Following an account already
+     * followed or asked does nothing else.
      *
      * <p>The caller checks that both accounts can take part, since this has no view of instance domain blocks.
      *
@@ -92,7 +93,7 @@ public class FollowService {
         }
         var id = UUID.randomUUID();
         if (local) {
-            var approved = !profiles.lockFollowerApproval(followed.id());
+            var approved = !waitsForApproval(follower.id(), followed.id());
             if (follows.insertOutgoing(id, follower.id(), followed.id(), null, approved)) {
                 events.publishEvent(approved
                         ? new FollowEstablished(id, follower.id(), followed.id())
@@ -315,19 +316,50 @@ public class FollowService {
     }
 
     /**
-     * Like {@link #authorize}, unless the account approves its followers by hand again. That's read in the same transaction,
-     * after the same lock as {@link #receive}, so an account that locks itself again stops any more from being approved.
+     * Like {@link #authorize}, unless the request would wait for the account's approval if it arrived now. That's read in
+     * the same transaction, after the same lock as {@link #receive}, so an account that locks itself again stops any more
+     * from being approved.
      *
-     * @return false if the account approves its followers by hand, and nothing was changed
+     * @return false if the request waits for the account's approval, and nothing was changed
      */
     @Transactional
     public boolean authorizeUnlessLocked(Actor follower, UUID followedId) {
         follows.lock(pairKey(follower.uri().toString(), followedId));
-        if (profiles.lockFollowerApproval(followedId)) {
+        if (waitsForApproval(follower.id(), followedId)) {
             return false;
         }
         authorizeLocked(follower, followedId);
         return true;
+    }
+
+    /**
+     * Like {@link #authorize}, if the account follows the requester and approves requests from accounts it follows. That's
+     * read under the same locks as {@link #authorizeUnlessLocked}, so an account that turns the setting off again stops any
+     * more from being approved.
+     *
+     * @return false if the account no longer approves requests from accounts it follows, and nothing was changed
+     */
+    @Transactional
+    public boolean authorizeIfFollowed(Actor follower, UUID followedId) {
+        follows.lock(pairKey(follower.uri().toString(), followedId));
+        if (!profiles.lockFollowerApproval(followedId).exceptFollowed()) {
+            return false;
+        }
+        if (follows.isFollowing(followedId, follower.id())) {
+            authorizeLocked(follower, followedId);
+        }
+        return true;
+    }
+
+    /**
+     * Whether a request to follow a local account waits for its approval, holding the account's settings until the
+     * caller's transaction ends. The reverse pair's lock isn't taken, since two accounts asking to follow each other at once
+     * would take the two pair locks in opposite orders. So an unfollow at the same moment can let a request through, as it
+     * would have if the request had arrived a moment earlier.
+     */
+    private boolean waitsForApproval(UUID followerId, UUID followedId) {
+        var approval = profiles.lockFollowerApproval(followedId);
+        return approval.byHand() && !(approval.exceptFollowed() && follows.isFollowing(followedId, followerId));
     }
 
     private boolean authorizeLocked(Actor follower, UUID followedId) {
@@ -416,8 +448,8 @@ public class FollowService {
     /**
      * Stores a request to follow a local account, unless it's been undone, or the follow already comes from an activity
      * that first arrived later. It's accepted, unless the account approves its followers by hand and doesn't already have
-     * this follower, when it waits for the account. This takes part in the caller's transaction, so that the caller can save
-     * its answer along with it.
+     * this follower, when it waits for the account. That's not so if it approves requests from accounts it follows, and
+     * follows this one. This takes part in the caller's transaction, so that the caller can save its answer along with it.
      *
      * <p>A request from an actor the account blocks, or from a server it blocks, is {@link Refused}, and nothing is stored,
      * so that the same request can succeed once the block is lifted.
@@ -445,7 +477,7 @@ public class FollowService {
             return Optional.empty();
         }
         var waiting = existing.isEmpty() || !existing.get().accepted();
-        if (waiting && profiles.lockFollowerApproval(followedId)) {
+        if (waiting && waitsForApproval(followerId, followedId)) {
             follows.savePending(followerId, followedId, activityUri, arrival.first());
             if (existing.isEmpty()) {
                 var saved = follows.findByPair(followerId, followedId).orElseThrow();
