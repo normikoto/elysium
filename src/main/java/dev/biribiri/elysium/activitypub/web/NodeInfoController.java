@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.web;
 
+import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.activitypub.vocab.JsonResourceDescriptor;
 import dev.biribiri.elysium.activitypub.vocab.NodeInfo;
 import dev.biribiri.elysium.actor.ActorService;
@@ -32,7 +33,7 @@ public class NodeInfoController {
     private static final String PATH_ACTOR = "/actor";
     private static final String SCHEMA_2_0 = "http://nodeinfo.diaspora.software/ns/schema/2.0";
     private static final String SCHEMA_2_1 = "http://nodeinfo.diaspora.software/ns/schema/2.1";
-    private static final String AS_APPLICATION = "https://www.w3.org/ns/activitystreams#Application";
+    private static final String AS_APPLICATION = ActivityStreams.CONTEXT + "#Application";
     private static final String USAGE = """
             Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the number of \
             local users, and `localPosts`, which counts replies but not direct statuses. Active user counts and \
