@@ -4,11 +4,13 @@ import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.ProfileUpdated;
+import dev.biribiri.elysium.actor.RemoteProfileLinksToVerify;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Queues checking a profile's links whenever it changes. Only fields that haven't been verified are checked, and a field
@@ -30,7 +32,16 @@ public class ProfileLinks {
 
     @ApplicationModuleListener
     public void on(ProfileUpdated event) {
-        Jobs.schedule(scheduler, TASK, new ProfileLinksJob(event.actorId(), Instant.now()),
-                event.actorId().toString(), event.at().toString());
+        schedule(event.actorId(), event.at());
+    }
+
+    @ApplicationModuleListener
+    public void on(RemoteProfileLinksToVerify event) {
+        // A queued check reads the current fields, so a refresh can use the job already waiting for this profile.
+        Jobs.schedule(scheduler, TASK, new ProfileLinksJob(event.actorId(), event.at()), event.actorId().toString());
+    }
+
+    private void schedule(UUID actorId, Instant at) {
+        Jobs.schedule(scheduler, TASK, new ProfileLinksJob(actorId, Instant.now()), actorId.toString(), at.toString());
     }
 }

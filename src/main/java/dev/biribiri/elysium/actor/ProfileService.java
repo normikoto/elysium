@@ -17,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.unit.DataSize;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -51,6 +52,10 @@ public class ProfileService {
     private final TransactionTemplate transaction;
 
     private static final int REMOVAL_BATCH = 500;
+    private static final Duration REMOTE_LINK_CHECK_INTERVAL = Duration.ofMinutes(1);
+
+    private record RemoteFieldValue(String text, String html) {
+    }
 
     ProfileService(
             ProfileRepository profiles,
@@ -105,7 +110,8 @@ public class ProfileService {
     /**
      * Replaces what's stored about an account on another server's profile with what its actor document says now. An image
      * whose URL is unchanged keeps its copy, and one that changed loses it once this commits, and is downloaded again
-     * through {@link RemoteProfileImageAdded}. Nothing is sent anywhere, as {@link ProfileUpdated} would be.
+     * through {@link RemoteProfileImageAdded}. A field can keep its verification while its value and the profile page's URL
+     * stay the same.
      *
      * <p>The caller checks that the actor is active and on another server, in the same transaction.
      *
@@ -142,13 +148,30 @@ public class ProfileService {
         if (!row.equals(old)) {
             profiles.saveRemote(row);
         }
+        var oldFields = profiles.findFields(List.of(actorId));
+        var verified = new HashMap<RemoteFieldValue, Instant>();
+        if (oldRemote != null && Objects.equals(oldRemote.url(), profile.url())) {
+            for (var field : oldFields) {
+                if (field.verifiedAt() != null) {
+                    verified.put(new RemoteFieldValue(field.value(), field.valueHtml()), field.verifiedAt());
+                }
+            }
+        }
         var fields = new ArrayList<ProfileRepository.FieldRow>();
+        var checkLinks = false;
         for (var i = 0; i < profile.fields().size(); i++) {
             var field = profile.fields().get(i);
-            fields.add(new ProfileRepository.FieldRow(actorId, i, field.name(), field.value(), null, field.valueHtml()));
+            var link = new ProfileField(field.name(), field.value(), null, field.valueHtml()).link();
+            var verifiedAt = link.isPresent() ? verified.get(new RemoteFieldValue(field.value(), field.valueHtml())) : null;
+            checkLinks |= link.isPresent() && verifiedAt == null;
+            fields.add(new ProfileRepository.FieldRow(actorId, i, field.name(), field.value(), verifiedAt, field.valueHtml()));
         }
-        if (!fields.equals(profiles.findFields(List.of(actorId)))) {
+        if (!fields.equals(oldFields)) {
             profiles.replaceFields(actorId, fields);
+        }
+        var now = Instant.now();
+        if (checkLinks && profiles.reserveRemoteLinkCheck(actorId, now, now.minus(REMOTE_LINK_CHECK_INTERVAL))) {
+            events.publishEvent(new RemoteProfileLinksToVerify(actorId, now));
         }
         if (!removed.isEmpty()) {
             afterCommit(() -> removed.forEach(images::delete));
@@ -343,34 +366,21 @@ public class ProfileService {
     }
 
     /**
-     * The field links that haven't been checked yet. The caller checks that the account is active, as it needs the actor.
-     */
-    public List<FieldLink> linksToVerify(UUID actorId) {
-        var links = new ArrayList<FieldLink>();
-        for (var row : profiles.findFields(List.of(actorId))) {
-            if (row.verifiedAt() == null) {
-                field(row).link().ifPresent(link -> links.add(new FieldLink(row.position(), row.value(), link)));
-            }
-        }
-        return links;
-    }
-
-    /**
-     * A field whose value is a link.
-     *
-     * @param position which field it is, from 0
-     * @param value    the value as it was when this was read, which has to be unchanged for it to be marked verified
-     */
-    public record FieldLink(int position, String value, URI uri) {
-    }
-
-    /**
      * Marks a field as linked back to from the page its value links to.
      *
-     * @return false if the field has changed since, or was already verified
+     * @param profileUrl the remote profile page URL at the time of the check, or null if none was given or the account is local
+     * @return whether the field was marked while the checked value and profile URL still applied
      */
-    public boolean markVerified(UUID actorId, FieldLink link, Instant at) {
-        return profiles.markVerified(actorId, link.position(), link.value(), at);
+    @Transactional
+    public boolean markVerified(UUID actorId, int position, ProfileField field, URI profileUrl, Instant at) {
+        // Serialize with field replacement so it can carry this timestamp forward, and check that the backlink target
+        // didn't change while the site was being fetched.
+        var row = profiles.lockExisting(actorId);
+        if (row.isEmpty() || !Objects.equals(profileUrl, row.map(ProfileRepository.Row::remote)
+                .map(ProfileRepository.Remote::url).orElse(null))) {
+            return false;
+        }
+        return profiles.markVerified(actorId, position, field.value(), field.html(), at);
     }
 
     /**

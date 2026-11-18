@@ -34,10 +34,26 @@ class ProfileLinksTaskTests {
         var page = URI.create("https://social.test/somewhere/");
         var html = "<a rel=\"me\" href=\"/users/alice\">".getBytes(StandardCharsets.UTF_8);
 
-        assertThat(ProfileLinksTask.hasLinkTo(page, html, PROFILE)).isTrue();
+        assertThat(ProfileLinksTask.hasLinkTo(page, html, ProfileLinksTask.localBacklink(PROFILE))).isTrue();
+    }
+
+    @Test
+    void acceptsRemoteBacklinksOnlyToTheActorOrItsProfileOnTheSameOrigin() {
+        var profile = URI.create("https://social.test/@alice?account=Alice");
+        var accepts = ProfileLinksTask.remoteBacklink(PROFILE, profile);
+
+        assertThat(accepts.test(PROFILE)).isTrue();
+        assertThat(accepts.test(URI.create("https://SOCIAL.test:443/@alice/?account=Alice"))).isTrue();
+        assertThat(accepts.test(URI.create("https://social.test/@Alice?account=Alice"))).isFalse();
+        assertThat(accepts.test(URI.create("https://social.test/@alice?account=alice"))).isFalse();
+        assertThat(accepts.test(URI.create("https://social.test:8443/@alice?account=Alice"))).isFalse();
+
+        var unrelated = URI.create("https://unrelated.test/@alice");
+        assertThat(ProfileLinksTask.remoteBacklink(PROFILE, unrelated).test(unrelated)).isFalse();
+        assertThat(ProfileLinksTask.remoteBacklink(PROFILE, null).test(PROFILE)).isTrue();
     }
 
     private static boolean linksBack(String html) {
-        return ProfileLinksTask.hasLinkTo(PAGE, html.getBytes(StandardCharsets.UTF_8), PROFILE);
+        return ProfileLinksTask.hasLinkTo(PAGE, html.getBytes(StandardCharsets.UTF_8), ProfileLinksTask.localBacklink(PROFILE));
     }
 }

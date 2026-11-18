@@ -74,4 +74,21 @@ class RemoteHtmlTests {
     void readsInlineText() {
         assertThat(RemoteHtml.inlineText("<p>Content <b>warning</b></p><p>here</p>")).isEqualTo("Content warning here");
     }
+
+    @Test
+    void readsAFieldLinkWithNestedUrlText() {
+        var html = "<p><a href=\"https://example.test/about\"><span class=\"invisible\">https://</span>"
+                + "<span>example.test</span><span class=\"invisible\">/about</span></a></p>";
+        assertThat(RemoteHtml.fieldLinkValue(html)).contains("https://example.test/about");
+        assertThat(RemoteHtml.fieldLinkValue("https://example.test/about")).contains("https://example.test/about");
+    }
+
+    @Test
+    void rejectsFieldLinksWithDifferentOrAmbiguousText() {
+        var link = "<a href=\"https://example.test/\">https://example.test/</a>";
+        assertThat(RemoteHtml.fieldLinkValue(link + link)).isEmpty();
+        assertThat(RemoteHtml.fieldLinkValue("My site " + link)).isEmpty();
+        assertThat(RemoteHtml.fieldLinkValue("<a href=\"https://example.test/\">https://other.test/</a>"))
+                .isEmpty();
+    }
 }

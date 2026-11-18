@@ -134,10 +134,26 @@ public class ProfileRepository {
         jdbc.sql("INSERT INTO profile (actor_id) VALUES (:actorId) ON CONFLICT DO NOTHING")
                 .param("actorId", actorId)
                 .update();
+        return lockExisting(actorId).orElseThrow();
+    }
+
+    public Optional<Row> lockExisting(UUID actorId) {
         return jdbc.sql("SELECT " + COLUMNS + " FROM profile WHERE actor_id = :actorId FOR UPDATE")
                 .param("actorId", actorId)
                 .query(ProfileRepository::row)
-                .single();
+                .optional();
+    }
+
+    /** Bounds checks across all nodes even if earlier requests have already completed. */
+    public boolean reserveRemoteLinkCheck(UUID actorId, Instant at, Instant cutoff) {
+        return jdbc.sql("""
+                        UPDATE profile SET remote_links_queued_at = :at
+                        WHERE actor_id = :actorId AND (remote_links_queued_at IS NULL OR remote_links_queued_at <= :cutoff)
+                        """)
+                .param("actorId", actorId)
+                .param("at", time(at))
+                .param("cutoff", time(cutoff))
+                .update() > 0;
     }
 
     /**
@@ -443,14 +459,19 @@ public class ProfileRepository {
      *
      * @return whether it was marked
      */
-    public boolean markVerified(UUID actorId, int position, String value, Instant at) {
+    public boolean markVerified(UUID actorId, int position, String value, String valueHtml, Instant at) {
         return jdbc.sql("""
                         UPDATE profile_field SET verified_at = :at
-                        WHERE actor_id = :actorId AND position = :position AND value = :value AND verified_at IS NULL
+                        FROM actor
+                        WHERE actor.id = profile_field.actor_id AND actor.suspended_at IS NULL AND actor.deleted_at IS NULL
+                          AND profile_field.actor_id = :actorId AND position = :position AND value = :value
+                          AND verified_at IS NULL
+                          AND value_html IS NOT DISTINCT FROM :valueHtml
                         """)
                 .param("actorId", actorId)
                 .param("position", position)
                 .param("value", value)
+                .param("valueHtml", valueHtml)
                 .param("at", OffsetDateTime.ofInstant(at, ZoneOffset.UTC))
                 .update() > 0;
     }

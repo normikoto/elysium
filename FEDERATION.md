@@ -450,8 +450,7 @@ was stored before. A part that can't be used is left out, without refusing the a
 - `summary`, or `summaryMap`, as HTML, sanitized as [statuses' `content`](#receiving-statuses) is. One that's longer than
   20,000 characters once sanitized is left out.
 - `attachment` items of type `PropertyValue`, as Mastodon sends profile fields: `name` as plain text, of up to 255
-  characters, and `value` as sanitized HTML, of up to 2,000 characters. Up to 16 are kept, in order. Links in them aren't
-  checked, so they never show as verified.
+  characters, and `value` as sanitized HTML, of up to 2,000 characters. Up to 16 are kept, in order.
 - `icon` and `image`, as the avatar and header, which can each be a URL, an `Image` whose `url` is a URL or a `Link`, or
   an array of those, whose first item is taken. Only HTTPS URLs are kept.
 - `tag` items of type `Emoji`, read as they are [for statuses](#receiving-custom-emoji), and stored under the actor's
@@ -463,6 +462,11 @@ was stored before. A part that can't be used is left out, without refusing the a
   and `movedTo`, an ID or an object with one. A fetch made to check a [move](#moving-accounts) finds the old account
   anywhere in the list. Clients are shown the account as moved while `movedTo` names an actor that's
   stored here and active.
+
+After a profile is stored, its unverified fields that contain only an HTTPS URL can be checked in the background.
+If the URL is an HTML link, its text has to match its destination. The linked page has to link back with `rel="me"` to
+the actor's URI or its `url` on the same HTTPS origin, matching the case of the path and query. Requests are rate
+limited and otherwise follow the same rules as [link checks for local profiles](#actors).
 
 Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit. Each
 has to be within 8 MB by default, which an admin [can change](docs/configuration.md), and is kept as WebP. One that's too
@@ -1339,7 +1343,6 @@ never says whether admins acted on it.
 - Reports from a server aren't refused unless it's suspended: there's no `reject_reports` for a limited one.
 - Only `Note`s and `Question`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
   are the replies to a status.
-- Links in the profile fields of actors on other servers aren't checked, so they never show as verified.
 - An `Update` from another server doesn't change who its status mentions, so an edit can't show a followers-only or
   direct status to more local users.
 - A reply's `inReplyTo` is left out if its parent can't be shown, so it doesn't look like a reply.

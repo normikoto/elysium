@@ -6,7 +6,9 @@ import org.jsoup.nodes.TextNode;
 import org.jsoup.safety.Cleaner;
 import org.jsoup.safety.Safelist;
 
+import java.net.URI;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -67,6 +69,33 @@ public final class RemoteHtml {
      */
     public static String inlineText(String html) {
         return plainText(sanitize(html)).replaceAll("\\s+", " ").strip();
+    }
+
+    /**
+     * A checkmark applies to the URL the field shows, so its only anchor must show the same URL in full, including
+     * any parts Mastodon wraps in spans. Some servers send a bare URL instead.
+     */
+    public static Optional<String> fieldLinkValue(String html) {
+        var body = Jsoup.parseBodyFragment(html).body();
+        var anchors = body.select("a");
+        if (anchors.isEmpty()) {
+            return Optional.of(body.text());
+        }
+        if (anchors.size() != 1) {
+            return Optional.empty();
+        }
+        var anchor = anchors.getFirst();
+        var href = anchor.attr("href");
+        anchor.remove();
+        return !href.isEmpty() && href.equals(anchor.wholeText()) && body.text().isBlank()
+                ? Optional.of(href)
+                : Optional.empty();
+    }
+
+    /** An invisible or truncated span could hide part of the destination in a client's rendering. */
+    public static String verifiedFieldLink(URI uri) {
+        var url = uri.toASCIIString();
+        return new Element("a").attr("href", url).attr("rel", LINK).attr("target", "_blank").text(url).outerHtml();
     }
 
     private static void keepKnownClasses(Element element) {
