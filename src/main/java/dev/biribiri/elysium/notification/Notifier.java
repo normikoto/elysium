@@ -197,17 +197,21 @@ public class Notifier {
     }
 
     /**
-     * Requests are normally approved through {@link FollowRequestAuthorized}, which adds no notification, including when
-     * the account stops approving followers by hand. A remote request that's repeated after that, before its approval
-     * runs, is accepted as a new follow instead, so it gets this notification in place of its request's.
+     * Requests are normally approved through {@link FollowRequestAuthorized}, including when the account stops approving
+     * followers by hand. A remote request that's repeated after that, before its approval runs, is accepted as a new
+     * follow instead, so its request's notification is replaced here.
      */
     @ApplicationModuleListener
     public void on(FollowEstablished event) {
+        followed(event.followId(), event.followerId(), event.followedId());
+    }
+
+    private void followed(UUID followId, UUID followerId, UUID followedId) {
         notifications.lock();
-        conversations.holdActors(List.of(event.followerId(), event.followedId()));
-        notifications.deleteFollowRequest(event.followId());
-        if (conversations.currentFollow(event.followId(), event.followerId(), event.followedId())) {
-            notified(event.followedId(), notifications.insert(event.followedId(), event.followerId(), "follow", event.followId(), null, event.followId()));
+        conversations.holdActors(List.of(followerId, followedId));
+        notifications.deleteFollowRequest(followId);
+        if (conversations.currentFollow(followId, followerId, followedId)) {
+            notified(followedId, notifications.insert(followedId, followerId, "follow", followId, null, followId));
         }
     }
 
@@ -232,13 +236,13 @@ public class Notifier {
     }
 
     /**
-     * The account approved the request itself, so it isn't told about it as a new follower, as on Mastodon. A rejected or
-     * withdrawn request takes its notification with it.
+     * The request's notification becomes a follow, unlike on Mastodon, so the new follower stays in the account's
+     * notifications. It's only added while the follow stands, so a repeat after an unfollow doesn't bring it back. A
+     * rejected or withdrawn request takes its notification with it.
      */
     @ApplicationModuleListener
     public void on(FollowRequestAuthorized event) {
-        notifications.lock();
-        notifications.deleteFollowRequest(event.followId());
+        followed(event.followId(), event.followerId(), event.followedId());
     }
 
     @ApplicationModuleListener
