@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Checks the links in a local account's profile fields.
+ * Checks the links in an account's profile fields.
  */
 record ProfileLinksJob(UUID actorId, Instant queuedAt) implements QueuedJob {
 }

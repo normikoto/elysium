@@ -77,11 +77,15 @@ record AccountResponse(
      * Mastodon's Field entity.
      *
      * @param value      HTML, with any link marked {@code rel="me"} for a local account
-     * @param verifiedAt when the page the value links to was found to link back to the profile, or null. Fields of
-     *                   accounts on other servers aren't checked, so theirs is always null.
+     * @param verifiedAt when the page the value links to was found to link back to the profile, or null
      */
     @Schema(name = "Field")
-    record Field(String name, String value, @JsonProperty("verified_at") String verifiedAt) {
+    record Field(
+            String name,
+            String value,
+            @Schema(description = "When the linked page was found to link back to the account with `rel=\"me\"`. "
+                    + "Remote fields are checked after the actor document is stored and can be null until then.")
+            @JsonProperty("verified_at") String verifiedAt) {
 
         static Field of(ProfileField field, String value) {
             return new Field(

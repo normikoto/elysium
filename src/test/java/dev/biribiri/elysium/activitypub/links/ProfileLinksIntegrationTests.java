@@ -2,24 +2,32 @@ package dev.biribiri.elysium.activitypub.links;
 
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
+import dev.biribiri.elysium.activitypub.inbound.RemoteActors;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileChange;
 import dev.biribiri.elysium.actor.ProfileField;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.actor.RemoteProfileLinksToVerify;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
+import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,9 +40,13 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Runs the real scheduler, with the pages that fields link to served by a mock client, since the real one only fetches
@@ -42,6 +54,8 @@ import static org.mockito.Mockito.when;
  */
 @Import({TestcontainersConfiguration.class, ProfileLinksIntegrationTests.Pages.class})
 @SpringBootTest(properties = {"db-scheduler.polling-interval=PT0.1S", "db-scheduler.heartbeat-interval=PT1S"})
+@AutoConfigureMockMvc
+@RecordApplicationEvents
 class ProfileLinksIntegrationTests {
 
     private static final Duration WAIT = Duration.ofSeconds(30);
@@ -50,6 +64,14 @@ class ProfileLinksIntegrationTests {
     private ActorService actors;
     @Autowired
     private ProfileService profiles;
+    @Autowired
+    private RemoteActors remoteActors;
+    @Autowired
+    private JsonMapper json;
+    @Autowired
+    private MockMvc mockMvc;
+    @Autowired
+    private ApplicationEvents events;
     private static final Map<URI, FederationHttpClient.Response> PAGES = new ConcurrentHashMap<>();
     private static final FederationHttpClient.Response NOT_FOUND = new FederationHttpClient.Response(404, null, null, new byte[0], null);
 
@@ -100,6 +122,84 @@ class ProfileLinksIntegrationTests {
 
         assertThat(fields().getFirst().verifiedAt()).isEqualTo(verifiedAt);
         assertThat(fields().get(1).verifiedAt()).isNull();
+    }
+
+    @Test
+    void verifiesAMatchingRemoteLinkAndClearsVerificationWhenTheLabelChanges() throws Exception {
+        var actor = URI.create("https://profiles.test/users/alice");
+        var profile = URI.create("https://profiles.test/@alice");
+        var site = "https://alice.test/about";
+        page(site, "<a rel=\"me\" href=\"" + profile + "\">Alice</a>");
+        var field = "<a href=\"" + site + "\"><span class=\"invisible\">https://</span>alice.test/about</a>";
+        actorDocument(actor, profile, field);
+
+        var remote = remoteActors.fetchOrRefresh(actor);
+
+        await().atMost(WAIT).until(() -> profiles.find(remote.id()).fields().getFirst().verifiedAt() != null);
+        var checked = profiles.find(remote.id()).fields().getFirst();
+        mockMvc.perform(get("/api/v1/accounts/{id}", remote.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fields[0].verified_at").isNotEmpty())
+                .andExpect(jsonPath("$.fields[0].value").value(org.hamcrest.Matchers.containsString(">" + site + "</a>")));
+
+        remoteActors.refresh(actor).orElseThrow();
+        assertThat(profiles.find(remote.id()).fields().getFirst().verifiedAt()).isEqualTo(checked.verifiedAt());
+
+        actorDocument(actor, profile, "<a href=\"" + site + "\">https://other-alice.test/about</a>");
+        remoteActors.refresh(actor).orElseThrow();
+        assertThat(profiles.find(remote.id()).fields().getFirst().verifiedAt()).isNull();
+        assertThat(profiles.markVerified(remote.id(), 0, checked, profile, Instant.now())).isFalse();
+    }
+
+    @Test
+    void ignoresAnUnrelatedProfileUrlAndLinksWithinOtherText() throws IOException {
+        var actor = URI.create("https://elsewhere.test/users/bob");
+        var claimedProfile = URI.create("https://unrelated.test/users/bob");
+        page("https://unrelated-blog.test/", "<link rel=\"me\" href=\"" + claimedProfile + "\">");
+        page("https://embedded-link.test/", "<link rel=\"me\" href=\"" + actor + "\">");
+        page("https://bobs-site.test/", "<link rel=\"me\" href=\"" + actor + "\">");
+        actorDocument(actor, claimedProfile,
+                "<a href=\"https://unrelated-blog.test/\">https://unrelated-blog.test/</a>",
+                "Try <a href=\"https://embedded-link.test/\">https://embedded-link.test/</a>",
+                "https://bobs-site.test/");
+
+        var remote = remoteActors.fetchOrRefresh(actor);
+
+        await().atMost(WAIT).until(() -> profiles.find(remote.id()).fields().getLast().verifiedAt() != null);
+        assertThat(profiles.find(remote.id()).fields().subList(0, 2)).allMatch(field -> field.verifiedAt() == null);
+        verify(http, never()).get(eq(URI.create("https://embedded-link.test/")), anyString(), any());
+    }
+
+    @Test
+    void repeatedRemoteUpdatesDoNotKeepQueueingChecksForUnverifiedLinks() throws IOException {
+        var actor = URI.create("https://updates.test/users/alice");
+        var site = "https://no-backlink.test/";
+        actorDocument(actor, actor, site);
+        var remote = remoteActors.fetchOrRefresh(actor);
+        verify(http, timeout(WAIT.toMillis())).get(eq(URI.create(site)), eq("text/html"), any());
+
+        for (var i = 0; i < 5; i++) {
+            actorDocument(actor, actor, site, "https://new-field.test/" + i);
+            remoteActors.refresh(actor).orElseThrow();
+        }
+
+        assertThat(events.stream(RemoteProfileLinksToVerify.class).map(RemoteProfileLinksToVerify::actorId))
+                .containsExactly(remote.id());
+    }
+
+    private void actorDocument(URI actor, URI profile, String... values) {
+        var document = json.createObjectNode()
+                .put("id", actor.toString())
+                .put("type", "Person")
+                .put("preferredUsername", "remote")
+                .put("inbox", actor + "/inbox")
+                .put("url", profile.toString());
+        var attachments = document.putArray("attachment");
+        for (var value : values) {
+            attachments.addObject().put("type", "PropertyValue").put("name", "Website").put("value", value);
+        }
+        PAGES.put(actor, new FederationHttpClient.Response(200, "application/activity+json", null,
+                json.writeValueAsBytes(document), null));
     }
 
     private List<ProfileField> fields() {

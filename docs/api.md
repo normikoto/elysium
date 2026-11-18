@@ -584,7 +584,9 @@ Only these exist:
 - One with no name has its username as `display_name`, where Mastodon sends an empty one.
 - Its `avatar` and `header` are links to its server until they're downloaded. They stay links, possibly on another
   host, if they can't be downloaded or an admin rejects its server's or its media.
-- Its `fields` never have a `verified_at`.
+- A `fields` entry containing only an HTTPS URL can get a `verified_at` after the profile is fetched. If the URL is an
+  HTML link, its text has to match its destination. The linked page has to link back with `rel="me"` to the actor URI
+  or to the profile URL on the actor's origin, matching the case of its path and query.
 - `followers_count` and `following_count` only count accounts on this server, and `hide_collections` is null.
 - `discoverable` is always false. `indexable` is what the actor document said when this server last fetched it.
 - `GET /api/v1/accounts/:id/statuses` only lists its statuses stored here.
