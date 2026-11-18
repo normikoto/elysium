@@ -18,6 +18,7 @@ The extent of this support and its limitations are what's described in the rest 
 
 - [FEP-044f: Consent-respecting quote posts](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as
   [Quotes](#quotes) describes
+- [FEP-2677: Identifying the Application Actor](https://codeberg.org/fediverse/fep/src/branch/main/fep/2677/fep-2677.md)
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
 - [FEP-7628: Move actor](https://codeberg.org/fediverse/fep/src/branch/main/fep/7628/fep-7628.md), with Mastodon's terms
   and only `movedTo`, as [Moving accounts](#moving-accounts) describes
@@ -109,6 +110,9 @@ requests that no user is behind, which so far means fetching keys and actor docu
 requires a signature. There's no web page at this URL, so its `url` links to the front page. Its key is identified as
 `{actor-uri}#main-key`, its `endpoints.sharedInbox` is `/inbox`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is ignored, with no
 `Reject`.
+
+The instance actor is linked from the NodeInfo well-known URL at `/.well-known/nodeinfo` for servers that look for such
+a thing per FEP-2677. Elysium currently does not do this with other servers.
 
 ### Objects
 

@@ -274,15 +274,17 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
-    void nodeInfoWellKnownLinksToEachVersion() throws Exception {
+    void nodeInfoWellKnownLinksToEachVersionAndTheInstanceActor() throws Exception {
         mockMvc.perform(get("/.well-known/nodeinfo").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.links.length()").value(2))
+                .andExpect(jsonPath("$.links.length()").value(3))
                 .andExpect(jsonPath("$.links[0].rel").value("http://nodeinfo.diaspora.software/ns/schema/2.1"))
                 .andExpect(jsonPath("$.links[0].href").value("https://elysium.example/nodeinfo/2.1"))
                 .andExpect(jsonPath("$.links[1].rel").value("http://nodeinfo.diaspora.software/ns/schema/2.0"))
-                .andExpect(jsonPath("$.links[1].href").value("https://elysium.example/nodeinfo/2.0"));
+                .andExpect(jsonPath("$.links[1].href").value("https://elysium.example/nodeinfo/2.0"))
+                .andExpect(jsonPath("$.links[2].rel").value("https://www.w3.org/ns/activitystreams#Application"))
+                .andExpect(jsonPath("$.links[2].href").value("https://elysium.example/actor"));
     }
 
     @Test
