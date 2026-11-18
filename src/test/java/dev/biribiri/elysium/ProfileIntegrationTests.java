@@ -27,9 +27,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -399,6 +401,42 @@ class ProfileIntegrationTests {
         mockMvc.perform(get(URI.create(copy).getPath())).andExpect(status().isNotFound());
         assertThat(profiles.findImageToDownload(carol.id(), false)).contains(avatar);
         assertThat(profiles.findImageToDownload(carol.id(), true)).isEmpty();
+    }
+
+    @Test
+    void aNewAvatarOfAnAccountOnAnotherServerIsKeptForTheWholeRetention() throws Exception {
+        var host = "r" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/dave");
+        var first = URI.create("https://media." + host + "/first.png");
+        var second = URI.create("https://media." + host + "/second.png");
+        var dave = transaction.execute(status -> actors.upsertRemote(new RemoteActorProfile(
+                uri, "dave", host, URI.create(uri + "/inbox"), null, null, null, null, null, remoteProfile(first))));
+        assertThat(profiles.cacheRemoteImage(dave.id(), false, first, TestImages.png(64, 64))).isTrue();
+        jdbc.sql("UPDATE profile SET avatar_cached_at = now() - interval '31 days' WHERE actor_id = :id")
+                .param("id", dave.id()).update();
+
+        transaction.executeWithoutResult(status -> profiles.replaceRemote(dave.id(), remoteProfile(first)));
+        assertThat(avatarCachedAt(dave.id()).orElseThrow()).isBefore(Instant.now().minus(Duration.ofDays(30)));
+
+        transaction.executeWithoutResult(status -> profiles.replaceRemote(dave.id(), remoteProfile(second)));
+        assertThat(avatarCachedAt(dave.id())).isEmpty();
+
+        assertThat(profiles.cacheRemoteImage(dave.id(), false, second, TestImages.png(32, 32))).isTrue();
+        profiles.pruneRemoteImages(Instant.now().minus(Duration.ofDays(30)));
+        assertThat(avatarCachedAt(dave.id()).orElseThrow()).isAfter(Instant.now().minus(Duration.ofMinutes(1)));
+        assertThat(profiles.findImageToDownload(dave.id(), false)).isEmpty();
+    }
+
+    private static RemoteProfile remoteProfile(URI avatar) {
+        return new RemoteProfile("Dave", "", "", avatar, null, List.of(), false, false, false, false, null, null);
+    }
+
+    private Optional<Instant> avatarCachedAt(UUID actorId) {
+        return jdbc.sql("SELECT avatar_cached_at FROM profile WHERE actor_id = :id")
+                .param("id", actorId)
+                .query(OffsetDateTime.class)
+                .optional()
+                .map(OffsetDateTime::toInstant);
     }
 
     @Test

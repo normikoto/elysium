@@ -8,5 +8,5 @@ ALTER TABLE profile
 UPDATE profile SET avatar_cached_at = now() WHERE note_html IS NOT NULL AND avatar IS NOT NULL;
 UPDATE profile SET header_cached_at = now() WHERE note_html IS NOT NULL AND header IS NOT NULL;
 
-CREATE INDEX profile_avatar_cached_idx ON profile (avatar_cached_at) WHERE avatar IS NOT NULL;
-CREATE INDEX profile_header_cached_idx ON profile (header_cached_at) WHERE header IS NOT NULL;
+CREATE INDEX profile_avatar_cached_idx ON profile (avatar_cached_at) WHERE note_html IS NOT NULL AND avatar IS NOT NULL;
+CREATE INDEX profile_header_cached_idx ON profile (header_cached_at) WHERE note_html IS NOT NULL AND header IS NOT NULL;
