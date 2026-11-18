@@ -11,7 +11,6 @@ import org.springframework.security.web.savedrequest.SavedRequest;
 import org.springframework.security.web.util.UrlUtils;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
-import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.WebUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -64,16 +63,17 @@ class SavedPageCookie implements RequestCache {
         if (!page.startsWith("/") || page.startsWith("//") || page.contains("\\")) {
             return null;
         }
-        var uri = UriComponentsBuilder.fromUriString(page).build();
+        // Split rather than parsed, so that the query comes back exactly as it was sent. getMatchingRequest compares it with
+        // the request that returns to the page, and a page that never matched would be returned to after every login.
+        var question = page.indexOf('?');
         return new DefaultSavedRequest.Builder()
                 .setScheme(request.getScheme())
                 .setServerName(request.getServerName())
                 .setServerPort(request.getServerPort())
-                .setRequestURI(uri.getPath())
-                .setQueryString(uri.getQuery())
-                .setMethod(request.getMethod())
+                .setRequestURI(question < 0 ? page : page.substring(0, question))
+                .setQueryString(question < 0 ? null : page.substring(question + 1))
+                .setMethod("GET")
                 .setLocales(Collections.list(request.getLocales()))
-                .setParameters(request.getParameterMap())
                 .build();
     }
 

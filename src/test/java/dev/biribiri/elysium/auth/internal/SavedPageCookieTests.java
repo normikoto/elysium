@@ -33,16 +33,18 @@ class SavedPageCookieTests {
     @Test
     void returnsToTheSavedPage() {
         var saved = new MockHttpServletRequest("GET", "/oauth/authorize");
-        saved.setQueryString("client_id=abc&state=x");
+        // A repeated name stays where it was, so the page still matches the request that returns to it.
+        saved.setQueryString("scope=read&client_id=abc&scope=write");
         var response = new MockHttpServletResponse();
         new SavedPageCookie(HTTPS).saveRequest(saved, response);
-        var value = response.getHeader("Set-Cookie").split("[=;]", 3)[1];
+        var nameAndValue = response.getHeader("Set-Cookie").split(";", 2)[0];
+        var value = nameAndValue.substring(nameAndValue.indexOf('=') + 1);
 
         var login = new MockHttpServletRequest("POST", "/login");
         login.setCookies(new Cookie("__Host-SAVED-PAGE", value));
 
         assertThat(new SavedPageCookie(HTTPS).getRequest(login, null).getRedirectUrl())
-                .isEqualTo("http://localhost/oauth/authorize?client_id=abc&state=x");
+                .isEqualTo("http://localhost/oauth/authorize?scope=read&client_id=abc&scope=write");
     }
 
     @Test

@@ -159,6 +159,10 @@ class SecurityConfig {
             ActorService actors,
             LocalAccounts accounts,
             JsonMapper json) {
+        // Only the link an app sends someone to is a page to return to. A consent sent after the session expired has its
+        // parameters in the body, so returning to its URL would only show an error, and a client's call isn't a page.
+        var requestCache = new SavedPageCookie(new BrowserCookies(instance));
+        requestCache.setRequestMatcher(pathPattern(HttpMethod.GET, AUTHORIZE_PATH));
         return http
                 .securityMatcher(authorizationServerRequests())
                 .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
@@ -166,7 +170,7 @@ class SecurityConfig {
                 .cors(cors -> cors.configurationSource(clientCors()))
                 // The consent form is shown by the default chain and sent here, so both need the same tokens.
                 .csrf(csrf -> csrf.csrfTokenRepository(csrfTokens(instance)))
-                .requestCache(cache -> cache.requestCache(new SavedPageCookie(new BrowserCookies(instance))))
+                .requestCache(cache -> cache.requestCache(requestCache))
                 .oauth2AuthorizationServer(server -> configure(server, instance, responses, adminAccess))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
