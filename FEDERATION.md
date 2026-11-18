@@ -303,7 +303,8 @@ and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Not
 and `Add` and `Remove` of a [pinned status](#pinned-statuses) are acted on, and other types are ignored.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
-One with several actors is answered with a `202` and dropped. Linked Data Signatures aren't verified.
+One with several actors is answered with a `202` and dropped. [Linked Data Signatures](#linked-data-signatures) aren't
+verified.
 
 #### Forwarded activities
 
@@ -1531,6 +1532,12 @@ and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Ac
     Signatures last 5 minutes unless they say otherwise, and at most 12 hours, with up to 1 hour of clock difference
     allowed.
 - **Fetching keys:** Fetches are signed as the [instance actor](#instance-actor), and so are deliveries of `Flag`.
+
+### Linked Data Signatures
+
+Linked Data Signatures aren't supported, and there are no plans to support them. They aren't verified on activities that
+arrive, and aren't added to activities that are sent, so another server can't use one to have this server accept an
+activity it relays. A [forwarded activity](#forwarded-activities) is fetched from its origin instead.
 
 ### Authorized fetch
 
