@@ -320,7 +320,8 @@ can test whether a domain is on it.
 ## Job queue
 Admins can see the background job queue at `/admin/db-scheduler`. It holds the work of sending and receiving activities,
 and of cleaning up after blocks, suspensions, and deletions. Each job shows when it'll next run, and **History** shows why it
-failed. Jobs don't contain posts, so private posts aren't shown.
+failed. History leaves out runs where a job only waited, such as for a busy server. Jobs don't contain posts, so private
+posts aren't shown.
 
 - **Retries:** A job that fails for a temporary reason, like a server being down, is tried again with longer and longer gaps,
   for up to 3 days.
@@ -330,7 +331,8 @@ failed. Jobs don't contain posts, so private posts aren't shown.
 - **Servers that keep failing:** After 3 failures in a row, sending to that server waits, for up to 6 hours. These jobs show
   as scheduled, not failed.
 - **Limits:** Each copy of the server sends at most 3 activities at a time to another server, and starts about 3 jobs a
-  second for one server, so a large backlog for one server drains at about 180 a minute for each copy.
+  second for one server, so a large backlog for one server drains at about 180 a minute for each copy. A job that's waited 3 days
+  for its turn gives up, as for a server that keeps failing.
 
 ## Two-factor login
 Anyone can turn on two-factor login at `/settings/two-factor`, linked from their settings. Logging in then asks for a

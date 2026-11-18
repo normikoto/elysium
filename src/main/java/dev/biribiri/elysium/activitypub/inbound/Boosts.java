@@ -140,7 +140,7 @@ class Boosts {
                 return Jobs.done();
             }
             if (turn.get().isAfter(now)) {
-                return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
+                return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
             }
             var fetched = AttributedNote.fetch(noteUri.get(), documents);
             if (fetched.isEmpty()) {

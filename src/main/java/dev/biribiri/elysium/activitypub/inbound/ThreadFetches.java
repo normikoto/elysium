@@ -421,7 +421,7 @@ class ThreadFetches implements RemoteThreadFetcher {
             return Optional.of(Jobs.done());
         }
         if (turn.get().isAfter(now)) {
-            return Optional.of(Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get())));
+            return Optional.of(Jobs.waitUntil(turn.get(), job.withTurn(turn.get())));
         }
         return Optional.empty();
     }

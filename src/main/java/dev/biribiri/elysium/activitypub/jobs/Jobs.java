@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.jobs;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import com.github.kagkarlsson.scheduler.task.helper.CustomTask;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
@@ -10,6 +11,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.function.Function;
 
 /**
@@ -26,6 +30,13 @@ public final class Jobs {
      * How long a job that keeps failing is retried for, before it's parked.
      */
     public static final Duration RETRIED_FOR = RetryPolicy.GIVE_UP_AFTER;
+
+    /**
+     * Runs that ended in {@link #waitUntil}, for {@link JobHistory} to leave out. The scheduler hands the same {@link ExecutionComplete} to
+     * the completion handler and then to its listeners, and the class doesn't override {@code equals}, so this finds it by
+     * identity. It's weak so that nothing builds up when there's no history.
+     */
+    private static final Set<ExecutionComplete> WAITS = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
 
     private Jobs() {
     }
@@ -50,17 +61,46 @@ public final class Jobs {
     }
 
     /**
-     * Runs a job again later, without counting as a failure, for one that's waiting on purpose.
+     * Runs a job again later, without counting as a failure, such as to carry on with the next part of its work.
      */
     public static <T> CompletionHandler<T> rescheduleAt(Instant time) {
         return (complete, operations) -> operations.reschedule(complete, time);
     }
 
     /**
-     * Like {@link #rescheduleAt(Instant)}, replacing the job's data, such as to remember a turn it was given.
+     * Like {@link #rescheduleAt(Instant)}, replacing the job's data, such as to remember where it got to.
      */
     public static <T> CompletionHandler<T> rescheduleAt(Instant time, T data) {
         return (complete, operations) -> operations.reschedule(complete, time, data);
+    }
+
+    /**
+     * Like {@link #rescheduleAt(Instant)}, for a job that did nothing but find it has to wait, such as for a busy server. The
+     * run isn't kept in the job history, since a job waiting for a busy server can run several times a second, and the job's
+     * still listed with when it runs next.
+     */
+    public static <T> CompletionHandler<T> waitUntil(Instant time) {
+        return (complete, operations) -> {
+            operations.reschedule(complete, time);
+            WAITS.add(complete);
+        };
+    }
+
+    /**
+     * Like {@link #waitUntil(Instant)}, replacing the job's data, such as to remember a turn it was given.
+     */
+    public static <T> CompletionHandler<T> waitUntil(Instant time, T data) {
+        return (complete, operations) -> {
+            operations.reschedule(complete, time, data);
+            WAITS.add(complete);
+        };
+    }
+
+    /**
+     * Whether a run ended by {@link #waitUntil}, which this only answers once.
+     */
+    static boolean onlyWaited(ExecutionComplete complete) {
+        return WAITS.remove(complete);
     }
 
     /**

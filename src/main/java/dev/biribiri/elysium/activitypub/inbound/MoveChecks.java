@@ -95,7 +95,7 @@ class MoveChecks {
                 return Jobs.done();
             }
             if (turn.get().isAfter(now)) {
-                return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
+                return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
             }
         }
         confirm(job.activityId(), URI.create(job.actorId()), target);

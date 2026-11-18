@@ -70,8 +70,8 @@ class DeliveryTask {
 
     /**
      * Takes a slot first, because a large fan-out to one host means many runs of jobs that can't send yet, and those shouldn't
-     * read the database. The activity is loaded before anything else can fail, so that a cancelled job always finishes rather
-     * than being parked, however long it has waited.
+     * read the database, until they've waited long enough to give up. The activity is loaded before anything else can fail, so
+     * that a cancelled job always finishes rather than being parked, however long it has waited.
      */
     private CompletionHandler<DeliveryJob> run(DeliveryJob job) {
         var inbox = URI.create(job.inbox());
@@ -85,46 +85,80 @@ class DeliveryTask {
 
         var now = Instant.now();
         if (!gate.tryAcquire(host)) {
-            return Jobs.rescheduleAt(gate.nextTurn(host, now));
+            var busySince = job.busySince() == null ? now : job.busySince();
+            if (busySince.plus(Jobs.RETRIED_FOR).isAfter(now)) {
+                return Jobs.waitUntil(gate.nextTurn(host, now), job.withBusySince(busySince));
+            }
+            // Something else, like its actor's suspension, could be what the job should wait for now, which starts it again.
+            return switch (check(job.withBusySince(null), inbox, host, now)) {
+                case Checked.Finished finished -> finished.handler();
+                case Checked.Ready _ ->
+                        throw new PermanentJobFailure("Gave up because " + host + " has been too busy for too long");
+            };
         }
         try {
-            var activity = find(job);
-            if (activity.isEmpty()) {
-                return Jobs.activityGone(job);
-            }
-            if (blocks.isBlocked(host)) {
-                // It was queued before the block. This comes before backing off, which could end with it failing.
-                return Jobs.done();
-            }
-            var signer = activity.get().isSignedByInstance()
-                    ? Optional.<Actor>empty()
-                    : actors.findAnyLocalById(activity.get().actorId());
-            var whileSuspended = activity.get().whileSuspended();
-            if (whileSuspended != WhileSuspended.SEND && signer.filter(found -> !found.isActive()).isPresent()) {
-                // It was queued before a suspension or deletion.
-                if (signer.get().isDeleted() || whileSuspended == WhileSuspended.DROP || Jobs.hasOutlivedItsActivity(job)) {
-                    return Jobs.done();
-                }
-                return Jobs.rescheduleAt(now.plus(SUSPENDED_DELAY));
-            }
-            if (!actors.suspendedInboxes(List.of(inbox)).isEmpty()) {
-                return Jobs.done();
-            }
-            var backingOff = gate.backingOffUntil(host, now);
-            if (backingOff.isPresent()) {
-                if (job.isOverdue(now)) {
-                    throw new PermanentJobFailure("Gave up because " + host + " has been failing for too long");
-                }
-                return later(backingOff.get());
-            }
-            if ((job.staysBehind() != null || job.staysBehindPrefix() != null)
-                    && isRunningFor(job.staysBehind(), job.staysBehindPrefix(), host)) {
-                return Jobs.rescheduleAt(now.plus(BEHIND_DELAY));
-            }
-            send(activity.get(), signer, inbox, host);
-            return Jobs.done();
+            // It's had its turn, so a later wait for one starts again.
+            var notBusy = job.withBusySince(null);
+            return switch (check(notBusy, inbox, host, now)) {
+                case Checked.Finished finished -> finished.handler();
+                case Checked.Ready ready -> sendOrWait(notBusy, ready, inbox, host, now);
+            };
         } finally {
             gate.release(host);
+        }
+    }
+
+    private CompletionHandler<DeliveryJob> sendOrWait(DeliveryJob job, Checked.Ready ready, URI inbox, String host, Instant now) {
+        var backingOff = gate.backingOffUntil(host, now);
+        if (backingOff.isPresent()) {
+            if (job.isOverdue(now)) {
+                throw new PermanentJobFailure("Gave up because " + host + " has been failing for too long");
+            }
+            return later(backingOff.get(), job);
+        }
+        if ((job.staysBehind() != null || job.staysBehindPrefix() != null)
+                && isRunningFor(job.staysBehind(), job.staysBehindPrefix(), host)) {
+            return Jobs.waitUntil(now.plus(BEHIND_DELAY), job);
+        }
+        send(ready.activity(), ready.signer(), inbox, host);
+        return Jobs.done();
+    }
+
+    /**
+     * Looks for what ends a job without sending it, or holds it back whatever the host's state.
+     */
+    private Checked check(DeliveryJob job, URI inbox, String host, Instant now) {
+        var activity = find(job);
+        if (activity.isEmpty()) {
+            return new Checked.Finished(Jobs.activityGone(job));
+        }
+        if (blocks.isBlocked(host)) {
+            // It was queued before the block. This comes before backing off, which could end with it failing.
+            return new Checked.Finished(Jobs.done());
+        }
+        var signer = activity.get().isSignedByInstance()
+                ? Optional.<Actor>empty()
+                : actors.findAnyLocalById(activity.get().actorId());
+        var whileSuspended = activity.get().whileSuspended();
+        if (whileSuspended != WhileSuspended.SEND && signer.filter(found -> !found.isActive()).isPresent()) {
+            // It was queued before a suspension or deletion.
+            if (signer.get().isDeleted() || whileSuspended == WhileSuspended.DROP || Jobs.hasOutlivedItsActivity(job)) {
+                return new Checked.Finished(Jobs.done());
+            }
+            return new Checked.Finished(Jobs.waitUntil(now.plus(SUSPENDED_DELAY), job));
+        }
+        if (!actors.suspendedInboxes(List.of(inbox)).isEmpty()) {
+            return new Checked.Finished(Jobs.done());
+        }
+        return new Checked.Ready(activity.get(), signer);
+    }
+
+    private sealed interface Checked {
+
+        record Finished(CompletionHandler<DeliveryJob> handler) implements Checked {
+        }
+
+        record Ready(OutboundActivity activity, Optional<Actor> signer) implements Checked {
         }
     }
 
@@ -209,8 +243,8 @@ class DeliveryTask {
     /**
      * Waits for a host's backoff to end. The time is spread out, so that all of the host's jobs don't arrive at once.
      */
-    private static CompletionHandler<DeliveryJob> later(Instant time) {
-        return Jobs.rescheduleAt(time.plusMillis(ThreadLocalRandom.current().nextLong(BACKOFF_SPREAD.toMillis())));
+    private static CompletionHandler<DeliveryJob> later(Instant time, DeliveryJob job) {
+        return Jobs.waitUntil(time.plusMillis(ThreadLocalRandom.current().nextLong(BACKOFF_SPREAD.toMillis())), job);
     }
 
     private static final class TemporaryDeliveryFailure extends RuntimeException {

@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Visitors who aren't logged in no longer get a login session. Before, each visit to the login or sign-up page, or to an
   app's link for logging in, stored one in the database, with no limit on how many. Login and sign-up forms that are
   open while you upgrade have to be reloaded before they can be sent.
+- An activity that's waited 3 days for its turn to be sent to a busy server gives up, as one for a server that keeps
+  failing already did, rather than being sent days late.
+- The job queue's **History** no longer lists runs where a job only waited, such as for a busy server. A large backlog for
+  a server that answers slowly used to add hundreds of thousands of these a day.
 
 ## [0.2.1] - 2026-11-17
 
