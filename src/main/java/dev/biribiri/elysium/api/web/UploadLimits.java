@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.ProfileProperties;
 import dev.biribiri.elysium.content.AttachmentProperties;
 import dev.biribiri.elysium.content.CustomEmojiProperties;
+import dev.biribiri.elysium.content.CustomEmojis;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
@@ -27,10 +28,7 @@ class UploadLimits {
             pathPattern(HttpMethod.POST, "/api/v1/media"),
             pathPattern(HttpMethod.POST, "/api/v2/media"));
 
-    /**
-     * {@code content.internal.CustomEmojiPagesController}'s, which this module can't refer to.
-     */
-    private static final RequestMatcher EMOJI_PACK = pathPattern(HttpMethod.POST, "/admin/custom-emojis/import");
+    private static final RequestMatcher EMOJI_PACK = pathPattern(HttpMethod.POST, CustomEmojis.PACK_IMPORT_PATH);
 
     private final long largestFile;
     private final long media;
@@ -41,9 +39,10 @@ class UploadLimits {
         var profileImage = profiles.maxImageSize().toBytes();
         var emojiImage = emojis.maxImageSize().toBytes();
         var pack = emojis.maxPackSize().toBytes();
-        largestFile = Math.max(Math.max(profileImage, attachments.largest().toBytes()), Math.max(emojiImage, pack));
+        var attachment = attachments.largest().toBytes();
+        largestFile = Math.max(Math.max(profileImage, attachment), Math.max(emojiImage, pack));
         // An attachment can have a thumbnail, and a profile change both an avatar and a header.
-        media = attachments.largest().toBytes() + attachments.maxImageSize().toBytes() + FORM;
+        media = attachment + attachments.maxImageSize().toBytes() + FORM;
         emojiPack = pack + FORM;
         other = Math.max(2 * profileImage, emojiImage) + FORM;
     }

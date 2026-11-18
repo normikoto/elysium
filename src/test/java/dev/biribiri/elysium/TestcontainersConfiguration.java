@@ -13,7 +13,6 @@ import org.springframework.core.Ordered;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockMultipartHttpServletRequest;
-import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.util.WebUtils;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -152,8 +151,10 @@ public class TestcontainersConfiguration {
                 return;
             }
             long length = 0;
-            for (var file : multipart.getMultiFileMap().values().stream().flatMap(List::stream).toList()) {
-                length += ((MultipartFile) file).getSize();
+            for (var files : multipart.getMultiFileMap().values()) {
+                for (var file : files) {
+                    length += file.getSize();
+                }
             }
             for (var values : multipart.getParameterMap().values()) {
                 for (var value : values) {

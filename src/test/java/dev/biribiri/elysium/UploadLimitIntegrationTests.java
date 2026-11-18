@@ -55,6 +55,18 @@ class UploadLimitIntegrationTests {
     }
 
     @Test
+    void letsBrowserClientsReadARefusal() throws Exception {
+        var response = send(HttpRequest.newBuilder(uri("/api/v1/accounts/update_credentials"))
+                .header("Content-Type", "multipart/form-data; boundary=x")
+                .header("Origin", "https://client.example")
+                .method("PATCH", body(OVER_DEFAULT_LIMIT))
+                .build());
+
+        assertThat(response.statusCode()).isEqualTo(413);
+        assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).hasValue("*");
+    }
+
+    @Test
     void givesMediaUploadsTheirOwnLimit() throws Exception {
         var response = send(request("/api/v2/media", "POST", body(OVER_DEFAULT_LIMIT)));
 

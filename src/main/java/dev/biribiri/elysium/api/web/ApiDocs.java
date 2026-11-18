@@ -143,14 +143,15 @@ class ApiDocs {
         }
 
         var body = operation.getRequestBody();
-        var json = body == null || body.getContent() == null ? null : body.getContent().get(APPLICATION_JSON_VALUE);
+        var content = body == null ? null : body.getContent();
+        var json = content == null ? null : content.get(APPLICATION_JSON_VALUE);
         if (json != null) {
-            body.getContent()
+            content
                     .addMediaType(APPLICATION_FORM_URLENCODED_VALUE, json)
                     .addMediaType(MULTIPART_FORM_DATA_VALUE, json);
             append(operation, FORM_OR_JSON);
         }
-        if (body != null && body.getContent() != null && body.getContent().containsKey(MULTIPART_FORM_DATA_VALUE)) {
+        if (content != null && content.containsKey(MULTIPART_FORM_DATA_VALUE)) {
             responses.putIfAbsent("411", new ApiResponse().description(
                     "A multipart body has no `Content-Length`, such as one sent chunked."));
             responses.putIfAbsent("413", new ApiResponse().description("The body is too large."));

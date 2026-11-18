@@ -1,16 +1,19 @@
 package dev.biribiri.elysium.api.web;
 
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.multipart.MultipartException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -33,7 +36,7 @@ class UploadLengthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         var contentType = request.getContentType();
-        return contentType == null || !contentType.toLowerCase(Locale.ROOT).startsWith("multipart/");
+        return contentType == null || !contentType.regionMatches(true, 0, "multipart/", 0, "multipart/".length());
     }
 
     @Override
@@ -52,14 +55,23 @@ class UploadLengthFilter extends OncePerRequestFilter {
     /**
      * The API's errors have Mastodon's {@code Error} body, as {@code StatusApiErrors} gives them, and a page's are shown
      * on the error page.
+     *
+     * <p>This runs ahead of Spring Security's {@code CorsFilter}, so an API error allows any origin itself, as the API's
+     * CORS settings do, or a browser-based client would only see a failed request. A page's error is marked as a multipart
+     * failure, because {@code DispatcherServlet} otherwise parses the multipart body on the error dispatch, which is
+     * what this filter is for avoiding.
      */
     private void refuse(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String error)
             throws IOException {
         if (request.getRequestURI().startsWith("/api/")) {
             response.setStatus(status.value());
+            if (request.getHeader(HttpHeaders.ORIGIN) != null) {
+                response.setHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, CorsConfiguration.ALL);
+            }
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             json.writeValue(response.getOutputStream(), Map.of("error", error));
         } else {
+            request.setAttribute(RequestDispatcher.ERROR_EXCEPTION, new MultipartException(error));
             response.sendError(status.value());
         }
     }
