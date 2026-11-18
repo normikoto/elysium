@@ -139,7 +139,7 @@ class CustomEmojiPagesController {
      * Shows what was imported on the page, rather than redirecting, so that the emoji that were skipped or failed can be
      * listed. Some failing doesn't fail the request, since the rest were imported.
      */
-    @PostMapping(PATH + "/import")
+    @PostMapping(CustomEmojis.PACK_IMPORT_PATH)
     String importPack(
             @RequestParam(required = false) MultipartFile pack,
             @RequestParam(required = false) String category,

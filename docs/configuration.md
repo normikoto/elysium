@@ -58,8 +58,12 @@ can see the post can download it. Tell your users if that matters to them.
 
 Uploads are served from `/media` on your server's own domain, with headers that stop browsers from treating them as
 pages. Every file attached to a post counts toward your disk space until the post is deleted, so set the size limits with
-your storage in mind. The limits on Spring's uploads follow the largest of these settings, so you don't set them
-yourself.
+your storage in mind. Each kind of upload is held to its own limits before any of it is received, so raising the
+video limit doesn't let anyone upload a 100 MB avatar. A request is allowed its files plus 4 MB for the rest of the form.
+
+Uploads have to say how large they are, and one sent in chunks without a size gets a 411. Browsers always give the size,
+and so does nginx when it passes on a request, since it reads the whole body first by default. A proxy that passes
+request bodies on as they arrive, such as Caddy, also passes on an app's chunked upload, which the server then refuses.
 
 The server also keeps copies of the attachments on other servers' posts that it stores, so that your users' browsers
 load them from you rather than from those servers, which would see their addresses. Copies are checked and re-encoded
@@ -166,8 +170,9 @@ location ~ ^/(inbox|actor/inbox|users/[^/]+/inbox)$ {
 
 nginx's default `client_max_body_size` of `1m` already matches the largest activity the server accepts, but it also
 refuses larger uploads, such as images and video attached to posts. Raise it in the server block to a little over your
-largest upload limit, such as `client_max_body_size 110m;` for the defaults, and keep `1m` in the inbox location. Caddy
-needs a third-party module, such as `caddy-ratelimit`, to limit requests.
+largest upload limit, such as `client_max_body_size 125m;` for the defaults, which allow a 100 MB video with a 16 MB
+thumbnail, and keep `1m` in the inbox location. Caddy needs a third-party module, such as `caddy-ratelimit`, to limit
+requests.
 
 Behind a reverse proxy, set `server.forward-headers-strategy=native` so that redirects use the public
 URL, including Swagger UI's OAuth redirect, and [rate limits](accounts.md#rate-limits) apply to each client's address.

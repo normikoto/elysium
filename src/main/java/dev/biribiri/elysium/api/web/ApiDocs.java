@@ -34,7 +34,8 @@ import static org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE;
  * <li>Every error has Mastodon's {@code Error} body. An endpoint that takes a token gets a 401 for one that's invalid, or
  * for none at all if it needs one, and a 403 for one without any of the scopes it lists, which {@code ScopeRequirements}
  * has already listed.
- * <li>A body documented as JSON can also be form-encoded or multipart, with the same fields.
+ * <li>A body documented as JSON can also be form-encoded or multipart, with the same fields. A multipart one gets a 411
+ * without a length, and a 413 over its endpoint's limit, from {@link UploadLengthFilter}.
  * <li>A list that takes {@code max_id} is paged by the cursors that {@link PageLinks} links to.
  * </ul>
  */
@@ -142,12 +143,18 @@ class ApiDocs {
         }
 
         var body = operation.getRequestBody();
-        var json = body == null || body.getContent() == null ? null : body.getContent().get(APPLICATION_JSON_VALUE);
+        var content = body == null ? null : body.getContent();
+        var json = content == null ? null : content.get(APPLICATION_JSON_VALUE);
         if (json != null) {
-            body.getContent()
+            content
                     .addMediaType(APPLICATION_FORM_URLENCODED_VALUE, json)
                     .addMediaType(MULTIPART_FORM_DATA_VALUE, json);
             append(operation, FORM_OR_JSON);
+        }
+        if (content != null && content.containsKey(MULTIPART_FORM_DATA_VALUE)) {
+            responses.putIfAbsent("411", new ApiResponse().description(
+                    "A multipart body has no `Content-Length`, such as one sent chunked."));
+            responses.putIfAbsent("413", new ApiResponse().description("The body is too large."));
         }
 
         var parameters = operation.getParameters() == null ? List.<Parameter>of() : operation.getParameters();

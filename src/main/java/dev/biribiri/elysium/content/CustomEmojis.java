@@ -39,6 +39,11 @@ public class CustomEmojis {
     public static final int MAX_CATEGORY_LENGTH = 50;
 
     /**
+     * Where the admin page imports a pack, which is allowed a larger request than other uploads.
+     */
+    public static final String PACK_IMPORT_PATH = "/admin/custom-emojis/import";
+
+    /**
      * What the admin page calls the emoji with no category. A category can't have this name, in any case, or the page
      * would show two groups that look the same.
      */

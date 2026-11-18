@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Each kind of upload is held to its own size limits before it's received. Before, every upload could be as large as the
+  largest limit, such as a 100 MB avatar, before it was refused. Uploads now have to say how large they are, and one sent
+  in chunks without a size is refused. Browsers and nginx always give the size, but behind a proxy that passes request
+  bodies on as they arrive, such as Caddy, some apps' uploads may now fail. See `docs/configuration.md`.
 - Copies of other servers' avatars and headers are removed after `elysium.attachments.remote-cache-retention`, as
   attachments' copies are. Copies kept before upgrading count from the upgrade.
 - An attachment, avatar, or header from another server whose copy was removed, or that hasn't been copied yet, is
