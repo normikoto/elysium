@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   posted within about a minute of its time. Each user can have up to 300 scheduled, and 25 on one day. One that can no
   longer be posted then, such as a reply to a post that's been deleted, is dropped. See `docs/api.md`.
 
+### Changed
+
+- Visitors who aren't logged in no longer get a login session. Before, each visit to the login or sign-up page, or to an
+  app's link for logging in, stored one in the database, with no limit on how many. Login and sign-up forms that are
+  open while you upgrade have to be reloaded before they can be sent.
+
 ## [0.2.1] - 2026-11-17
 
 ### Added

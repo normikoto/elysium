@@ -33,10 +33,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * application as a WAR, and copies them from a mock servlet context that doesn't turn on {@code HttpOnly}.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "server.servlet.session.timeout=2h")
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"server.servlet.session.timeout=2h", "elysium.registration.mode=open"})
 class LoginSessionCookieIntegrationTests {
 
     private static final String PASSWORD = "a long enough password";
+    private static final Pattern CLIENT_ID = Pattern.compile("\"client_id\":\"([^\"]+)\"");
     private static final Pattern CSRF_TOKEN = Pattern.compile("name=\"_csrf\"[^>]*value=\"([^\"]+)\"");
 
     private final HttpClient client = HttpClient.newHttpClient();
@@ -62,22 +63,25 @@ class LoginSessionCookieIntegrationTests {
         var username = "u" + UUID.randomUUID().toString().replace("-", "").substring(0, 25);
         accounts.createAccount(username, PASSWORD).orElseThrow();
 
-        var loginPage = send(HttpRequest.newBuilder(uri("/login")).GET(), null);
-        var firstCookie = setCookie(loginPage);
-        assertThat(firstCookie).startsWith("SESSION=").contains("; HttpOnly").contains("; SameSite=Lax");
+        // This saves the page to return to after logging in.
+        var page = HttpRequest.newBuilder(uri("/settings/delete-account")).header("Accept", "text/html").GET();
+        var denied = send(page, null);
+        assertThat(denied.statusCode()).isEqualTo(302);
+        var savedPage = setCookie(denied, "SAVED-PAGE=");
+        assertThat(savedPage).contains("; Path=/").contains("; HttpOnly").contains("; SameSite=Lax");
+
+        var loginPage = send(HttpRequest.newBuilder(uri("/login")).GET(), value(savedPage));
+        assertThat(loginPage.headers().allValues("Set-Cookie")).noneMatch(cookie -> cookie.startsWith("SESSION="));
+        var csrfCookie = setCookie(loginPage, "XSRF-TOKEN=");
+        assertThat(csrfCookie).contains("; Path=/").contains("; HttpOnly").contains("; SameSite=Lax");
         var token = CSRF_TOKEN.matcher(loginPage.body());
         assertThat(token.find()).isTrue();
 
-        // This saves the request to return to after logging in, with its cookie in it.
-        var page = HttpRequest.newBuilder(uri("/settings/delete-account")).header("Accept", "text/html").GET();
-        assertThat(send(page, value(firstCookie)).statusCode()).isEqualTo(302);
-
-        var login = logIn(username, token.group(1), value(firstCookie));
+        var login = logIn(username, token.group(1), value(csrfCookie) + "; " + value(savedPage));
         assertThat(login.statusCode()).isEqualTo(302);
-        assertThat(login.headers().firstValue("Location").orElseThrow()).doesNotContain("error");
-        var loggedIn = setCookie(login);
-        // The ID changes when logging in, so that an ID someone planted before then is no use.
-        assertThat(value(loggedIn)).isNotEqualTo(value(firstCookie));
+        assertThat(login.headers().firstValue("Location").orElseThrow()).endsWith("/settings/delete-account");
+        var loggedIn = setCookie(login, "SESSION=");
+        assertThat(loggedIn).contains("; HttpOnly").contains("; SameSite=Lax");
 
         var actorId = actors.findLocalByUsername(username).orElseThrow().id();
         assertThat(jdbc.sql("SELECT max_inactive_interval FROM spring_session WHERE principal_name = :id")
@@ -105,15 +109,17 @@ class LoginSessionCookieIntegrationTests {
         var username = "u" + UUID.randomUUID().toString().replace("-", "").substring(0, 25);
         accounts.createAccount(username, PASSWORD).orElseThrow();
 
-        var loginPage = send(HttpRequest.newBuilder(uri("/login")).GET(), null);
-        var plantedCookie = value(setCookie(loginPage));
+        // Visitors who aren't logged in don't get sessions, but someone can still plant one of their own, such as one
+        // that's waiting for a two-factor code.
+        var plantedId = newSession(sessions);
+        var plantedCookie = "SESSION=" + Base64.getEncoder().encodeToString(plantedId.getBytes(StandardCharsets.UTF_8));
+        var loginPage = send(HttpRequest.newBuilder(uri("/login")).GET(), plantedCookie);
+        var csrfCookie = value(setCookie(loginPage, "XSRF-TOKEN="));
         var token = CSRF_TOKEN.matcher(loginPage.body());
         assertThat(token.find()).isTrue();
-        var plantedId = new String(
-                Base64.getDecoder().decode(plantedCookie.substring(plantedCookie.indexOf('=') + 1)), StandardCharsets.UTF_8);
 
         var overlapping = overlappingRequest(sessions, plantedId);
-        var login = logIn(username, token.group(1), plantedCookie);
+        var login = logIn(username, token.group(1), plantedCookie + "; " + csrfCookie);
         assertThat(login.headers().firstValue("Location").orElseThrow()).doesNotContain("error");
         overlapping.run();
 
@@ -121,6 +127,42 @@ class LoginSessionCookieIntegrationTests {
         var response = send(page, plantedCookie);
         assertThat(response.statusCode()).isEqualTo(302);
         assertThat(response.headers().firstValue("Location").orElseThrow()).endsWith("/login");
+    }
+
+    /**
+     * Sessions are stored in the database, so one for every visit would let anyone fill it.
+     */
+    @Test
+    void visitorsWhoArentLoggedInDontGetSessions() throws Exception {
+        TestAccounts.makeSureAnAccountExists(actors);
+        var app = send(HttpRequest.newBuilder(uri("/api/v1/apps"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString("client_name=test&scopes=read&redirect_uris="
+                        + URLEncoder.encode("https://client.example/callback", StandardCharsets.UTF_8))), null);
+        var clientId = CLIENT_ID.matcher(app.body());
+        assertThat(clientId.find()).isTrue();
+        var before = storedSessions();
+
+        var visits = List.of("/", "/login", "/signup", "/login/two-factor", "/settings",
+                "/oauth/authorize?response_type=code&scope=read&client_id=" + clientId.group(1) + "&redirect_uri="
+                        + URLEncoder.encode("https://client.example/callback", StandardCharsets.UTF_8));
+        for (var path : visits) {
+            var response = send(HttpRequest.newBuilder(uri(path)).header("Accept", "text/html").GET(), null);
+            assertThat(response.statusCode()).as(path).isLessThan(400);
+            assertThat(response.headers().allValues("Set-Cookie")).as(path).noneMatch(cookie -> cookie.startsWith("SESSION="));
+        }
+
+        assertThat(storedSessions()).isEqualTo(before);
+    }
+
+    private long storedSessions() {
+        return jdbc.sql("SELECT count(*) FROM spring_session").query(Long.class).single();
+    }
+
+    private static <S extends Session> String newSession(SessionRepository<S> sessions) {
+        var session = sessions.createSession();
+        sessions.save(session);
+        return session.getId();
     }
 
     /**
@@ -191,9 +233,9 @@ class LoginSessionCookieIntegrationTests {
         return URI.create("http://localhost:" + port + path);
     }
 
-    private static String setCookie(HttpResponse<?> response) {
+    private static String setCookie(HttpResponse<?> response, String prefix) {
         return response.headers().allValues("Set-Cookie").stream()
-                .filter(cookie -> cookie.startsWith("SESSION="))
+                .filter(cookie -> cookie.startsWith(prefix))
                 .findFirst()
                 .orElseThrow();
     }
