@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.web;
 
+import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.activitypub.vocab.JsonResourceDescriptor;
 import dev.biribiri.elysium.activitypub.vocab.NodeInfo;
 import dev.biribiri.elysium.actor.ActorService;
@@ -29,8 +30,10 @@ public class NodeInfoController {
 
     private static final String PATH_2_0 = "/nodeinfo/2.0";
     private static final String PATH_2_1 = "/nodeinfo/2.1";
+    private static final String PATH_ACTOR = "/actor";
     private static final String SCHEMA_2_0 = "http://nodeinfo.diaspora.software/ns/schema/2.0";
     private static final String SCHEMA_2_1 = "http://nodeinfo.diaspora.software/ns/schema/2.1";
+    private static final String AS_APPLICATION = ActivityStreams.CONTEXT + "#Application";
     private static final String USAGE = """
             Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the number of \
             local users, and `localPosts`, which counts replies but not direct statuses. Active user counts and \
@@ -67,7 +70,8 @@ public class NodeInfoController {
     JsonResourceDescriptor links() {
         return JsonResourceDescriptor.ofLinks(List.of(
                 new JsonResourceDescriptor.Link(SCHEMA_2_1, instance.resolve(PATH_2_1)),
-                new JsonResourceDescriptor.Link(SCHEMA_2_0, instance.resolve(PATH_2_0))));
+                new JsonResourceDescriptor.Link(SCHEMA_2_0, instance.resolve(PATH_2_0)),
+                new JsonResourceDescriptor.Link(AS_APPLICATION, instance.resolve(PATH_ACTOR))));
     }
 
     @GetMapping(path = PATH_2_1, produces = "application/json; profile=\"" + SCHEMA_2_1 + "#\"")
