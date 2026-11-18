@@ -25,6 +25,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -368,6 +369,36 @@ class ProfileIntegrationTests {
                 .andExpect(jsonPath("$.fields[0].verified_at").isEmpty())
                 .andExpect(jsonPath("$.emojis", hasSize(1)))
                 .andExpect(jsonPath("$.emojis[0].shortcode").value("blob"));
+    }
+
+    @Test
+    void anOldCopyOfAnAccountOnAnotherServersAvatarIsRemovedAndDownloadedAgainLater() throws Exception {
+        var host = "r" + UUID.randomUUID() + ".test";
+        var uri = URI.create("https://" + host + "/users/carol");
+        var avatar = URI.create("https://media." + host + "/avatar.png");
+        var header = URI.create("https://media." + host + "/header.png");
+        var profile = new RemoteProfile("Carol", "", "", avatar, header, List.of(), false, false, false, false, null,
+                null);
+        var carol = transaction.execute(status -> actors.upsertRemote(new RemoteActorProfile(
+                uri, "carol", host, URI.create(uri + "/inbox"), null, null, null, null, null, profile)));
+        assertThat(profiles.cacheRemoteImage(carol.id(), false, avatar, TestImages.png(64, 64))).isTrue();
+        assertThat(profiles.cacheRemoteImage(carol.id(), true, header, TestImages.png(64, 32))).isTrue();
+        var copy = JsonPath.<String>read(mockMvc.perform(get("/api/v1/accounts/" + carol.id()))
+                .andReturn().getResponse().getContentAsString(), "$.avatar");
+        assertThat(copy).startsWith("https://profiles.example/media/");
+        jdbc.sql("UPDATE profile SET avatar_cached_at = now() - interval '31 days' WHERE actor_id = :id")
+                .param("id", carol.id()).update();
+
+        profiles.pruneRemoteImages(Instant.now().minus(Duration.ofDays(30)));
+
+        mockMvc.perform(get("/api/v1/accounts/" + carol.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatar").value(avatar.toString()))
+                .andExpect(jsonPath("$.avatar_static").value(avatar.toString()))
+                .andExpect(jsonPath("$.header").value(startsWith("https://profiles.example/media/")));
+        mockMvc.perform(get(URI.create(copy).getPath())).andExpect(status().isNotFound());
+        assertThat(profiles.findImageToDownload(carol.id(), false)).contains(avatar);
+        assertThat(profiles.findImageToDownload(carol.id(), true)).isEmpty();
     }
 
     @Test

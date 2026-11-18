@@ -18,7 +18,9 @@ import java.time.Duration;
  *                             with files that never appear anywhere
  * @param remoteCacheEnabled   whether other servers' attachments are downloaded and served from here, which keeps
  *                             people's browsers from fetching them from those servers
- * @param remoteCacheRetention how long a copy of another server's attachment is kept, after which it's linked again
+ * @param remoteCacheRetention how long a copy of another server's attachment, or of an avatar or header of an account on
+ *                             one, is kept, after which it's linked again. An avatar or header is downloaded again when
+ *                             its account is next fetched
  * @param remoteDownloadBudget how much each other server's attachments can add up to in an hour, beyond which they're
  *                             only linked
  */

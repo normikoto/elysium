@@ -256,6 +256,20 @@ public class ProfileService {
     }
 
     /**
+     * Removes the copies of accounts on other servers' avatars and headers that were kept before a time. Each is linked to
+     * until its account is fetched again, and then downloaded again. Safe to stop partway, and to repeat.
+     */
+    public void pruneRemoteImages(Instant before) {
+        for (var header : new boolean[]{false, true}) {
+            ProfileRepository.Uncached batch;
+            do {
+                batch = transaction.execute(status -> profiles.uncacheImagesBefore(header, before, REMOVAL_BATCH));
+                batch.images().forEach(images::delete);
+            } while (batch.profiles() > 0);
+        }
+    }
+
+    /**
      * Lets an account on another server's images be downloaded again, the next time it's fetched, for when its media stops
      * being rejected.
      */

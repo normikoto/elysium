@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Copies of other servers' avatars and headers are removed after `elysium.attachments.remote-cache-retention`, as
+  attachments' copies are, and copied again when the account's profile is next fetched. Copies kept before upgrading
+  count from the upgrade.
 - Visitors who aren't logged in no longer get a login session. Before, each visit to the login or sign-up page, or to an
   app's link for logging in, stored one in the database, with no limit on how many. Login and sign-up forms that are
   open while you upgrade have to be reloaded before they can be sent.
