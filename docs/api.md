@@ -397,7 +397,7 @@ Only these types are generated: `mention`, `follow`, `follow_request`, `favourit
   none. Grouped notifications don't include `target`, so clients use the sample account's `moved`.
 - A `follow_request` notification is removed once the request is approved, refused, or withdrawn, as on Mastodon.
   Approving it adds a `follow` notification from the new follower, which Mastodon doesn't, including when requests are
-  approved because the account stopped approving followers by hand.
+  approved because the account stopped approving followers by hand, or approves requests from accounts it follows.
 - Notifications of subscribed accounts' posts and edits, and `admin.sign_up`, await their features.
 - Notifications start with new activity after upgrading, so historical mentions and follows don't generate any.
   Silent mentions and self-mentions don't notify.

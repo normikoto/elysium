@@ -203,11 +203,15 @@ public class Notifier {
      */
     @ApplicationModuleListener
     public void on(FollowEstablished event) {
+        followed(event.followId(), event.followerId(), event.followedId());
+    }
+
+    private void followed(UUID followId, UUID followerId, UUID followedId) {
         notifications.lock();
-        conversations.holdActors(List.of(event.followerId(), event.followedId()));
-        notifications.deleteFollowRequest(event.followId());
-        if (conversations.currentFollow(event.followId(), event.followerId(), event.followedId())) {
-            notified(event.followedId(), notifications.insert(event.followedId(), event.followerId(), "follow", event.followId(), null, event.followId()));
+        conversations.holdActors(List.of(followerId, followedId));
+        notifications.deleteFollowRequest(followId);
+        if (conversations.currentFollow(followId, followerId, followedId)) {
+            notified(followedId, notifications.insert(followedId, followerId, "follow", followId, null, followId));
         }
     }
 
@@ -238,12 +242,7 @@ public class Notifier {
      */
     @ApplicationModuleListener
     public void on(FollowRequestAuthorized event) {
-        notifications.lock();
-        conversations.holdActors(List.of(event.followerId(), event.followedId()));
-        notifications.deleteFollowRequest(event.followId());
-        if (conversations.currentFollow(event.followId(), event.followerId(), event.followedId())) {
-            notified(event.followedId(), notifications.insert(event.followedId(), event.followerId(), "follow", event.followId(), null, event.followId()));
-        }
+        followed(event.followId(), event.followerId(), event.followedId());
     }
 
     @ApplicationModuleListener
