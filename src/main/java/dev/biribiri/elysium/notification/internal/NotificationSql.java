@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.notification.internal;
 
 import dev.biribiri.elysium.graph.HiddenAccounts;
-import dev.biribiri.elysium.notification.NotificationPage;
+import dev.biribiri.elysium.notification.Page;
 
 import java.util.Map;
 
@@ -39,7 +39,7 @@ final class NotificationSql {
                 + " AND f.followed_id = " + status + ".actor_id AND f.state = 'accepted')))";
     }
 
-    static void cursors(StringBuilder sql, Map<String, Object> parameters, NotificationPage page, String column) {
+    static void cursors(StringBuilder sql, Map<String, Object> parameters, Page page, String column) {
         if (page.maxId() != null) {
             sql.append(" AND ").append(column).append(" < :maxId");
             parameters.put("maxId", page.maxId());

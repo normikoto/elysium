@@ -31,7 +31,7 @@ public class NotificationService {
         this.transaction = new TransactionTemplate(transactionManager);
     }
 
-    public List<Notification> notifications(UUID viewer, NotificationFilter filter, NotificationPage page) {
+    public List<Notification> notifications(UUID viewer, NotificationFilter filter, Page page) {
         return notifications.page(viewer, filter, page);
     }
 
@@ -39,7 +39,7 @@ public class NotificationService {
         return notifications.find(viewer, id);
     }
 
-    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, NotificationPage page, List<String> groupedTypes) {
+    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, Page page, List<String> groupedTypes) {
         return notifications.groups(viewer, filter, page, groupedTypes);
     }
 
@@ -77,7 +77,7 @@ public class NotificationService {
         notifications.dismissGroup(viewer, key);
     }
 
-    public List<Conversation> conversations(UUID viewer, NotificationPage page) {
+    public List<Conversation> conversations(UUID viewer, Page page) {
         return conversations.page(viewer, page);
     }
 

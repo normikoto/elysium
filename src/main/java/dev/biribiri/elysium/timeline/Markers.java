@@ -31,6 +31,11 @@ public class Markers {
         return markers.save(owner, positions);
     }
 
+    @Transactional
+    public void removeForActor(UUID owner) {
+        markers.removeForOwner(owner);
+    }
+
     public Optional<UUID> lastRead(UUID owner, String timeline) {
         return Optional.ofNullable(markers.find(owner, List.of(timeline)).get(timeline)).map(Marker::lastReadId);
     }

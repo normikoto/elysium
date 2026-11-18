@@ -23,6 +23,7 @@ import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.MuteService;
 import dev.biribiri.elysium.moderation.Reports;
 import dev.biribiri.elysium.notification.NotificationService;
+import dev.biribiri.elysium.timeline.Markers;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -56,14 +57,16 @@ class AccountCleanupTask {
     private final AccountLists lists;
     private final AccountMigrations migrations;
     private final ScheduledStatusService scheduled;
+    private final Markers markers;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
-                       MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, NotificationService notifications,
-                       LikeService likes, ReactionService reactions, MediaAttachments attachments,
+                       MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles,
+                       NotificationService notifications, LikeService likes, ReactionService reactions, MediaAttachments attachments,
                        FollowersOnlyRecipients followersOnly,
                        PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
                        PostFilters filters, AccountLists lists, AccountMigrations migrations,
-                       ScheduledStatusService scheduled) {
+                       ScheduledStatusService scheduled, Markers markers) {
+        this.markers = markers;
         this.scheduled = scheduled;
         this.migrations = migrations;
         this.lists = lists;
@@ -113,6 +116,7 @@ class AccountCleanupTask {
                 filters.removeForActor(actor.id());
                 lists.removeForActor(actor.id());
                 notifications.removeForActor(actor.id());
+                markers.removeForActor(actor.id());
                 reports.removeForActor(actor.id());
                 migrations.removeForActor(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {

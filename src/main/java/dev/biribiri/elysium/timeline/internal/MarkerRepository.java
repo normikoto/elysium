@@ -52,4 +52,8 @@ public class MarkerRepository {
         }
         return find(owner, timelines);
     }
+
+    public void removeForOwner(UUID owner) {
+        jdbc.sql("DELETE FROM marker WHERE owner_id = :owner").param("owner", owner).update();
+    }
 }

@@ -5,7 +5,7 @@ import dev.biribiri.elysium.auth.AdminRole;
 import dev.biribiri.elysium.notification.Notification;
 import dev.biribiri.elysium.notification.NotificationFilter;
 import dev.biribiri.elysium.notification.NotificationGroup;
-import dev.biribiri.elysium.notification.NotificationPage;
+import dev.biribiri.elysium.notification.Page;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -208,7 +208,7 @@ public class NotificationRepository {
         return Optional.of(id);
     }
 
-    public List<Notification> page(UUID viewer, NotificationFilter filter, NotificationPage page) {
+    public List<Notification> page(UUID viewer, NotificationFilter filter, Page page) {
         var parameters = parameters(viewer, filter);
         var sql = new StringBuilder("SELECT n.*" + filtered(filter));
         NotificationSql.cursors(sql, parameters, page, "n.id");
@@ -246,7 +246,7 @@ public class NotificationRepository {
     }
 
     /** Fetch one representative per distinct group, stopping at the requested number instead of scanning all history. */
-    private List<Notification> representatives(UUID viewer, NotificationFilter filter, NotificationPage page, List<String> groupedTypes) {
+    private List<Notification> representatives(UUID viewer, NotificationFilter filter, Page page, List<String> groupedTypes) {
         var parameters = parameters(viewer, filter);
         parameters.put("groupedTypes", groupedTypes(groupedTypes));
         parameters.put("limit", page.limit());
@@ -275,7 +275,7 @@ public class NotificationRepository {
         return ascending ? found.reversed() : found;
     }
 
-    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, NotificationPage page, List<String> groupedTypes) {
+    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, Page page, List<String> groupedTypes) {
         var found = representatives(viewer, filter, page, groupedTypes);
         if (found.isEmpty()) {
             return List.of();
@@ -346,7 +346,7 @@ public class NotificationRepository {
     }
 
     public long countGroups(UUID viewer, NotificationFilter filter, int limit, UUID after, List<String> types) {
-        return representatives(viewer, filter, new NotificationPage(limit, null, null, after), types).size();
+        return representatives(viewer, filter, new Page(limit, null, null, after), types).size();
     }
 
     private static String filtered(NotificationFilter filter) {

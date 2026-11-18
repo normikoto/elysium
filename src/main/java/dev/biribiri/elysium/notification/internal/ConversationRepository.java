@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.notification.internal;
 
 import dev.biribiri.elysium.notification.Conversation;
-import dev.biribiri.elysium.notification.NotificationPage;
+import dev.biribiri.elysium.notification.Page;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -145,7 +145,7 @@ public class ConversationRepository {
         return inserted ? Optional.of(id) : Optional.empty();
     }
 
-    public List<Conversation> page(UUID viewer, NotificationPage page) {
+    public List<Conversation> page(UUID viewer, Page page) {
         var parameters = new HashMap<String, Object>();
         parameters.put("viewer", viewer);
         parameters.put("limit", page.limit());
@@ -242,7 +242,6 @@ public class ConversationRepository {
                         WHERE recipient_id = ANY(CAST(:ids AS uuid[])) OR sender_id = ANY(CAST(:ids AS uuid[]))
                            OR target_id = ANY(CAST(:ids AS uuid[]))
                         """).param("ids", ids).update();
-        jdbc.sql("DELETE FROM marker WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
         jdbc.sql("DELETE FROM notification_follow_group WHERE recipient_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
         jdbc.sql("DELETE FROM conversation WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
         jdbc.sql("""
