@@ -17,8 +17,8 @@ import dev.biribiri.elysium.content.StatusUnliked;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.internal.LikeRepository;
 import dev.biribiri.elysium.graph.FollowService;
-import dev.biribiri.elysium.inbox.InboxProjection;
 import dev.biribiri.elysium.moderation.DomainBlocks;
+import dev.biribiri.elysium.notification.NotificationProjection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,7 +71,7 @@ class LikeIntegrationTests {
     @Autowired InboundActivities inbound;
     @Autowired FollowService follows;
     @Autowired LikeDeliveries deliveries;
-    @Autowired InboxProjection projection;
+    @Autowired NotificationProjection projection;
     @Autowired TransactionTemplate transaction;
     @Autowired JdbcClient jdbc;
     @Autowired JsonMapper json;

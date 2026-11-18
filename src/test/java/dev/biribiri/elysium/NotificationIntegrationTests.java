@@ -15,10 +15,11 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.graph.FollowService;
-import dev.biribiri.elysium.inbox.InboxProjection;
-import dev.biribiri.elysium.inbox.InboxService;
-import dev.biribiri.elysium.inbox.internal.MarkerRepository;
-import dev.biribiri.elysium.inbox.internal.NotificationRepository;
+import dev.biribiri.elysium.notification.NotificationProjection;
+import dev.biribiri.elysium.notification.NotificationService;
+import dev.biribiri.elysium.timeline.Markers;
+import dev.biribiri.elysium.timeline.internal.MarkerRepository;
+import dev.biribiri.elysium.notification.internal.NotificationRepository;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,9 +57,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://inbox.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://notification.example", "elysium.jobs.worker-enabled=false"})
 @AutoConfigureMockMvc
-class InboxIntegrationTests {
+class NotificationIntegrationTests {
     private static final String NOTIFICATIONS = "/api/v1/notifications";
     private static final String GROUPS = "/api/v2/notifications";
     private static final String CONVERSATIONS = "/api/v1/conversations";
@@ -70,8 +71,9 @@ class InboxIntegrationTests {
     @Autowired StatusService statuses;
     @Autowired FollowService follows;
     @Autowired ProfileService profiles;
-    @Autowired InboxService inbox;
-    @Autowired InboxProjection projection;
+    @Autowired NotificationService notifications;
+    @Autowired NotificationProjection projection;
+    @Autowired Markers markers;
     @Autowired DomainBlocks blocks;
     @Autowired JdbcClient jdbc;
     @Autowired PlatformTransactionManager transactions;
@@ -401,7 +403,7 @@ class InboxIntegrationTests {
         settled();
         mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(1));
         mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
-        inbox.removeForDomain(remote.domain());
+        notifications.removeForDomain(remote.domain());
         new TransactionTemplate(transactions).executeWithoutResult(tx -> projection.on(new StatusStored(id)));
         assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE sender_id = :id")
                 .param("id", remote.id()).query(Long.class).single()).isZero();
@@ -464,7 +466,7 @@ class InboxIntegrationTests {
     @Test
     void concurrentMarkerUpdatesReturnAConflictWithoutLosingTheWinner() throws Exception {
         var first = UUID.randomUUID();
-        inbox.saveMarkers(bob.id(), Map.of("notifications", first));
+        markers.save(bob.id(), Map.of("notifications", first));
         var readers = new java.util.concurrent.CountDownLatch(2);
         var remaining = new java.util.concurrent.atomic.AtomicInteger(2);
         org.mockito.Mockito.doAnswer(call -> {

@@ -1,7 +1,7 @@
-package dev.biribiri.elysium.inbox.internal;
+package dev.biribiri.elysium.notification.internal;
 
-import dev.biribiri.elysium.inbox.Conversation;
-import dev.biribiri.elysium.inbox.InboxPage;
+import dev.biribiri.elysium.notification.Conversation;
+import dev.biribiri.elysium.notification.NotificationPage;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -23,7 +23,7 @@ public class ConversationRepository {
                 SELECT s.id, s.actor_id FROM inbox_conversation_status cs
                 JOIN status s ON s.id = cs.status_id JOIN actor a ON a.id = s.actor_id
                 WHERE cs.conversation_id = c.id AND
-            """ + InboxSql.active("a") + " AND " + InboxSql.notHidden("a") + " AND " + InboxSql.visible("s") + """
+            """ + NotificationSql.active("a") + " AND " + NotificationSql.notHidden("a") + " AND " + NotificationSql.visible("s") + """
                  ORDER BY s.id DESC LIMIT 1
             ) latest
             WHERE c.owner_id = :viewer AND (c.hidden_through_id IS NULL OR latest.id > c.hidden_through_id)
@@ -49,7 +49,7 @@ public class ConversationRepository {
         return jdbc.sql("""
                         SELECT s.id, s.actor_id, s.thread_id, s.visibility FROM status s JOIN actor a ON a.id = s.actor_id
                         WHERE s.id = :id AND
-                        """ + InboxSql.active("a") + (hold ? " FOR KEY SHARE OF s" : ""))
+                        """ + NotificationSql.active("a") + (hold ? " FOR KEY SHARE OF s" : ""))
                 .param("id", id).query((rs, n) -> new Source(rs.getObject("id", UUID.class),
                         rs.getObject("actor_id", UUID.class), rs.getObject("thread_id", UUID.class),
                         "direct".equals(rs.getString("visibility")))).optional();
@@ -64,13 +64,13 @@ public class ConversationRepository {
 
     public List<UUID> mentions(UUID statusId) {
         return jdbc.sql("SELECT m.actor_id FROM status_mention m JOIN actor a ON a.id = m.actor_id "
-                + "WHERE m.status_id = :id AND NOT m.silent AND " + InboxSql.notGone("a") + " ORDER BY m.actor_id")
+                + "WHERE m.status_id = :id AND NOT m.silent AND " + NotificationSql.notGone("a") + " ORDER BY m.actor_id")
                 .param("id", statusId).query(UUID.class).list();
     }
 
     public List<UUID> localRecipients(List<UUID> ids) {
         if (ids.isEmpty()) return List.of();
-        return jdbc.sql("SELECT a.id FROM actor a WHERE a.id IN (:ids) AND a.is_local AND " + InboxSql.active("a"))
+        return jdbc.sql("SELECT a.id FROM actor a WHERE a.id IN (:ids) AND a.is_local AND " + NotificationSql.active("a"))
                 .param("ids", ids).query(UUID.class).list();
     }
 
@@ -91,7 +91,7 @@ public class ConversationRepository {
                         JOIN actor recipient ON recipient.id = f.followed_id
                         WHERE f.id = :id AND f.follower_id = :sender AND f.followed_id = :recipient
                         AND f.state = :state AND recipient.is_local AND
-                        """ + InboxSql.active("a") + " AND " + InboxSql.active("recipient") + " FOR KEY SHARE OF f")
+                        """ + NotificationSql.active("a") + " AND " + NotificationSql.active("recipient") + " FOR KEY SHARE OF f")
                 .param("id", id).param("sender", sender).param("recipient", recipient).param("state", state)
                 .query(UUID.class).list().isEmpty();
     }
@@ -100,7 +100,7 @@ public class ConversationRepository {
         return jdbc.sql("""
                         SELECT l.id FROM status_like l JOIN actor a ON a.id = l.actor_id
                         WHERE l.id = :id AND l.actor_id = :sender AND l.status_id = :status AND
-                        """ + InboxSql.active("a") + " FOR KEY SHARE OF l")
+                        """ + NotificationSql.active("a") + " FOR KEY SHARE OF l")
                 .param("id", id).param("sender", sender).param("status", statusId)
                 .query(UUID.class).optional().isPresent();
     }
@@ -109,7 +109,7 @@ public class ConversationRepository {
         return jdbc.sql("""
                         SELECT r.id FROM status_reaction r JOIN actor a ON a.id = r.actor_id
                         WHERE r.id = :id AND r.actor_id = :sender AND r.status_id = :status AND
-                        """ + InboxSql.active("a") + " FOR KEY SHARE OF r")
+                        """ + NotificationSql.active("a") + " FOR KEY SHARE OF r")
                 .param("id", id).param("sender", sender).param("status", statusId)
                 .query(UUID.class).optional().isPresent();
     }
@@ -118,7 +118,7 @@ public class ConversationRepository {
         return jdbc.sql("""
                         SELECT b.id FROM status b JOIN actor a ON a.id = b.actor_id
                         WHERE b.id = :id AND b.actor_id = :sender AND b.reblog_of_id = :status AND
-                        """ + InboxSql.active("a") + " FOR KEY SHARE OF b")
+                        """ + NotificationSql.active("a") + " FOR KEY SHARE OF b")
                 .param("id", id).param("sender", sender).param("status", statusId)
                 .query(UUID.class).optional().isPresent();
     }
@@ -145,12 +145,12 @@ public class ConversationRepository {
         return inserted ? Optional.of(id) : Optional.empty();
     }
 
-    public List<Conversation> page(UUID viewer, InboxPage page) {
+    public List<Conversation> page(UUID viewer, NotificationPage page) {
         var parameters = new HashMap<String, Object>();
         parameters.put("viewer", viewer);
         parameters.put("limit", page.limit());
         var sql = new StringBuilder(SELECT);
-        InboxSql.cursors(sql, parameters, page, "latest.id");
+        NotificationSql.cursors(sql, parameters, page, "latest.id");
         sql.append(page.minId() == null ? " ORDER BY latest.id DESC" : " ORDER BY latest.id ASC").append(" LIMIT :limit");
         var found = jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list();
         return page.minId() == null ? found : found.reversed();

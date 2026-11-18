@@ -46,11 +46,11 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
 | `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
 | `moderation`  | Domain blocks and reports                  | `actor`, `content`                             |
-| `inbox`       | Notifications, conversations, read markers | `actor`, `auth`, `content`, `graph`, `moderation` |
-| `timeline`    | Home, list, and public feeds               | `actor`, `content`, `graph`                    |
-| `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `inbox`, `moderation`, `text`, `timeline` |
+| `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
+| `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
+| `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `text`             |
-| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `inbox`, `moderation`, `ratelimit`, `text` |
+| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `moderation`, `notification`, `ratelimit`, `text` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
 - `actor.signing` exposes private keys as a named interface, so a module has to ask for it explicitly. Only `activitypub`

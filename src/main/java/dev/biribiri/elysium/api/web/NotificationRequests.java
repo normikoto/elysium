@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.inbox.InboxPage;
-import dev.biribiri.elysium.inbox.NotificationFilter;
+import dev.biribiri.elysium.notification.NotificationFilter;
+import dev.biribiri.elysium.notification.NotificationPage;
 import org.springframework.util.MultiValueMap;
 
 import java.util.LinkedHashMap;
@@ -28,13 +28,13 @@ final class NotificationRequests {
                 .orElseThrow(() -> new InvalidRequestException("Validation failed: " + name + " is not valid"));
     }
 
-    static InboxPage page(MultiValueMap<String, String> values) {
-        return InboxPage.notifications(RequestParameters.number("limit", values.getFirst("limit"), 40),
+    static NotificationPage page(MultiValueMap<String, String> values) {
+        return NotificationPage.notifications(RequestParameters.number("limit", values.getFirst("limit"), 40),
                 cursor(values, "max_id"), cursor(values, "since_id"), cursor(values, "min_id"));
     }
 
-    static InboxPage conversationPage(MultiValueMap<String, String> values) {
-        return InboxPage.conversations(RequestParameters.number("limit", values.getFirst("limit"), 20),
+    static NotificationPage conversationPage(MultiValueMap<String, String> values) {
+        return NotificationPage.conversations(RequestParameters.number("limit", values.getFirst("limit"), 20),
                 cursor(values, "max_id"), cursor(values, "since_id"), cursor(values, "min_id"));
     }
 

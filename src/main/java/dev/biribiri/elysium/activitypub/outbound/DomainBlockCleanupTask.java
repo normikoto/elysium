@@ -5,18 +5,18 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.AccountMigrations;
 import dev.biribiri.elysium.actor.ProfileService;
-import dev.biribiri.elysium.content.FollowersOnlyRecipients;
-import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.CustomEmojis;
+import dev.biribiri.elysium.content.FollowersOnlyRecipients;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.StatusPinService;
-import dev.biribiri.elysium.content.PollService;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
-import dev.biribiri.elysium.inbox.InboxService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.Reports;
+import dev.biribiri.elysium.notification.NotificationService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -29,7 +29,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 class DomainBlockCleanupTask {
 
-    private final InboxService inbox;
+    private final NotificationService notifications;
     private final LikeService likes;
     private final ReactionService reactions;
     private final DomainBlocks blocks;
@@ -45,7 +45,7 @@ class DomainBlockCleanupTask {
     private final AccountMigrations migrations;
 
     DomainBlockCleanupTask(DomainBlocks blocks, FollowService follows, BlockService accountBlocks, StatusService statuses,
-                           InboxService inbox, LikeService likes, ReactionService reactions,
+                           NotificationService notifications, LikeService likes, ReactionService reactions,
                            FollowersOnlyRecipients followersOnly,
                            Reports reports, PollService polls, StatusPinService pins, CustomEmojis emojis,
                            ProfileService profiles, AccountMigrations migrations) {
@@ -57,7 +57,7 @@ class DomainBlockCleanupTask {
         this.followersOnly = followersOnly;
         this.reports = reports;
         this.accountBlocks = accountBlocks;
-        this.inbox = inbox;
+        this.notifications = notifications;
         this.likes = likes;
         this.reactions = reactions;
         this.blocks = blocks;
@@ -89,7 +89,7 @@ class DomainBlockCleanupTask {
             statuses.removeForDomain(domain);
             emojis.removeForDomain(domain);
             profiles.removeForDomain(domain);
-            inbox.removeForDomain(domain);
+            notifications.removeForDomain(domain);
             reports.removeForDomain(domain);
             migrations.removeForDomain(domain);
         });

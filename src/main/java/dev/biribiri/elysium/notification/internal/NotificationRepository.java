@@ -1,11 +1,11 @@
-package dev.biribiri.elysium.inbox.internal;
+package dev.biribiri.elysium.notification.internal;
 
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.AdminRole;
-import dev.biribiri.elysium.inbox.InboxPage;
-import dev.biribiri.elysium.inbox.Notification;
-import dev.biribiri.elysium.inbox.NotificationFilter;
-import dev.biribiri.elysium.inbox.NotificationGroup;
+import dev.biribiri.elysium.notification.Notification;
+import dev.biribiri.elysium.notification.NotificationFilter;
+import dev.biribiri.elysium.notification.NotificationGroup;
+import dev.biribiri.elysium.notification.NotificationPage;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -33,11 +33,11 @@ public class NotificationRepository {
              LEFT JOIN status s ON s.id = n.status_id
              LEFT JOIN actor t ON t.id = n.target_id
              WHERE n.recipient_id = :viewer AND NOT n.dismissed AND
-            """ + InboxSql.active("a")
-            + " AND (n.target_id IS NULL OR (t.id IS NOT NULL AND " + InboxSql.active("t") + "))"
+            """ + NotificationSql.active("a")
+            + " AND (n.target_id IS NULL OR (t.id IS NOT NULL AND " + NotificationSql.active("t") + "))"
             + " AND (n.type <> '" + ADMIN_REPORT + "' OR " + AdminRole.viewerIsAdmin() + ")"
-            + " AND (n.type = '" + ADMIN_REPORT + "' OR " + InboxSql.notHidden("a") + ")"
-            + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + InboxSql.visible("s") + "))";
+            + " AND (n.type = '" + ADMIN_REPORT + "' OR " + NotificationSql.notHidden("a") + ")"
+            + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + NotificationSql.visible("s") + "))";
     private static final String GROUP = """
             CASE WHEN n.type = ANY(CAST(:groupedTypes AS text[])) AND n.group_key IS NOT NULL
                  THEN n.group_key ELSE 'ungrouped-' || n.id END
@@ -54,7 +54,7 @@ public class NotificationRepository {
         this.jdbc = jdbc;
     }
 
-    /** Serializes inbox mutations and ID assignment until commit, including across application instances. */
+    /** Serializes changes to notifications and conversations and ID assignment until commit, including across application instances. */
     public void lock() {
         jdbc.sql("SELECT last_id FROM inbox_sequence WHERE singleton FOR UPDATE").query(UUID.class).single();
     }
@@ -64,10 +64,10 @@ public class NotificationRepository {
     }
 
     /**
-     * Whether the recipient hides what the sender does, as {@link InboxSql#notHidden} decides.
+     * Whether the recipient hides what the sender does, as {@link NotificationSql#notHidden} decides.
      */
     public boolean isHidden(UUID recipient, UUID sender) {
-        return jdbc.sql("SELECT NOT " + InboxSql.notHidden("a") + " FROM actor a WHERE a.id = :sender")
+        return jdbc.sql("SELECT NOT " + NotificationSql.notHidden("a") + " FROM actor a WHERE a.id = :sender")
                 .param("viewer", recipient)
                 .param("sender", sender)
                 .query(Boolean.class)
@@ -208,10 +208,10 @@ public class NotificationRepository {
         return Optional.of(id);
     }
 
-    public List<Notification> page(UUID viewer, NotificationFilter filter, InboxPage page) {
+    public List<Notification> page(UUID viewer, NotificationFilter filter, NotificationPage page) {
         var parameters = parameters(viewer, filter);
         var sql = new StringBuilder("SELECT n.*" + filtered(filter));
-        InboxSql.cursors(sql, parameters, page, "n.id");
+        NotificationSql.cursors(sql, parameters, page, "n.id");
         sql.append(page.minId() == null ? " ORDER BY n.id DESC" : " ORDER BY n.id ASC").append(" LIMIT :limit");
         parameters.put("limit", page.limit());
         var found = jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list();
@@ -246,12 +246,12 @@ public class NotificationRepository {
     }
 
     /** Fetch one representative per distinct group, stopping at the requested number instead of scanning all history. */
-    private List<Notification> representatives(UUID viewer, NotificationFilter filter, InboxPage page, List<String> groupedTypes) {
+    private List<Notification> representatives(UUID viewer, NotificationFilter filter, NotificationPage page, List<String> groupedTypes) {
         var parameters = parameters(viewer, filter);
         parameters.put("groupedTypes", groupedTypes(groupedTypes));
         parameters.put("limit", page.limit());
         var eligible = new StringBuilder("SELECT n.*, " + GROUP + " AS effective_key" + filtered(filter));
-        InboxSql.cursors(eligible, parameters, page, "n.id");
+        NotificationSql.cursors(eligible, parameters, page, "n.id");
         var ascending = page.minId() != null;
         var direction = ascending ? "ASC" : "DESC";
         var comparison = ascending ? ">" : "<";
@@ -275,7 +275,7 @@ public class NotificationRepository {
         return ascending ? found.reversed() : found;
     }
 
-    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, InboxPage page, List<String> groupedTypes) {
+    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, NotificationPage page, List<String> groupedTypes) {
         var found = representatives(viewer, filter, page, groupedTypes);
         if (found.isEmpty()) {
             return List.of();
@@ -346,7 +346,7 @@ public class NotificationRepository {
     }
 
     public long countGroups(UUID viewer, NotificationFilter filter, int limit, UUID after, List<String> types) {
-        return representatives(viewer, filter, new InboxPage(limit, null, null, after), types).size();
+        return representatives(viewer, filter, new NotificationPage(limit, null, null, after), types).size();
     }
 
     private static String filtered(NotificationFilter filter) {

@@ -1,13 +1,13 @@
-package dev.biribiri.elysium.inbox.internal;
+package dev.biribiri.elysium.notification.internal;
 
 import dev.biribiri.elysium.graph.HiddenAccounts;
-import dev.biribiri.elysium.inbox.InboxPage;
+import dev.biribiri.elysium.notification.NotificationPage;
 
 import java.util.Map;
 
 /** Apply eligibility before paging or counting, including the viewer's blocks and mutes. */
-final class InboxSql {
-    private InboxSql() {
+final class NotificationSql {
+    private NotificationSql() {
     }
 
     static String active(String alias) {
@@ -39,7 +39,7 @@ final class InboxSql {
                 + " AND f.followed_id = " + status + ".actor_id AND f.state = 'accepted')))";
     }
 
-    static void cursors(StringBuilder sql, Map<String, Object> parameters, InboxPage page, String column) {
+    static void cursors(StringBuilder sql, Map<String, Object> parameters, NotificationPage page, String column) {
         if (page.maxId() != null) {
             sql.append(" AND ").append(column).append(" < :maxId");
             parameters.put("maxId", page.maxId());

@@ -6,23 +6,23 @@ import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.AccountMigrations;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
-import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
-import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.LikeService;
-import dev.biribiri.elysium.content.ReactionService;
-import dev.biribiri.elysium.content.StatusPinService;
+import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.PostingDefaults;
+import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.ScheduledStatusService;
+import dev.biribiri.elysium.content.StatusPinService;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;
 import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.MuteService;
-import dev.biribiri.elysium.inbox.InboxService;
 import dev.biribiri.elysium.moderation.Reports;
+import dev.biribiri.elysium.notification.NotificationService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -36,7 +36,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 class AccountCleanupTask {
 
-    private final InboxService inbox;
+    private final NotificationService notifications;
     private final LikeService likes;
     private final ReactionService reactions;
     private final ActorService actors;
@@ -58,7 +58,7 @@ class AccountCleanupTask {
     private final ScheduledStatusService scheduled;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
-                       MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, InboxService inbox,
+                       MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles, NotificationService notifications,
                        LikeService likes, ReactionService reactions, MediaAttachments attachments,
                        FollowersOnlyRecipients followersOnly,
                        PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
@@ -77,7 +77,7 @@ class AccountCleanupTask {
         this.mutes = mutes;
         this.domainBlocks = domainBlocks;
         this.attachments = attachments;
-        this.inbox = inbox;
+        this.notifications = notifications;
         this.likes = likes;
         this.reactions = reactions;
         this.actors = actors;
@@ -112,7 +112,7 @@ class AccountCleanupTask {
                 postingDefaults.removeFor(actor.id());
                 filters.removeForActor(actor.id());
                 lists.removeForActor(actor.id());
-                inbox.removeForActor(actor.id());
+                notifications.removeForActor(actor.id());
                 reports.removeForActor(actor.id());
                 migrations.removeForActor(actor.id());
             } else if (actor.isSuspended() && !actors.isLocal(actor)) {

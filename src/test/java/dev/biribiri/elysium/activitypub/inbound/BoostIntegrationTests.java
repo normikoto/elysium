@@ -15,7 +15,7 @@ import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
-import dev.biribiri.elysium.inbox.InboxProjection;
+import dev.biribiri.elysium.notification.NotificationProjection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,7 +66,7 @@ class BoostIntegrationTests {
     @Autowired DeleteHandler deletes;
     @Autowired FollowService follows;
     @Autowired BoostDeliveries deliveries;
-    @Autowired InboxProjection projection;
+    @Autowired NotificationProjection projection;
     @Autowired TransactionTemplate transaction;
     @Autowired JdbcClient jdbc;
     @Autowired JsonMapper json;

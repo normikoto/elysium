@@ -1,7 +1,7 @@
-package dev.biribiri.elysium.inbox.internal;
+package dev.biribiri.elysium.timeline.internal;
 
-import dev.biribiri.elysium.inbox.Marker;
-import dev.biribiri.elysium.inbox.MarkerConflictException;
+import dev.biribiri.elysium.timeline.Marker;
+import dev.biribiri.elysium.timeline.MarkerConflictException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -51,10 +51,5 @@ public class MarkerRepository {
             if (changed == 0) throw new MarkerConflictException();
         }
         return find(owner, timelines);
-    }
-
-    public UUID notificationPosition(UUID owner) {
-        var marker = find(owner, List.of("notifications")).get("notifications");
-        return marker == null ? null : marker.lastReadId();
     }
 }

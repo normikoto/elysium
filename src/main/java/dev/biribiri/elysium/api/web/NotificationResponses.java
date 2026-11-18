@@ -9,11 +9,11 @@ import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.StatusReaction;
 import dev.biribiri.elysium.content.StatusService;
-import dev.biribiri.elysium.inbox.Conversation;
-import dev.biribiri.elysium.inbox.Notification;
-import dev.biribiri.elysium.inbox.NotificationGroup;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.Reports;
+import dev.biribiri.elysium.notification.Conversation;
+import dev.biribiri.elysium.notification.Notification;
+import dev.biribiri.elysium.notification.NotificationGroup;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Component
-class InboxResponses {
+class NotificationResponses {
 
     private static final Optional<PostFilter.Context> NOTIFICATIONS = Optional.of(PostFilter.Context.NOTIFICATIONS);
 
@@ -43,9 +43,9 @@ class InboxResponses {
     private final CustomEmojis emojis;
     private final InstanceProperties instance;
 
-    InboxResponses(ActorService actors, AccountResponses accounts, StatusService statuses,
-                   StatusResponses statusResponses, DomainBlocks blocks, Reports reports, ReactionService reactions,
-                   CustomEmojis emojis, InstanceProperties instance) {
+    NotificationResponses(ActorService actors, AccountResponses accounts, StatusService statuses,
+                          StatusResponses statusResponses, DomainBlocks blocks, Reports reports, ReactionService reactions,
+                          CustomEmojis emojis, InstanceProperties instance) {
         this.reactions = reactions;
         this.emojis = emojis;
         this.instance = instance;

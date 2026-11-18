@@ -2,8 +2,8 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.inbox.Conversation;
-import dev.biribiri.elysium.inbox.InboxService;
+import dev.biribiri.elysium.notification.Conversation;
+import dev.biribiri.elysium.notification.NotificationService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -31,12 +31,12 @@ import java.util.Map;
 @Tag(name = "Conversations", externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "conversations/"))
 @ApiResponse(responseCode = "422", description = "The token has no user, or a cursor or limit is invalid.")
 public class ConversationsController {
-    private final InboxService inbox;
-    private final InboxResponses responses;
+    private final NotificationService notifications;
+    private final NotificationResponses responses;
     private final InstanceProperties instance;
 
-    ConversationsController(InboxService inbox, InboxResponses responses, InstanceProperties instance) {
-        this.inbox = inbox;
+    ConversationsController(NotificationService notifications, NotificationResponses responses, InstanceProperties instance) {
+        this.notifications = notifications;
         this.responses = responses;
         this.instance = instance;
     }
@@ -60,7 +60,7 @@ public class ConversationsController {
             @Parameter(hidden = true) @RequestParam MultiValueMap<String, String> query) {
         var viewer = NotificationRequests.viewer(token);
         var page = NotificationRequests.conversationPage(query);
-        var found = inbox.conversations(viewer, page);
+        var found = notifications.conversations(viewer, page);
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, "/api/v1/conversations", Map.of(), page.limit(),
                 found.stream().map(Conversation::lastStatusId).toList());
@@ -77,7 +77,7 @@ public class ConversationsController {
                     @ApiResponse(responseCode = "404", description = "Not found or not owned by the user.")
             })
     public Map<String, Object> delete(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
-        if (!inbox.hideConversation(NotificationRequests.viewer(token), NotificationRequests.id(id))) {
+        if (!notifications.hideConversation(NotificationRequests.viewer(token), NotificationRequests.id(id))) {
             throw new RecordNotFoundException();
         }
         return Map.of();
@@ -94,7 +94,7 @@ public class ConversationsController {
             })
     public ConversationResponse read(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var viewer = NotificationRequests.viewer(token);
-        var found = inbox.readConversation(viewer, NotificationRequests.id(id)).orElseThrow(RecordNotFoundException::new);
+        var found = notifications.readConversation(viewer, NotificationRequests.id(id)).orElseThrow(RecordNotFoundException::new);
         return responses.conversations(viewer, List.of(found)).stream().findFirst().orElseThrow(RecordNotFoundException::new);
     }
 }
