@@ -273,7 +273,7 @@ class MoveIntegrationTests {
     }
 
     private List<UUID> notifications(UUID recipient) {
-        return jdbc.sql("SELECT target_id FROM inbox_notification WHERE recipient_id = :r AND type = 'move'")
+        return jdbc.sql("SELECT target_id FROM notification WHERE recipient_id = :r AND type = 'move'")
                 .param("r", recipient).query(UUID.class).list();
     }
 

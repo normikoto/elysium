@@ -136,7 +136,7 @@ class AccountCleanupIntegrationTests {
         jdbc.sql("INSERT INTO account_move (id, actor_id, target_id) VALUES (gen_random_uuid(), :id, :other)")
                 .param("other", other.id()).param("id", local.id()).update();
         jdbc.sql("""
-                        INSERT INTO inbox_notification (id, recipient_id, sender_id, type, source_id, target_id, created_at)
+                        INSERT INTO notification (id, recipient_id, sender_id, type, source_id, target_id, created_at)
                         VALUES (gen_random_uuid(), :follower, :other, 'move', gen_random_uuid(), :id, now())
                         """)
                 .param("follower", follower.id()).param("other", other.id()).param("id", local.id()).update();
@@ -144,7 +144,7 @@ class AccountCleanupIntegrationTests {
         actors.markDeleted(local.id());
 
         await().atMost(WAIT).until(() -> count("SELECT count(*) FROM account_move WHERE actor_id = :id", local.id()) == 0);
-        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM inbox_notification WHERE target_id = :id", local.id()) == 0);
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM notification WHERE target_id = :id", local.id()) == 0);
         // The other account's, whose wait before moving again comes from it.
         assertThat(count("SELECT count(*) FROM account_move WHERE target_id = :id", local.id())).isOne();
     }
@@ -166,7 +166,7 @@ class AccountCleanupIntegrationTests {
         actors.markDeleted(local.id());
         await().atMost(WAIT).until(() -> count("SELECT count(*) FROM status_like WHERE actor_id = :id", local.id()) == 0);
         assertThat(likes.count(status.id())).isZero();
-        assertThat(count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id AND type = 'favourite'", local.id())).isZero();
+        assertThat(count("SELECT count(*) FROM notification WHERE sender_id = :id AND type = 'favourite'", local.id())).isZero();
     }
 
     @Test
@@ -186,11 +186,11 @@ class AccountCleanupIntegrationTests {
         var status = statuses.create(author.id(), draft());
         boosts.reblog(status.id(), local.id(), Visibility.PUBLIC).orElseThrow();
         await().atMost(WAIT).until(() ->
-                count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id AND type = 'reblog'", local.id()) == 1);
+                count("SELECT count(*) FROM notification WHERE sender_id = :id AND type = 'reblog'", local.id()) == 1);
         actors.markDeleted(local.id());
         await().atMost(WAIT).until(() ->
                 count("SELECT count(*) FROM status WHERE actor_id = :id AND reblog_of_id IS NOT NULL", local.id()) == 0);
-        assertThat(count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id AND type = 'reblog'", local.id()))
+        assertThat(count("SELECT count(*) FROM notification WHERE sender_id = :id AND type = 'reblog'", local.id()))
                 .isZero();
     }
 
@@ -525,14 +525,14 @@ class AccountCleanupIntegrationTests {
         var other = newLocal();
         var status = statuses.create(local.id(), new NewStatus("@" + other.username() + " direct", "", null,
                 Visibility.DIRECT, false, null));
-        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM inbox_conversation WHERE owner_id = :id", local.id()) == 1
-                && count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id", local.id()) == 1);
-        jdbc.sql("INSERT INTO inbox_marker (owner_id, timeline, last_read_id) VALUES (:id, 'home', :status)")
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM conversation WHERE owner_id = :id", local.id()) == 1
+                && count("SELECT count(*) FROM notification WHERE sender_id = :id", local.id()) == 1);
+        jdbc.sql("INSERT INTO marker (owner_id, timeline, last_read_id) VALUES (:id, 'home', :status)")
                 .param("id", local.id()).param("status", status.id()).update();
         actors.markDeleted(local.id());
-        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM inbox_marker WHERE owner_id = :id", local.id()) == 0
-                && count("SELECT count(*) FROM inbox_conversation WHERE owner_id = :id OR participant_ids @> ARRAY[CAST(:id AS uuid)]", local.id()) == 0);
-        assertThat(count("SELECT count(*) FROM inbox_notification WHERE sender_id = :id OR recipient_id = :id", local.id())).isZero();
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM marker WHERE owner_id = :id", local.id()) == 0
+                && count("SELECT count(*) FROM conversation WHERE owner_id = :id OR participant_ids @> ARRAY[CAST(:id AS uuid)]", local.id()) == 0);
+        assertThat(count("SELECT count(*) FROM notification WHERE sender_id = :id OR recipient_id = :id", local.id())).isZero();
         assertThat(count("SELECT count(*) FROM status_thread_alias WHERE actor_id = :id", local.id())).isZero();
     }
 

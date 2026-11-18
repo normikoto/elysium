@@ -215,7 +215,7 @@ class OutboxBackfillIntegrationTests {
                 .query(Long.class).single()).isOne();
         // Listeners would have run by now, if anything had been published.
         Thread.sleep(500);
-        assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE status_id = :id").param("id", statusId)
+        assertThat(jdbc.sql("SELECT count(*) FROM notification WHERE status_id = :id").param("id", statusId)
                 .query(Long.class).single()).isZero();
     }
 

@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.inbox;
+package dev.biribiri.elysium.notification;
 
 import java.time.Instant;
 import java.util.UUID;

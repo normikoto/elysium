@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.inbox;
+package dev.biribiri.elysium.notification;
 
 import dev.biribiri.elysium.auth.AccountActions;
 import dev.biribiri.elysium.content.PollEnded;
@@ -7,20 +7,20 @@ import dev.biribiri.elysium.content.QuoteAccepted;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteStatusEdited;
 import dev.biribiri.elysium.content.StatusEdited;
-import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.content.StatusLiked;
 import dev.biribiri.elysium.content.StatusReacted;
 import dev.biribiri.elysium.content.StatusReblogged;
+import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
 import dev.biribiri.elysium.graph.AccountBlocked;
 import dev.biribiri.elysium.graph.FollowEstablished;
 import dev.biribiri.elysium.graph.FollowMoved;
 import dev.biribiri.elysium.graph.FollowRequestAuthorized;
 import dev.biribiri.elysium.graph.FollowRequestReceived;
-import dev.biribiri.elysium.inbox.internal.ConversationRepository;
-import dev.biribiri.elysium.inbox.internal.NotificationRepository;
 import dev.biribiri.elysium.moderation.ReportFiled;
 import dev.biribiri.elysium.moderation.Reports;
+import dev.biribiri.elysium.notification.internal.ConversationRepository;
+import dev.biribiri.elysium.notification.internal.NotificationRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -36,7 +36,7 @@ import java.util.UUID;
 import java.util.function.Predicate;
 
 @Service
-public class InboxProjection {
+public class Notifier {
     private final ConversationRepository conversations;
     private final NotificationRepository notifications;
     private final QuoteService quotes;
@@ -45,8 +45,8 @@ public class InboxProjection {
     private final PollService polls;
     private final ApplicationEventPublisher events;
 
-    InboxProjection(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
-                    Reports reports, AccountActions accounts, PollService polls, ApplicationEventPublisher events) {
+    Notifier(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
+             Reports reports, AccountActions accounts, PollService polls, ApplicationEventPublisher events) {
         this.polls = polls;
         this.events = events;
         this.conversations = conversations;
@@ -150,7 +150,7 @@ public class InboxProjection {
      * @param told which of the local accounts it concerns to notify, and add it to a conversation for
      */
     private void project(UUID statusId, Predicate<UUID> told) {
-        // Most stored statuses involve nobody here, so they're turned away before the lock every inbox write queues on.
+        // Most stored statuses involve nobody here, so they're turned away before the lock every notification write queues on.
         if (!concernsAnyoneHere(statusId)) return;
         notifications.lock();
         // Read again under the lock, since a domain block's cleanup can have finished since.

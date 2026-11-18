@@ -2,7 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import dev.biribiri.elysium.inbox.NotificationGroup;
+import dev.biribiri.elysium.notification.NotificationGroup;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;

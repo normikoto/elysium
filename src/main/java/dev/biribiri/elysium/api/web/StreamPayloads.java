@@ -2,7 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.StatusService;
-import dev.biribiri.elysium.inbox.InboxService;
+import dev.biribiri.elysium.notification.NotificationService;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -20,15 +20,15 @@ public class StreamPayloads {
 
     private final StatusService statuses;
     private final StatusResponses statusResponses;
-    private final InboxService inbox;
-    private final InboxResponses inboxResponses;
+    private final NotificationService notifications;
+    private final NotificationResponses notificationResponses;
 
-    StreamPayloads(StatusService statuses, StatusResponses statusResponses, InboxService inbox,
-                   InboxResponses inboxResponses) {
+    StreamPayloads(StatusService statuses, StatusResponses statusResponses, NotificationService notifications,
+                   NotificationResponses notificationResponses) {
         this.statuses = statuses;
         this.statusResponses = statusResponses;
-        this.inbox = inbox;
-        this.inboxResponses = inboxResponses;
+        this.notifications = notifications;
+        this.notificationResponses = notificationResponses;
     }
 
     /**
@@ -43,13 +43,13 @@ public class StreamPayloads {
     }
 
     public Optional<Object> notification(UUID notificationId, UUID viewer) {
-        return inbox.notification(viewer, notificationId)
-                .flatMap(notification -> first(inboxResponses.notifications(viewer, List.of(notification))));
+        return notifications.notification(viewer, notificationId)
+                .flatMap(notification -> first(notificationResponses.notifications(viewer, List.of(notification))));
     }
 
     public Optional<Object> conversation(UUID conversationId, UUID viewer) {
-        return inbox.conversation(viewer, conversationId)
-                .flatMap(conversation -> first(inboxResponses.conversations(viewer, List.of(conversation))));
+        return notifications.conversation(viewer, conversationId)
+                .flatMap(conversation -> first(notificationResponses.conversations(viewer, List.of(conversation))));
     }
 
     private static Optional<Object> first(List<?> rendered) {

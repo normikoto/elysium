@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.inbox;
+package dev.biribiri.elysium.timeline;
 
 public class MarkerConflictException extends RuntimeException {
     public MarkerConflictException() {

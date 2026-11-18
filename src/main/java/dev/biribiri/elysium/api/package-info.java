@@ -1,7 +1,7 @@
 /**
  * The client-facing REST API, compatible with Mastodon clients.
  */
-@ApplicationModule(allowedDependencies = {"actor", "auth", "content", "graph", "inbox", "moderation", "text", "timeline"})
+@ApplicationModule(allowedDependencies = {"actor", "auth", "content", "graph", "moderation", "notification", "text", "timeline"})
 package dev.biribiri.elysium.api;
 
 import org.springframework.modulith.ApplicationModule;

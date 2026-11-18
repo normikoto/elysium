@@ -2,8 +2,8 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.inbox.InboxService;
-import dev.biribiri.elysium.inbox.Notification;
+import dev.biribiri.elysium.notification.Notification;
+import dev.biribiri.elysium.notification.NotificationService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -31,12 +31,12 @@ import java.util.Map;
 @Tag(name = "Notifications", externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "notifications/"))
 @ApiResponse(responseCode = "422", description = "The token has no user, or a cursor, account_id, or limit is invalid.")
 public class NotificationsController {
-    private final InboxService inbox;
-    private final InboxResponses responses;
+    private final NotificationService notifications;
+    private final NotificationResponses responses;
     private final InstanceProperties instance;
 
-    NotificationsController(InboxService inbox, InboxResponses responses, InstanceProperties instance) {
-        this.inbox = inbox;
+    NotificationsController(NotificationService notifications, NotificationResponses responses, InstanceProperties instance) {
+        this.notifications = notifications;
         this.responses = responses;
         this.instance = instance;
     }
@@ -62,7 +62,7 @@ public class NotificationsController {
             @Parameter(hidden = true) @RequestParam MultiValueMap<String, String> query) {
         var viewer = NotificationRequests.viewer(token);
         var page = NotificationRequests.page(query);
-        var found = inbox.notifications(viewer, NotificationRequests.filter(query), page);
+        var found = notifications.notifications(viewer, NotificationRequests.filter(query), page);
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, "/api/v1/notifications", NotificationRequests.filters(query), page.limit(),
                 found.stream().map(Notification::id).toList());
@@ -83,7 +83,7 @@ public class NotificationsController {
             responses = {@ApiResponse(responseCode = "200", description = "Successful response.")})
     public UnreadCountResponse unread(@AuthenticationPrincipal TokenPrincipal token,
             @Parameter(hidden = true) @RequestParam MultiValueMap<String, String> query) {
-        return new UnreadCountResponse(inbox.unreadCount(NotificationRequests.viewer(token),
+        return new UnreadCountResponse(notifications.unreadCount(NotificationRequests.viewer(token),
                 NotificationRequests.filter(query), NotificationRequests.countLimit(query)));
     }
 
@@ -96,7 +96,7 @@ public class NotificationsController {
                     @ApiResponse(responseCode = "404", description = "Not found or not owned by the user.")})
     public NotificationResponse get(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var viewer = NotificationRequests.viewer(token);
-        var notification = inbox.notification(viewer, NotificationRequests.id(id)).orElseThrow(RecordNotFoundException::new);
+        var notification = notifications.notification(viewer, NotificationRequests.id(id)).orElseThrow(RecordNotFoundException::new);
         return responses.notifications(viewer, List.of(notification)).stream().findFirst().orElseThrow(RecordNotFoundException::new);
     }
 
@@ -107,7 +107,7 @@ public class NotificationsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "notifications/#clear"),
             responses = {@ApiResponse(responseCode = "200", description = "Successful response.")})
     public Map<String, Object> clear(@AuthenticationPrincipal TokenPrincipal token) {
-        inbox.clear(NotificationRequests.viewer(token));
+        notifications.clear(NotificationRequests.viewer(token));
         return Map.of();
     }
 
@@ -119,7 +119,7 @@ public class NotificationsController {
             responses = {@ApiResponse(responseCode = "200", description = "Successful response."),
                     @ApiResponse(responseCode = "404", description = "Not found or not owned by the user.")})
     public Map<String, Object> dismiss(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
-        if (!inbox.dismiss(NotificationRequests.viewer(token), NotificationRequests.id(id))) throw new RecordNotFoundException();
+        if (!notifications.dismiss(NotificationRequests.viewer(token), NotificationRequests.id(id))) throw new RecordNotFoundException();
         return Map.of();
     }
 }

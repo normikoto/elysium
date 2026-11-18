@@ -210,7 +210,7 @@ class PollsIntegrationTests {
         assertThat(polls.endDue()).isEqualTo(1);
         assertThat(polls.endDue()).isZero();
         await().atMost(WAIT).untilAsserted(() -> assertThat(jdbc.sql("""
-                        SELECT a.username FROM inbox_notification n JOIN actor a ON a.id = n.recipient_id
+                        SELECT a.username FROM notification n JOIN actor a ON a.id = n.recipient_id
                         WHERE n.type = 'poll' AND n.status_id = :id ORDER BY a.username
                         """).param("id", UUID.fromString(id)).query(String.class).list())
                 .containsExactly("alice", "bob"));

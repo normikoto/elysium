@@ -67,7 +67,7 @@ class FiltersIntegrationTests {
         cache.clear();
         jdbc.sql("DELETE FROM status").update();
         jdbc.sql("DELETE FROM follow").update();
-        jdbc.sql("DELETE FROM inbox_notification").update();
+        jdbc.sql("DELETE FROM notification").update();
     }
 
     // The v2 API
@@ -376,7 +376,7 @@ class FiltersIntegrationTests {
         mockMvc.perform(withToken(get("/api/v1/timelines/home"), alice))
                 .andExpect(jsonPath("$[*].id", contains(own)))
                 .andExpect(jsonPath("$[0].filtered", hasSize(0)));
-        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM inbox_notification").query(Long.class)
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM notification").query(Long.class)
                 .single() == 1);
         mockMvc.perform(withToken(get("/api/v1/notifications"), alice))
                 .andExpect(jsonPath("$[*].status.id", contains(own)));
@@ -455,7 +455,7 @@ class FiltersIntegrationTests {
         createStatus(bob, "@filteralice buy spam");
         var kept = createStatus(bob, "@filteralice hello");
 
-        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM inbox_notification").query(Long.class)
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM notification").query(Long.class)
                 .single() == 2);
         mockMvc.perform(withToken(get("/api/v1/notifications"), alice))
                 .andExpect(jsonPath("$[*].status.id", contains(kept)));

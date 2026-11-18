@@ -1,7 +1,7 @@
-package dev.biribiri.elysium.inbox.internal;
+package dev.biribiri.elysium.timeline.internal;
 
-import dev.biribiri.elysium.inbox.Marker;
-import dev.biribiri.elysium.inbox.MarkerConflictException;
+import dev.biribiri.elysium.timeline.Marker;
+import dev.biribiri.elysium.timeline.MarkerConflictException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -22,7 +22,7 @@ public class MarkerRepository {
     public Map<String, Marker> find(UUID owner, List<String> timelines) {
         var result = new HashMap<String, Marker>();
         if (timelines.isEmpty()) return result;
-        jdbc.sql("SELECT * FROM inbox_marker WHERE owner_id = :owner AND timeline IN (:timelines)")
+        jdbc.sql("SELECT * FROM marker WHERE owner_id = :owner AND timeline IN (:timelines)")
                 .param("owner", owner).param("timelines", timelines).query((rs, n) -> {
                     result.put(rs.getString("timeline"), new Marker(rs.getObject("last_read_id", UUID.class),
                             rs.getInt("version"), rs.getObject("updated_at", OffsetDateTime.class).toInstant()));
@@ -38,13 +38,13 @@ public class MarkerRepository {
             int changed;
             if (previous.containsKey(timeline)) {
                 changed = jdbc.sql("""
-                                UPDATE inbox_marker SET last_read_id = :last, version = version + 1, updated_at = clock_timestamp()
+                                UPDATE marker SET last_read_id = :last, version = version + 1, updated_at = clock_timestamp()
                                 WHERE owner_id = :owner AND timeline = :timeline AND version = :version
                                 """).param("last", positions.get(timeline)).param("owner", owner).param("timeline", timeline)
                         .param("version", previous.get(timeline).version()).update();
             } else {
                 changed = jdbc.sql("""
-                                INSERT INTO inbox_marker (owner_id, timeline, last_read_id) VALUES (:owner, :timeline, :last)
+                                INSERT INTO marker (owner_id, timeline, last_read_id) VALUES (:owner, :timeline, :last)
                                 ON CONFLICT DO NOTHING
                                 """).param("owner", owner).param("timeline", timeline).param("last", positions.get(timeline)).update();
             }
@@ -53,8 +53,7 @@ public class MarkerRepository {
         return find(owner, timelines);
     }
 
-    public UUID notificationPosition(UUID owner) {
-        var marker = find(owner, List.of("notifications")).get("notifications");
-        return marker == null ? null : marker.lastReadId();
+    public void removeForOwner(UUID owner) {
+        jdbc.sql("DELETE FROM marker WHERE owner_id = :owner").param("owner", owner).update();
     }
 }

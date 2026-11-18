@@ -46,11 +46,11 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
 | `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
 | `moderation`  | Domain blocks and reports                  | `actor`, `content`                             |
-| `inbox`       | Notifications, conversations, read markers | `actor`, `auth`, `content`, `graph`, `moderation` |
-| `timeline`    | Home, list, and public feeds               | `actor`, `content`, `graph`                    |
-| `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `inbox`, `moderation`, `text`, `timeline` |
+| `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
+| `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
+| `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `text`             |
-| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `inbox`, `moderation`, `ratelimit`, `text` |
+| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `moderation`, `notification`, `ratelimit`, `text`, `timeline` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
 - `actor.signing` exposes private keys as a named interface, so a module has to ask for it explicitly. Only `activitypub`
@@ -58,6 +58,11 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 - Core modules never depend on `activitypub`, and ActivityStreams types stay inside it. The intended design is that inbound
   activities call into the core modules, and outbound activities are built from events those modules publish.
 - A new module also has to be added to the list in `ModularityTests.detectsEveryModule`.
+- Outside `activitypub`, don't name a module, class, or table with a word that ActivityPub uses for something else, such
+  as inbox, outbox, activity, or collection. `activitypub` uses both vocabularies, so a clash there reads as federation.
+  `actor` is the exception, since it means the same thing in both.
+- Name a class for what it does with its records or events, as `FollowDeliveries` and `Notifier` are, not for a pattern
+  such as a projection or a manager.
 
 ### Federation rules
 

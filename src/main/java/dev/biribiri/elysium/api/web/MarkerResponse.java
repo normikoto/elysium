@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.api.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import dev.biribiri.elysium.inbox.Marker;
+import dev.biribiri.elysium.timeline.Marker;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(name = "Marker")

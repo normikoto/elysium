@@ -2,8 +2,8 @@ package dev.biribiri.elysium.api.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.inbox.InboxService;
-import dev.biribiri.elysium.inbox.Marker;
+import dev.biribiri.elysium.timeline.Marker;
+import dev.biribiri.elysium.timeline.Markers;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -35,11 +35,11 @@ import java.util.stream.Collectors;
 @Tag(name = "Markers", externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "markers/"))
 @ApiResponse(responseCode = "422", description = "The token has no user, or a position is invalid.")
 public class MarkersController {
-    private final InboxService inbox;
+    private final Markers markers;
     private final JsonBodies json;
 
-    MarkersController(InboxService inbox, JsonBodies json) {
-        this.inbox = inbox;
+    MarkersController(Markers markers, JsonBodies json) {
+        this.markers = markers;
         this.json = json;
     }
 
@@ -52,7 +52,7 @@ public class MarkersController {
     public Map<String, MarkerResponse> get(@AuthenticationPrincipal TokenPrincipal token,
             @Parameter(description = "Timelines to fetch: home and/or notifications.")
             @RequestParam(name = "timeline[]", required = false) List<String> timelines) {
-        return responses(inbox.markers(NotificationRequests.viewer(token), timelines == null ? List.of() : timelines));
+        return responses(markers.find(NotificationRequests.viewer(token), timelines == null ? List.of() : timelines));
     }
 
     @PostMapping(consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
@@ -65,7 +65,7 @@ public class MarkersController {
             var value = form.getFirst(timeline + "[last_read_id]");
             if (value != null) positions.put(timeline, position(value));
         }
-        return responses(inbox.saveMarkers(viewer, positions));
+        return responses(markers.save(viewer, positions));
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -89,7 +89,7 @@ public class MarkersController {
             if (!(value instanceof Map<?, ?> fields)) throw new InvalidRequestException("Validation failed: " + timeline + " must be an object");
             if (fields.containsKey("last_read_id")) positions.put(timeline, position(fields.get("last_read_id")));
         }
-        return responses(inbox.saveMarkers(viewer, positions));
+        return responses(markers.save(viewer, positions));
     }
 
     private static UUID position(Object value) {
