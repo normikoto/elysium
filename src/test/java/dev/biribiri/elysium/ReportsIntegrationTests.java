@@ -96,7 +96,7 @@ class ReportsIntegrationTests {
     @BeforeEach
     void setUp() throws Exception {
         jdbc.sql("DELETE FROM report").update();
-        jdbc.sql("DELETE FROM inbox_notification").update();
+        jdbc.sql("DELETE FROM notification").update();
         TestAccounts.makeSureAnAccountExists(actors);
         ensureAccount(ADMIN);
         ensureAccount(USER);
@@ -421,7 +421,7 @@ class ReportsIntegrationTests {
     }
 
     private long notificationRows(Actor recipient) {
-        return jdbc.sql("SELECT count(*) FROM inbox_notification WHERE recipient_id = :id AND type = 'admin.report'")
+        return jdbc.sql("SELECT count(*) FROM notification WHERE recipient_id = :id AND type = 'admin.report'")
                 .param("id", recipient.id())
                 .query(Long.class)
                 .single();

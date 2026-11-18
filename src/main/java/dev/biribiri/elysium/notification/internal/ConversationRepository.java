@@ -19,8 +19,8 @@ public class ConversationRepository {
     private static final String SELECT = """
             SELECT c.*, latest.id AS last_status_id,
                    (latest.actor_id <> c.owner_id AND (c.last_read_id IS NULL OR latest.id > c.last_read_id)) AS unread
-            FROM inbox_conversation c CROSS JOIN LATERAL (
-                SELECT s.id, s.actor_id FROM inbox_conversation_status cs
+            FROM conversation c CROSS JOIN LATERAL (
+                SELECT s.id, s.actor_id FROM conversation_status cs
                 JOIN status s ON s.id = cs.status_id JOIN actor a ON a.id = s.actor_id
                 WHERE cs.conversation_id = c.id AND
             """ + NotificationSql.active("a") + " AND " + NotificationSql.notHidden("a") + " AND " + NotificationSql.visible("s") + """
@@ -129,17 +129,17 @@ public class ConversationRepository {
     public Optional<UUID> add(Source source, UUID viewer, List<UUID> people) {
         var participants = people.stream().filter(id -> !id.equals(viewer)).distinct().map(UUID::toString).sorted().toArray(String[]::new);
         var id = jdbc.sql("""
-                        INSERT INTO inbox_conversation (id, owner_id, thread_id, participant_ids)
+                        INSERT INTO conversation (id, owner_id, thread_id, participant_ids)
                         VALUES (:id, :viewer, :thread, CAST(:participants AS uuid[]))
                         ON CONFLICT (owner_id, thread_id, participant_ids) DO UPDATE SET owner_id = EXCLUDED.owner_id
                         RETURNING id
                         """).param("id", UUID.randomUUID()).param("viewer", viewer).param("thread", source.threadId())
                 .param("participants", participants).query(UUID.class).single();
         var inserted = jdbc.sql("""
-                        INSERT INTO inbox_conversation_status VALUES (:conversation, :status) ON CONFLICT DO NOTHING
+                        INSERT INTO conversation_status VALUES (:conversation, :status) ON CONFLICT DO NOTHING
                         """).param("conversation", id).param("status", source.id()).update() != 0;
         if (inserted && source.authorId().equals(viewer)) {
-            jdbc.sql("UPDATE inbox_conversation SET last_read_id = greatest(last_read_id, :status) WHERE id = :id")
+            jdbc.sql("UPDATE conversation SET last_read_id = greatest(last_read_id, :status) WHERE id = :id")
                     .param("status", source.id()).param("id", id).update();
         }
         return inserted ? Optional.of(id) : Optional.empty();
@@ -162,7 +162,7 @@ public class ConversationRepository {
 
     public Optional<Conversation> read(UUID viewer, UUID id) {
         var found = find(viewer, id);
-        found.ifPresent(c -> jdbc.sql("UPDATE inbox_conversation SET last_read_id = :last WHERE owner_id = :viewer AND id = :id")
+        found.ifPresent(c -> jdbc.sql("UPDATE conversation SET last_read_id = :last WHERE owner_id = :viewer AND id = :id")
                 .param("last", c.lastStatusId()).param("viewer", viewer).param("id", id).update());
         return found.map(c -> new Conversation(c.id(), false, c.accountIds(), c.lastStatusId()));
     }
@@ -171,7 +171,7 @@ public class ConversationRepository {
         var found = find(viewer, id);
         // Include even statuses currently hidden by suspension, so restoring an account does not undo a dismissal.
         found.ifPresent(c -> jdbc.sql("""
-                        UPDATE inbox_conversation SET hidden_through_id = (
+                        UPDATE conversation SET hidden_through_id = (
                             SELECT id FROM status ORDER BY id DESC LIMIT 1)
                         WHERE owner_id = :viewer AND id = :id
                         """).param("viewer", viewer).param("id", id).update());
@@ -181,15 +181,15 @@ public class ConversationRepository {
     /** Read current status identities, because merge events themselves can be delivered out of order. */
     public void reconcile(UUID previous, UUID target) {
         holdActors(jdbc.sql("""
-                        SELECT DISTINCT person FROM inbox_conversation c
+                        SELECT DISTINCT person FROM conversation c
                         CROSS JOIN LATERAL unnest(c.participant_ids || ARRAY[c.owner_id]) person
                         WHERE c.thread_id = :previous OR c.thread_id = :target
                         """).param("previous", previous).param("target", target).query(UUID.class).list());
-        var ids = jdbc.sql("SELECT id FROM inbox_conversation WHERE thread_id = :previous OR thread_id = :target")
+        var ids = jdbc.sql("SELECT id FROM conversation WHERE thread_id = :previous OR thread_id = :target")
                 .param("previous", previous).param("target", target).query(UUID.class).list();
         for (var id : ids) {
             var thread = jdbc.sql("""
-                            SELECT s.thread_id FROM inbox_conversation_status cs JOIN status s ON s.id = cs.status_id
+                            SELECT s.thread_id FROM conversation_status cs JOIN status s ON s.id = cs.status_id
                             WHERE cs.conversation_id = :id LIMIT 1
                             """).param("id", id).query(UUID.class).optional();
             thread.ifPresent(value -> rekey(id, value, Set.of()));
@@ -198,14 +198,14 @@ public class ConversationRepository {
 
     /** @return the conversation that's left, which is another one when this one turned out to duplicate it */
     private UUID rekey(UUID id, UUID thread, Set<UUID> removed) {
-        var rows = jdbc.sql("SELECT owner_id, participant_ids FROM inbox_conversation WHERE id = :id")
+        var rows = jdbc.sql("SELECT owner_id, participant_ids FROM conversation WHERE id = :id")
                 .param("id", id).query((rs, n) -> new Key(rs.getObject("owner_id", UUID.class),
                         Arrays.asList((UUID[]) rs.getArray("participant_ids").getArray()))).list();
         if (rows.isEmpty()) return id;
         var key = rows.getFirst();
         var participants = key.people().stream().filter(p -> !removed.contains(p)).map(UUID::toString).toArray(String[]::new);
         var duplicate = jdbc.sql("""
-                        SELECT id FROM inbox_conversation WHERE owner_id = :owner AND thread_id = :thread
+                        SELECT id FROM conversation WHERE owner_id = :owner AND thread_id = :thread
                         AND participant_ids = CAST(:people AS uuid[]) AND id <> :id
                         """).param("owner", key.owner()).param("thread", thread).param("people", participants)
                 .param("id", id).query(UUID.class).optional();
@@ -213,18 +213,18 @@ public class ConversationRepository {
             var keep = id.toString().compareTo(duplicate.get().toString()) < 0 ? id : duplicate.get();
             var remove = keep.equals(id) ? duplicate.get() : id;
             jdbc.sql("""
-                            INSERT INTO inbox_conversation_status SELECT :keep, status_id FROM inbox_conversation_status
+                            INSERT INTO conversation_status SELECT :keep, status_id FROM conversation_status
                             WHERE conversation_id = :remove ON CONFLICT DO NOTHING
                             """).param("keep", keep).param("remove", remove).update();
             jdbc.sql("""
-                            UPDATE inbox_conversation c SET last_read_id = greatest(c.last_read_id, other.last_read_id),
+                            UPDATE conversation c SET last_read_id = greatest(c.last_read_id, other.last_read_id),
                             hidden_through_id = greatest(c.hidden_through_id, other.hidden_through_id)
-                            FROM inbox_conversation other WHERE c.id = :keep AND other.id = :remove
+                            FROM conversation other WHERE c.id = :keep AND other.id = :remove
                             """).param("keep", keep).param("remove", remove).update();
-            jdbc.sql("DELETE FROM inbox_conversation WHERE id = :id").param("id", remove).update();
+            jdbc.sql("DELETE FROM conversation WHERE id = :id").param("id", remove).update();
             id = keep;
         }
-        jdbc.sql("UPDATE inbox_conversation SET thread_id = :thread, participant_ids = CAST(:people AS uuid[]) WHERE id = :id")
+        jdbc.sql("UPDATE conversation SET thread_id = :thread, participant_ids = CAST(:people AS uuid[]) WHERE id = :id")
                 .param("thread", thread).param("people", participants).param("id", id).update();
         return id;
     }
@@ -233,23 +233,23 @@ public class ConversationRepository {
     public void removeForActors(List<UUID> actorIds) {
         var ids = actorIds.stream().map(UUID::toString).toArray(String[]::new);
         holdActors(jdbc.sql("""
-                        SELECT DISTINCT person FROM inbox_conversation c
+                        SELECT DISTINCT person FROM conversation c
                         CROSS JOIN LATERAL unnest(c.participant_ids || ARRAY[c.owner_id]) person
                         WHERE c.owner_id = ANY(CAST(:ids AS uuid[])) OR c.participant_ids && CAST(:ids AS uuid[])
                         """).param("ids", ids).query(UUID.class).list());
         jdbc.sql("""
-                        DELETE FROM inbox_notification
+                        DELETE FROM notification
                         WHERE recipient_id = ANY(CAST(:ids AS uuid[])) OR sender_id = ANY(CAST(:ids AS uuid[]))
                            OR target_id = ANY(CAST(:ids AS uuid[]))
                         """).param("ids", ids).update();
-        jdbc.sql("DELETE FROM inbox_marker WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
-        jdbc.sql("DELETE FROM inbox_follow_group WHERE recipient_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
-        jdbc.sql("DELETE FROM inbox_conversation WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
+        jdbc.sql("DELETE FROM marker WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
+        jdbc.sql("DELETE FROM notification_follow_group WHERE recipient_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
+        jdbc.sql("DELETE FROM conversation WHERE owner_id = ANY(CAST(:ids AS uuid[]))").param("ids", ids).update();
         jdbc.sql("""
-                        DELETE FROM inbox_conversation_status cs USING status s
+                        DELETE FROM conversation_status cs USING status s
                         WHERE cs.status_id = s.id AND s.actor_id = ANY(CAST(:ids AS uuid[]))
                         """).param("ids", ids).update();
-        var affected = jdbc.sql("SELECT id, thread_id FROM inbox_conversation WHERE participant_ids && CAST(:ids AS uuid[])")
+        var affected = jdbc.sql("SELECT id, thread_id FROM conversation WHERE participant_ids && CAST(:ids AS uuid[])")
                 .param("ids", ids).query((rs, n) -> new UUID[]{rs.getObject("id", UUID.class), rs.getObject("thread_id", UUID.class)})
                 .list();
         var removed = Set.copyOf(actorIds);
@@ -257,8 +257,8 @@ public class ConversationRepository {
         for (var pair : affected) left.add(rekey(pair[0], pair[1], removed));
         if (left.isEmpty()) return;
         jdbc.sql("""
-                        DELETE FROM inbox_conversation c WHERE c.id = ANY(CAST(:left AS uuid[]))
-                        AND NOT EXISTS (SELECT 1 FROM inbox_conversation_status cs WHERE cs.conversation_id = c.id)
+                        DELETE FROM conversation c WHERE c.id = ANY(CAST(:left AS uuid[]))
+                        AND NOT EXISTS (SELECT 1 FROM conversation_status cs WHERE cs.conversation_id = c.id)
                         """).param("left", left.stream().map(UUID::toString).toArray(String[]::new)).update();
     }
 

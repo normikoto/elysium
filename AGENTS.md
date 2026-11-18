@@ -58,6 +58,11 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 - Core modules never depend on `activitypub`, and ActivityStreams types stay inside it. The intended design is that inbound
   activities call into the core modules, and outbound activities are built from events those modules publish.
 - A new module also has to be added to the list in `ModularityTests.detectsEveryModule`.
+- Outside `activitypub`, don't name a module, class, or table with a word that ActivityPub uses for something else, such
+  as inbox, outbox, activity, or collection. `activitypub` uses both vocabularies, so a clash there reads as federation.
+  `actor` is the exception, since it means the same thing in both.
+- Name a class for what it does with its records or events, as `FollowDeliveries` and `Notifier` are, not for a pattern
+  such as a projection or a manager.
 
 ### Federation rules
 

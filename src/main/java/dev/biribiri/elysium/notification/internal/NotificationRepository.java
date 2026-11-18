@@ -29,7 +29,7 @@ public class NotificationRepository {
      */
     private static final String ADMIN_REPORT = "admin.report";
     private static final String FROM = """
-             FROM inbox_notification n JOIN actor a ON a.id = n.sender_id
+             FROM notification n JOIN actor a ON a.id = n.sender_id
              LEFT JOIN status s ON s.id = n.status_id
              LEFT JOIN actor t ON t.id = n.target_id
              WHERE n.recipient_id = :viewer AND NOT n.dismissed AND
@@ -56,7 +56,7 @@ public class NotificationRepository {
 
     /** Serializes changes to notifications and conversations and ID assignment until commit, including across application instances. */
     public void lock() {
-        jdbc.sql("SELECT last_id FROM inbox_sequence WHERE singleton FOR UPDATE").query(UUID.class).single();
+        jdbc.sql("SELECT last_id FROM notification_sequence WHERE singleton FOR UPDATE").query(UUID.class).single();
     }
 
     public Optional<UUID> insert(UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow) {
@@ -80,7 +80,7 @@ public class NotificationRepository {
      */
     public void deleteBetween(UUID one, UUID other) {
         jdbc.sql("""
-                        DELETE FROM inbox_notification
+                        DELETE FROM notification
                         WHERE (recipient_id = :one AND sender_id = :other) OR (recipient_id = :other AND sender_id = :one)
                         """)
                 .param("one", one)
@@ -92,7 +92,7 @@ public class NotificationRepository {
      * Removes the notification of a request to follow, once it's been answered.
      */
     public void deleteFollowRequest(UUID followId) {
-        jdbc.sql("DELETE FROM inbox_notification WHERE follow_id = :follow AND type = 'follow_request'")
+        jdbc.sql("DELETE FROM notification WHERE follow_id = :follow AND type = 'follow_request'")
                 .param("follow", followId)
                 .update();
     }
@@ -170,13 +170,13 @@ public class NotificationRepository {
             UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog,
             UUID report, UUID reaction, UUID target) {
         if (jdbc.sql("""
-                        SELECT EXISTS (SELECT 1 FROM inbox_notification
+                        SELECT EXISTS (SELECT 1 FROM notification
                         WHERE recipient_id = :recipient AND type = :type AND source_id = :source)
                         """).param("recipient", recipient).param("type", type).param("source", source)
                 .query(Boolean.class).single() || (!type.equals(ADMIN_REPORT) && isHidden(recipient, sender))) {
             return Optional.empty();
         }
-        var previous = jdbc.sql("SELECT last_id FROM inbox_sequence WHERE singleton").query(UUID.class).single();
+        var previous = jdbc.sql("SELECT last_id FROM notification_sequence WHERE singleton").query(UUID.class).single();
         var now = Instant.now();
         var millis = Math.max(now.toEpochMilli(), (previous.getMostSignificantBits() >>> 16) + 1);
         var id = Ids.timeOrdered(Instant.ofEpochMilli(millis));
@@ -184,15 +184,15 @@ public class NotificationRepository {
         if (type.equals("follow")) {
             var hour = now.getEpochSecond() / 3600;
             var start = jdbc.sql("""
-                            INSERT INTO inbox_follow_group (recipient_id, start_hour) VALUES (:recipient, :hour)
+                            INSERT INTO notification_follow_group (recipient_id, start_hour) VALUES (:recipient, :hour)
                             ON CONFLICT (recipient_id) DO UPDATE SET start_hour = CASE
-                            WHEN EXCLUDED.start_hour >= inbox_follow_group.start_hour + 12
-                            THEN EXCLUDED.start_hour ELSE inbox_follow_group.start_hour END RETURNING start_hour
+                            WHEN EXCLUDED.start_hour >= notification_follow_group.start_hour + 12
+                            THEN EXCLUDED.start_hour ELSE notification_follow_group.start_hour END RETURNING start_hour
                             """).param("recipient", recipient).param("hour", hour).query(Long.class).single();
             group = "follow-" + start;
         }
         var inserted = jdbc.sql("""
-                        INSERT INTO inbox_notification
+                        INSERT INTO notification
                         (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, reblog_id,
                          report_id, reaction_id, target_id, created_at, group_key)
                         VALUES (:id, :recipient, :sender, :type, :source, :status, :follow, :like, :reblog, :report,
@@ -204,7 +204,7 @@ public class NotificationRepository {
         if (inserted == 0) {
             return Optional.empty();
         }
-        jdbc.sql("UPDATE inbox_sequence SET last_id = :id WHERE singleton").param("id", id).update();
+        jdbc.sql("UPDATE notification_sequence SET last_id = :id WHERE singleton").param("id", id).update();
         return Optional.of(id);
     }
 
@@ -224,12 +224,12 @@ public class NotificationRepository {
     }
 
     public boolean dismiss(UUID viewer, UUID id) {
-        return jdbc.sql("UPDATE inbox_notification SET dismissed = TRUE WHERE recipient_id = :viewer AND id = :id AND NOT dismissed")
+        return jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND id = :id AND NOT dismissed")
                 .param("viewer", viewer).param("id", id).update() != 0;
     }
 
     public void clear(UUID viewer) {
-        jdbc.sql("UPDATE inbox_notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed")
+        jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed")
                 .param("viewer", viewer).update();
     }
 
@@ -269,7 +269,7 @@ public class NotificationRepository {
                 )
                 SELECT n.id, n.type, n.created_at, n.sender_id, n.status_id, n.report_id, n.reaction_id, n.target_id,
                        chosen.effective_key AS group_key
-                FROM chosen JOIN inbox_notification n ON n.id = chosen.id ORDER BY n.id %s
+                FROM chosen JOIN notification n ON n.id = chosen.id ORDER BY n.id %s
                 """.formatted(eligible, direction, comparison, direction, direction);
         var found = jdbc.sql(sql).params(parameters).query(MAPPER).list();
         return ascending ? found.reversed() : found;
@@ -341,7 +341,7 @@ public class NotificationRepository {
 
     public void dismissGroup(UUID viewer, String key) {
         var condition = key.startsWith("ungrouped-") ? "id = :groupId" : "group_key = :key";
-        jdbc.sql("UPDATE inbox_notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed AND " + condition)
+        jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed AND " + condition)
                 .param("viewer", viewer).params(groupParameters(key)).update();
     }
 

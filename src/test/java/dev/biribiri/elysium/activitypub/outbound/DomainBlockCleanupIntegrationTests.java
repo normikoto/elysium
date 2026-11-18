@@ -325,13 +325,13 @@ class DomainBlockCleanupIntegrationTests {
         var id = statuses.storeRemote(new RemoteStatus(URI.create(blocked.uri() + "/notes/1"), null, blocked.id(),
                 "<p>direct</p>", null, null, Visibility.DIRECT, false, null, Instant.now(), null,
                 Map.of(local.id(), false))).orElseThrow();
-        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM inbox_notification WHERE status_id = :id")
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM notification WHERE status_id = :id")
                 .param("id", id).query(Long.class).single() == 1);
         blocks.create(domain, null);
-        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM inbox_conversation WHERE owner_id = :id")
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM conversation WHERE owner_id = :id")
                 .param("id", local.id()).query(Long.class).single() == 0);
         assertThat(statusExists(id)).isFalse();
-        assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE sender_id = :id")
+        assertThat(jdbc.sql("SELECT count(*) FROM notification WHERE sender_id = :id")
                 .param("id", blocked.id()).query(Long.class).single()).isZero();
         assertThat(jdbc.sql("SELECT count(*) FROM status_thread_alias WHERE actor_id = :id")
                 .param("id", blocked.id()).query(Long.class).single()).isZero();

@@ -18,7 +18,7 @@ import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.internal.LikeRepository;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
-import dev.biribiri.elysium.notification.NotificationProjection;
+import dev.biribiri.elysium.notification.Notifier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,7 +71,7 @@ class LikeIntegrationTests {
     @Autowired InboundActivities inbound;
     @Autowired FollowService follows;
     @Autowired LikeDeliveries deliveries;
-    @Autowired NotificationProjection projection;
+    @Autowired Notifier notifier;
     @Autowired TransactionTemplate transaction;
     @Autowired JdbcClient jdbc;
     @Autowired JsonMapper json;
@@ -165,16 +165,16 @@ class LikeIntegrationTests {
                 .andExpect(jsonPath("$.statuses[0].favourited").value(true));
         var saved = likes.page(post.id(), null, 10).stream().filter(l -> l.actorId().equals(bob.id())).findFirst().orElseThrow();
         mvc.perform(post("/api/v1/notifications/clear").with(user(alice))).andExpect(status().isOk());
-        transaction.executeWithoutResult(tx -> projection.on(new StatusLiked(saved.id(), bob.id(), post.id(), alice.id())));
+        transaction.executeWithoutResult(tx -> notifier.on(new StatusLiked(saved.id(), bob.id(), post.id(), alice.id())));
         mvc.perform(get("/api/v1/notifications").with(user(alice))).andExpect(jsonPath("$", empty()));
         likes.unfavourite(post.id(), bob.id());
-        assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE like_id = :id").param("id", saved.id())
+        assertThat(jdbc.sql("SELECT count(*) FROM notification WHERE like_id = :id").param("id", saved.id())
                 .query(Long.class).single()).isZero();
         likes.favourite(post.id(), bob.id());
         settled();
         mvc.perform(get("/api/v1/notifications").with(user(alice))).andExpect(jsonPath("$", hasSize(1)));
         likes.unfavourite(post.id(), bob.id());
-        transaction.executeWithoutResult(tx -> projection.on(new StatusLiked(saved.id(), bob.id(), post.id(), alice.id())));
+        transaction.executeWithoutResult(tx -> notifier.on(new StatusLiked(saved.id(), bob.id(), post.id(), alice.id())));
         mvc.perform(get("/api/v1/notifications").with(user(alice))).andExpect(jsonPath("$", empty()));
     }
 
@@ -450,7 +450,7 @@ class LikeIntegrationTests {
     }
 
     private long notificationCount(Status post) {
-        return jdbc.sql("SELECT count(*) FROM inbox_notification WHERE status_id = :id AND type = 'favourite'")
+        return jdbc.sql("SELECT count(*) FROM notification WHERE status_id = :id AND type = 'favourite'")
                 .param("id", post.id()).query(Long.class).single();
     }
 

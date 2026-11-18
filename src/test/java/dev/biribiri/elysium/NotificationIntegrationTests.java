@@ -15,8 +15,8 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.graph.FollowService;
-import dev.biribiri.elysium.notification.NotificationProjection;
 import dev.biribiri.elysium.notification.NotificationService;
+import dev.biribiri.elysium.notification.Notifier;
 import dev.biribiri.elysium.timeline.Markers;
 import dev.biribiri.elysium.timeline.internal.MarkerRepository;
 import dev.biribiri.elysium.notification.internal.NotificationRepository;
@@ -72,7 +72,7 @@ class NotificationIntegrationTests {
     @Autowired FollowService follows;
     @Autowired ProfileService profiles;
     @Autowired NotificationService notifications;
-    @Autowired NotificationProjection projection;
+    @Autowired Notifier notifier;
     @Autowired Markers markers;
     @Autowired DomainBlocks blocks;
     @Autowired JdbcClient jdbc;
@@ -86,10 +86,10 @@ class NotificationIntegrationTests {
     @BeforeEach
     void setUp() {
         settled();
-        jdbc.sql("DELETE FROM inbox_conversation").update();
-        jdbc.sql("DELETE FROM inbox_notification").update();
-        jdbc.sql("DELETE FROM inbox_marker").update();
-        jdbc.sql("DELETE FROM inbox_follow_group").update();
+        jdbc.sql("DELETE FROM conversation").update();
+        jdbc.sql("DELETE FROM notification").update();
+        jdbc.sql("DELETE FROM marker").update();
+        jdbc.sql("DELETE FROM notification_follow_group").update();
         jdbc.sql("DELETE FROM status").update();
         jdbc.sql("DELETE FROM status_thread_alias").update();
         jdbc.sql("DELETE FROM follow").update();
@@ -182,10 +182,10 @@ class NotificationIntegrationTests {
         mvc.perform(post(NOTIFICATIONS + "/" + id + "/dismiss").with(user(bob))).andExpect(content().json("{}"));
         assertThat(statuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "new text", null, null,
                 PUBLIC, false, null, Instant.now(), null, Map.of(bob.id(), false)))).isEmpty();
-        new TransactionTemplate(transactions).executeWithoutResult(tx -> projection.on(new StatusStored(first)));
+        new TransactionTemplate(transactions).executeWithoutResult(tx -> notifier.on(new StatusStored(first)));
         settled();
         mvc.perform(get(NOTIFICATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
-        assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE source_id = :id")
+        assertThat(jdbc.sql("SELECT count(*) FROM notification WHERE source_id = :id")
                 .param("id", first).query(Long.class).single()).isEqualTo(1);
     }
 
@@ -195,7 +195,7 @@ class NotificationIntegrationTests {
         for (int i = 0; i < 5; i++) {
             var status = createStatus(alice, "@inboxbob message " + i, PUBLIC, null);
             settled();
-            ids.add(jdbc.sql("SELECT id::text FROM inbox_notification WHERE source_id = :id")
+            ids.add(jdbc.sql("SELECT id::text FROM notification WHERE source_id = :id")
                     .param("id", status.id()).query(String.class).single());
         }
         follows.follow(carol, bob);
@@ -275,7 +275,7 @@ class NotificationIntegrationTests {
         settled();
         follows.follow(carol, bob);
         settled();
-        String mentionNotification = jdbc.sql("SELECT id::text FROM inbox_notification WHERE source_id = :id")
+        String mentionNotification = jdbc.sql("SELECT id::text FROM notification WHERE source_id = :id")
                 .param("id", mention.id()).query(String.class).single();
         mvc.perform(get(GROUPS).with(user(bob)).param("limit", "2"))
                 .andExpect(jsonPath("$.notification_groups", hasSize(2)))
@@ -339,7 +339,7 @@ class NotificationIntegrationTests {
                 .andExpect(jsonPath("$.unread").value(false));
         mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(1));
         mvc.perform(delete(CONVERSATIONS + "/" + bobConversation).with(user(bob))).andExpect(content().json("{}"));
-        new TransactionTemplate(transactions).executeWithoutResult(tx -> projection.on(new StatusStored(root.id())));
+        new TransactionTemplate(transactions).executeWithoutResult(tx -> notifier.on(new StatusStored(root.id())));
         settled();
         mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
         mvc.perform(get(CONVERSATIONS).with(user(alice))).andExpect(jsonPath("$", hasSize(1)));
@@ -404,8 +404,8 @@ class NotificationIntegrationTests {
         mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(1));
         mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
         notifications.removeForDomain(remote.domain());
-        new TransactionTemplate(transactions).executeWithoutResult(tx -> projection.on(new StatusStored(id)));
-        assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE sender_id = :id")
+        new TransactionTemplate(transactions).executeWithoutResult(tx -> notifier.on(new StatusStored(id)));
+        assertThat(jdbc.sql("SELECT count(*) FROM notification WHERE sender_id = :id")
                 .param("id", remote.id()).query(Long.class).single()).isZero();
     }
 
@@ -496,15 +496,15 @@ class NotificationIntegrationTests {
         var delayed = createStatus(alice, "@inboxbob delayed", DIRECT, root.id());
         settled();
         String conversation = values(get(CONVERSATIONS).with(user(bob)), "$[0].id");
-        jdbc.sql("DELETE FROM inbox_conversation_status WHERE conversation_id = :conversation AND status_id = :status")
+        jdbc.sql("DELETE FROM conversation_status WHERE conversation_id = :conversation AND status_id = :status")
                 .param("conversation", UUID.fromString(conversation)).param("status", delayed.id()).update();
         mvc.perform(delete(CONVERSATIONS + "/" + conversation).with(user(bob))).andExpect(status().isOk());
-        new TransactionTemplate(transactions).executeWithoutResult(tx -> projection.on(new StatusStored(delayed.id())));
+        new TransactionTemplate(transactions).executeWithoutResult(tx -> notifier.on(new StatusStored(delayed.id())));
         mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
     }
 
     @Test
-    void actorDeletionCanRaceBothStatusAndFollowProjectionsWithoutDeadlocking() {
+    void actorDeletionCanRaceBothStatusAndFollowNotificationsWithoutDeadlocking() {
         for (var i = 0; i < 20; i++) {
             var sender = remote("deleting.example");
             store(sender, note(sender), null, Map.of(bob.id(), false), DIRECT);
@@ -514,7 +514,7 @@ class NotificationIntegrationTests {
             jdbc.sql("DELETE FROM actor WHERE id = :id").param("id", sender.id()).update();
         }
         settled();
-        assertThat(jdbc.sql("SELECT count(*) FROM inbox_notification WHERE recipient_id = :id")
+        assertThat(jdbc.sql("SELECT count(*) FROM notification WHERE recipient_id = :id")
                 .param("id", bob.id()).query(Long.class).single()).isZero();
     }
 
@@ -522,18 +522,18 @@ class NotificationIntegrationTests {
     void followGroupsStopReusingABucketAfterTwelveHours() throws Exception {
         follows.follow(alice, bob);
         settled();
-        jdbc.sql("UPDATE inbox_follow_group SET start_hour = start_hour - 11 WHERE recipient_id = :id")
+        jdbc.sql("UPDATE notification_follow_group SET start_hour = start_hour - 11 WHERE recipient_id = :id")
                 .param("id", bob.id()).update();
-        jdbc.sql("UPDATE inbox_notification SET group_key = 'follow-' || (SELECT start_hour FROM inbox_follow_group WHERE recipient_id = :id) WHERE recipient_id = :id")
+        jdbc.sql("UPDATE notification SET group_key = 'follow-' || (SELECT start_hour FROM notification_follow_group WHERE recipient_id = :id) WHERE recipient_id = :id")
                 .param("id", bob.id()).update();
         follows.follow(carol, bob);
         settled();
         mvc.perform(get(GROUPS).with(user(bob)))
                 .andExpect(jsonPath("$.notification_groups", hasSize(1)))
                 .andExpect(jsonPath("$.notification_groups[0].notifications_count").value(2));
-        jdbc.sql("UPDATE inbox_follow_group SET start_hour = start_hour - 1 WHERE recipient_id = :id")
+        jdbc.sql("UPDATE notification_follow_group SET start_hour = start_hour - 1 WHERE recipient_id = :id")
                 .param("id", bob.id()).update();
-        jdbc.sql("UPDATE inbox_notification SET group_key = 'follow-' || (SELECT start_hour FROM inbox_follow_group WHERE recipient_id = :id) WHERE recipient_id = :id")
+        jdbc.sql("UPDATE notification SET group_key = 'follow-' || (SELECT start_hour FROM notification_follow_group WHERE recipient_id = :id) WHERE recipient_id = :id")
                 .param("id", bob.id()).update();
         follows.follow(local("inboxdave"), bob);
         settled();
@@ -552,7 +552,7 @@ class NotificationIntegrationTests {
         mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$[0].last_status.id").value(root.id().toString()));
         mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(1));
         mvc.perform(post(NOTIFICATIONS + "/clear").with(user(bob))).andExpect(content().json("{}"));
-        new TransactionTemplate(transactions).executeWithoutResult(tx -> projection.on(new StatusStored(root.id())));
+        new TransactionTemplate(transactions).executeWithoutResult(tx -> notifier.on(new StatusStored(root.id())));
         mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(0));
         statuses.delete(root.id(), alice.id());
         settled();

@@ -2,7 +2,7 @@ package dev.biribiri.elysium;
 
 import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.notification.NotificationAdded;
-import dev.biribiri.elysium.notification.NotificationProjection;
+import dev.biribiri.elysium.notification.Notifier;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,7 +21,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Events published before the inbox module was renamed can still be retried. */
+/** Events published before the inbox module was renamed can still be retried, and its tables lose the inbox prefix. */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 class NotificationModuleMigrationTests {
@@ -63,7 +63,7 @@ class NotificationModuleMigrationTests {
         migrate("57");
 
         assertThat(row(projected)).containsExactly(
-                NotificationProjection.class.getName() + ".on(" + StatusStored.class.getName() + ")",
+                Notifier.class.getName() + ".on(" + StatusStored.class.getName() + ")",
                 StatusStored.class.getName());
         assertThat(row(streamed)).containsExactly(
                 "dev.biribiri.elysium.api.streaming.StreamEvents.on(" + NotificationAdded.class.getName() + ")",
@@ -71,7 +71,34 @@ class NotificationModuleMigrationTests {
         assertThat(row(unrelated)).containsExactly(
                 "dev.biribiri.elysium.activitypub.outbound.Deliveries.on(dev.biribiri.elysium.content.StatusStored)",
                 "dev.biribiri.elysium.content.StatusStored");
-        NotificationProjection.class.getMethod("on", StatusStored.class);
+        Notifier.class.getMethod("on", StatusStored.class);
+    }
+
+    @Test
+    void tablesAndTheirConstraintsAndIndexesLoseTheInboxPrefix() {
+        migrate("56");
+        var owner = UUID.randomUUID();
+        jdbc.sql("INSERT INTO " + SCHEMA + ".actor (id, uri, username, domain, inbox_uri, is_local) "
+                        + "VALUES (:id, :uri, 'remote', 'migration.test', :uri, false)")
+                .param("id", owner).param("uri", "https://migration.test/users/" + owner).update();
+        var read = UUID.randomUUID();
+        jdbc.sql("INSERT INTO " + SCHEMA + ".inbox_marker (owner_id, timeline, last_read_id) VALUES (:owner, 'home', :read)")
+                .param("owner", owner).param("read", read).update();
+
+        migrate("57");
+
+        assertThat(jdbc.sql("SELECT last_read_id FROM " + SCHEMA + ".marker WHERE owner_id = :owner")
+                .param("owner", owner).query(UUID.class).single()).isEqualTo(read);
+        assertThat(jdbc.sql("SELECT relname FROM pg_class WHERE relnamespace = CAST(:schema AS regnamespace) "
+                        + "AND relname LIKE 'inbox\\_%'")
+                .param("schema", SCHEMA).query(String.class).list()).isEmpty();
+        assertThat(jdbc.sql("SELECT conname FROM pg_constraint WHERE connamespace = CAST(:schema AS regnamespace) "
+                        + "AND conname LIKE 'inbox\\_%'")
+                .param("schema", SCHEMA).query(String.class).list()).isEmpty();
+        assertThat(jdbc.sql("SELECT relname FROM pg_class WHERE relnamespace = CAST(:schema AS regnamespace) AND relkind = 'r' "
+                        + "AND relname IN ('notification', 'notification_follow_group', 'notification_sequence', "
+                        + "'conversation', 'conversation_status', 'marker')")
+                .param("schema", SCHEMA).query(String.class).list()).hasSize(6);
     }
 
     private UUID insert(String listener, String eventType) {

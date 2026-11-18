@@ -72,7 +72,7 @@ class BlocksIntegrationTests {
         jdbc.sql("DELETE FROM account_block").update();
         jdbc.sql("DELETE FROM account_mute").update();
         jdbc.sql("DELETE FROM account_domain_block").update();
-        jdbc.sql("DELETE FROM inbox_notification").update();
+        jdbc.sql("DELETE FROM notification").update();
     }
 
     // Blocks
@@ -468,7 +468,7 @@ class BlocksIntegrationTests {
     }
 
     private long notificationRows() {
-        return jdbc.sql("SELECT count(*) FROM inbox_notification").query(Long.class).single();
+        return jdbc.sql("SELECT count(*) FROM notification").query(Long.class).single();
     }
 
     /**

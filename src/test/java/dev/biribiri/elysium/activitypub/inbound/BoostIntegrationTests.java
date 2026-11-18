@@ -15,7 +15,7 @@ import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
-import dev.biribiri.elysium.notification.NotificationProjection;
+import dev.biribiri.elysium.notification.Notifier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,7 +66,7 @@ class BoostIntegrationTests {
     @Autowired DeleteHandler deletes;
     @Autowired FollowService follows;
     @Autowired BoostDeliveries deliveries;
-    @Autowired NotificationProjection projection;
+    @Autowired Notifier notifier;
     @Autowired TransactionTemplate transaction;
     @Autowired JdbcClient jdbc;
     @Autowired JsonMapper json;
@@ -230,7 +230,7 @@ class BoostIntegrationTests {
         assertThat(notificationCount(post)).isEqualTo(1);
         // A late or repeated event for a boost that's gone makes nothing.
         transaction.executeWithoutResult(tx ->
-                projection.on(new StatusReblogged(boost.id(), bob.id(), post.id(), alice.id())));
+                notifier.on(new StatusReblogged(boost.id(), bob.id(), post.id(), alice.id())));
         assertThat(notificationCount(post)).isEqualTo(1);
     }
 
@@ -531,7 +531,7 @@ class BoostIntegrationTests {
     }
 
     private long notificationCount(Status post) {
-        return jdbc.sql("SELECT count(*) FROM inbox_notification WHERE status_id = :id AND type = 'reblog'")
+        return jdbc.sql("SELECT count(*) FROM notification WHERE status_id = :id AND type = 'reblog'")
                 .param("id", post.id()).query(Long.class).single();
     }
 

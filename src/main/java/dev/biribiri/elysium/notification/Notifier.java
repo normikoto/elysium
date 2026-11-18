@@ -36,7 +36,7 @@ import java.util.UUID;
 import java.util.function.Predicate;
 
 @Service
-public class NotificationProjection {
+public class Notifier {
     private final ConversationRepository conversations;
     private final NotificationRepository notifications;
     private final QuoteService quotes;
@@ -45,8 +45,8 @@ public class NotificationProjection {
     private final PollService polls;
     private final ApplicationEventPublisher events;
 
-    NotificationProjection(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
-                           Reports reports, AccountActions accounts, PollService polls, ApplicationEventPublisher events) {
+    Notifier(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
+             Reports reports, AccountActions accounts, PollService polls, ApplicationEventPublisher events) {
         this.polls = polls;
         this.events = events;
         this.conversations = conversations;

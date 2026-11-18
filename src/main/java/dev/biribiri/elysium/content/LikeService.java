@@ -111,7 +111,7 @@ public class LikeService {
                      Optional<Instant> firstArrival, Instant undoAt) {
         var existing = activityUri == null ? Optional.<StatusLike>empty() : likes.findActivity(actorUri, activityUri);
         var statusId = existing.map(StatusLike::statusId).or(() -> target);
-        // Actors before their children, as in receive and notification projection.
+        // Actors before their children, as in receive and the notifier.
         existing.ifPresent(like -> likes.holdActors(List.of(like.actorId())));
         var held = statusId.filter(likes::holdStatus);
         held.ifPresent(id -> likes.lockPair(actorUri, id));

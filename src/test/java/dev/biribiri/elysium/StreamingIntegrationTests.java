@@ -102,8 +102,8 @@ class StreamingIntegrationTests {
         jdbc.sql("DELETE FROM status").update();
         jdbc.sql("DELETE FROM follow").update();
         jdbc.sql("DELETE FROM account_block").update();
-        jdbc.sql("DELETE FROM inbox_notification").update();
-        jdbc.sql("DELETE FROM inbox_conversation").update();
+        jdbc.sql("DELETE FROM notification").update();
+        jdbc.sql("DELETE FROM conversation").update();
         jdbc.sql("DELETE FROM post_filter").update();
         jdbc.sql("DELETE FROM account_list").update();
         filterCache.clear();
