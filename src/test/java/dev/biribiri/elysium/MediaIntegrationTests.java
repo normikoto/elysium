@@ -478,7 +478,7 @@ class MediaIntegrationTests {
     }
 
     @Test
-    void aRemoteAttachmentLinksToItsServer() throws Exception {
+    void aRemoteAttachmentIsServedThroughTheProxyUntilItsKept() throws Exception {
         var host = "h" + UUID.randomUUID() + ".test";
         var uri = URI.create("https://" + host + "/users/s");
         var author = actors.upsertRemote(new RemoteActorProfile(uri, "s", host, URI.create(uri + "/inbox"), null, null,
@@ -491,21 +491,23 @@ class MediaIntegrationTests {
                         new Focus(0, 0)),
                 new RemoteAttachment(video, AttachmentType.VIDEO, "video/mp4", null, null, null, null, null))))
                 .orElseThrow();
+        var attachment = attachments.findByStatuses(List.of(id)).get(id).getFirst();
+        var proxy = "https://media.example/media_proxy/" + attachment.id() + "/";
 
         mockMvc.perform(get("/api/v1/statuses/" + id))
                 .andExpect(jsonPath("$.media_attachments[0].type").value("image"))
-                .andExpect(jsonPath("$.media_attachments[0].url").value(image.toString()))
+                .andExpect(jsonPath("$.media_attachments[0].url").value(proxy + "original"))
                 .andExpect(jsonPath("$.media_attachments[0].remote_url").value(image.toString()))
-                .andExpect(jsonPath("$.media_attachments[0].preview_url").value(image.toString()))
+                .andExpect(jsonPath("$.media_attachments[0].preview_url").value(proxy + "small"))
                 .andExpect(jsonPath("$.media_attachments[0].meta.original.size").value("1200x800"))
                 .andExpect(jsonPath("$.media_attachments[0].description").value("Far away"))
                 .andExpect(jsonPath("$.media_attachments[1].type").value("video"))
                 .andExpect(jsonPath("$.media_attachments[1].preview_url").isEmpty());
-        // Pages only link to another server's files, so that visitors' browsers don't fetch them unasked.
+        // Pages only link to files that aren't kept here, so that visitors' browsers don't download them unasked.
         mockMvc.perform(get("/tags/faraway").accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("href=\"" + image + "\"")))
-                .andExpect(content().string(not(containsString("src=\"" + image + "\""))));
+                .andExpect(content().string(containsString("href=\"" + proxy + "original\"")))
+                .andExpect(content().string(not(containsString("src=\"" + proxy))));
     }
 
     @Test

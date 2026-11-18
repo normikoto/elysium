@@ -89,7 +89,7 @@ public class MediaAttachments {
         var attachment = new MediaAttachment(
                 Ids.timeOrdered(now), accountId, null, type(stored.kind()), stored.name(), stored.previewName(),
                 stored.contentType(), stored.size(), stored.width(), stored.height(), stored.previewWidth(),
-                stored.previewHeight(), description, upload.focus(), null, null, false, now);
+                stored.previewHeight(), description, upload.focus(), null, null, false, false, now);
         try {
             attachments.insert(attachment, now.plus(properties.unattachedRetention()));
         } catch (RuntimeException e) {
@@ -241,7 +241,7 @@ public class MediaAttachments {
         return new MediaAttachment(
                 Ids.timeOrdered(now), authorId, statusId, remote.type(), null, null, remote.mediaType(), null,
                 remote.width(), remote.height(), null, null, remoteDescription(remote.description()), remote.focus(),
-                remote.blurhash(), remote.url(), remote.rejected(), now);
+                remote.blurhash(), remote.url(), remote.rejected(), false, now);
     }
 
     static String remoteDescription(String value) {
@@ -263,6 +263,13 @@ public class MediaAttachments {
         REFUSED,
         /** It was removed, rejected, or downloaded meanwhile, so the copy was discarded. */
         DISCARDED
+    }
+
+    /**
+     * Finds another server's attachment that's still on its status, for {@link MediaAttachment#PROXY_PATH}.
+     */
+    public Optional<MediaAttachment> findRemote(UUID id) {
+        return attachments.findRemote(id);
     }
 
     /**
@@ -331,8 +338,9 @@ public class MediaAttachments {
     }
 
     /**
-     * Removes the copies of other servers' attachments that are older than {@link AttachmentProperties#remoteCacheRetention},
-     * which are linked again afterward. Safe to stop partway, and to repeat.
+     * Removes the copies of other servers' attachments that are older than {@link AttachmentProperties#remoteCacheRetention}.
+     * They're downloaded again through {@link MediaAttachment#PROXY_PATH} when they're next viewed. Safe to stop partway,
+     * and to repeat.
      */
     public void pruneRemoteCopies() {
         var before = Instant.now().minus(properties.remoteCacheRetention());
@@ -367,7 +375,8 @@ public class MediaAttachments {
 
     /**
      * Stops rejecting a server's attachments, apart from those of accounts whose own are still rejected, or that another
-     * block still covers. They're shown as what they are again, but as links, since copies aren't downloaded again.
+     * block still covers. They're shown as what they are again, and served through the proxy, apart from those that were
+     * given up before.
      */
     public void allowForDomain(String domain) {
         while (attachments.allowForDomain(domain) > 0) {

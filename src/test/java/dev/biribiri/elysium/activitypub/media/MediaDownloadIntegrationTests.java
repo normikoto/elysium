@@ -10,6 +10,7 @@ import dev.biribiri.elysium.activitypub.http.LoopbackClients;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.ProfileImage;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteProfile;
@@ -32,10 +33,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -57,6 +60,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Downloads other servers' attachments from a server on the loopback address. No job worker runs, so jobs are run
@@ -71,7 +77,11 @@ import static org.awaitility.Awaitility.await;
         "elysium.attachments.max-audio-size=100KB",
         "elysium.attachments.remote-download-budget=50KB"
 })
+@AutoConfigureMockMvc
 class MediaDownloadIntegrationTests {
+
+    @Autowired
+    private MockMvc mvc;
 
     @Autowired
     private MediaDownloads downloads;
@@ -194,7 +204,8 @@ class MediaDownloadIntegrationTests {
         assertThat(profiles.find(author.id()).avatar()).isEqualTo(cached);
         withImages(fileUrl("/avatar2.png"), null);
         assertThat(file).doesNotExist();
-        assertThat(profiles.find(author.id()).avatar().url(instance, false)).isEqualTo(fileUrl("/avatar2.png"));
+        assertThat(profiles.find(author.id()).avatar().url(instance, false))
+                .isEqualTo(instance.resolve(ProfileImage.proxyPathOf(author.id(), false, false)));
         downloads.run(new ProfileImageDownloadJob(author.id(), false, Instant.now()));
         assertThat(profiles.find(author.id()).avatar().path()).isNotNull();
     }
@@ -563,7 +574,9 @@ class MediaDownloadIntegrationTests {
 
         assertThat(find(first).isCached()).isTrue();
         assertThat(find(second).isCached()).isFalse();
-        assertThat(find(second).url(instance)).isEqualTo(second.remoteUrl());
+        // Not given up, so that a view once there's room can keep it.
+        assertThat(find(second).url(instance)).isEqualTo(proxy(second, "original"));
+        assertThat(attachments.findForDownload(second.id())).isPresent();
     }
 
     @Test
@@ -579,7 +592,7 @@ class MediaDownloadIntegrationTests {
     }
 
     @Test
-    void anOldCopyIsRemovedAndTheAttachmentLinkedAgain() throws Exception {
+    void anOldCopyIsRemovedAndDownloadedAgainWhenItsViewed() throws Exception {
         serve("/old.png", 200, "image/png", TestImages.png(10, 10));
         var attachment = attach("/old.png", "image/png");
         downloads.run(new MediaDownloadJob(attachment.id(), Instant.now()));
@@ -591,12 +604,227 @@ class MediaDownloadIntegrationTests {
 
         var pruned = find(attachment);
         assertThat(pruned.isCached()).isFalse();
-        assertThat(pruned.url(instance)).isEqualTo(attachment.remoteUrl());
+        assertThat(pruned.url(instance)).isEqualTo(proxy(attachment, "original"));
+        assertThat(pruned.previewUrl(instance)).contains(proxy(attachment, "small"));
         assertThat(media.directory().resolve(cached.fileName())).doesNotExist();
         assertThat(media.directory().resolve(cached.previewName())).doesNotExist();
-        assertThat(attachments.findForDownload(attachment.id())).isEmpty();
+        assertThat(attachments.findForDownload(attachment.id())).isPresent();
         assertThat(jdbc.sql("SELECT count(*) FROM media_file_deletion").query(Long.class).single()).isZero();
         assertThat(Files.exists(media.directory())).isTrue();
+
+        mvc.perform(get(proxy(attachment, "original")))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Location", find(attachment).url(instance).toString()));
+        var again = find(attachment);
+        assertThat(again.isCached()).isTrue();
+        assertThat(again.url(instance).toString()).startsWith("https://downloads.example/media/");
+        assertThat(media.directory().resolve(again.fileName())).exists();
+        assertThat(requests.get("/old.png")).hasValue(2);
+
+        mvc.perform(get(proxy(attachment, "small")))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", again.previewUrl(instance).orElseThrow().toString()));
+        assertThat(requests.get("/old.png")).hasValue(2);
+    }
+
+    @Test
+    void theProxyDownloadsAnAttachmentBeforeItsJobRuns() throws Exception {
+        serve("/early.png", 200, "image/png", TestImages.png(10, 10));
+        var attachment = attach("/early.png", "image/png");
+        assertThat(attachment.url(instance)).isEqualTo(proxy(attachment, "original"));
+
+        mvc.perform(get(proxy(attachment, "small"))).andExpect(status().isFound());
+
+        assertThat(find(attachment).isCached()).isTrue();
+        downloads.run(new MediaDownloadJob(attachment.id(), Instant.now()));
+        assertThat(requests.get("/early.png")).hasValue(1);
+    }
+
+    @Test
+    void theProxyLinksToWhatCantBeKept() throws Exception {
+        serve("/gone.png", 404, "text/plain", new byte[0]);
+        var gone = attach("/gone.png", "image/png");
+
+        mvc.perform(get(proxy(gone, "original")))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", gone.remoteUrl().toString()));
+
+        var givenUp = find(gone);
+        assertThat(givenUp.givenUp()).isTrue();
+        assertThat(givenUp.url(instance)).isEqualTo(gone.remoteUrl());
+        assertThat(givenUp.previewUrl(instance)).isEmpty();
+        mvc.perform(get(proxy(gone, "original"))).andExpect(status().isFound());
+        assertThat(requests.get("/gone.png")).hasValue(1);
+    }
+
+    @Test
+    void theProxyLinksToARejectedAttachment() throws Exception {
+        serve("/rejected.png", 200, "image/png", TestImages.png(10, 10));
+        var attachment = attach("/rejected.png", "image/png");
+        blocks.create(host, DomainBlock.Severity.NOOP, true, null);
+
+        mvc.perform(get(proxy(attachment, "original")))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", attachment.remoteUrl().toString()));
+        assertThat(requests).doesNotContainKey("/rejected.png");
+    }
+
+    @Test
+    void theProxyDoesntServeWhatsGoneOrWasntAsked() throws Exception {
+        serve("/deleted.png", 200, "image/png", TestImages.png(10, 10));
+        var status = URI.create(author.uri() + "/notes/" + UUID.randomUUID());
+        var attachment = attach(status, "/deleted.png", "image/png");
+
+        mvc.perform(get(proxy(attachment, "large"))).andExpect(status().isNotFound());
+        mvc.perform(get(MediaAttachment.PROXY_PATH + "nope/original")).andExpect(status().isNotFound());
+        mvc.perform(get(MediaAttachment.PROXY_PATH + UUID.randomUUID() + "/original")).andExpect(status().isNotFound());
+
+        statuses.deleteRemote(status, author.uri());
+        mvc.perform(get(proxy(attachment, "original"))).andExpect(status().isNotFound());
+        assertThat(requests).doesNotContainKey("/deleted.png");
+    }
+
+    @Test
+    void theProxyLinksPastItsServersBudgetWithoutGivingUp() throws Exception {
+        serve("/first.mp4", 200, "video/mp4", TestMedia.mp4(40 * 1024));
+        serve("/second.mp4", 200, "video/mp4", TestMedia.mp4(40 * 1024));
+        var first = attach("/first.mp4", "video/mp4");
+        var second = attach("/second.mp4", "video/mp4");
+        downloads.run(new MediaDownloadJob(first.id(), Instant.now()));
+
+        mvc.perform(get(proxy(second, "original")))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", second.remoteUrl().toString()));
+
+        assertThat(find(second).isProxied()).isTrue();
+        assertThat(attachments.findForDownload(second.id())).isPresent();
+    }
+
+    @Test
+    void aServerErrorIsntAskedAgainForAWhile() throws Exception {
+        serve("/flaky.png", 503, "text/plain", new byte[0]);
+        var attachment = attach("/flaky.png", "image/png");
+
+        for (var i = 0; i < 3; i++) {
+            mvc.perform(get(proxy(attachment, "original")))
+                    .andExpect(status().isFound())
+                    .andExpect(header().string("Location", attachment.remoteUrl().toString()));
+        }
+
+        assertThat(requests.get("/flaky.png")).hasValue(1);
+        assertThat(find(attachment).isProxied()).isTrue();
+    }
+
+    @Test
+    void requestsForTheSameFileShareOneDownload() throws Exception {
+        var started = new CountDownLatch(1);
+        var finish = new CountDownLatch(1);
+        server.createContext("/shared.png", exchange -> {
+            requests.computeIfAbsent("/shared.png", key -> new AtomicInteger()).incrementAndGet();
+            started.countDown();
+            try {
+                finish.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            var body = TestImages.png(4, 4);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        var attachment = attach("/shared.png", "image/png");
+
+        var first = CompletableFuture.supplyAsync(() -> downloads.downloadAttachmentNow(attachment.id()));
+        assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+        var second = CompletableFuture.supplyAsync(() -> downloads.downloadAttachmentNow(attachment.id()));
+        var third = CompletableFuture.supplyAsync(() -> downloads.downloadAttachmentNow(attachment.id()));
+        Thread.sleep(200);
+        finish.countDown();
+
+        for (var request : List.of(first, second, third)) {
+            assertThat(request.get(10, TimeUnit.SECONDS).orElseThrow().isCached()).isTrue();
+        }
+        assertThat(requests.get("/shared.png")).hasValue(1);
+    }
+
+    @Test
+    void aSlowDownloadLeavesTheRequestLinkedAndCarriesOnForTheNext() throws Exception {
+        var finish = new CountDownLatch(1);
+        server.createContext("/slow-proxy.png", exchange -> {
+            requests.computeIfAbsent("/slow-proxy.png", key -> new AtomicInteger()).incrementAndGet();
+            try {
+                finish.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            var body = TestImages.png(4, 4);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        var attachment = attach("/slow-proxy.png", "image/png");
+
+        try {
+            var started = Instant.now();
+            mvc.perform(get(proxy(attachment, "original")))
+                    .andExpect(status().isFound())
+                    .andExpect(header().string("Location", attachment.remoteUrl().toString()));
+            assertThat(Duration.between(started, Instant.now())).isLessThan(MediaDownloads.ON_DEMAND_WAIT.plusSeconds(5));
+        } finally {
+            finish.countDown();
+        }
+
+        await().atMost(Duration.ofSeconds(10)).until(() -> find(attachment).isCached());
+        assertThat(requests.get("/slow-proxy.png")).hasValue(1);
+    }
+
+    @Test
+    void anOldAvatarIsDownloadedAgainWhenItsViewed() throws Exception {
+        serve("/pruned.gif", 200, "image/gif", TestImages.animatedGif(2, 16, 16));
+        withImages(fileUrl("/pruned.gif"), null);
+        downloads.run(new ProfileImageDownloadJob(author.id(), false, Instant.now()));
+        jdbc.sql("UPDATE profile SET avatar_cached_at = now() - interval '31 days' WHERE actor_id = :id")
+                .param("id", author.id()).update();
+
+        profiles.pruneRemoteImages(Instant.now().minus(Duration.ofDays(30)));
+
+        var proxied = profiles.find(author.id()).avatar();
+        var path = ProfileImage.proxyPathOf(author.id(), false, false);
+        var still = ProfileImage.proxyPathOf(author.id(), false, true);
+        assertThat(proxied.url(instance, false)).isEqualTo(instance.resolve(path));
+        assertThat(proxied.url(instance, true)).isEqualTo(instance.resolve(still));
+
+        mvc.perform(get(still)).andExpect(status().isFound());
+        var kept = profiles.find(author.id()).avatar();
+        assertThat(kept.isProxied()).isFalse();
+        assertThat(kept.path()).isNotEqualTo(kept.staticPath());
+        mvc.perform(get(still))
+                .andExpect(header().string("Location", kept.url(instance, true).toString()));
+        mvc.perform(get(path))
+                .andExpect(header().string("Location", kept.url(instance, false).toString()));
+        assertThat(requests.get("/pruned.gif")).hasValue(2);
+
+        mvc.perform(get(ProfileImage.proxyPathOf(author.id(), true, false))).andExpect(status().isNotFound());
+        mvc.perform(get(ProfileImage.PROXY_PATH + author.id() + "/banner")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void theProxyLinksToAnAvatarThatCantBeKept() throws Exception {
+        serve("/text.png", 200, "image/png", "not an image".getBytes());
+        withImages(fileUrl("/text.png"), null);
+
+        mvc.perform(get(ProfileImage.proxyPathOf(author.id(), false, false)))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", fileUrl("/text.png").toString()));
+
+        assertThat(profiles.find(author.id()).avatar().url(instance, false)).isEqualTo(fileUrl("/text.png"));
+    }
+
+    private URI proxy(MediaAttachment attachment, String size) {
+        return instance.resolve(MediaAttachment.proxyPathOf(attachment.id(), size));
     }
 
     @Test

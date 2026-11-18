@@ -476,8 +476,9 @@ limited and otherwise follow the same rules as [link checks for local profiles](
 Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit. Each
 has to be within 8 MB by default, which an admin [can change](docs/configuration.md), and is kept as WebP. One that's too
 large or isn't an image is linked to instead, until its URL changes. A new URL replaces the copy. Copies are kept for 30
-days by default, after which the image is linked to until the actor is next fetched, and then downloaded again. A server
-or account whose media is rejected has its copies removed, and they're linked to from then on.
+days by default, after which the image is downloaded again when someone here next views it, or when the actor is next
+fetched. A server or account whose media is rejected has its copies removed, and they're linked to until it's allowed
+again.
 
 A suspended or deleted actor's profile isn't changed, and a domain block removes the profiles of the server's actors.
 
@@ -716,9 +717,11 @@ that isn't for anyone here is ignored, even if it's public, unless it's [boosted
   what it is, whatever its `mediaType` says. One that's too large (16 MB for an image, 100 MB for video, and 40 MB for
   audio by default), isn't an accepted format, or gets any other status than `200`, `5xx`, `408`, or `429` is linked to
   instead and not fetched again. A `5xx`, `408`, or `429` is tried again later. Only one file is downloaded from a host
-  at a time. Each server's attachments can add up to only so much in an hour, 2 GB by
-  default, counted by the author's server rather than the file's host, and past that they're linked. Copies are kept for
-  30 days by default.
+  at a time. Each server's attachments can add up to only so much in an hour, 2 GB by default, counted by the author's
+  server rather than the file's host, and past that they're linked until they're viewed again with room to spare. Copies
+  are kept for 30 days by default. One that hasn't been downloaded yet, or whose copy was removed, is downloaded when
+  someone here views it, so a file can be fetched long after its `Note` arrived, more than once. A request for it that's
+  past the hourly limit, or that gets a `5xx`, `408`, or `429`, is linked for that view, and tried again on a later one.
 - **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again. An
   [`Update`](#receiving-updates) is how it's changed.
 - **Edits:** a `Note` that has an `updated` later than its `published`, and no more than an hour ahead of this server's

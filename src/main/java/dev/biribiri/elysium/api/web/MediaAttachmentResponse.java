@@ -18,8 +18,9 @@ import java.util.Optional;
         Mastodon's MediaAttachment entity. An image is served as WebP, and an animated GIF as an animated WebP with type \
         `image` rather than `gifv`. Video and audio are served as they were uploaded, and have no `meta.original`, since \
         they aren't decoded, and no `preview_url` unless a thumbnail was uploaded with them. `blurhash` is null for \
-        uploads here. A remote attachment that isn't kept here has its `remote_url` as its `url`, and one from a server or \
-        account whose media is rejected has type `unknown`.""")
+        uploads here. A remote attachment that isn't kept here, but can be, has a `/media_proxy/` `url` and image \
+        `preview_url`, which download it and redirect to the copy. One that can't be kept has its `remote_url` as its \
+        `url`, and one from a server or account whose media is rejected has type `unknown`.""")
 record MediaAttachmentResponse(
         String id,
         @Schema(allowableValues = {"image", "video", "audio", "unknown"}) String type,

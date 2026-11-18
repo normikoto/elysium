@@ -148,11 +148,13 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - Their HTML is sanitized, so it can differ from what the other server shows.
 - Their `emojis` are the ones their server listed, which are copied here as their attachments are, and link to their
   server until then.
-- Their `media_attachments` are copied here shortly after they arrive, as Mastodon does. Until then, or if they can't be
-  copied, `url` and an image's `preview_url` are the same as `remote_url`.
+- Their `media_attachments` are copied here shortly after they arrive, as Mastodon does. Until then, `url` and an
+  image's `preview_url` are `/media_proxy/:id/original` and `/media_proxy/:id/small`, which download the file and
+  redirect to the copy, as Mastodon's do. One that can't be copied has `url` and an image's `preview_url` the same as
+  `remote_url`, and the proxy redirects to it when its server is past its hourly limit or fails.
   - A copy is checked like an upload, so its type is what the file is, and a file that isn't an accepted format is
     `unknown`.
-  - Copies are removed after 30 days by default, and aren't fetched again, so older ones link to their server.
+  - Copies are removed after 30 days by default, and their URLs are the proxy's again until it fetches them again.
   - Up to 16 are kept, more than Mastodon shows.
   - One from a server or account whose media an admin rejects is `unknown`, with `url` the same as `remote_url`, and no
     `preview_url`.
@@ -582,8 +584,9 @@ Only these exist:
 - An account on another server shows its profile as of when this server last fetched it, so a change can take a while
   to show if its server doesn't announce it.
 - One with no name has its username as `display_name`, where Mastodon sends an empty one.
-- Its `avatar` and `header` are links to its server until they're downloaded. They stay links, possibly on another
-  host, if they can't be downloaded or an admin rejects its server's or its media.
+- Its `avatar` and `header`, and their `_static` forms, are `/media_proxy/accounts/:id/…` URLs until they're
+  downloaded, which download the image and redirect to the copy. They're links to its server, possibly on another host,
+  if they can't be downloaded or an admin rejects its server's or its media.
 - A `fields` entry containing only an HTTPS URL can get a `verified_at` after the profile is fetched. If the URL is an
   HTML link, its text has to match its destination. The linked page has to link back with `rel="me"` to the actor URI
   or to the profile URL on the actor's origin, matching the case of its path and query.
