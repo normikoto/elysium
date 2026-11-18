@@ -72,6 +72,14 @@
             still waiting.
         </p>
         <label>
+            <input type="checkbox" name="approvesFollowed" value="true" th:checked="${approvesFollowed}">
+            Approve requests from people you follow straight away
+        </label>
+        <p>
+            Only matters while you approve followers by hand. Turning this on approves the requests still waiting from
+            people you follow.
+        </p>
+        <label>
             <input type="checkbox" name="indexable" value="true" th:checked="${indexable}">
             Let anyone find your public posts by searching
         </label>

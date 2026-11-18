@@ -332,6 +332,8 @@ public class AccountsController {
                     Differences from Mastodon:
 
                     - Following an account on another server returns `requested: true` until that server accepts.
+                    - Following a `locked` account here that follows you can return `following: true` straight away, \
+                    when its user has chosen to approve requests from people they follow.
                     - Following yourself, or an account on a server this server blocks, gets a 422.
                     - `reblogs`, `notify`, and `languages` are ignored.
 

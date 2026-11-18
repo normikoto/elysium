@@ -11,6 +11,8 @@ import java.util.Optional;
  * @param fields all the fields the profile should have, in order, replacing the ones it has
  * @param manuallyApprovesFollowers whether requests to follow the account should wait for its approval
  * @param indexable whether anyone's search should find its public statuses
+ * @param approvesFollowed whether requests from accounts it follows are approved straight away, while it approves its
+ *                         followers by hand. Other servers never see it, so changing only this isn't a profile update
  */
 public record ProfileChange(
         Optional<String> displayName,
@@ -19,10 +21,12 @@ public record ProfileChange(
         Image avatar,
         Image header,
         Optional<Boolean> manuallyApprovesFollowers,
-        Optional<Boolean> indexable) {
+        Optional<Boolean> indexable,
+        Optional<Boolean> approvesFollowed) {
 
     public static final ProfileChange NONE = new ProfileChange(
-            Optional.empty(), Optional.empty(), Optional.empty(), Image.KEEP, Image.KEEP, Optional.empty(), Optional.empty());
+            Optional.empty(), Optional.empty(), Optional.empty(), Image.KEEP, Image.KEEP, Optional.empty(), Optional.empty(),
+            Optional.empty());
 
     public ProfileChange {
         Objects.requireNonNull(displayName);
@@ -32,6 +36,7 @@ public record ProfileChange(
         Objects.requireNonNull(header);
         Objects.requireNonNull(manuallyApprovesFollowers);
         Objects.requireNonNull(indexable);
+        Objects.requireNonNull(approvesFollowed);
     }
 
     public record NewField(String name, String value) {
@@ -77,33 +82,39 @@ public record ProfileChange(
     }
 
     public ProfileChange withDisplayName(String value) {
-        return new ProfileChange(Optional.of(value), note, fields, avatar, header, manuallyApprovesFollowers, indexable);
+        return new ProfileChange(Optional.of(value), note, fields, avatar, header, manuallyApprovesFollowers, indexable, approvesFollowed);
     }
 
     public ProfileChange withNote(String value) {
         return new ProfileChange(
-                displayName, Optional.of(value), fields, avatar, header, manuallyApprovesFollowers, indexable);
+                displayName, Optional.of(value), fields, avatar, header, manuallyApprovesFollowers, indexable, approvesFollowed);
     }
 
     public ProfileChange withFields(List<NewField> value) {
         return new ProfileChange(
-                displayName, note, Optional.of(value), avatar, header, manuallyApprovesFollowers, indexable);
+                displayName, note, Optional.of(value), avatar, header, manuallyApprovesFollowers, indexable, approvesFollowed);
     }
 
     public ProfileChange withAvatar(Image value) {
-        return new ProfileChange(displayName, note, fields, value, header, manuallyApprovesFollowers, indexable);
+        return new ProfileChange(displayName, note, fields, value, header, manuallyApprovesFollowers, indexable, approvesFollowed);
     }
 
     public ProfileChange withHeader(Image value) {
-        return new ProfileChange(displayName, note, fields, avatar, value, manuallyApprovesFollowers, indexable);
+        return new ProfileChange(displayName, note, fields, avatar, value, manuallyApprovesFollowers, indexable, approvesFollowed);
     }
 
     public ProfileChange withManuallyApprovesFollowers(boolean value) {
-        return new ProfileChange(displayName, note, fields, avatar, header, Optional.of(value), indexable);
+        return new ProfileChange(displayName, note, fields, avatar, header, Optional.of(value), indexable, approvesFollowed);
     }
 
     public ProfileChange withIndexable(boolean value) {
-        return new ProfileChange(displayName, note, fields, avatar, header, manuallyApprovesFollowers, Optional.of(value));
+        return new ProfileChange(displayName, note, fields, avatar, header, manuallyApprovesFollowers, Optional.of(value),
+                approvesFollowed);
+    }
+
+    public ProfileChange withApprovesFollowed(boolean value) {
+        return new ProfileChange(
+                displayName, note, fields, avatar, header, manuallyApprovesFollowers, indexable, Optional.of(value));
     }
 
     public boolean isEmpty() {

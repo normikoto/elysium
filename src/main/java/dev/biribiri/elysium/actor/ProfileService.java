@@ -330,20 +330,31 @@ public class ProfileService {
     }
 
     /**
-     * Whether requests to follow a local account wait for its approval. This holds the setting until the caller's
-     * transaction ends, so that a request can't be left waiting by an account that has just stopped approving them:
-     * {@link FollowerApprovalTurnedOff} is only published once the change commits, and it can't commit before this.
+     * How requests to follow a local account are decided. This holds the settings until the caller's transaction ends, so
+     * that a request can't be left waiting by an account that has just stopped approving them, or started approving the
+     * accounts it follows: {@link FollowerApprovalTurnedOff} and {@link FollowedApprovalTurnedOn} are only published once
+     * the change commits, and it can't commit before this.
      *
      * @throws org.springframework.transaction.IllegalTransactionStateException if there's no transaction
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public boolean lockFollowerApproval(UUID actorId) {
+    public FollowerApproval lockFollowerApproval(UUID actorId) {
         return profiles.lockFollowerApproval(actorId);
     }
 
     /**
+     * Whether a local account that approves its followers by hand approves requests from accounts it follows straight away.
+     */
+    public boolean approvesFollowed(UUID actorId) {
+        return profiles.approvesFollowed(actorId);
+    }
+
+
+    /**
      * Changes a local account's profile. New images are stored before the change is saved, and replaced ones are deleted
-     * once it is. Followers' servers are told through {@link ProfileUpdated}.
+     * once it is. Followers' servers are told through {@link ProfileUpdated}. Turning on
+     * {@link ProfileChange#approvesFollowed} publishes {@link FollowedApprovalTurnedOn}, so that the requests already
+     * waiting from accounts it follows are approved.
      *
      * @return false if there's no active local account to change
      * @throws InvalidProfileException if the change breaks a limit or an image can't be used, and then nothing is changed
@@ -367,6 +378,13 @@ public class ProfileService {
                     return null;
                 }
                 var old = profiles.lock(actorId);
+                // Saved with the rest, so that two changes at once can't mix one's manual approval with the other's
+                // exception to it.
+                change.approvesFollowed().ifPresent(value -> {
+                    if (!profiles.setApprovesFollowed(actorId, value) && value) {
+                        events.publishEvent(new FollowedApprovalTurnedOn(actorId));
+                    }
+                });
                 var removed = new ArrayList<StoredImage>();
                 var row = new ProfileRepository.Row(
                         actorId,

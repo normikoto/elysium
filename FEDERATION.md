@@ -352,8 +352,10 @@ collections of other actors aren't fetched.
 ### Follows
 
 A `Follow` whose `object` is a local user is accepted straight away, unless the user approves followers by hand, when it
-waits for them. Who's following comes from the signature, and not from the activity's body. The `object` can be an ID, an embedded object with an
-`id`, or an array of one of those. A `Follow` of anything else is ignored.
+waits for them. A user who approves followers by hand can choose to accept a `Follow` from an actor they follow straight
+away, even though their `manuallyApprovesFollowers` is true. An actor they've only asked to follow doesn't count. Who's
+following comes from the signature, and not from the activity's body. The `object` can be an ID, an embedded object
+with an `id`, or an array of one of those. A `Follow` of anything else is ignored.
 
 The follower's document is fetched, signed as the [instance actor](#instance-actor), unless a copy from the last 24 hours
 is stored. If an older copy is stored, it's used when the fetch fails, unless the server answers with a `404` or `410`. A
@@ -411,7 +413,8 @@ served to it. If the user refuses it, the follower gets a `Reject`, with the `id
 ```
 
 A repeat of a refused `Follow`'s `id` is ignored for about 34 days, as for one that's been undone, and a `Follow` with a
-new `id` is a new request. When the user stops approving followers by hand, every request that's waiting is approved.
+new `id` is a new request. When the user stops approving followers by hand, every request that's waiting is approved,
+and when they choose to accept actors they follow straight away, those actors' requests that are waiting are approved.
 Turning it on doesn't change who's already following.
 
 An `Undo` removes a follow, or a request that's waiting, if its `object` names the `Follow` that created it, by `id`, or
