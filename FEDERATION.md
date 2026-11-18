@@ -474,8 +474,9 @@ limited and otherwise follow the same rules as [link checks for local profiles](
 
 Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit. Each
 has to be within 8 MB by default, which an admin [can change](docs/configuration.md), and is kept as WebP. One that's too
-large or isn't an image is linked to instead, until its URL changes. A new URL replaces the copy. A server or account whose
-media is rejected has its copies removed, and they're linked to from then on.
+large or isn't an image is linked to instead, until its URL changes. A new URL replaces the copy. Copies are kept for 30
+days by default, after which the image is linked to until the actor is next fetched, and then downloaded again. A server
+or account whose media is rejected has its copies removed, and they're linked to from then on.
 
 A suspended or deleted actor's profile isn't changed, and a domain block removes the profiles of the server's actors.
 

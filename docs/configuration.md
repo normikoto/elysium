@@ -26,7 +26,7 @@ Set these in your `application.properties`:
 | `elysium.attachments.unattached-retention` | Optional. How long an upload is kept for a post, such as `12h`. Defaults to `1d`. |
 | `elysium.attachments.redraft-retention` | Optional. How long a deleted post's attachments are kept, so that it can be posted again, such as `30m`. Defaults to `1h`. |
 | `elysium.attachments.remote-cache-enabled` | Optional. Set to `false` to link to other servers' attachments rather than keep copies of them. Defaults to `true`. See [Media](#media). |
-| `elysium.attachments.remote-cache-retention` | Optional. How long a copy of another server's attachment is kept, such as `7d`. Defaults to `30d`. |
+| `elysium.attachments.remote-cache-retention` | Optional. How long a copy of another server's attachment, avatar, or header is kept, such as `7d`. Defaults to `30d`. See [Media](#media). |
 | `elysium.attachments.remote-download-budget` | Optional. How much each other server's attachments can add up to in an hour, such as `500MB`. Defaults to `2GB`. |
 | `elysium.media.directory`          | Optional. Where uploaded images, video, and audio are kept. Defaults to `media` in the working directory. The server has to be able to write to it, and you should back it up along with the database, which refers to the files in it. `compose.yaml` and `elysium.service` already set this. |
 | `elysium.streaming.max-connections` | Optional. How many [streaming](#streaming) connections can be open at once, from all clients together. Past that, new ones are refused until others close. Defaults to `1000`. |
@@ -70,8 +70,9 @@ lot of space on a server that follows many accounts, so lower the retention, or 
 disk.
 
 Avatars and headers of accounts on other servers are copied the same way, and count toward the same hourly limit. Their
-copies aren't removed after `remote-cache-retention`, but they're replaced when the account changes its image, and removed
-when its server is blocked or its media is rejected.
+copies are also removed after `remote-cache-retention`, and they're linked to until the account's profile is next
+fetched, which copies them again. They're also replaced when the account changes its image, and removed when its server
+is blocked or its media is rejected.
 
 ## Inbox limits
 Each other server can only deliver so many activities, and so much data, before it gets a `429` and has to try again

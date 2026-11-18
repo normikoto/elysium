@@ -223,7 +223,9 @@ public class ProfileRepository {
                             avatar_remote_url = :avatarUrl, avatar_cache_given_up = :avatarGivenUp,
                             header_remote_url = :headerUrl, header_cache_given_up = :headerGivenUp, url = :url, bot = :bot,
                             group_actor = :group, published = :published, also_known_as = CAST(:alsoKnownAs AS text[]),
-                            moved_to_uri = :movedTo, updated_at = clock_timestamp()
+                            moved_to_uri = :movedTo, updated_at = clock_timestamp(),
+                            avatar_cached_at = CASE WHEN CAST(:avatar AS text) IS NULL THEN NULL ELSE avatar_cached_at END,
+                            header_cached_at = CASE WHEN CAST(:header AS text) IS NULL THEN NULL ELSE header_cached_at END
                         WHERE actor_id = :actorId
                         """)
                 .param("actorId", row.actorId())
@@ -322,7 +324,7 @@ public class ProfileRepository {
     public boolean cacheImage(UUID actorId, boolean header, URI url, StoredImage stored) {
         var image = header ? "header" : "avatar";
         return jdbc.sql("""
-                        UPDATE profile SET %1$s = :name, %1$s_static = :staticName
+                        UPDATE profile SET %1$s = :name, %1$s_static = :staticName, %1$s_cached_at = now()
                         WHERE actor_id = :actorId AND note_html IS NOT NULL AND %1$s IS NULL
                           AND %1$s_remote_url = :url AND NOT %1$s_cache_given_up
                         """.formatted(image))
@@ -386,7 +388,8 @@ public class ProfileRepository {
                             FOR UPDATE
                         )
                         UPDATE profile p SET avatar = NULL, avatar_static = NULL, header = NULL, header_static = NULL,
-                            avatar_cache_given_up = true, header_cache_given_up = true
+                            avatar_cache_given_up = true, header_cache_given_up = true, avatar_cached_at = NULL,
+                            header_cached_at = NULL
                         FROM old WHERE p.actor_id = old.actor_id
                         RETURNING old.avatar, old.avatar_static, old.header, old.header_static
                         """.formatted(condition))
@@ -397,6 +400,33 @@ public class ProfileRepository {
                 .list();
         var images = rows.stream().flatMap(Arrays::stream).filter(Objects::nonNull).toList();
         return new Uncached(rows.size(), images);
+    }
+
+    /**
+     * Drops a batch of the copies of avatars or headers of accounts on another server that were kept before a time. Unlike
+     * {@link #uncacheImages(UUID)}, they're downloaded again the next time their profile is fetched, since an account
+     * that's still around is fetched again, and one that isn't never is.
+     *
+     * @param header whether it's headers rather than avatars
+     */
+    public Uncached uncacheImagesBefore(boolean header, Instant before, int limit) {
+        var image = header ? "header" : "avatar";
+        var images = jdbc.sql("""
+                        WITH old AS (
+                            SELECT actor_id, %1$s AS name, %1$s_static AS static_name FROM profile
+                            WHERE note_html IS NOT NULL AND %1$s IS NOT NULL AND %1$s_cached_at < :before
+                            LIMIT :limit
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        UPDATE profile p SET %1$s = NULL, %1$s_static = NULL, %1$s_cached_at = NULL
+                        FROM old WHERE p.actor_id = old.actor_id
+                        RETURNING old.name, old.static_name
+                        """.formatted(image))
+                .param("before", time(before))
+                .param("limit", limit)
+                .query((rs, rowNum) -> image(rs.getString("name"), rs.getString("static_name")))
+                .list();
+        return new Uncached(images.size(), images);
     }
 
     /**
