@@ -1014,7 +1014,7 @@ class FollowIntegrationTests {
                 .param("followed", follower().id())
                 .param("activity", followed.uri() + "#follows/" + UUID.randomUUID())
                 .update();
-        assertThat(profiles.setApprovesFollowed(followed.id(), true)).isTrue();
+        assertThat(profiles.update(followed.id(), ProfileChange.NONE.withApprovesFollowed(true))).isTrue();
 
         followHandler.handle(follow(newId()));
 

@@ -86,7 +86,10 @@ class SettingsController {
         var approvesFollowed = "true".equals(form.getFirst("approvesFollowed"));
         var indexable = "true".equals(form.getFirst("indexable"));
         // Only what the form has a control for is changed, as a form with no rows for fields has none to send.
-        var change = ProfileChange.NONE.withManuallyApprovesFollowers(manuallyApprovesFollowers).withIndexable(indexable);
+        var change = ProfileChange.NONE
+                .withManuallyApprovesFollowers(manuallyApprovesFollowers)
+                .withApprovesFollowed(approvesFollowed)
+                .withIndexable(indexable);
         if (displayName != null) {
             change = change.withDisplayName(displayName);
         }
@@ -119,8 +122,7 @@ class SettingsController {
             model.addAttribute("error", e.getMessage().replaceFirst("^Validation failed: ", ""));
             return "settings";
         }
-        if (!actors.setHidesCollections(accountId, hideCollections)
-                || !profiles.setApprovesFollowed(accountId, approvesFollowed)) {
+        if (!actors.setHidesCollections(accountId, hideCollections)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
         return "redirect:" + SecurityConfig.SETTINGS_PATH + "?saved";

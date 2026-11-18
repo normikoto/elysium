@@ -349,26 +349,12 @@ public class ProfileService {
         return profiles.approvesFollowed(actorId);
     }
 
-    /**
-     * Changes {@link #approvesFollowed}. Turning it on publishes {@link FollowedApprovalTurnedOn}, so that the requests
-     * already waiting from accounts it follows are approved.
-     *
-     * @return false if there's no active local account to change
-     */
-    @Transactional
-    public boolean setApprovesFollowed(UUID actorId, boolean value) {
-        if (actors.findLocalById(actorId).isEmpty()) {
-            return false;
-        }
-        if (!profiles.setApprovesFollowed(actorId, value) && value) {
-            events.publishEvent(new FollowedApprovalTurnedOn(actorId));
-        }
-        return true;
-    }
 
     /**
      * Changes a local account's profile. New images are stored before the change is saved, and replaced ones are deleted
-     * once it is. Followers' servers are told through {@link ProfileUpdated}.
+     * once it is. Followers' servers are told through {@link ProfileUpdated}. Turning on
+     * {@link ProfileChange#approvesFollowed} publishes {@link FollowedApprovalTurnedOn}, so that the requests already
+     * waiting from accounts it follows are approved.
      *
      * @return false if there's no active local account to change
      * @throws InvalidProfileException if the change breaks a limit or an image can't be used, and then nothing is changed
@@ -392,6 +378,13 @@ public class ProfileService {
                     return null;
                 }
                 var old = profiles.lock(actorId);
+                // Saved with the rest, so that two changes at once can't mix one's manual approval with the other's
+                // exception to it.
+                change.approvesFollowed().ifPresent(value -> {
+                    if (!profiles.setApprovesFollowed(actorId, value) && value) {
+                        events.publishEvent(new FollowedApprovalTurnedOn(actorId));
+                    }
+                });
                 var removed = new ArrayList<StoredImage>();
                 var row = new ProfileRepository.Row(
                         actorId,
