@@ -133,7 +133,7 @@ class OutboxBackfill {
             return Jobs.done();
         }
         if (turn.get().isAfter(now)) {
-            return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
+            return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
         }
         var document = fetch(target);
         if (document.isEmpty()) {

@@ -107,7 +107,7 @@ public class ActivityDeliveries {
         store(activity);
         var now = Instant.now();
         for (var inbox : allowed) {
-            var job = new DeliveryJob(activity.id(), inbox.toString(), now, staysBehind, staysBehindPrefix);
+            var job = new DeliveryJob(activity.id(), inbox.toString(), now, staysBehind, staysBehindPrefix, null);
             var idParts = Stream.concat(Stream.of(job.activityId(), job.inbox()), Stream.of(extraIdParts))
                     .toArray(String[]::new);
             Jobs.schedule(scheduler, TASK, job, idParts);

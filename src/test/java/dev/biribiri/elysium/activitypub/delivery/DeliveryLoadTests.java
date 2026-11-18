@@ -1,5 +1,7 @@
 package dev.biribiri.elysium.activitypub.delivery;
 
+import com.github.kagkarlsson.scheduler.event.AbstractSchedulerListener;
+import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.sun.net.httpserver.HttpServer;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.biribiri.elysium.TestcontainersConfiguration;
@@ -36,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -67,6 +70,8 @@ class DeliveryLoadTests {
     private ActorService actors;
     @Autowired
     private DataSource dataSource;
+    @Autowired
+    private RunCounter runCounter;
 
     private final Map<String, AtomicInteger> receivedByInbox = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> runningByHost = new ConcurrentHashMap<>();
@@ -149,6 +154,7 @@ class DeliveryLoadTests {
             }
         });
 
+        runCounter.runs.set(0);
         var started = Instant.now();
         var startedNanos = System.nanoTime();
         transactions.executeWithoutResult(status -> deliveries.enqueue(activity, inboxes));
@@ -171,7 +177,8 @@ class DeliveryLoadTests {
 
         var delivered = receivedByInbox.size();
         var running = Duration.between(queued, finished).minus(suspended);
-        var runs = runsSince(started);
+        var runs = runCounter.runs.get();
+        var historyRows = historyRowsSince(started);
         var failed = failedRunsSince(started);
         System.out.printf("""
 
@@ -180,7 +187,7 @@ class DeliveryLoadTests {
                         Finished:              %s, after %d s running
                         Suspended:             %d s
                         Delivered:             %d of %d (%.0f a minute)
-                        Runs per delivery:     %.2f (%d history rows)
+                        Runs per delivery:     %.2f (%d runs, %d in history)
                         Failed runs:           %d
                         Most at once per host: %d
                         Peak connections used: %d of %d
@@ -196,6 +203,7 @@ class DeliveryLoadTests {
                 delivered * 60_000.0 / Math.max(1, running.toMillis()),
                 (double) runs / Math.max(1, delivered),
                 runs,
+                historyRows,
                 failed,
                 mostRunningForAHost.get(),
                 peakActive.get(),
@@ -227,7 +235,7 @@ class DeliveryLoadTests {
                 .single();
     }
 
-    private long runsSince(Instant time) {
+    private long historyRowsSince(Instant time) {
         return jdbc.sql("""
                         SELECT count(*) FROM scheduled_execution_logs
                         WHERE task_name = 'activity-delivery' AND time_started >= :time
@@ -247,8 +255,28 @@ class DeliveryLoadTests {
                 .single();
     }
 
+    /**
+     * Counts every run, since the history leaves out those that only waited for a turn.
+     */
+    static class RunCounter extends AbstractSchedulerListener {
+
+        final AtomicLong runs = new AtomicLong();
+
+        @Override
+        public void onExecutionComplete(ExecutionComplete complete) {
+            if (complete.getExecution().taskInstance.getTaskName().equals(ActivityDeliveries.TASK.getTaskName())) {
+                runs.incrementAndGet();
+            }
+        }
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class Config {
+        @Bean
+        RunCounter runCounter() {
+            return new RunCounter();
+        }
+
         @Bean
         @Primary
         FederationHttpClient loopbackClient() {

@@ -557,6 +557,11 @@ status's author. A mention of `@user@domain` is looked up through WebFinger when
 worked out shortly after posting, and statuses from before someone followed aren't sent. A
 followers-only status only goes to those who were already following when it was posted.
 
+Each copy of this server sends at most 3 activities at a time to one server, and any others wait for their turn. A
+delivery that gets a `5xx`, `408`, or `429`, or no answer, is retried for up to 3 days, honouring `Retry-After`. So is one
+that keeps waiting for its turn because the server answers too slowly. After that it isn't sent, unless an admin here
+retries it. A delivery that gets any other `4xx` isn't retried.
+
 ```json
 {
   "@context": ["https://www.w3.org/ns/activitystreams", {"sensitive": "as:sensitive", "Hashtag": "as:Hashtag",

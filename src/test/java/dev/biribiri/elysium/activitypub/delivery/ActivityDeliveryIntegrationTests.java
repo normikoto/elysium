@@ -589,6 +589,114 @@ class ActivityDeliveryIntegrationTests {
     }
 
     @Test
+    void parksAJobThatHasWaitedTooLongForABusyServer() {
+        var host = newHost();
+        var activity = activity();
+        whileBusy(host, () -> {
+            transactions.executeWithoutResult(status -> {
+                deliveries.enqueue(activity, List.of(inboxOn(host)));
+                ageJob(activity, Duration.ofDays(3), Duration.ofDays(3));
+            });
+
+            await().atMost(WAIT).until(() -> failures(activity) == 1);
+        });
+
+        assertThat(failureMessages(activity)).anyMatch(message -> message.contains("has been too busy for too long"));
+        assertThat(receivedBy(host)).isEmpty();
+    }
+
+    @Test
+    void anOldJobThatHasOnlyJustFoundItsServerBusyWaitsForItsTurn() {
+        var host = newHost();
+        var activity = activity();
+        whileBusy(host, () -> {
+            transactions.executeWithoutResult(status -> {
+                deliveries.enqueue(activity, List.of(inboxOn(host)));
+                ageJob(activity, Duration.ofDays(3));
+            });
+            waitForTurns(activity, 3);
+        });
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(1);
+        assertThat(history(activity, false)).isZero();
+    }
+
+    @Test
+    void anAdminCanRetryAJobThatGaveUpOnABusyServer() {
+        var host = newHost();
+        var activity = activity();
+        whileBusy(host, () -> {
+            transactions.executeWithoutResult(status -> {
+                deliveries.enqueue(activity, List.of(inboxOn(host)));
+                ageJob(activity, Duration.ofDays(3), Duration.ofDays(3));
+            });
+            await().atMost(WAIT).until(() -> failures(activity) == 1);
+
+            scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instanceOf(activity)), Instant.now());
+            waitForTurns(activity, 3);
+            assertThat(failures(activity)).isZero();
+        });
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(1);
+    }
+
+    @Test
+    void aCancelledJobFinishesRatherThanGivingUpOnABusyServer() {
+        var host = newHost();
+        var activity = activity();
+        whileBusy(host, () -> {
+            transactions.executeWithoutResult(status -> {
+                deliveries.enqueue(activity, List.of(inboxOn(host)));
+                ageJob(activity, Duration.ofDays(3), Duration.ofDays(3));
+                deliveries.cancel(activity.id());
+            });
+
+            await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        });
+
+        // History is written in the background, so this waits for the finished run's row.
+        await().atMost(WAIT).until(() -> history(activity, true) == 1);
+        assertThat(history(activity, false)).isZero();
+    }
+
+    @Test
+    void anActivityThatWaitsForASuspensionKeepsWaitingWhileItsServerIsBusy() {
+        var signer = newSigner();
+        var activity = activityBy(signer, WhileSuspended.WAIT);
+        var host = newHost();
+        actors.suspend(signer);
+        whileBusy(host, () -> {
+            transactions.executeWithoutResult(status -> {
+                deliveries.enqueue(activity, List.of(inboxOn(host)));
+                ageJob(activity, Duration.ofDays(3), Duration.ofDays(3));
+            });
+
+            await().atMost(WAIT).until(() -> executionTime(activity).isAfter(Instant.now().plus(Duration.ofMinutes(1))));
+        });
+
+        assertThat(jobs(activity)).isOne();
+        assertThat(failures(activity)).isZero();
+    }
+
+    @Test
+    void runsThatOnlyWaitAreNotKeptInHistory() {
+        var host = newHost();
+        var activity = activity();
+        whileBusy(host, () -> {
+            enqueue(activity, inboxOn(host));
+            waitForTurns(activity, 3);
+        });
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(1);
+        // History is written in the background, so the count has to stay put for a while to show that nothing else is coming.
+        await().during(Duration.ofSeconds(2)).atMost(WAIT).until(() -> history(activity, true) == 1);
+        assertThat(history(activity, false)).isZero();
+    }
+
+    @Test
     void jobsWaitingForAServerGetTheirOwnTurns() {
         var host = newHost();
         var now = Instant.now().plusSeconds(60);
@@ -960,6 +1068,44 @@ class ActivityDeliveryIntegrationTests {
                 .toInstant();
     }
 
+    /**
+     * Takes every slot for the host while this runs, as deliveries that are slow to answer would.
+     */
+    private void whileBusy(String host, Runnable action) {
+        for (var slot = 0; slot < HostGate.MAX_REQUESTS_PER_HOST; slot++) {
+            assertThat(gate.tryAcquire(host)).isTrue();
+        }
+        try {
+            action.run();
+        } finally {
+            for (var slot = 0; slot < HostGate.MAX_REQUESTS_PER_HOST; slot++) {
+                gate.release(host);
+            }
+        }
+    }
+
+    /**
+     * Counts the job's runs in its history, which outlast the job.
+     */
+    private void waitForTurns(OutboundActivity activity, int turns) {
+        for (var turn = 0; turn < turns; turn++) {
+            var before = executionTime(activity);
+            await().atMost(WAIT).until(() -> executionTime(activity).isAfter(before));
+        }
+    }
+
+    private long history(OutboundActivity activity, boolean succeeded) {
+        return jdbc.sql("""
+                        SELECT count(*) FROM scheduled_execution_logs
+                        WHERE task_name = 'activity-delivery' AND succeeded = :succeeded
+                          AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("succeeded", succeeded)
+                .param("id", "%" + activity.id() + "%")
+                .query(Long.class)
+                .single();
+    }
+
     private void runNow(OutboundActivity activity) {
         jdbc.sql("UPDATE scheduled_tasks SET execution_time = now() WHERE task_instance = :instance")
                 .param("instance", instanceOf(activity))
@@ -970,7 +1116,15 @@ class ActivityDeliveryIntegrationTests {
      * Rewrites the job's data, since a job's time of queuing can't be set from outside.
      */
     private void ageJob(OutboundActivity activity, Duration age) {
+        ageJob(activity, age, null);
+    }
+
+    /**
+     * @param busyFor how long the job has been waiting for a turn with its host, or null if it isn't
+     */
+    private void ageJob(OutboundActivity activity, Duration age, Duration busyFor) {
         var queuedAt = Instant.now().minus(age).minusSeconds(60);
+        var busySince = busyFor == null ? null : Instant.now().minus(busyFor).minusSeconds(60);
         var inbox = jdbc.sql("""
                         SELECT convert_from(task_data, 'UTF8')::json ->> 'inbox' FROM scheduled_tasks
                         WHERE task_instance = :instance
@@ -978,7 +1132,7 @@ class ActivityDeliveryIntegrationTests {
                 .param("instance", instanceOf(activity))
                 .query(String.class)
                 .single();
-        var data = new Jackson3Serializer().serialize(new DeliveryJob(activity.id(), inbox, queuedAt, null, null));
+        var data = new Jackson3Serializer().serialize(new DeliveryJob(activity.id(), inbox, queuedAt, null, null, busySince));
         jdbc.sql("UPDATE scheduled_tasks SET task_data = :data WHERE task_instance = :instance")
                 .param("data", data)
                 .param("instance", instanceOf(activity))

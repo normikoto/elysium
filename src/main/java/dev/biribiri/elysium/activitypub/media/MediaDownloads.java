@@ -223,12 +223,12 @@ public class MediaDownloads {
 
     private <J> CompletionHandler<J> withRoom(URI url, Function<String, CompletionHandler<J>> download) {
         if (!running.tryAcquire()) {
-            return Jobs.rescheduleAt(Instant.now().plus(WAIT_FOR_ROOM));
+            return Jobs.waitUntil(Instant.now().plus(WAIT_FOR_ROOM));
         }
         var host = url.getHost().toLowerCase(Locale.ROOT);
         if (!hostsDownloading.add(host)) {
             running.release();
-            return Jobs.rescheduleAt(Instant.now().plus(WAIT_FOR_ROOM));
+            return Jobs.waitUntil(Instant.now().plus(WAIT_FOR_ROOM));
         }
         try {
             return download.apply(host);
@@ -378,7 +378,7 @@ public class MediaDownloads {
         }
         probe.get().release();
         if (!hostRequests.tryStartFetch(host)) {
-            return Jobs.rescheduleAt(Instant.now().plus(WAIT_FOR_ROOM));
+            return Jobs.waitUntil(Instant.now().plus(WAIT_FOR_ROOM));
         }
         FederationHttpClient.Download<T> downloaded;
         try {

@@ -45,10 +45,15 @@ final class RetryPolicy<T extends QueuedJob> implements FailureHandler<T> {
         if (permanent || job.isOverdue(now)) {
             log.warn("Giving up on job {}: it stays in the queue for {} days so that an admin can look at it",
                     execution.taskInstance.getTaskAndInstance(), PARKED_FOR.toDays());
-            operations.reschedule(complete, now.plus(PARKED_FOR));
+            operations.reschedule(complete, now.plus(PARKED_FOR), afterFailure(job));
         } else {
-            operations.reschedule(complete, now.plus(jitter(delayFor(job, now))));
+            operations.reschedule(complete, now.plus(jitter(delayFor(job, now))), afterFailure(job));
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private T afterFailure(QueuedJob job) {
+        return (T) job.afterFailure();
     }
 
     /**

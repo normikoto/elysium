@@ -92,7 +92,7 @@ class DeletionChecks {
             return Jobs.done();
         }
         if (turn.get().isAfter(now)) {
-            return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
+            return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
         }
         confirm(object, URI.create(job.actorId()));
         return Jobs.done();

@@ -110,7 +110,7 @@ class ForwardedActivities {
             return Jobs.done();
         }
         if (turn.get().isAfter(now)) {
-            return Jobs.rescheduleAt(turn.get(), job.withTurn(turn.get()));
+            return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
         }
         if (!fetch(uri, job.queuedAt()) && job.deletedObject() != null) {
             deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt());

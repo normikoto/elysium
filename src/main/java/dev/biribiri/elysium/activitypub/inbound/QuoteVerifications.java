@@ -145,7 +145,7 @@ class QuoteVerifications {
             return Optional.of(Jobs.done());
         }
         if (turn.get().isAfter(Instant.now())) {
-            return Optional.of(Jobs.rescheduleAt(turn.get(), job.withNoteTurn(turn.get())));
+            return Optional.of(Jobs.waitUntil(turn.get(), job.withNoteTurn(turn.get())));
         }
         var fetched = AttributedNote.fetch(quotedUri, documents);
         if (fetched.isEmpty()) {
@@ -174,7 +174,7 @@ class QuoteVerifications {
             return Jobs.done();
         }
         if (turn.get().isAfter(Instant.now())) {
-            return Jobs.rescheduleAt(turn.get(), job.withStampTurn(turn.get()));
+            return Jobs.waitUntil(turn.get(), job.withStampTurn(turn.get()));
         }
         var stamp = fetch(approvalUri);
         if (stamp.isPresent() && isAuthorization(stamp.get(), approvalUri, quotedAuthor.get(), quoting.uri(), quoted.uri())) {
