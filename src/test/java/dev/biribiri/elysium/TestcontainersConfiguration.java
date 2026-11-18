@@ -17,13 +17,16 @@ import org.testcontainers.utility.DockerImageName;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
-    private static final String SESSION_COOKIE = "SESSION";
+    private static final String COOKIES = TestcontainersConfiguration.class.getName() + ".cookies";
 
     /**
      * One container for the whole test JVM, rather than one per Spring context. Test classes need dozens of different contexts,
@@ -85,9 +88,9 @@ public class TestcontainersConfiguration {
 
     /**
      * Lets a test keep using a {@code MockHttpSession} to stay logged in across requests. Spring Session only looks at cookies, and
-     * would ignore it, so this makes the {@code MockHttpSession} act as a browser's cookie jar. Requests go through the real
-     * cookies and the sessions in the database. This runs before Spring Session's filter, and does nothing for a request without a
-     * {@code MockHttpSession}.
+     * would ignore it, so this makes the {@code MockHttpSession} act as a browser's cookie jar, for the session cookie and the
+     * others a visitor gets before logging in. Requests go through the real cookies and the sessions in the database. This runs
+     * before Spring Session's filter, and does nothing for a request without a {@code MockHttpSession}.
      */
     @Bean
     FilterRegistrationBean<Filter> mockSessionCookieJar() {
@@ -99,15 +102,30 @@ public class TestcontainersConfiguration {
                 chain.doFilter(request, response);
                 return;
             }
-            if (jar.getAttribute(SESSION_COOKIE) instanceof String value) {
+            @SuppressWarnings("unchecked")
+            var kept = jar.getAttribute(COOKIES) instanceof Map<?, ?> map
+                    ? new LinkedHashMap<>((Map<String, String>) map)
+                    : new LinkedHashMap<String, String>();
+            if (!kept.isEmpty()) {
                 var cookies = new ArrayList<>(mockRequest.getCookies() == null ? List.of() : Arrays.asList(mockRequest.getCookies()));
-                cookies.add(new Cookie(SESSION_COOKIE, value));
+                var sent = cookies.stream().map(Cookie::getName).collect(Collectors.toSet());
+                kept.forEach((name, value) -> {
+                    if (!sent.contains(name)) {
+                        cookies.add(new Cookie(name, value));
+                    }
+                });
                 mockRequest.setCookies(cookies.toArray(Cookie[]::new));
             }
             chain.doFilter(request, response);
-            var written = mockResponse == null ? null : mockResponse.getCookie(SESSION_COOKIE);
-            if (written != null) {
-                jar.setAttribute(SESSION_COOKIE, written.getMaxAge() == 0 ? null : written.getValue());
+            if (mockResponse != null) {
+                for (var written : mockResponse.getCookies()) {
+                    if (written.getMaxAge() == 0 || written.getValue().isEmpty()) {
+                        kept.remove(written.getName());
+                    } else {
+                        kept.put(written.getName(), written.getValue());
+                    }
+                }
+                jar.setAttribute(COOKIES, kept);
             }
         };
         var registration = new FilterRegistrationBean<>(filter);

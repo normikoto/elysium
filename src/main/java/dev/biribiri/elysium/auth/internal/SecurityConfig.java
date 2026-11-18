@@ -32,7 +32,8 @@ import org.springframework.security.web.authentication.SavedRequestAwareAuthenti
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.preauth.AbstractPreAuthenticatedProcessingFilter;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
-import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
@@ -158,11 +159,18 @@ class SecurityConfig {
             ActorService actors,
             LocalAccounts accounts,
             JsonMapper json) {
+        // Only the link an app sends someone to is a page to return to. A consent sent after the session expired has its
+        // parameters in the body, so returning to its URL would only show an error, and a client's call isn't a page.
+        var requestCache = new SavedPageCookie(new BrowserCookies(instance));
+        requestCache.setRequestMatcher(pathPattern(HttpMethod.GET, AUTHORIZE_PATH));
         return http
                 .securityMatcher(authorizationServerRequests())
                 .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
                 .addFilterBefore(new JsonTokenRequestFilter(json, responses), AbstractPreAuthenticatedProcessingFilter.class)
                 .cors(cors -> cors.configurationSource(clientCors()))
+                // The consent form is shown by the default chain and sent here, so both need the same tokens.
+                .csrf(csrf -> csrf.csrfTokenRepository(csrfTokens(instance)))
+                .requestCache(cache -> cache.requestCache(requestCache))
                 .oauth2AuthorizationServer(server -> configure(server, instance, responses, adminAccess))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
@@ -241,7 +249,7 @@ class SecurityConfig {
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
         // can't lose a pending authorization. It only saves a page if nothing is waiting, so that logging in can return to
         // that page.
-        var requestCache = new HttpSessionRequestCache();
+        var requestCache = new SavedPageCookie(new BrowserCookies(instance));
         requestCache.setRequestMatcher(
                 request -> pagesNeedingLogin.matches(request) && requestCache.getRequest(request, null) == null);
 
@@ -266,7 +274,9 @@ class SecurityConfig {
                 // Applies Spring MVC's CORS settings, including to preflight requests: @CrossOrigin on controllers, and
                 // the mappings in WebMvcConfigurer classes.
                 .cors(withDefaults())
-                .csrf(csrf -> csrf.ignoringRequestMatchers(sameOriginJobApiRequests(instance)))
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(csrfTokens(instance))
+                        .ignoringRequestMatchers(sameOriginJobApiRequests(instance)))
                 .authorizeHttpRequests(requests -> requests
                         // Lets Spring's error handling keep its original status instead of turning it into a 403.
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
@@ -321,7 +331,10 @@ class SecurityConfig {
                                     + (failure instanceof PasswordHashingBusyException ? "?busy" : "?error"));
                         })
                         .permitAll())
-                .logout(withDefaults())
+                // A saved page was dropped with the session before it moved to a cookie. Without this, the next person to log in
+                // on a shared browser would be sent to it, such as the last person's pending authorization.
+                .logout(logout -> logout.addLogoutHandler(
+                        (request, response, _) -> requestCache.removeRequest(request, response)))
                 // Sessions expire, so an admin who reloads a page needs a way back in. Other requests get
                 // a bare 403. The job UI's API calls are among them, because they couldn't use a login page as a response.
                 .exceptionHandling(exceptions -> exceptions
@@ -389,6 +402,18 @@ class SecurityConfig {
         return List.of(
                 ClientAuthenticationMethod.CLIENT_SECRET_BASIC.getValue(),
                 ClientAuthenticationMethod.CLIENT_SECRET_POST.getValue());
+    }
+
+    /**
+     * Keeps CSRF tokens in a cookie rather than the session, so that showing the login or sign-up form doesn't store a session.
+     * Scripts can't read it, since pages get the token in the form itself.
+     */
+    private static CsrfTokenRepository csrfTokens(InstanceProperties instance) {
+        var cookies = new BrowserCookies(instance);
+        var tokens = new CookieCsrfTokenRepository();
+        tokens.setCookieName(cookies.name("XSRF-TOKEN"));
+        tokens.setCookieCustomizer(cookies::customize);
+        return tokens;
     }
 
     /**

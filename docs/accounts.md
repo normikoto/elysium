@@ -398,5 +398,8 @@ any of them can serve any browser. A session ends after 30 minutes without a req
 themselves by changing their password.
 
 Only a hash of each session's ID is stored, so the database or a backup can't be used to take over a session. If you log
-PostgreSQL statements with their parameters, those logs do contain session IDs, so keep them private. Visitors who
-aren't logged in also get sessions, so if you're watching your database's size, look at the `spring_session` table.
+PostgreSQL statements with their parameters, those logs do contain session IDs, so keep them private.
+
+Visitors who aren't logged in don't get sessions, so showing them the login or sign-up form stores nothing. A session
+starts when someone logs in, or when they've entered their password and the server is waiting for their two-factor code.
+Until then, the browser keeps what the forms need in cookies.
