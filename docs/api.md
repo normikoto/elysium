@@ -3,6 +3,10 @@
 Elysium implements Mastodon's client API, with the differences listed here. Each section links to the Mastodon
 documentation it follows.
 
+- A multipart request has to have a `Content-Length`, and one sent with chunked transfer encoding gets a 411. One that's
+  larger than its endpoint's files can be, plus 4 MB for the rest of the form, gets a 413 before it's read. That's the
+  avatar and header limits for `PATCH /api/v1/accounts/update_credentials`, and the media limits for uploads.
+
 ## OAuth
 
 Follows [Mastodon's OAuth API](https://docs.joinmastodon.org/methods/oauth/): `POST /api/v1/apps`,
@@ -349,7 +353,8 @@ Follow [Mastodon's media API](https://docs.joinmastodon.org/methods/media/), wit
   unless a `thumbnail` is uploaded with them. A `thumbnail` with an image gets a 422, and so does one in
   `PUT /api/v1/media/:id`.
 - Images, video, and audio each have their own size limit, 16 MB, 100 MB, and 40 MB by default, and a file over its
-  limit gets a 422. A request that's larger than any upload can be gets a 413.
+  limit gets a 422. A request that's larger than the largest file and an image `thumbnail` together, plus 4 MB, gets a
+  413 before it's read.
 - A user can have at most 20 uploads waiting to be posted by default, and one more gets a 422. An upload that isn't
   posted within a day, by default, is deleted.
 - `blurhash`, `preview_remote_url`, and `text_url` are always null.

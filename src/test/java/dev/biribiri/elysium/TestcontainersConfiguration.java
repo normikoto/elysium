@@ -2,6 +2,8 @@ package dev.biribiri.elysium;
 
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -10,10 +12,13 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.core.Ordered;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.mock.web.MockMultipartHttpServletRequest;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.util.WebUtils;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -127,6 +132,46 @@ public class TestcontainersConfiguration {
                 }
                 jar.setAttribute(COOKIES, kept);
             }
+        };
+        var registration = new FilterRegistrationBean<>(filter);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
+    }
+
+    /**
+     * Gives a MockMvc multipart request the length a real client would send with it. MockMvc never encodes the body, so it
+     * has none, and the server refuses a multipart request without one. This counts the files and values, which is close
+     * enough to the encoded size for the limits tests use.
+     */
+    @Bean
+    FilterRegistrationBean<Filter> mockMultipartLength() {
+        Filter filter = (request, response, chain) -> {
+            var multipart = WebUtils.getNativeRequest(request, MockMultipartHttpServletRequest.class);
+            if (multipart == null || multipart.getContentLengthLong() >= 0) {
+                chain.doFilter(request, response);
+                return;
+            }
+            long length = 0;
+            for (var file : multipart.getMultiFileMap().values().stream().flatMap(List::stream).toList()) {
+                length += ((MultipartFile) file).getSize();
+            }
+            for (var values : multipart.getParameterMap().values()) {
+                for (var value : values) {
+                    length += value.getBytes(StandardCharsets.UTF_8).length;
+                }
+            }
+            var declared = length;
+            chain.doFilter(new HttpServletRequestWrapper((HttpServletRequest) request) {
+                @Override
+                public int getContentLength() {
+                    return (int) Math.min(declared, Integer.MAX_VALUE);
+                }
+
+                @Override
+                public long getContentLengthLong() {
+                    return declared;
+                }
+            }, response);
         };
         var registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
