@@ -47,8 +47,8 @@ class RemoteActorLookupTests {
     @BeforeEach
     void setUp() {
         lookup = new RemoteActorLookup(
-                actors, remoteActors, http, blocks, new InstanceProperties(URI.create("https://local.example")),
-                JSON, new ResolveLimits());
+                actors, remoteActors, new WebFingerRequests(http, JSON), blocks,
+                new InstanceProperties(URI.create("https://local.example")), new ResolveLimits());
         when(actors.findRemoteByAcct(anyString(), anyString())).thenReturn(Optional.empty());
     }
 

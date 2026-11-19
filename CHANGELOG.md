@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Profile pages have a follow button. Visitors from other servers can enter their address to follow from their own server,
+  and people here can follow from profiles on Mastodon and other servers that support remote follow. See
+  `docs/accounts.md` and `FEDERATION.md`.
 - Profile links on remote accounts show as verified when the linked website links back to the account with `rel="me"`.
   Previously stored profiles are checked when they're next fetched.
 - Moving accounts, as on Mastodon. Someone moving here adds their old account as an alias at `/settings/aliases` first.

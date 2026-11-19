@@ -1,0 +1,35 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:fragment="controls(follow)">
+    <div class="follow" th:switch="${follow.state().name()}">
+        <th:block th:case="'ANONYMOUS'">
+            <form method="post" th:action="@{/users/{username}/remote-follow(username=${follow.account().username()})}">
+                <label for="remote-follow-address">Follow from your server. Your address:</label>
+                <input type="text" id="remote-follow-address" name="address" placeholder="@you@your.server"
+                       autocomplete="username" autocapitalize="off" spellcheck="false" required>
+                <button type="submit">Follow</button>
+            </form>
+            <p>
+                Have an account here?
+                <a th:href="@{/authorize_interaction(uri=|acct:${follow.account().username()}@${follow.account().domain()}|)}">Log in to follow</a>
+            </p>
+        </th:block>
+        <p th:case="'SELF'"><a href="/settings">Edit your profile</a></p>
+        <th:block th:case="'UNAVAILABLE'"></th:block>
+        <form th:case="'NOT_FOLLOWING'" method="post" th:action="@{/follow}">
+            <input type="hidden" name="account" th:value="${follow.account().id()}">
+            <button type="submit">Follow</button>
+        </form>
+        <form th:case="'REQUESTED'" method="post" th:action="@{/unfollow}">
+            <p>You've asked to follow this account.</p>
+            <input type="hidden" name="account" th:value="${follow.account().id()}">
+            <button type="submit">Withdraw request</button>
+        </form>
+        <form th:case="'FOLLOWING'" method="post" th:action="@{/unfollow}">
+            <p>You follow this account.</p>
+            <input type="hidden" name="account" th:value="${follow.account().id()}">
+            <button type="submit">Unfollow</button>
+        </form>
+    </div>
+</th:block>
+</html>

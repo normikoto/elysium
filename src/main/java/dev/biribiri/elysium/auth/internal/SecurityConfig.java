@@ -74,6 +74,10 @@ class SecurityConfig {
     static final String TWO_FACTOR_CONFIRM_PATH = TWO_FACTOR_SETTINGS_PATH + "/confirm";
     static final String TWO_FACTOR_DISABLE_PATH = TWO_FACTOR_SETTINGS_PATH + "/disable";
     static final String RECOVERY_CODES_PATH = TWO_FACTOR_SETTINGS_PATH + "/recovery-codes";
+    static final String FOLLOW_PATH = "/follow";
+    static final String UNFOLLOW_PATH = "/unfollow";
+    static final String REMOTE_FOLLOW_PATH = "/users/*/remote-follow";
+    static final String AUTHORIZE_INTERACTION_PATH = "/authorize_interaction";
 
     static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
     static final String APP_REGISTRATION_PATH = "/api/v1/apps";
@@ -244,7 +248,9 @@ class SecurityConfig {
                 pathPattern(HttpMethod.GET, ALIASES_PATH),
                 pathPattern(HttpMethod.GET, MOVE_PATH),
                 pathPattern(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH),
-                pathPattern(HttpMethod.GET, AUTHORIZED_APPS_PATH));
+                pathPattern(HttpMethod.GET, AUTHORIZED_APPS_PATH),
+                // Where other servers' remote follow sends a user, who comes back here after logging in.
+                pathPattern(HttpMethod.GET, AUTHORIZE_INTERACTION_PATH));
 
         // Reads the request saved by the authorization server chain, but never replaces it, so a request denied here
         // can't lose a pending authorization. It only saves a page if nothing is waiting, so that logging in can return to
@@ -287,6 +293,10 @@ class SecurityConfig {
                         // Submitting it is handled by TwoFactorLoginFilter, before this.
                         .requestMatchers(HttpMethod.GET, TWO_FACTOR_LOGIN_PATH).permitAll()
                         .requestMatchers(HttpMethod.GET, CONSENT_PATH).authenticated()
+                        // A visitor from another server is sent to their own server to follow, so needs no account here.
+                        .requestMatchers(HttpMethod.POST, REMOTE_FOLLOW_PATH).permitAll()
+                        .requestMatchers(HttpMethod.POST, FOLLOW_PATH, UNFOLLOW_PATH).authenticated()
+                        .requestMatchers(HttpMethod.GET, AUTHORIZE_INTERACTION_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, DELETE_ACCOUNT_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, DELETE_ACCOUNT_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, SETTINGS_PATH).authenticated()

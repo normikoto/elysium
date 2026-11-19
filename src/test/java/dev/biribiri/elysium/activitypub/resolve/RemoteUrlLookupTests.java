@@ -57,7 +57,7 @@ class RemoteUrlLookupTests {
     void setUp() {
         var instance = new InstanceProperties(URI.create("https://local.example"));
         var limits = new ResolveLimits();
-        actorLookup = new RemoteActorLookup(actors, remoteActors, http, blocks, instance, JSON, limits);
+        actorLookup = new RemoteActorLookup(actors, remoteActors, new WebFingerRequests(http, JSON), blocks, instance, limits);
         lookup = new RemoteUrlLookup(remoteActors, limits, notes, actors, statuses, documents, blocks, instance);
         when(actors.findByUri(any())).thenReturn(Optional.empty());
         when(actors.findRemoteByAcct(anyString(), anyString())).thenReturn(Optional.empty());

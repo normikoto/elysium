@@ -1,0 +1,13 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(${name != null ? name : 'Follow'}, ~{::content})}">
+<th:block th:fragment="content">
+    <p class="error" role="alert" th:if="${error != null}" th:text="${error}"></p>
+    <th:block th:if="${follow != null}">
+        <!-- The heading is already the address when there's no display name. -->
+        <p th:if="${name != follow.address()}" th:text="${follow.address()}"></p>
+        <p><a th:href="${follow.account().uri()}" rel="nofollow noopener noreferrer">View on their server</a></p>
+        <th:block th:replace="~{follow-controls :: controls(${follow})}"></th:block>
+    </th:block>
+    <p><a href="/">Back to the front page</a></p>
+</th:block>
+</html>

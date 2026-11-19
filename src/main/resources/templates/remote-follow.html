@@ -1,0 +1,16 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Follow', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="error" role="alert" th:text="${error}"></p>
+    <form method="post" th:action="@{/users/{username}/remote-follow(username=${target.username()})}">
+        <label for="remote-follow-address">Your address</label>
+        <input type="text" id="remote-follow-address" name="address" placeholder="@you@your.server" th:value="${address}"
+               autocomplete="username" autocapitalize="off" spellcheck="false" required>
+        <button type="submit">Follow</button>
+    </form>
+    <p>
+        You can also search for <code th:text="${targetAddress}"></code> in your app, and follow from there.
+    </p>
+    <p><a th:href="@{/users/{username}(username=${target.username()})}">Back to the profile</a></p>
+</th:block>
+</html>
