@@ -70,6 +70,15 @@ The script checks:
   `featured` collection when it refreshes an actor, so it isn't checked. The peer then pins and unpins the lab post that
   mentions alice, and Elysium's `?pinned=true` has to follow. GoToSocial doesn't send `Add`s either, so there the lab user's
   profile is changed after each, and Elysium reads its `featured` collection from the `Update`.
+- **Quotes:** alice quotes a lab post, which Elysium shows as accepted once the peer approves it, and Mastodon has to show
+  as approved too. The peer then quotes alice's public post, which Elysium approves automatically and notifies her of. On
+  Mastodon, alice then revokes it, and Mastodon has to show it as revoked. GoToSocial's posts say only their author can
+  quote them, so there this only checks that Elysium refuses to quote one.
+- **Reviewing quotes:** on Mastodon and Misskey, alice posts a status whose quotes she reviews by hand, and the peer quotes
+  it twice. Each quote has to wait in alice's interaction requests, and on Mastodon stay pending there too, since Elysium
+  doesn't answer its `QuoteRequest` yet. alice approves the first, and Mastodon has to show it as approved. She rejects the
+  second, and Mastodon has to show it as rejected, and then approves it after all, which only Elysium shows, since
+  Mastodon only takes an `Accept` of a pending quote. Misskey can't ask for approval, so there nothing is sent back.
 - **Boosts of other posts:** while alice follows the `lab` user, it boosts a post by another account on its server, `other`,
   which Elysium hasn't been sent. Elysium has to fetch that post and show the boost in alice's home timeline, and remove the
   boost when it's undone.

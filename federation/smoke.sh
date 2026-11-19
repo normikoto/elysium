@@ -6,8 +6,8 @@
 # servers also like and unlike, boost and unboost, and pin and unpin, each other's posts, apart from GoToSocial reading
 # Elysium's pins, which it only does when it refreshes an actor. Elysium fetches a post that a followed account
 # boosts, and it backfills a followed account's older post from its outbox. Elysium quotes the other server's post, and
-# Mastodon and Misskey quote Elysium's, with Mastodon's approvals and a revocation checked on both sides. Each server
-# forwards a report to the other. On Mastodon, each server shows the other's custom emoji, and on Misskey, each server
+# Mastodon and Misskey quote Elysium's, with Mastodon's approvals and a revocation checked on both sides, and quotes that
+# alice reviews by hand. Each server forwards a report to the other. On Mastodon, each server shows the other's custom emoji, and on Misskey, each server
 # shows the other's emoji reactions.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
@@ -1288,7 +1288,11 @@ like_from_peer() {
                 -H "Authorization: Bearer $token"
             ;;
         misskey)
-            id=$(misskey_api users/notes "$(misskey_user_body)" | jq -r --arg uri "$uri" '.[] | select(.uri == $uri) | .id')
+            for _ in $(seq 1 60); do
+                id=$(misskey_api users/notes "$(misskey_user_body)" | jq -r --arg uri "$uri" '.[] | select(.uri == $uri) | .id')
+                [[ -n $id ]] && break
+                sleep 2
+            done
             [[ -n $id ]] || fail "Misskey has no stored note at $uri"
             if [[ $action == favourite ]]; then
                 misskey_api notes/reactions/create "$(jq -cn --arg id "$id" '{noteId: $id, reaction: "👍"}')" >/dev/null
@@ -1706,14 +1710,20 @@ expect_elysium_quote() {
     fail "Elysium didn't show the quote $uri as $expected: ${body:-not stored}"
 }
 
-# Prints the URI of the peer's new quote of a post.
+# Prints the URI of the peer's new quote of a post, waiting for the peer to store the post, since it's handled in a job there.
 quote_from_peer() {
     local uri=$1 id output
     case "$target" in
         mastodon)
             output=$(docker compose exec -T -e STATUS_URI="$uri" mastodon-web bin/rails runner '
                 lab = Account.find_local("lab")
-                status = Status.find_by!(uri: ENV["STATUS_URI"])
+                status = nil
+                60.times do
+                    status = Status.find_by(uri: ENV["STATUS_URI"])
+                    break if status
+                    sleep 2
+                end
+                raise "No stored status at #{ENV["STATUS_URI"]}" if status.nil?
                 quote = PostStatusService.new.call(lab, text: "Quoting from the lab", quoted_status: status)
                 puts "URI #{ActivityPub::TagManager.instance.uri_for(quote)}"')
             sed -n 's/^URI //p' <<<"$output"
@@ -1831,6 +1841,76 @@ check_quotes() {
         mastodon_expect_quote "$quote_uri" revoked ""
     fi
     echo "$target and Elysium quoted each other's posts, with approvals, notifications, and a revocation where supported"
+}
+
+# Waits for a quote to be listed among those waiting for alice to review, and prints its ID here.
+expect_review_request() {
+    local uri=$1 read_token=$2 id body
+    for _ in $(seq 1 60); do
+        id=$(elysium_status_id "$uri")
+        if [[ -n $id ]]; then
+            body=$(driver curl -fsS "https://elysium.test/api/v1/interaction_requests" -H "Authorization: Bearer $read_token")
+            if jq -e --arg id "$id" 'any(.[]; .id == $id and .type == "quote")' <<<"$body" >/dev/null; then
+                echo "$id"
+                return
+            fi
+        fi
+        sleep 2
+    done
+    fail "Elysium didn't list $uri for alice to review: ${body:-not stored}"
+}
+
+# Prints the request as it is after alice answers it, with authorize or reject.
+review_quote() {
+    local id=$1 answer=$2 write_token=$3
+    driver curl -fsS -X POST "https://elysium.test/api/v1/interaction_requests/$id/$answer" \
+        -H "Authorization: Bearer $write_token"
+}
+
+# Run while the lab user follows alice, so that it has her post to quote. alice reviews every quote of it by hand. Mastodon
+# asks with a QuoteRequest, which gets no answer until she decides, and then her Accept or Reject. Mastodon only takes an
+# Accept of a quote that's pending, so approving one she rejected only shows it here. Misskey can't ask, so its quotes wait
+# for her here, and nothing is sent back.
+check_quote_review() {
+    local read_token write_token reviewed_uri approved_uri rejected_uri id body
+    read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
+    write_token=$(driver sh /federation/elysium-token.sh alice "$password" write:statuses)
+    reviewed_uri=$(driver curl -fsS https://elysium.test/api/v1/statuses -H "Authorization: Bearer $write_token" \
+        --data-urlencode "status=Ask before quoting this" --data-urlencode "quote_review=all" | jq -r .uri)
+    [[ -n $reviewed_uri && $reviewed_uri != null ]] || fail "alice couldn't post a status whose quotes she reviews"
+    expect_delivered "$reviewed_uri#create"
+
+    approved_uri=$(quote_from_peer "$reviewed_uri")
+    [[ -n $approved_uri ]] || fail "$target couldn't quote $reviewed_uri"
+    id=$(expect_review_request "$approved_uri" "$read_token")
+    expect_elysium_quote "$approved_uri" pending "$read_token"
+    [[ $target == mastodon ]] && mastodon_expect_quote "$approved_uri" pending ""
+    body=$(review_quote "$id" authorize "$write_token")
+    jq -e '.accepted_at != null and .rejected_at == null' <<<"$body" >/dev/null || fail "Approving failed: $body"
+    expect_elysium_quote "$approved_uri" accepted "$read_token"
+    [[ $target == mastodon ]] \
+        && mastodon_expect_quote "$approved_uri" accepted "https://elysium.test/users/alice/quote_authorizations/"
+
+    rejected_uri=$(quote_from_peer "$reviewed_uri")
+    [[ -n $rejected_uri ]] || fail "$target couldn't quote $reviewed_uri again"
+    id=$(expect_review_request "$rejected_uri" "$read_token")
+    body=$(review_quote "$id" reject "$write_token")
+    jq -e '.rejected_at != null and .accepted_at == null' <<<"$body" >/dev/null || fail "Rejecting failed: $body"
+    expect_elysium_quote "$rejected_uri" rejected "$read_token"
+    [[ $target == mastodon ]] && mastodon_expect_quote "$rejected_uri" rejected ""
+    body=$(driver curl -fsS "https://elysium.test/api/v1/interaction_requests" -H "Authorization: Bearer $read_token")
+    jq -e --arg id "$id" 'any(.[]; .id == $id) | not' <<<"$body" >/dev/null \
+        || fail "Elysium still lists the rejected quote for review: $body"
+
+    # alice changes her mind.
+    body=$(review_quote "$id" authorize "$write_token")
+    jq -e '.accepted_at != null' <<<"$body" >/dev/null || fail "Approving a rejected quote failed: $body"
+    expect_elysium_quote "$rejected_uri" accepted "$read_token"
+    if [[ $target == mastodon ]]; then
+        expect_delivered "https://elysium.test/users/alice#accepts/quote_requests/%"
+        mastodon_expect_quote "$rejected_uri" rejected ""
+    fi
+    echo "alice reviewed $target's quotes by hand, approving one, and rejecting one and then approving it"
 }
 
 # A poll's status as Elysium stores it, waiting for it to arrive.
@@ -2466,6 +2546,7 @@ case "$target" in
         check_boosts mastodon.test
         check_pins mastodon.test
         check_quotes mastodon.test
+        check_quote_review
         check_polls
         check_reports mastodon.test
         delete_from_mastodon
@@ -2492,6 +2573,7 @@ case "$target" in
         check_boosts misskey.test
         check_pins misskey.test
         check_quotes misskey.test
+        check_quote_review
         check_polls
         check_reports misskey.test
         delete_from_misskey
@@ -2504,4 +2586,4 @@ case "$target" in
         ;;
 esac
 
-echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, boosts and unboosts, pins, quotes, polls and votes, and reports, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
+echo "PASSED: $target can discover alice@elysium.test, deliver to it, follow and unfollow it, have its requests held, refused, and approved while it's locked, take its Block and Undo, be followed and unfollowed by it, send it statuses and reach its home timeline, receive its statuses, their edits, and profile changes, exchange likes and unlikes, boosts and unboosts, pins, quotes, including ones reviewed by hand where it can quote, polls and votes, and reports, have its boosts of other posts fetched and its older posts backfilled, and accept its suspension and deletion, and Elysium takes $target's profile changes and any status edits, and removes the status and account that $target deleted"
