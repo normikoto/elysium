@@ -30,7 +30,7 @@ import java.util.Optional;
  * <p>A {@code Note} has to be the actor's, as {@link ActorNotes} checks. Its {@code updated} orders edits, since jobs have
  * no order, and one without it isn't applied as an edit, because nothing says that it's newer than what's stored. What it
  * quotes, and who can quote it, are applied either way, as {@link QuoteService#reconcileRemote} explains. One that isn't stored
- * yet is stored as a {@code Create} would store it, if it was published recently, since its {@code Create} can run later.
+ * yet is stored as a {@code Create} would store it, since its {@code Create} can run later, or never arrive.
  *
  * <p>A {@code Question}'s counts and closing time are applied whatever its {@code updated} says, since Mastodon sends an
  * {@code Update} with new counts that doesn't change it. Counts only go to a poll with the same options, so an older
@@ -42,7 +42,7 @@ class UpdateHandler implements InboundActivityHandler {
     private static final Logger log = LoggerFactory.getLogger(UpdateHandler.class);
 
     /**
-     * How old a note can be and still be stored from an {@code Update}. A {@code Create} and its {@code Update} are
+     * How old a note can be and still be stored from an {@code Update} as new. A {@code Create} and its {@code Update} are
      * usually minutes apart, and a {@code Create} that's held up longer than jobs are retried for isn't coming.
      */
     private static final Duration NEW_FOR = Jobs.RETRIED_FOR;
@@ -160,18 +160,21 @@ class UpdateHandler implements InboundActivityHandler {
     }
 
     /**
-     * Stores a note whose {@code Create} hasn't been processed yet, since jobs have no order, as long as it's new. An older
-     * note is ignored, so that editing an old post can't make it look new here: status IDs come from when a status arrives,
-     * so it would go to the top of timelines. Its {@code published} is the other server's word, but a server that lied could
-     * send a {@code Create} instead.
+     * Stores a note whose {@code Create} hasn't been processed yet, since jobs have no order. An older one is stored as
+     * backfilled, so that editing an old post can't make it look new here: status IDs come from when a status arrives, so it
+     * would go to the top of timelines and notify. Its {@code published} is the other server's word, but a server that lied
+     * could send a {@code Create} instead. One without it is ignored, since it would sort as new.
      */
     private void storeLate(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read) {
         var published = read.note().published();
-        if (published == null || published.isBefore(activity.firstReceivedAt().minus(NEW_FOR))) {
-            log.debug("Ignoring Update {}, whose Note isn't stored, and isn't new", activity.id());
+        if (published == null) {
+            log.debug("Ignoring Update {}, whose Note isn't stored, and doesn't say when it was published", activity.id());
             return;
         }
-        if (storage.store(activity, document, read) == NoteStorage.Result.TAKEN) {
+        var stored = published.isBefore(activity.firstReceivedAt().minus(NEW_FOR))
+                ? storage.storeOld(activity, document, read)
+                : storage.store(activity, document, read);
+        if (stored == NoteStorage.Result.TAKEN) {
             // Its Create was stored in between, with an older version, which can still be edited. Or it was deleted, which
             // this finds nothing to edit for.
             storedAuthor(URI.create(activity.actorUri())).ifPresent(author -> edit(read.note(), author));

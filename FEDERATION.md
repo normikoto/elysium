@@ -761,9 +761,10 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   none of what's replaced isn't kept as a version, so the status doesn't show as edited. What it
   [quotes](#receiving-quotes), and who can quote it, are applied whatever its `updated` says.
 - **Before its `Create`:** an `Update` of a `Note` that isn't stored is treated as its `Create`, with the same checks,
-  including who it's for, if its `published` is less than 3 days before the `Update` arrived. The `Create` is then ignored
-  when it's processed. A `Note` that's older, or has no `published`, is ignored, so that editing an old post doesn't make
-  it look new here, since statuses are ordered by when they arrive.
+  including who it's for. The `Create` is then ignored when it's processed. If its `published` is 3 days or more before
+  the `Update` arrived, it's ordered by its `published` instead of by when it arrived, nobody here is notified of it, and
+  a direct one is ignored, so that editing an old post doesn't make it look new here. A `Note` with no `published` is
+  ignored. Mastodon ignores an `Update` of a status it doesn't have if its `published` is more than a day old.
 - **Forwarded:** an `Update` is [fetched from its origin](#forwarded-activities) like any forwarded activity. Mastodon's
   `Update` IDs have a fragment, so a forwarded one is lost.
 

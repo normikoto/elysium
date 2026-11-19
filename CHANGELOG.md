@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- An edit from another server of an older post that never arrived here, such as one whose delivery was held up, now
+  stores it, in its place by date and without notifying anyone. Older direct messages are still left out. Before, edits
+  of posts more than 3 days old were dropped.
 - Approving a follow request gives the user a follow notification from the new follower, in place of the request's
   notification. That includes requests approved automatically, which can give several at once, such as when a user stops
   approving followers by hand. Requests approved before upgrading don't get one.
