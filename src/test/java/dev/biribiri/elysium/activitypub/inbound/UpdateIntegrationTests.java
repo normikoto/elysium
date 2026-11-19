@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -79,6 +80,7 @@ class UpdateIntegrationTests {
     @MockitoBean
     private ActivityDocuments documents;
 
+    private Actor local;
     private Actor author;
     private Actor neighbour;
     private String host;
@@ -86,14 +88,14 @@ class UpdateIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        var follower = actors.createLocalIfAbsent("u" + UUID.randomUUID().toString().replace("-", "").substring(0, 20), actor -> {
+        local = actors.createLocalIfAbsent("u" + UUID.randomUUID().toString().replace("-", "").substring(0, 20), actor -> {
         }).orElseThrow();
         host = "h" + UUID.randomUUID() + ".test";
         author = remote("s");
         neighbour = remote("t");
         followers = author.uri() + "/followers";
-        follow(follower, author);
-        follow(follower, neighbour);
+        follow(local, author);
+        follow(local, neighbour);
     }
 
     // Statuses
@@ -277,14 +279,64 @@ class UpdateIntegrationTests {
     }
 
     @Test
-    void ignoresAnOldNoteThatIsntStored() {
+    void storesAnOldNoteThatIsntStoredInItsPlaceByDate() {
+        var arrived = stored();
         var noteId = noteId();
-        var old = new HashMap<>(edit(noteId, Instant.now().toString(), "<p>Edited</p>"));
-        old.put("published", Instant.now().minus(Duration.ofDays(4)).toString());
+        var published = Instant.now().minus(Duration.ofDays(4)).truncatedTo(ChronoUnit.SECONDS);
+        var updated = published.plus(Duration.ofDays(1));
+        var old = new HashMap<>(edit(noteId, updated.toString(), "<p>Edited</p>"));
+        old.put("published", published.toString());
 
         handler.handle(update(old));
 
-        assertThat(status(noteId)).isEmpty();
+        var row = status(noteId).orElseThrow();
+        assertThat(row.get("content")).isEqualTo("<p>Edited</p>");
+        assertThat(((Timestamp) row.get("edited_at")).toInstant()).isEqualTo(updated);
+        assertThat(((Timestamp) row.get("published_at")).toInstant()).isEqualTo(published);
+        // Older than what was already here, so clients polling for new statuses aren't given it.
+        assertThat(((UUID) row.get("id")).compareTo((UUID) status(arrived).orElseThrow().get("id"))).isNegative();
+    }
+
+    @Test
+    void anOldFollowersOnlyNoteIsStoredWithoutNotifying() throws Exception {
+        var recent = mentioning(recent(noteId()), List.of(followers));
+        var old = mentioning(old(noteId()), List.of(followers));
+
+        handler.handle(update(recent));
+        handler.handle(update(old));
+
+        await().atMost(Duration.ofSeconds(10)).until(() -> notifications((String) recent.get("id")) == 1);
+        assertThat(status((String) old.get("id")).orElseThrow().get("visibility")).isEqualTo("private");
+        // Listeners would have run by now, if anything had been published.
+        Thread.sleep(500);
+        assertThat(notifications((String) old.get("id"))).isZero();
+    }
+
+    @Test
+    void anOldDirectNoteIsntStored() {
+        var recent = mentioning(recent(noteId()), List.of());
+        var old = mentioning(old(noteId()), List.of());
+
+        handler.handle(update(recent));
+        handler.handle(update(old));
+
+        assertThat(status((String) recent.get("id")).orElseThrow().get("visibility")).isEqualTo("direct");
+        assertThat(status((String) old.get("id"))).isEmpty();
+    }
+
+    @Test
+    void aCreateAfterAnOldUpdateIsIgnored() {
+        var noteId = noteId();
+        var original = new HashMap<>(note(noteId, null));
+        original.put("published", Instant.now().minus(Duration.ofDays(4)).toString());
+        var edited = new HashMap<>(original);
+        edited.put("updated", Instant.now().toString());
+        edited.put("content", "<p>Edited</p>");
+
+        handler.handle(update(edited));
+        creates.handle(create(original));
+
+        assertThat(status(noteId).orElseThrow().get("content")).isEqualTo("<p>Edited</p>");
     }
 
     @Test
@@ -305,15 +357,21 @@ class UpdateIntegrationTests {
         var note = new HashMap<>(recent(notForAnyone));
         note.put("attributedTo", stranger.uri().toString());
         note.put("cc", List.of(stranger.uri() + "/followers"));
+        var oldNotForAnyone = "https://" + host + "/notes/" + UUID.randomUUID();
+        var oldNote = new HashMap<>(old(oldNotForAnyone));
+        oldNote.put("attributedTo", stranger.uri().toString());
+        oldNote.put("cc", List.of(stranger.uri() + "/followers"));
         var direct = noteId();
         var directNote = new HashMap<>(recent(direct));
         directNote.put("to", List.of());
         directNote.put("cc", List.of());
 
         handler.handle(updateOf(notForAnyone + "#updates/1", stranger.uri(), json.writeValueAsString(note)));
+        handler.handle(updateOf(oldNotForAnyone + "#updates/1", stranger.uri(), json.writeValueAsString(oldNote)));
         handler.handle(update(directNote));
 
         assertThat(status(notForAnyone)).isEmpty();
+        assertThat(status(oldNotForAnyone)).isEmpty();
         assertThat(status(direct)).isEmpty();
     }
 
@@ -610,6 +668,33 @@ class UpdateIntegrationTests {
         var note = edit(id, now.toString(), "<p>Edited</p>");
         note.put("published", now.minus(Duration.ofHours(1)).toString());
         return note;
+    }
+
+    /**
+     * An edited note that was published 4 days ago, too long ago for its {@code Create} to still be coming.
+     */
+    private Map<String, Object> old(String id) {
+        var now = Instant.now();
+        var note = edit(id, now.toString(), "<p>Edited</p>");
+        note.put("published", now.minus(Duration.ofDays(4)).toString());
+        return note;
+    }
+
+    /**
+     * The note, addressed to and mentioning the local follower, and to {@code to}.
+     */
+    private Map<String, Object> mentioning(Map<String, Object> note, List<String> to) {
+        note.put("to", to);
+        note.put("cc", List.of(local.uri().toString()));
+        note.put("tag", List.of(Map.of("type", "Mention", "href", local.uri().toString())));
+        return note;
+    }
+
+    private long notifications(String uri) {
+        return jdbc.sql("SELECT count(*) FROM notification n JOIN status s ON s.id = n.status_id WHERE s.uri = :uri")
+                .param("uri", uri)
+                .query(Long.class)
+                .single();
     }
 
     private Map<String, Object> edit(String id, String updated, String content) {

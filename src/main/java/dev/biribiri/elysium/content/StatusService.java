@@ -788,8 +788,8 @@ public class StatusService {
     }
 
     /**
-     * Like {@link #storeRemote}, for an older status fetched from its author's outbox, or for its thread, rather than sent
-     * here.
+     * Like {@link #storeRemote}, for an older status fetched from its author's outbox, or for its thread, or first seen in
+     * an edit of it, rather than sent here when it was posted. It's never direct, since it doesn't join a conversation.
      *
      * <p>Its ID comes from its {@code published} date, or now if that's later, so that it sorts among its author's statuses
      * by when it was posted, rather than putting old ones at the top of every timeline. This is the one exception to IDs

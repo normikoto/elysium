@@ -42,8 +42,9 @@ import java.util.stream.Stream;
  * note can't make this server fetch them.
  *
  * <p>This is for a {@code Create}, and for an {@code Update} of a note that isn't stored yet. Both have to pass the same
- * checks, so that an {@code Update} can't store anything a {@code Create} couldn't. A note that a boost names is stored
- * through {@link #storeBoosted}, since who it's for comes from the boost.
+ * checks, so that an {@code Update} can't store anything a {@code Create} couldn't. An old note from an {@code Update} goes
+ * through {@link #storeOld}, so that editing it can't make it look new. A note that a boost names is stored through
+ * {@link #storeBoosted}, since who it's for comes from the boost.
  */
 @Component
 class NoteStorage {
@@ -87,6 +88,19 @@ class NoteStorage {
      * @param read     the activity's note, already checked to be its actor's by {@link ActorNotes}
      */
     Result store(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read) {
+        return store(activity, document, read, false);
+    }
+
+    /**
+     * Like {@link #store}, for a note from an {@code Update} that's too old for its {@code Create} to still be coming. It
+     * sorts by its {@code published} and nobody is told about it, as for {@link #storeBackfilled}. A direct one isn't kept,
+     * since a backfilled status doesn't join a conversation, and that's the only place it would show.
+     */
+    Result storeOld(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read) {
+        return store(activity, document, read, true);
+    }
+
+    private Result store(InboundActivity activity, JsonNode document, ActorNotes.ActorNote read, boolean old) {
         var actorUri = URI.create(activity.actorUri());
         var note = read.note();
         // Before anything that reads the author's followers collection, which is only known once the actor is stored. It
@@ -96,6 +110,10 @@ class NoteStorage {
         var forWhom = recipients.of(activity, document, read.fetched() ? note.addressing() : Addressing.NONE);
         // Followers-only replies and quotes stay out, since only their author's followers could see them.
         var everyone = visibility.isOpen();
+        if (old && visibility == Visibility.DIRECT) {
+            log.debug("Ignoring {} {}, whose note is old and direct", activity.type(), activity.id());
+            return Result.IGNORED;
+        }
         if (forWhom.isEmpty() && !(everyone && note.inReplyTo() != null
                 && recipients.repliesToSomeoneHere(note.inReplyTo(), actorUri))
                 && !(everyone && note.quote() != null
@@ -108,7 +126,8 @@ class NoteStorage {
             return Result.IGNORED;
         }
         return save(note, author, visibility, activity.firstReceivedAt(),
-                Addressing.ofActivity(document).with(note.addressing()), statuses::storeRemote);
+                Addressing.ofActivity(document).with(note.addressing()),
+                old ? statuses::storeBackfilled : statuses::storeRemote);
     }
 
     /**

@@ -75,7 +75,7 @@ public class Notifier {
     }
 
     /**
-     * A backfilled status is old, and only public or unlisted, so it neither notifies nor joins a conversation.
+     * A backfilled status is old, and never direct, so it neither notifies nor joins a conversation.
      */
     @ApplicationModuleListener
     public void on(StatusStored event) {
