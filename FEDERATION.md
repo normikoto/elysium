@@ -334,8 +334,9 @@ is on the same host and port as the `actor`:
   stored.
 - An `Update`, such as Mastodon's, whose `id` has a fragment, has its `object` fetched in the same way, and is kept if
   what's served is a `Note` or a `Question` with that `id`, attributed to the `actor` alone. What's served is then
-  [applied as an `Update`](#receiving-updates) would be, so its `updated` decides whether it's an edit. An `Update` of the
-  `actor` itself is still lost.
+  [applied as an `Update`](#receiving-updates) would be, so its `updated` decides whether it's an edit, even if the same
+  version was applied before. An `Update` of the `actor` itself isn't fetched this way, so it's lost if its origin doesn't
+  serve it.
 
 The sender chooses where these fetches go, so each host gets at most 60 of them a minute, with bursts of up to 60, counting
 the fetches of forwarded activities, of the objects of forwarded `Create`s and `Update`s, of objects
@@ -779,7 +780,7 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   ignored. Mastodon ignores an `Update` of a status it doesn't have if its `published` is more than a day old.
 - **Forwarded:** an `Update` is [fetched from its origin](#forwarded-activities) like any forwarded activity. Mastodon's
   `Update` IDs have a fragment, so the status is fetched from its own server instead. A forwarded `Update` of an actor
-  is lost.
+  is only accepted if its origin serves it.
 
 #### Receiving deletes
 

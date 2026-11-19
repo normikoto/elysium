@@ -34,8 +34,8 @@ import java.util.Locale;
  * <p>That activity isn't stored under the forwarded copy's {@code id}, which nobody has vouched for. Otherwise a server could
  * forward one that gives a real activity's {@code id} to another of its actor's notes, and the real one would be dropped as
  * a repeat. A {@code Create}'s ID comes from the note instead, so forwards of the same note are repeats of each other. An
- * {@code Update}'s comes from what was served, since each edit is a new version of the same note. The real activity still
- * arrives under its own ID, and finds the note already stored.
+ * {@code Update}'s comes from what was served, since each edit is a new version of the same note, but a version fetched
+ * again is still applied again. The real activity still arrives under its own ID, and finds the note already stored.
  */
 @Component
 class ForwardedNotes {
@@ -81,16 +81,22 @@ class ForwardedNotes {
     }
 
     /**
-     * Queues a fetch of the note, unless one for the same note and type is already queued. A later {@code Update} doesn't
-     * need one of its own while one waits, since the fetch gets the latest version.
+     * Queues a fetch of the note, unless one is already queued for the same note, or for an {@code Update}, for the same
+     * forwarded copy. Each {@code Update} gets a fetch of its own, since one that arrives while another's fetch is running
+     * can be a newer edit than the one that fetch got.
      *
-     * @param note     the activity's object, checked to be on the actor's server
-     * @param type     {@code Create} or {@code Update}
-     * @param queuedAt when the forwarded copy arrived, which has already waited in another job
+     * @param note        the activity's object, checked to be on the actor's server
+     * @param type        {@code Create} or {@code Update}
+     * @param forwardedId the forwarded copy's {@code id}, which only keeps apart the fetches of {@code Update}s
+     * @param queuedAt    when the forwarded copy arrived, which has already waited in another job
      */
-    void queue(URI note, URI actor, String type, Instant queuedAt) {
-        Jobs.schedule(scheduler, TASK, new ForwardedNoteJob(note.toString(), actor.toString(), type, queuedAt, null),
-                "forwarded-note", type, note.toString(), actor.toString());
+    void queue(URI note, URI actor, String type, String forwardedId, Instant queuedAt) {
+        var job = new ForwardedNoteJob(note.toString(), actor.toString(), type, queuedAt, null);
+        if (job.isUpdate()) {
+            Jobs.schedule(scheduler, TASK, job, "forwarded-note", type, note.toString(), actor.toString(), forwardedId);
+        } else {
+            Jobs.schedule(scheduler, TASK, job, "forwarded-note", type, note.toString(), actor.toString());
+        }
     }
 
     /**
@@ -155,18 +161,25 @@ class ForwardedNotes {
         var served = json.writeValueAsString(document);
         var id = activityId(type, actor, type.equals("Create") ? note.toString() : served);
         // No addressing of its own, so that only the note's decides who it's for.
-        var activity = new LinkedHashMap<String, Object>();
-        activity.put("@context", ActivityStreams.CONTEXT);
-        activity.put("id", id);
-        activity.put("type", type);
-        activity.put("actor", actor);
-        activity.put("object", document);
-        var body = json.writeValueAsString(activity);
+        var built = new LinkedHashMap<String, Object>();
+        built.put("@context", ActivityStreams.CONTEXT);
+        built.put("id", id);
+        built.put("type", type);
+        built.put("actor", actor);
+        built.put("object", document);
+        var body = json.writeValueAsString(built);
         if (body.getBytes(StandardCharsets.UTF_8).length > Inbox.MAX_BODY_BYTES) {
             log.debug("Dropping a forwarded {} of {}, which is too large", type, note);
             return;
         }
-        activities.accept(new InboundActivity(id, actor, type, body, arrivedAt));
+        var activity = new InboundActivity(id, actor, type, body, arrivedAt);
+        if (type.equals("Update")) {
+            // A version that was applied before can still change what's stored, such as a poll's counts from an Update
+            // that was handled before the status was stored.
+            activities.acceptAgain(activity);
+        } else {
+            activities.accept(activity);
+        }
     }
 
     /**

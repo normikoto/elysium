@@ -128,9 +128,9 @@ class ForwardedActivities {
             if (job.deletedObject() != null) {
                 deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt());
             } else if (job.createdObject() != null) {
-                notes.queue(URI.create(job.createdObject()), URI.create(job.actorId()), "Create", job.queuedAt());
+                notes.queue(URI.create(job.createdObject()), URI.create(job.actorId()), "Create", id, job.queuedAt());
             } else if (job.updatedObject() != null) {
-                notes.queue(URI.create(job.updatedObject()), URI.create(job.actorId()), "Update", job.queuedAt());
+                notes.queue(URI.create(job.updatedObject()), URI.create(job.actorId()), "Update", id, job.queuedAt());
             }
         }
         return Jobs.done();

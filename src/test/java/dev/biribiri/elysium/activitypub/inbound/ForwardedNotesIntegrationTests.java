@@ -294,6 +294,22 @@ class ForwardedNotesIntegrationTests {
                 .single()).contains("\"type\":\"Update\"");
     }
 
+    /**
+     * The second can arrive while the first's fetch is running, after it got the first edit.
+     */
+    @Test
+    void queuesAFetchForEachForwardedUpdateOfTheSameNote() throws Exception {
+        var second = "https://" + origin + "/activities/" + UUID.randomUUID();
+        when(documents.fetch(URI.create(second))).thenThrow(DocumentFetchException.gone("not served"));
+        receive(update(id, note));
+        receive(update(second, note));
+
+        forwarded.fetch(forwardedJob());
+        forwarded.fetch(forwardedJob(second));
+
+        assertThat(noteJobs()).isEqualTo(2);
+    }
+
     @Test
     void doesNotQueueAFetchForAnUpdateOfTheActor() {
         receive(update(id, actor));
@@ -349,6 +365,23 @@ class ForwardedNotesIntegrationTests {
         notes.run(updateJob());
 
         assertThat(storedUpdates()).hasSize(2);
+    }
+
+    /**
+     * The first time can have been before the note was stored, when some of it, such as a poll's counts, couldn't be
+     * applied.
+     */
+    @Test
+    void appliesAVersionAgainWhenItIsFetchedAgain() throws Exception {
+        var published = now().minusSeconds(600);
+        serveNote(editedNote(published, published.plusSeconds(60), "Edited"));
+        var first = now().minusSeconds(60);
+
+        notes.run(new ForwardedNoteJob(note, actor, "Update", first, null));
+        notes.run(new ForwardedNoteJob(note, actor, "Update", first.plusSeconds(30), null));
+
+        assertThat(storedUpdates()).hasSize(1);
+        assertThat(jobs("inbound-activity", storedUpdates().getFirst())).isEqualTo(2);
     }
 
     @Test
@@ -421,6 +454,10 @@ class ForwardedNotesIntegrationTests {
      * The job that the inbox queued for the forwarded copy.
      */
     private ForwardedJob forwardedJob() {
+        return forwardedJob(id);
+    }
+
+    private ForwardedJob forwardedJob(String id) {
         var data = jdbc.sql("""
                         SELECT convert_from(task_data, 'UTF8') FROM scheduled_tasks
                         WHERE task_name = 'forwarded-activity' AND convert_from(task_data, 'UTF8') LIKE :id
