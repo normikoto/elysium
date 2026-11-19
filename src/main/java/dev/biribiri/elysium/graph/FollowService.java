@@ -605,6 +605,14 @@ public class FollowService {
     }
 
     /**
+     * @return the local account that's neither suspended nor deleted and has followed the actor the longest, which is the
+     * one most likely to have been sent everything the actor has posted to its followers
+     */
+    public Optional<UUID> earliestLocalFollower(URI followedUri) {
+        return follows.findEarliestLocalFollowerId(followedUri);
+    }
+
+    /**
      * @return whether a local account that's neither suspended nor deleted follows the actor
      */
     public boolean hasLocalFollowers(URI followedUri) {

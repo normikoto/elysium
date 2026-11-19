@@ -9,8 +9,10 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,7 @@ class NoteFetchIntegrationTests {
 
     private static final String BASE = "https://notes.example";
     private static final String ACTIVITY_JSON = "application/activity+json";
+    private static final String FEATURED = "/users/alice/collections/featured";
     private static final AtomicInteger nextAddress = new AtomicInteger();
 
     @Autowired
@@ -67,6 +70,10 @@ class NoteFetchIntegrationTests {
     private FollowService follows;
     @Autowired
     private DomainBlocks blocks;
+    @Autowired
+    private BlockService accountBlocks;
+    @Autowired
+    private StatusPinService pins;
     @Autowired
     private CavageRequestSigner signer;
     @Autowired
@@ -222,6 +229,42 @@ class NoteFetchIntegrationTests {
                 .andExpect(jsonPath("$.source").doesNotExist());
     }
 
+    /**
+     * The only test here that pins, since every test shares one author, who can only pin a few.
+     */
+    @Test
+    void listsFollowersOnlyPinsToThoseWhoCouldFetchThem() throws Exception {
+        var early = remote("early");
+        var late = remote("late");
+        var stranger = remote("stranger");
+        followAlice(early, Duration.ofHours(-1));
+        var everyone = post("everyone", Visibility.PUBLIC);
+        var followersOnly = post("only followers", Visibility.PRIVATE);
+        followAlice(late, Duration.ofHours(1));
+        pins.pin(everyone.id(), alice().id());
+        pins.pin(followersOnly.id(), alice().id());
+
+        fetchFeatured(early)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalItems").value(2))
+                .andExpect(jsonPath("$.orderedItems[0].id").value(followersOnly.uri().toString()))
+                .andExpect(jsonPath("$.orderedItems[1].id").value(everyone.uri().toString()))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store, private"));
+        for (var other : List.of(late, stranger)) {
+            fetchFeatured(other)
+                    .andExpect(jsonPath("$.totalItems").value(1))
+                    .andExpect(jsonPath("$.orderedItems[0].id").value(everyone.uri().toString()))
+                    .andExpect(header().string(HttpHeaders.CACHE_CONTROL, not(containsString("private"))));
+        }
+        send(get(FEATURED).accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, not(containsString("private"))));
+
+        // As a Note fetch, which shows a blocked actor nothing.
+        accountBlocks.block(alice(), early.stored());
+        fetchFeatured(early).andExpect(jsonPath("$.totalItems").value(0));
+    }
+
     @Test
     void doesNotMarkAPublicStatusPrivate() throws Exception {
         var status = post("everyone", Visibility.PUBLIC);
@@ -290,6 +333,11 @@ class NoteFetchIntegrationTests {
     private ResultActions fetch(Status status, Signer as) throws Exception {
         var headers = signer.sign("GET", URI.create(BASE + path(status)), new byte[0], as.key());
         return send(get(path(status)).accept(ACTIVITY_JSON).headers(headers));
+    }
+
+    private ResultActions fetchFeatured(Signer as) throws Exception {
+        var headers = signer.sign("GET", URI.create(BASE + FEATURED), new byte[0], as.key());
+        return send(get(FEATURED).accept(ACTIVITY_JSON).headers(headers));
     }
 
     private static MockHttpServletRequestBuilder unsigned(Status status) {

@@ -192,6 +192,23 @@ public class StatusPinService {
         return ids.stream().map(visible::get).filter(Objects::nonNull).toList();
     }
 
+    /**
+     * Like {@link #findPinned}, for another server's actor, which is shown what {@link StatusService#findFetchable} would
+     * serve it. A collection that lists a followers-only status then tells nobody about it who couldn't fetch it anyway,
+     * and an author who blocks the fetcher or its server shows it nothing.
+     *
+     * @param fetcher an active actor, or empty for a fetch that nobody is known to be behind
+     */
+    public List<Status> findFetchablePinned(UUID actorId, Optional<UUID> fetcher) {
+        if (fetcher.isEmpty()) {
+            return findPinned(actorId, fetcher);
+        }
+        // A lookup for each, but a local account has at most MAX_PER_ACCOUNT.
+        return pins.pinnedBy(actorId, MAX_REMOTE).stream()
+                .flatMap(id -> statuses.findFetchable(id, fetcher).stream())
+                .toList();
+    }
+
     public void removeForActor(UUID id) {
         pins.removeForActors(List.of(id));
     }

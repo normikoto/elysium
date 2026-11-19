@@ -7,6 +7,7 @@ import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
+import dev.biribiri.elysium.actor.Actor;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -19,11 +20,12 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * Fetches ActivityPub documents from other servers, signed as the instance actor. Documents are read as plain JSON, without a
+ * Fetches ActivityPub documents from other servers, signed as the instance actor unless a caller names a local actor. Documents are read as plain JSON, without a
  * JSON-LD processor, and no {@code @context} is ever fetched.
  *
  * <p>Each fetch counts against {@link HostRequests}, so that fetches of actors and objects can't take every connection to a
@@ -68,16 +70,29 @@ public class ActivityDocuments {
      * @throws HostBusyException      if too many fetches are running for its host, which isn't a failure of its server
      */
     public JsonNode fetch(URI url) throws DocumentFetchException {
+        return fetchCounted(url, Optional.empty());
+    }
+
+    /**
+     * Like {@link #fetch}, signed as a local actor, for a document that its server only shows to some actors, such as
+     * followers-only statuses for the actor's followers. Only the signer counts on servers that check who's asking, as on
+     * this one, so the caller has to choose an actor that's allowed to see what it's after.
+     */
+    public JsonNode fetchAs(URI url, Actor signer) throws DocumentFetchException {
+        return fetchCounted(url, Optional.of(signer));
+    }
+
+    private JsonNode fetchCounted(URI url, Optional<Actor> signer) throws DocumentFetchException {
         // A URL without a host can't be fetched anyway, and the client says why.
         if (url.getHost() == null) {
-            return fetchUncounted(url);
+            return read(url, signer);
         }
         var host = url.getHost().toLowerCase(Locale.ROOT);
         if (!hostRequests.tryStartFetch(host) && !waitForRoom(host)) {
             throw new HostBusyException(host);
         }
         try {
-            return fetchUncounted(url);
+            return read(url, signer);
         } finally {
             hostRequests.finishFetch(host);
         }
@@ -125,9 +140,16 @@ public class ActivityDocuments {
      * let each key fetch take two of a host's slots.
      */
     JsonNode fetchUncounted(URI url) throws DocumentFetchException {
+        return read(url, Optional.empty());
+    }
+
+    /**
+     * @param signer the local actor to sign as, or empty for the instance actor
+     */
+    private JsonNode read(URI url, Optional<Actor> signer) throws DocumentFetchException {
         FederationHttpClient.Response response;
         try {
-            response = http.get(url, ACCEPT);
+            response = signer.isPresent() ? http.getAs(url, ACCEPT, signer.get()) : http.get(url, ACCEPT);
         } catch (BlockedTargetException | ResponseTooLargeException e) {
             throw DocumentFetchException.permanent("Won't fetch " + url + ": " + e.getMessage(), e);
         } catch (IOException e) {
