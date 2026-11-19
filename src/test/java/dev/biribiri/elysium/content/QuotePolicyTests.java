@@ -47,6 +47,8 @@ class QuotePolicyTests {
 
         assertThat(StatusService.changedPolicy(reviewed, null, OtherQuotes.REJECT, () -> OtherQuotes.REVIEW))
                 .isEqualTo(QuotePolicy.NOBODY.approval(OtherQuotes.REJECT));
-        assertThat(StatusService.changedPolicy(null, null, OtherQuotes.REVIEW, () -> OtherQuotes.REVIEW)).isNull();
+        assertThat(StatusService.changedPolicy(null, null, null, () -> OtherQuotes.REVIEW)).isNull();
+        assertThat(StatusService.changedPolicy(null, null, OtherQuotes.REVIEW, () -> OtherQuotes.REJECT))
+                .isEqualTo(QuotePolicy.NOBODY.approval(OtherQuotes.REVIEW));
     }
 }

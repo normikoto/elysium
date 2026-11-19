@@ -493,9 +493,13 @@ public class StatusService {
     }
 
     /**
-     * A status from before quotes keeps having only its author able to quote it, unless the edit says who else can. One
-     * whose quotes are all approved automatically doesn't keep what would happen to anyone else's, so a change that
-     * doesn't say uses the author's default for that.
+     * A status from before quotes keeps having only its author able to quote it, unless the edit says otherwise, and is
+     * treated as {@link QuotePolicy#NOBODY} when it does. One whose quotes are all approved automatically doesn't keep
+     * what would happen to anyone else's, so a change that doesn't say uses the author's default for that.
+     * <p>
+     * A status from before {@link OtherQuotes} that only reviewed its author's followers' quotes reads back as
+     * {@link QuotePolicy#NOBODY} with {@link OtherQuotes#REVIEW}, so a change to it lets everyone else ask too. Its stored
+     * approval isn't converted, since other servers were sent it, and it decides as before until it's changed.
      *
      * @param policy   whose quotes of it are approved automatically, or null to keep that
      * @param others   what happens to everyone else's, or null to keep that
@@ -503,7 +507,7 @@ public class StatusService {
      */
     static QuoteApproval changedPolicy(
             QuoteApproval old, QuotePolicy policy, OtherQuotes others, Supplier<OtherQuotes> fallback) {
-        if (old == null && policy == null) {
+        if (old == null && policy == null && others == null) {
             return null;
         }
         OtherQuotes rest;
@@ -514,7 +518,8 @@ public class StatusService {
         } else {
             rest = fallback.get();
         }
-        return (policy != null ? policy : old.policy()).approval(rest);
+        var automatic = policy != null ? policy : old != null ? old.policy() : QuotePolicy.NOBODY;
+        return automatic.approval(rest);
     }
 
     /**

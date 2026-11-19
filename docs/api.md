@@ -235,7 +235,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   found gets a 404, and one the user isn't allowed to quote a 422.
 - A direct status can't be quoted, and a followers-only one only by its author, which makes the quote followers-only
   too.
-- A status from before this server supported quotes can only be quoted by its author. A status from another server that
+- A status from before this server supported quotes can only be quoted by its author, until `quote_approval_policy` or
+  `quote_others` is set on it. Setting only `quote_others` keeps it `nobody`. A status from another server that
   doesn't say who can quote it can be quoted by anyone, and the quote is accepted straight away, since that server can't
   be asked.
 - The text starts with a `<p class="quote-inline">RE: …</p>` link to the quoted status unless it links to it already,

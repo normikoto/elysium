@@ -1876,7 +1876,8 @@ check_quote_review() {
     read_token=$(driver sh /federation/elysium-token.sh alice "$password" read)
     write_token=$(driver sh /federation/elysium-token.sh alice "$password" write:statuses)
     reviewed_uri=$(driver curl -fsS https://elysium.test/api/v1/statuses -H "Authorization: Bearer $write_token" \
-        --data-urlencode "status=Ask before quoting this" --data-urlencode "quote_review=all" | jq -r .uri)
+        --data-urlencode "status=Ask before quoting this" --data-urlencode "quote_approval_policy=nobody" \
+        --data-urlencode "quote_others=review" | jq -r .uri)
     [[ -n $reviewed_uri && $reviewed_uri != null ]] || fail "alice couldn't post a status whose quotes she reviews"
     expect_delivered "$reviewed_uri#create"
 
