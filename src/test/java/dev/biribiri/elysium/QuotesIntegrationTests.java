@@ -387,6 +387,52 @@ class QuotesIntegrationTests {
     }
 
     @Test
+    void blockingSomeoneRevokesTheirQuotes() throws Exception {
+        var alice = account("qalice");
+        account("qbob");
+        account("qcarol");
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted));
+        var ofCarol = createStatus("qalice", Map.of("status", "quoting carol",
+                "quoted_status_id", createStatus("qcarol", Map.of("status", "another"))));
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + alice.id() + "/block"), token("qbob")))
+                .andExpect(status().isOk());
+
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(withToken(get("/api/v1/statuses/" + quote), token("qalice")))
+                .andExpect(jsonPath("$.quote.state").value("revoked")));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + quoted), token("qbob")))
+                .andExpect(jsonPath("$.quotes_count").value(0));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + ofCarol), token("qalice")))
+                .andExpect(jsonPath("$.quote.state").value("accepted"));
+    }
+
+    @Test
+    void blockingARemoteQuoterDeletesItsApproval() throws Exception {
+        var bob = account("qbob");
+        var remote = remote();
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var quoteUri = URI.create(remote.uri() + "/statuses/" + UUID.randomUUID());
+        var quote = statuses.storeRemote(new RemoteStatus(quoteUri, null, remote.id(), "<p>quote</p>", null, null,
+                Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(),
+                new RemoteQuote(URI.create("https://quotes.example/users/qbob/statuses/" + quoted), false, null), null))
+                .orElseThrow();
+        var answer = quotes.answerIncomingRequest(quote, UUID.fromString(quoted), URI.create(remote.uri() + "/request"),
+                QuoteDecision.AUTOMATIC);
+        var stamp = ((QuoteService.RequestAnswer.Accept) answer).stampId();
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + remote.id() + "/block"), token("qbob")))
+                .andExpect(status().isOk());
+
+        var delete = await().atMost(WAIT).until(() -> bodiesOfType(bob, "Delete", stamp.toString()), found -> !found.isEmpty())
+                .getFirst();
+        assertThat(JsonPath.<String>read(delete, "$.object.type")).isEqualTo("QuoteAuthorization");
+        assertThat(deliveryInboxes(JsonPath.read(delete, "$.id"))).contains(remote.sharedInboxUri().toString());
+        mockMvc.perform(get("/users/qbob/quote_authorizations/" + stamp).accept("application/activity+json"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void anApprovalOfAFollowersOnlyQuoteIsNotServedToAnyone() throws Exception {
         account("qbob");
         var quoted = createStatus("qbob", Map.of("status", "original"));

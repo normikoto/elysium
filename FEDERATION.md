@@ -1192,6 +1192,8 @@ once it's revoked.
 
 When a local user revokes an approval, a `Delete` of it, signed as the user, goes to the quote's author and to the user's
 followers, with the `QuoteAuthorization`'s `id` and `type` embedded and neither status. A local quote also gets an `Update`.
+Blocking someone revokes their accepted and pending quotes of the user's statuses in the same way. A remote actor's block
+of a local user doesn't change anything that was approved.
 A quote from a server that can't ask for approval has no `QuoteAuthorization`, so revoking it only hides it here.
 
 #### Receiving quotes
@@ -1234,6 +1236,7 @@ arrives first is remembered for 34 days, like a status's, and a quote that names
 - When the quoted author's server revokes the approval of a local quote, the quote's `Update` goes to its audience, rather
   than a forwarded `Delete`, which FEP-044f asks for.
 - Approvals aren't checked again later, so a revocation that isn't sent here isn't seen.
+- A local user's block revokes the blocked actor's quotes of their statuses. Mastodon leaves them approved.
 - A remote status's `manualApproval` is only shown to clients.
 - A quote that was rejected or revoked can be asked for again, under a new request `id`. FEP-044f doesn't say whether
   it can.
