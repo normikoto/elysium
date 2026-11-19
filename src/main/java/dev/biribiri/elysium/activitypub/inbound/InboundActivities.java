@@ -12,6 +12,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -55,6 +56,19 @@ public class InboundActivities {
      */
     @Transactional
     public boolean accept(InboundActivity activity) {
+        return accept(activity, this::shouldProcessRepeat);
+    }
+
+    /**
+     * Like {@link #accept}, processing a repeat from the same actor whatever its type's handler says, for an activity whose
+     * ID this server made, and which can do something new when it's processed again.
+     */
+    @Transactional
+    public boolean acceptAgain(InboundActivity activity) {
+        return accept(activity, this::isSameActorAndType);
+    }
+
+    private boolean accept(InboundActivity activity, Predicate<InboundActivity> processRepeat) {
         var added = jdbc.sql("""
                         INSERT INTO inbound_activity (activity_id, actor_uri, type, body, first_received_at, received_at)
                         VALUES (:id, :actorUri, :type, :body, :receivedAt, :receivedAt)
@@ -67,7 +81,7 @@ public class InboundActivities {
                 .param("receivedAt", activity.receivedAt().atOffset(ZoneOffset.UTC))
                 .update();
         if (added == 0) {
-            if (shouldProcessRepeat(activity)) {
+            if (processRepeat.test(activity)) {
                 jdbc.sql("UPDATE inbound_activity SET received_at = GREATEST(received_at, :receivedAt) WHERE activity_id = :id")
                         .param("id", activity.id())
                         .param("receivedAt", activity.receivedAt().atOffset(ZoneOffset.UTC))
@@ -96,6 +110,10 @@ public class InboundActivities {
         if (handler == null || !handler.processesRepeats()) {
             return false;
         }
+        return isSameActorAndType(activity);
+    }
+
+    private boolean isSameActorAndType(InboundActivity activity) {
         return jdbc.sql("""
                         SELECT EXISTS (
                             SELECT 1 FROM inbound_activity

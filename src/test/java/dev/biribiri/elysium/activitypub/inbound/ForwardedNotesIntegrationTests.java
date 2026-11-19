@@ -24,6 +24,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -61,6 +62,8 @@ class ForwardedNotesIntegrationTests {
     private StoredActivities stored;
     @Autowired
     private CreateHandler createHandler;
+    @Autowired
+    private UpdateHandler updateHandler;
     @Autowired
     private DomainBlocks blocks;
     @Autowired
@@ -260,7 +263,7 @@ class ForwardedNotesIntegrationTests {
     void dropsAForwardWhoseActorIsTooLongToStoreUnder() throws Exception {
         var longActor = "https://" + origin + "/users/" + "a".repeat(InboundActivity.MAX_ID_BYTES);
 
-        notes.run(new ForwardedNoteJob(note, longActor, now(), null));
+        notes.run(new ForwardedNoteJob(note, longActor, "Create", now(), null));
 
         verify(documents, never()).fetch(URI.create(note));
     }
@@ -273,6 +276,169 @@ class ForwardedNotesIntegrationTests {
         forwarded.fetch(forwardedJob());
 
         assertThat(jobs("forwarded-note", elsewhere)).isZero();
+    }
+
+    @Test
+    void queuesAFetchOfTheNoteWhenTheOriginDoesNotServeTheUpdate() {
+        receive(update(id, note));
+
+        forwarded.fetch(forwardedJob());
+
+        assertThat(noteJobs()).isOne();
+        assertThat(jdbc.sql("""
+                        SELECT convert_from(task_data, 'UTF8') FROM scheduled_tasks
+                        WHERE task_name = 'forwarded-note' AND convert_from(task_data, 'UTF8') LIKE :note
+                        """)
+                .param("note", "%" + note + "%")
+                .query(String.class)
+                .single()).contains("\"type\":\"Update\"");
+    }
+
+    /**
+     * The second can arrive while the first's fetch is running, after it got the first edit.
+     */
+    @Test
+    void queuesAFetchForEachForwardedUpdateOfTheSameNote() throws Exception {
+        var second = "https://" + origin + "/activities/" + UUID.randomUUID();
+        when(documents.fetch(URI.create(second))).thenThrow(DocumentFetchException.gone("not served"));
+        receive(update(id, note));
+        receive(update(second, note));
+
+        forwarded.fetch(forwardedJob());
+        forwarded.fetch(forwardedJob(second));
+
+        assertThat(noteJobs()).isEqualTo(2);
+    }
+
+    @Test
+    void doesNotQueueAFetchForAnUpdateOfTheActor() {
+        receive(update(id, actor));
+
+        forwarded.fetch(forwardedJob());
+
+        assertThat(jobs("forwarded-note", actor)).isZero();
+    }
+
+    @Test
+    void editsWithWhatTheNotesServerServesForAForwardedUpdate() throws Exception {
+        var published = now().minusSeconds(600);
+        serveNote(noteDocument(note, actor, recipient.uri().toString(), published));
+        storeNote();
+        serveNote(editedNote(published, published.plusSeconds(60), "Edited"));
+
+        updateNote();
+
+        assertThat(content(note)).contains("Edited");
+    }
+
+    @Test
+    void storesANoteThatIsNotStoredYetForAForwardedUpdate() throws Exception {
+        var published = now().minusSeconds(600);
+        serveNote(editedNote(published, published.plusSeconds(60), "Edited"));
+
+        updateNote();
+
+        assertThat(content(note)).contains("Edited");
+    }
+
+    /**
+     * Unlike a {@code Create}, an {@code Update} of an old note isn't dropped, since it's stored in its place by date. It's
+     * public, because an old direct note isn't stored.
+     */
+    @Test
+    void storesAnOldNoteForAForwardedUpdate() throws Exception {
+        var published = now().minus(ForwardedNotes.NEW_FOR).minusSeconds(600);
+        serveNote(editedNote(published, published.plusSeconds(60), "Edited"));
+
+        updateNote();
+
+        assertThat(statusCount(note)).isOne();
+    }
+
+    @Test
+    void storesEachVersionServedForAForwardedUpdateOnce() throws Exception {
+        var published = now().minusSeconds(600);
+        serveNote(editedNote(published, published.plusSeconds(60), "First"));
+        notes.run(updateJob());
+        notes.run(updateJob());
+        serveNote(editedNote(published, published.plusSeconds(120), "Second"));
+        notes.run(updateJob());
+
+        assertThat(storedUpdates()).hasSize(2);
+    }
+
+    /**
+     * The first time can have been before the note was stored, when some of it, such as a poll's counts, couldn't be
+     * applied.
+     */
+    @Test
+    void appliesAVersionAgainWhenItIsFetchedAgain() throws Exception {
+        var published = now().minusSeconds(600);
+        serveNote(editedNote(published, published.plusSeconds(60), "Edited"));
+        var first = now().minusSeconds(60);
+
+        notes.run(new ForwardedNoteJob(note, actor, "Update", first, null));
+        notes.run(new ForwardedNoteJob(note, actor, "Update", first.plusSeconds(30), null));
+
+        assertThat(storedUpdates()).hasSize(1);
+        assertThat(jobs("inbound-activity", storedUpdates().getFirst())).isEqualTo(2);
+    }
+
+    @Test
+    void doesNotStoreAnUpdateUnderTheForwardedId() throws Exception {
+        var published = now().minusSeconds(600);
+        serveNote(editedNote(published, published.plusSeconds(60), "Edited"));
+
+        notes.run(updateJob());
+
+        assertThat(stored.exists(id)).isFalse();
+        assertThat(storedUpdates()).hasSize(1);
+    }
+
+    @Test
+    void dropsAnUpdatedNoteAttributedToSomeoneElse() throws Exception {
+        serveNote(noteDocument(note, "https://" + origin + "/users/b", recipient.uri().toString(), Instant.now()));
+
+        notes.run(updateJob());
+
+        assertThat(storedUpdates()).isEmpty();
+    }
+
+    /**
+     * Runs the {@code Update} job, and handles what it stored.
+     */
+    private void updateNote() {
+        notes.run(updateJob());
+        storedUpdates().forEach(updateId -> updateHandler.handle(stored.find(updateId).orElseThrow()));
+    }
+
+    private List<String> storedUpdates() {
+        return jdbc.sql("SELECT activity_id FROM inbound_activity WHERE activity_id LIKE :prefix")
+                .param("prefix", actor + "#forwarded-update/%")
+                .query(String.class)
+                .list();
+    }
+
+    private ForwardedNoteJob updateJob() {
+        return new ForwardedNoteJob(note, actor, "Update", now(), null);
+    }
+
+    private String editedNote(Instant published, Instant updated, String content) {
+        return """
+                {"id":"%s","type":"Note","attributedTo":"%s","to":["https://www.w3.org/ns/activitystreams#Public"],
+                 "cc":["%s"],"content":"<p>%s</p>","published":"%s","updated":"%s"}"""
+                .formatted(note, actor, recipient.uri(), content, published, updated);
+    }
+
+    private static String update(String id, String object) {
+        return """
+                {"id":"%s","type":"Update","actor":"%s",
+                 "object":{"id":"%s","type":"Note","attributedTo":"%s","content":"<p>Forwarded</p>"}}"""
+                .formatted(id, actorOf(id), object, actorOf(id));
+    }
+
+    private String content(String uri) {
+        return jdbc.sql("SELECT content FROM status WHERE uri = :uri").param("uri", uri).query(String.class).single();
     }
 
     private void storeNote() {
@@ -288,6 +454,10 @@ class ForwardedNotesIntegrationTests {
      * The job that the inbox queued for the forwarded copy.
      */
     private ForwardedJob forwardedJob() {
+        return forwardedJob(id);
+    }
+
+    private ForwardedJob forwardedJob(String id) {
         var data = jdbc.sql("""
                         SELECT convert_from(task_data, 'UTF8') FROM scheduled_tasks
                         WHERE task_name = 'forwarded-activity' AND convert_from(task_data, 'UTF8') LIKE :id
@@ -299,11 +469,11 @@ class ForwardedNotesIntegrationTests {
     }
 
     private ForwardedNoteJob noteJob(Instant queuedAt) {
-        return new ForwardedNoteJob(note, actor, queuedAt, null);
+        return new ForwardedNoteJob(note, actor, "Create", queuedAt, null);
     }
 
     private String createId() {
-        return ForwardedNotes.createId(actor, URI.create(note));
+        return ForwardedNotes.activityId("Create", actor, note);
     }
 
     private void serveNote(String document) throws Exception {
