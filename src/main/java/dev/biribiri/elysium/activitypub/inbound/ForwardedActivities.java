@@ -28,8 +28,9 @@ import java.util.Optional;
  * <p>Nothing is stored under the ID until the origin has answered. Otherwise a server could forward a forged activity under
  * a real one's ID, and the real one would then be dropped as a repeat.
  *
- * <p>Many servers don't serve their activities, so a {@code Delete} or a {@code Create} that the origin doesn't vouch for
- * is checked through its object instead, by {@link DeletionChecks} or {@link ForwardedNotes}.
+ * <p>Many servers don't serve their activities, so a {@code Delete}, a {@code Create}, or an {@code Update} of a note that
+ * the origin doesn't vouch for is checked through its object instead, by {@link DeletionChecks} or {@link ForwardedNotes}.
+ * Mastodon's {@code Delete} and {@code Update} IDs have a fragment, so those are never served.
  */
 @Component
 class ForwardedActivities {
@@ -76,8 +77,8 @@ class ForwardedActivities {
      * Queues a fetch of the activity, unless one is already queued.
      *
      * @param id     an ID that {@link Inbox} has checked
-     * @param object for a {@code Delete} or a {@code Create}, its object, checked to be on the actor's server, and otherwise
-     *               empty
+     * @param object for a {@code Delete}, a {@code Create}, or an {@code Update} of a note, its object, checked to be on the
+     *               actor's server, and otherwise empty
      */
     void queue(String id, URI actor, String type, Optional<URI> object) {
         // PostgreSQL stores microseconds, so this matches what a later read of the activity returns.
@@ -88,6 +89,7 @@ class ForwardedActivities {
                 arrivedAt,
                 "Delete".equals(type) ? checked : null,
                 "Create".equals(type) ? checked : null,
+                "Update".equals(type) ? checked : null,
                 checked != null ? actor.toString() : null,
                 null);
         Jobs.schedule(scheduler, TASK, job, "forwarded", id);
@@ -95,8 +97,8 @@ class ForwardedActivities {
 
     /**
      * Fetches the activity, and stores it if the origin vouches for it, once the origin's host has a turn in
-     * {@link TargetFetchTurns}. A {@code Delete} or a {@code Create} that the origin doesn't vouch for is checked with its
-     * object's server instead, in a job of its own, which takes its own turn. This has to be called with no transaction open, because it
+     * {@link TargetFetchTurns}. A {@code Delete}, a {@code Create}, or an {@code Update} that the origin doesn't vouch for
+     * is checked with its object's server instead, in a job of its own, which takes its own turn. This has to be called with no transaction open, because it
      * waits on other servers.
      *
      * @return what to do with the job, which is to wait for its turn if it hasn't come yet
@@ -126,7 +128,9 @@ class ForwardedActivities {
             if (job.deletedObject() != null) {
                 deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt());
             } else if (job.createdObject() != null) {
-                notes.queue(URI.create(job.createdObject()), URI.create(job.actorId()), job.queuedAt());
+                notes.queue(URI.create(job.createdObject()), URI.create(job.actorId()), "Create", job.queuedAt());
+            } else if (job.updatedObject() != null) {
+                notes.queue(URI.create(job.updatedObject()), URI.create(job.actorId()), "Update", job.queuedAt());
             }
         }
         return Jobs.done();

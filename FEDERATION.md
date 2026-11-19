@@ -322,8 +322,8 @@ not when it's fetched, so an `Undo` that arrives in between still covers a forwa
 What the origin serves is only accepted if it's an activity whose `id` is exactly the one fetched, with one `actor` on the
 same host and port. That actor is the one believed, even if the forwarded copy named another. A `404`, `410`, or another
 refusal drops the activity, and a server error or timeout is tried again later. This means an activity that its origin
-doesn't serve is lost when it's forwarded, except for a `Delete` or a `Create`, if its `object` is on the same host and
-port as the `actor`:
+doesn't serve is lost when it's forwarded, except for a `Delete`, a `Create`, or an `Update` of a status, if its `object`
+is on the same host and port as the `actor`:
 
 - A `Delete`, such as Mastodon's, whose `id` has a fragment, has its `object` [checked with its own
   server](#receiving-deletes) instead.
@@ -332,9 +332,13 @@ port as the `actor`:
   before the first forwarded copy arrived. Who it's for comes from the fetched object's addressing, and nothing else from
   the forwarded copy is kept. The real `Create` is still accepted if it's delivered later, and its object is then already
   stored.
+- An `Update`, such as Mastodon's, whose `id` has a fragment, has its `object` fetched in the same way, and is kept if
+  what's served is a `Note` or a `Question` with that `id`, attributed to the `actor` alone. What's served is then
+  [applied as an `Update`](#receiving-updates) would be, so its `updated` decides whether it's an edit. An `Update` of the
+  `actor` itself is still lost.
 
 The sender chooses where these fetches go, so each host gets at most 60 of them a minute, with bursts of up to 60, counting
-the fetches of forwarded activities, of the objects of forwarded `Create`s, of objects
+the fetches of forwarded activities, of the objects of forwarded `Create`s and `Update`s, of objects
 [checked for a `Delete`](#receiving-deletes), and of [boosted statuses](#boosts) together. A fetch over that waits for its turn, and is dropped if that's more than an hour away.
 This is counted by each of this server's nodes separately. No more than 4 requests to one host are made at once for fetches of any kind, and a fetch that would be over
 that is tried again later.
@@ -774,7 +778,8 @@ An `Update`'s `object` can be an ID, an embedded object, or an array of one of t
   a direct one is ignored, so that editing an old post doesn't make it look new here. A `Note` with no `published` is
   ignored. Mastodon ignores an `Update` of a status it doesn't have if its `published` is more than a day old.
 - **Forwarded:** an `Update` is [fetched from its origin](#forwarded-activities) like any forwarded activity. Mastodon's
-  `Update` IDs have a fragment, so a forwarded one is lost.
+  `Update` IDs have a fragment, so the status is fetched from its own server instead. A forwarded `Update` of an actor
+  is lost.
 
 #### Receiving deletes
 

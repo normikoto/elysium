@@ -176,15 +176,17 @@ public class Inbox {
     }
 
     /**
-     * @return a {@code Delete}'s or a {@code Create}'s object, if it's on the actor's server, which is the only one that can
-     * say it's gone, or serve it, when the origin doesn't serve the activity
+     * @return a {@code Delete}'s, a {@code Create}'s, or an {@code Update}'s object, if it's on the actor's server, which is
+     * the only one that can say it's gone, or serve it, when the origin doesn't serve the activity. An {@code Update} of the
+     * actor itself has none, since only a note is fetched in its place.
      */
     private Optional<URI> checkedObject(ActivityEnvelope envelope, URI actor) {
         var object = switch (envelope.type()) {
             case "Delete" -> DeleteHandler.objectOf(envelope.body(), json);
-            case "Create" -> ActivityObject.of(envelope.body(), json)
+            case "Create", "Update" -> ActivityObject.of(envelope.body(), json)
                     .map(ActivityObject::id)
                     .filter(InboundActivity::isStorableId)
+                    .filter(id -> !id.equals(actor.toString()))
                     .flatMap(ActivityObject::parseUri);
             case null, default -> Optional.<URI>empty();
         };
