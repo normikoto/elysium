@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.ProfileChange;
 import dev.biribiri.elysium.content.QuotePolicy;
+import dev.biribiri.elysium.content.QuoteReview;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -25,9 +26,16 @@ import java.util.regex.Pattern;
  * as on Mastodon.
  *
  * @param hideCollections null to leave it as it is
- * @param quotePolicy     the default for new statuses, or null to leave it as it is
+ * @param quotePolicy        the default for new statuses, or null to leave it as it is
+ * @param quoteReview        whose quotes of new statuses are approved by hand, or null to leave it as it is
  */
-record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuotePolicy quotePolicy) {
+record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuotePolicy quotePolicy,
+                          QuoteReview quoteReview) {
+
+    private record Source(QuotePolicy quotePolicy, QuoteReview quoteReview) {
+
+        static final Source NONE = new Source(null, null);
+    }
 
     /**
      * Settings that don't exist here, with the value that's reported for them.
@@ -92,7 +100,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
     private static CredentialsRequest read(Map<String, ?> values, Map<String, MultipartFile> files) {
         var change = ProfileChange.NONE;
         Boolean hide = null;
-        QuotePolicy quotePolicy = null;
+        var source = Source.NONE;
         for (var entry : values.entrySet()) {
             var key = entry.getKey();
             var value = entry.getValue();
@@ -120,12 +128,12 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                         throw new InvalidRequestException("Validation failed: " + key + " has to be a file in a multipart form");
                     }
                 }
-                case "source" -> quotePolicy = source(value);
+                case "source" -> source = source(value);
                 default -> checkFixed(key, value, FIXED, key);
             }
         }
         change = change.withAvatar(image(files.get("avatar"))).withHeader(image(files.get("header")));
-        return new CredentialsRequest(change, hide, quotePolicy);
+        return new CredentialsRequest(change, hide, source.quotePolicy(), source.quoteReview());
     }
 
     private static String text(String key, Object value) {
@@ -176,19 +184,28 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
     }
 
     /**
-     * @return the default quote policy, or null if it isn't given
+     * @return the posting defaults it gives
      */
-    private static QuotePolicy source(Object value) {
+    private static Source source(Object value) {
         if (isEmpty(value)) {
-            return null;
+            return Source.NONE;
         }
         if (!(value instanceof Map<?, ?> source)) {
             throw new InvalidRequestException("Validation failed: source must be an object");
         }
         QuotePolicy quotePolicy = null;
+        QuoteReview quoteReview = null;
         for (var entry : source.entrySet()) {
             var key = String.valueOf(entry.getKey());
-            if (key.equals("quote_policy")) {
+            if (key.equals("quote_review")) {
+                if (!isEmpty(entry.getValue())) {
+                    quoteReview = entry.getValue() instanceof String review ? QuoteReview.fromValue(review).orElse(null) : null;
+                    if (quoteReview == null) {
+                        throw new InvalidRequestException(
+                                "Validation failed: source[quote_review] must be none, non_followers, or all");
+                    }
+                }
+            } else if (key.equals("quote_policy")) {
                 if (!isEmpty(entry.getValue())) {
                     quotePolicy = entry.getValue() instanceof String policy ? QuotePolicy.fromValue(policy).orElse(null) : null;
                     if (quotePolicy == null) {
@@ -200,7 +217,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                 checkFixed(key, entry.getValue(), FIXED_SOURCE, "source[" + key + "]");
             }
         }
-        return quotePolicy;
+        return new Source(quotePolicy, quoteReview);
     }
 
     /**

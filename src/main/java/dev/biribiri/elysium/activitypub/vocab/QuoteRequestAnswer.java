@@ -44,6 +44,15 @@ public record QuoteRequestAnswer(
         return answer("Accept", "accepts", quotedAuthor, requestId, requester, quoted, quote, authorization);
     }
 
+    /**
+     * @param authorization the approval, for an {@code Accept}, or null for a {@code Reject}
+     */
+    public static QuoteRequestAnswer of(
+            URI quotedAuthor, String requestId, URI requester, URI quoted, URI quote, URI authorization) {
+        return authorization == null ? reject(quotedAuthor, requestId, requester, quoted, quote)
+                : accept(quotedAuthor, requestId, requester, quoted, quote, authorization);
+    }
+
     public static QuoteRequestAnswer reject(URI quotedAuthor, String requestId, URI requester, URI quoted, URI quote) {
         return answer("Reject", "rejects", quotedAuthor, requestId, requester, quoted, quote, null);
     }

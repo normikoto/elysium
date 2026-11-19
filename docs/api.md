@@ -242,10 +242,26 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   as on Mastodon.
 - `quote_approval_policy` can be `public`, `followers`, or `nobody`, on a new status, in `PUT /api/v1/statuses/:id`, and
   in `PUT /api/v1/statuses/:id/interaction_policy`. Missing means the account's `source[quote_policy]`, which is
-  `public` until it's changed. A followers-only or direct status is always `nobody`. Approval is always automatic.
+  `public` until it's changed. A followers-only or direct status is always `nobody`.
+- `quote_review`, which Mastodon doesn't have, says whose quotes the user approves by hand, with
+  [interaction requests](#interaction-requests): `none`, `non_followers`, or `all`. `non_followers` approves followers'
+  quotes automatically and waits for the user to review everyone else's, so it only differs from `none` for a `public`
+  status. It's accepted in the same three places. Missing means the account's `source[quote_review]` on a new status,
+  which is `none` until it's changed, and keeps whose quotes are reviewed in an edit.
+  `PUT /api/v1/statuses/:id/interaction_policy` takes either field alone. Another value gets a 422.
+- The audience whose quotes are reviewed is in `quote_approval.manual` rather than `automatic`, so a client shows
+  `current_user` as `manual` for them. With `non_followers`, `automatic` has `followers` and `manual` has `public`.
+  Changing either setting doesn't change the quotes approved or waiting already.
 - `PUT /api/v1/statuses/:id` can't change what a status quotes, and a `quoted_status_id` other than the one it has gets
   a 422.
 - A quote of a status on another server is `pending` until that server approves it, and `rejected` if it refuses.
+  A quote of a local status whose quotes need approval is `pending` until its author decides.
+- `POST /api/v1/statuses/:id/quote/request`, which Mastodon doesn't have, asks again for approval of what one of the
+  user's statuses quotes, when its `quote.state` is `pending`, `rejected`, or `revoked`, and returns the status. A quote
+  of a local status is decided again by its author's policy. One of a status on another server gets a new request, and
+  is `pending` again. A quote can be asked for once an hour. One that's `accepted`, was asked for less than an hour
+  ago, or whose author no longer allows the user to quote it, gets a 422, and a status that isn't the user's or doesn't
+  quote anything gets a 404.
 - A quote from another server is `pending` until this server has checked its approval, which can take a moment. One
   from a server that can't ask for approval is `accepted`, unless it quotes a local status whose policy wouldn't allow
   it.
@@ -260,6 +276,29 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `POST /api/v1/statuses/:id/quotes/:quoting_status_id/revoke` revokes any quote of the user's status, accepted or not,
   and gets a 404 for a status that doesn't quote it. Revoking a quote from a server that can't ask for approval only
   hides it here.
+- A quote that was rejected or revoked can be asked for again, by its author here or by its server, and then waits for
+  the quoted author to review it, even if their policy approves quotes automatically.
+
+### Interaction requests
+
+Quotes that need approval are reviewed with GoToSocial's `/api/v1/interaction_requests`, which Mastodon doesn't have.
+
+- `GET /api/v1/interaction_requests` lists the quotes of the user's statuses that wait for them, newest first, and takes
+  `status_id`, `limit`, `max_id`, `since_id`, and `min_id`. Pages are by when the quote was posted, and default to 20
+  and allow up to 40. It needs `read:notifications`.
+- Only quotes are approved by hand, so each request's `type` is `quote`, which GoToSocial doesn't have. `quotes=false`
+  lists nothing, and `favourites`, `replies`, and `reblogs` are accepted and change nothing.
+- A request's `id` is the quote's, `account` is who quoted, `status` is the user's status, and `quote`, which
+  GoToSocial doesn't have, is the quote. `created_at` is when the quote was last asked for. `accepted_at` or `rejected_at` is
+  when it was last decided, and neither is there while it's waiting. A quote decided before this server recorded when
+  has the time it was asked for, or posted.
+- `GET /api/v1/interaction_requests/:id` shows any quote of the user's statuses, waiting or not.
+- `POST /api/v1/interaction_requests/:id/authorize` and `/reject` need `write:statuses` and return the request. A quote
+  the user rejected can be approved later, and an approved one is returned as it is. To withdraw an approval, revoke the
+  quote. Either gets a 404 for a quote of someone else's status, and approving one gets a 404 if the status's policy no
+  longer allows its author to quote it.
+- A user is notified with a `pending.quote` notification when a quote waits for them, and again when it's asked for
+  again. It's removed once the quote is decided, and an approved quote gets a `quote` notification.
 
 ## Emoji reactions
 
@@ -333,8 +372,8 @@ Follow [Mastodon's scheduled statuses API](https://docs.joinmastodon.org/methods
   posted another way.
 - `PUT /api/v1/scheduled_statuses/:id` only changes `scheduled_at`, as on Mastodon, which is required, and has the same
   limits. A time in the past gets a 422 there, as on Mastodon.
-- `params` has the fields the request gave, and also `quoted_status_id`, `quote_approval_policy`, `local_only`, and
-  `content_type`. `idempotency`, `scheduled_at`, and `application_id` are always null, and a poll's `expires_in` is a
+- `params` has the fields the request gave, and also `quoted_status_id`, `quote_approval_policy`, `local_only`,
+  `content_type`, and `quote_review`. `idempotency`, `scheduled_at`, and `application_id` are always null, and a poll's `expires_in` is a
   string, as on Mastodon.
 - When it's posted, its `created_at` is when it was posted, and a poll's `expires_in` counts from then.
 
@@ -383,7 +422,8 @@ Follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/noti
 ### Types
 
 Only these types are generated: `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`,
-`poll`, `move`, `admin.report`, and `pleroma:emoji_reaction`, which [Emoji reactions](#emoji-reactions) describes.
+`poll`, `move`, `admin.report`, `pleroma:emoji_reaction`, which [Emoji reactions](#emoji-reactions) describes, and
+`pending.quote`, which [interaction requests](#interaction-requests) describes.
 
 - A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user quoted.
 - A `poll` arrives within about a minute of a poll ending, for its author if they're a local user, and for each local
@@ -605,7 +645,8 @@ Only these exist:
 ### Profile
 
 - `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`,
-  `indexable`, `hide_collections`, and `source[quote_policy]`.
+  `indexable`, `hide_collections`, `source[quote_policy]`, and `source[quote_review]`, which Mastodon doesn't
+  have, and which `source` has too.
   - `bot`, `discoverable`, and the rest of `source` are accepted only with the values the account already has: false,
     and `public` for `source[privacy]`.
   - Any other value for them, or any other field with a value, gets a 422 naming it, and nothing is changed.

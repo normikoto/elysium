@@ -131,6 +131,23 @@ public class NotificationRepository {
     }
 
     /**
+     * @param status the quote that waits for the recipient to review it
+     */
+    public Optional<UUID> insertPendingQuote(UUID recipient, UUID sender, UUID status) {
+        return insert(recipient, sender, "pending.quote", status, status, null, null, null, null);
+    }
+
+    /**
+     * Removes the notification asking to review a quote, once it's been answered, or asked for again.
+     */
+    public void deletePendingQuote(UUID recipient, UUID status) {
+        jdbc.sql("DELETE FROM notification WHERE recipient_id = :recipient AND type = 'pending.quote' AND source_id = :status")
+                .param("recipient", recipient)
+                .param("status", status)
+                .update();
+    }
+
+    /**
      * @param source what identifies this edit of the quoted status, so that a repeat adds nothing
      * @param status the recipient's quote
      */

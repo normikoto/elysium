@@ -121,7 +121,7 @@ class QuoteRequestResendIntegrationTests {
 
     @Test
     void givesUpWhenTheRequestWouldHaveToo() {
-        var job = new QuoteRequestResendJob(quote, author.id(), Instant.now().minus(Jobs.RETRIED_FOR), true);
+        var job = new QuoteRequestResendJob(quote, author.id(), Instant.now().minus(Jobs.RETRIED_FOR), true, null);
 
         assertThat(resend(job)).isEmpty();
         assertThat(deliveries()).isEqualTo(1);
@@ -148,8 +148,26 @@ class QuoteRequestResendIntegrationTests {
         assertThat(deliveries()).isZero();
     }
 
+    @Test
+    void askingAgainReplacesWhatsSentAgain() {
+        delivered();
+        jdbc.sql("UPDATE status_quote SET state = 'rejected', requested_at = now() - interval '2 hours' WHERE status_id = :id")
+                .param("id", quote).update();
+
+        assertThat(quotes.askAgain(quote, author.id())).isEqualTo(QuoteService.Retry.ASKED);
+
+        var retried = quotes.find(quote).orElseThrow().requestUri();
+        assertThat(retried).isNotEqualTo(request);
+        await().atMost(WAIT).until(() -> resendJobs() == 2);
+        // The first request's job stops, rather than sending the new request a second time.
+        assertThat(resend(new QuoteRequestResendJob(quote, author.id(), Instant.now(), false, request.toString())))
+                .isEmpty();
+        assertThat(resend(new QuoteRequestResendJob(quote, author.id(), Instant.now(), true, retried.toString())))
+                .isPresent();
+    }
+
     private QuoteRequestResendJob job(boolean waitedForSending) {
-        return new QuoteRequestResendJob(quote, author.id(), Instant.now(), waitedForSending);
+        return new QuoteRequestResendJob(quote, author.id(), Instant.now(), waitedForSending, null);
     }
 
     /**
@@ -168,6 +186,17 @@ class QuoteRequestResendIntegrationTests {
             verify(operations).remove();
             return Optional.empty();
         }
+    }
+
+    private int resendJobs() {
+        return jdbc.sql("""
+                        SELECT count(*) FROM scheduled_tasks
+                        WHERE task_name = 'quote-request-resend'
+                          AND convert_from(task_data, 'UTF8')::json ->> 'statusId' = :id
+                        """)
+                .param("id", quote.toString())
+                .query(Integer.class)
+                .single();
     }
 
     private Instant resendScheduledAt() {

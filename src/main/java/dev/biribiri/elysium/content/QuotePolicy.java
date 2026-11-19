@@ -6,7 +6,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Who can quote a local status, as Mastodon offers it. Approval is always automatic.
+ * Who can quote a local status, as Mastodon offers it. Whether their quotes are approved automatically or by its author is
+ * chosen apart from this, with {@link QuoteReview}.
  */
 public enum QuotePolicy {
     PUBLIC,
@@ -23,10 +24,20 @@ public enum QuotePolicy {
         return Arrays.stream(values()).filter(policy -> policy.value().equals(value)).findFirst();
     }
 
-    QuoteApproval approval() {
+    /**
+     * Only a status anyone can quote has accounts that don't follow its author among those who can, so for one that only
+     * followers can quote, reviewing non-followers' quotes is the same as reviewing none.
+     */
+    QuoteApproval approval(QuoteReview review) {
+        var followers = Set.of(QuoteApproval.Audience.FOLLOWERS);
         return switch (this) {
-            case PUBLIC -> new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of());
-            case FOLLOWERS -> new QuoteApproval(Set.of(QuoteApproval.Audience.FOLLOWERS), Set.of());
+            case PUBLIC -> switch (review) {
+                case NONE -> new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of());
+                case NON_FOLLOWERS -> new QuoteApproval(followers, Set.of(QuoteApproval.Audience.PUBLIC));
+                case ALL -> new QuoteApproval(Set.of(), Set.of(QuoteApproval.Audience.PUBLIC));
+            };
+            case FOLLOWERS -> review == QuoteReview.ALL
+                    ? new QuoteApproval(Set.of(), followers) : new QuoteApproval(followers, Set.of());
             case NOBODY -> new QuoteApproval(Set.of(), Set.of());
         };
     }

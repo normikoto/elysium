@@ -25,9 +25,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Answers another server's request to approve a quote of a local status, as FEP-044f has it. The status's policy decides,
- * automatically, as on Mastodon: an {@code Accept} carries a {@code QuoteAuthorization} that this server serves, and a
- * {@code Reject} stores nothing. Only a public or unlisted status can be quoted by anyone but its author.
+ * Answers another server's request to approve a quote of a local status, as FEP-044f has it. The status's policy decides
+ * who can ask, and whether they're approved automatically, as on Mastodon, or by the quoted author, who answers later
+ * through {@code QuoteReviewAnswers}. An {@code Accept} carries a {@code QuoteAuthorization} that this server serves, and a
+ * {@code Reject} of a request the policy refuses stores nothing. Only a public or unlisted status can be quoted by anyone
+ * but its author.
  *
  * <p>The request's {@code instrument} is the quote, which is stored, since the quoted author has to see it, and the quote's
  * server may never send it otherwise. It's checked as a {@code Create}'s note is: it has to be the actor's, on the actor's
@@ -100,33 +102,37 @@ class QuoteRequestHandler implements InboundActivityHandler {
         var requester = remoteActors.fetchOrRefresh(URI.create(activity.actorUri()));
         var quote = read.get().note().id();
         var authorUri = quotedAuthor.get().uri();
-        var answer = approve(activity, read.get(), quoted.get(), quotedAuthor.get().id(), requester)
-                .map(stamp -> QuoteRequestAnswer.accept(authorUri, activity.id(), requester.uri(), quoted.get().uri(), quote,
-                        QuoteAuthorization.idFor(authorUri, stamp)))
-                .orElseGet(() -> {
-                    log.debug("Rejecting QuoteRequest {}", activity.id());
-                    return QuoteRequestAnswer.reject(authorUri, activity.id(), requester.uri(), quoted.get().uri(), quote);
-                });
-        send(activity, quotedAuthor.get(), requester, answer);
+        var answer = answer(activity, read.get(), quoted.get(), quotedAuthor.get().id(), requester);
+        if (answer instanceof QuoteService.RequestAnswer.Wait) {
+            log.debug("QuoteRequest {} waits for {} to review it", activity.id(), authorUri);
+            return;
+        }
+        if (answer instanceof QuoteService.RequestAnswer.Reject) {
+            log.debug("Rejecting QuoteRequest {}", activity.id());
+        }
+        var authorization = answer instanceof QuoteService.RequestAnswer.Accept(var stamp)
+                ? QuoteAuthorization.idFor(authorUri, stamp) : null;
+        send(activity, quotedAuthor.get(), requester,
+                QuoteRequestAnswer.of(authorUri, activity.id(), requester.uri(), quoted.get().uri(), quote, authorization));
     }
 
     /**
      * A quote that's already stored isn't stored again, so that a repeat of the request is answered the same way even if
      * it couldn't be stored now.
-     *
-     * @return the ID of the approval, or empty if the request is refused
      */
-    private Optional<UUID> approve(
+    private QuoteService.RequestAnswer answer(
             InboundActivity activity, ActorNotes.ActorNote read, Status quoted, UUID quotedAuthor, Actor requester) {
-        if (quotes.decide(quoted, requester.id()) != QuoteDecision.AUTOMATIC) {
-            return Optional.empty();
+        var decision = quotes.decide(quoted, requester.id());
+        if (decision != QuoteDecision.AUTOMATIC && decision != QuoteDecision.MANUAL) {
+            return new QuoteService.RequestAnswer.Reject();
         }
         var quote = read.note().id();
         return statuses.findStoredByUri(quote, requester.id())
                 .or(() -> storage.storeInstrument(activity, read, quotedAuthor) == NoteStorage.Result.IGNORED
                         ? Optional.empty()
                         : statuses.findStoredByUri(quote, requester.id()))
-                .flatMap(status -> quotes.approveRequest(status.id(), quoted.id(), URI.create(activity.id())));
+                .map(status -> quotes.answerIncomingRequest(status.id(), quoted.id(), URI.create(activity.id()), decision))
+                .orElseGet(QuoteService.RequestAnswer.Reject::new);
     }
 
     /**

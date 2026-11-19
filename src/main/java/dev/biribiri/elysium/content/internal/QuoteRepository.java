@@ -27,7 +27,7 @@ public class QuoteRepository {
 
     private static final String COLUMNS = """
             q.status_id, q.quoted_uri, q.quoted_status_id, q.quoted_account_id, q.linked, q.state, q.legacy,
-            q.approval_uri, q.stamp_id, q.request_uri""";
+            q.approval_uri, q.stamp_id, q.request_uri, q.requested_at, q.decided_at""";
 
     private static final RowMapper<StatusQuote> MAPPER = QuoteRepository::map;
 
@@ -48,7 +48,14 @@ public class QuoteRepository {
                 rs.getBoolean("legacy"),
                 ContentRows.uriOrNull(rs.getString("approval_uri")),
                 rs.getObject("stamp_id", UUID.class),
-                ContentRows.uriOrNull(rs.getString("request_uri")));
+                ContentRows.uriOrNull(rs.getString("request_uri")),
+                instantOrNull(rs, "requested_at"),
+                instantOrNull(rs, "decided_at"));
+    }
+
+    private static Instant instantOrNull(ResultSet rs, String column) throws SQLException {
+        var value = rs.getObject(column, OffsetDateTime.class);
+        return value == null ? null : value.toInstant();
     }
 
     private static JdbcClient.StatementSpec bindQuoted(
@@ -62,16 +69,18 @@ public class QuoteRepository {
     /**
      * Does nothing if the status already quotes something.
      *
-     * @param quoted the quoted status, if it's stored, which also makes the quote linked
+     * @param quoted      the quoted status, if it's stored, which also makes the quote linked
+     * @param requestedAt when approval was asked for, or null
      */
     public void insert(
             UUID statusId, URI quotedUri, Optional<StatusRepository.Parent> quoted, QuoteState state, boolean legacy,
-            URI approvalUri, UUID stampId, URI requestUri) {
+            URI approvalUri, UUID stampId, URI requestUri, Instant requestedAt) {
         bindQuoted(jdbc.sql("""
                         INSERT INTO status_quote (status_id, quoted_uri, quoted_status_id, quoted_account_id, linked, state,
-                                                  legacy, approval_uri, stamp_id, request_uri)
+                                                  legacy, approval_uri, stamp_id, request_uri, requested_at, decided_at)
                         VALUES (:statusId, :quotedUri, :quotedStatusId, :quotedAccountId, :linked, :state, :legacy,
-                                :approvalUri, :stampId, :requestUri)
+                                :approvalUri, :stampId, :requestUri, :requestedAt,
+                                CASE WHEN :state = 'pending' THEN NULL ELSE now() END)
                         ON CONFLICT DO NOTHING
                         """), quoted)
                 .param("statusId", statusId)
@@ -81,6 +90,7 @@ public class QuoteRepository {
                 .param("approvalUri", Objects.toString(approvalUri, null), Types.VARCHAR)
                 .param("stampId", stampId, Types.OTHER)
                 .param("requestUri", Objects.toString(requestUri, null), Types.VARCHAR)
+                .param("requestedAt", ContentRows.offsetOrNull(requestedAt), Types.TIMESTAMP_WITH_TIMEZONE)
                 .update();
     }
 
@@ -153,10 +163,14 @@ public class QuoteRepository {
                 .list();
     }
 
+    /**
+     * Also records when, for a quote that's decided.
+     */
     public void changeState(UUID statusId, QuoteState to, boolean legacy, URI approvalUri, UUID stampId) {
         jdbc.sql("""
                         UPDATE status_quote SET state = :to, legacy = :legacy, approval_uri = :approvalUri,
-                                                stamp_id = :stampId
+                                                stamp_id = :stampId,
+                                                decided_at = CASE WHEN :to = 'pending' THEN NULL ELSE now() END
                         WHERE status_id = :statusId
                         """)
                 .param("statusId", statusId)
@@ -172,7 +186,8 @@ public class QuoteRepository {
         bindQuoted(jdbc.sql("""
                         UPDATE status_quote SET quoted_uri = :quotedUri, quoted_status_id = :quotedStatusId,
                                                 quoted_account_id = :quotedAccountId, linked = :linked, state = 'pending',
-                                                legacy = :legacy, approval_uri = :approvalUri, stamp_id = NULL
+                                                legacy = :legacy, approval_uri = :approvalUri, stamp_id = NULL,
+                                                decided_at = NULL
                         WHERE status_id = :statusId
                         """), quoted)
                 .param("statusId", statusId)
@@ -185,6 +200,53 @@ public class QuoteRepository {
     public void setRequest(UUID statusId, URI requestUri) {
         jdbc.sql("UPDATE status_quote SET request_uri = :uri WHERE status_id = :statusId")
                 .param("statusId", statusId).param("uri", requestUri.toString()).update();
+    }
+
+    /**
+     * Records that approval was asked for now.
+     *
+     * @param requestUri the {@code QuoteRequest} that asked, or null to keep the one it has
+     */
+    public void setRequested(UUID statusId, URI requestUri) {
+        jdbc.sql("""
+                        UPDATE status_quote SET request_uri = coalesce(:uri, request_uri), requested_at = now()
+                        WHERE status_id = :statusId
+                        """)
+                .param("statusId", statusId)
+                .param("uri", Objects.toString(requestUri, null), Types.VARCHAR)
+                .update();
+    }
+
+    /**
+     * Lists the quotes of an author's statuses that wait for them to review, newest first, by quoters who are active.
+     *
+     * @param quotedStatusId only quotes of this status, or null for any
+     * @param minId          the page just after this, oldest first, or null to start from the newest
+     * @return the quoting statuses
+     */
+    public List<UUID> pageReviews(
+            UUID quotedAccountId, UUID quotedStatusId, UUID maxId, UUID sinceId, UUID minId, int limit) {
+        var ids = jdbc.sql("""
+                        SELECT q.status_id FROM status_quote q JOIN status s ON s.id = q.status_id
+                        JOIN actor a ON a.id = s.actor_id
+                        WHERE q.quoted_account_id = :author AND q.state = 'pending' AND q.requested_at IS NOT NULL
+                          AND q.quoted_status_id IS NOT NULL AND
+                        """ + LikeRepository.eligible("a")
+                        + (quotedStatusId == null ? "" : " AND q.quoted_status_id = :quoted")
+                        + (maxId == null ? "" : " AND q.status_id < :maxId")
+                        + (sinceId == null ? "" : " AND q.status_id > :sinceId")
+                        + (minId == null ? "" : " AND q.status_id > :minId")
+                        + (minId == null ? " ORDER BY q.status_id DESC" : " ORDER BY q.status_id")
+                        + " LIMIT :limit")
+                .param("author", quotedAccountId)
+                .param("quoted", quotedStatusId, Types.OTHER)
+                .param("maxId", maxId, Types.OTHER)
+                .param("sinceId", sinceId, Types.OTHER)
+                .param("minId", minId, Types.OTHER)
+                .param("limit", limit)
+                .query(UUID.class)
+                .list();
+        return minId == null ? ids : ids.reversed();
     }
 
     public void delete(UUID statusId) {

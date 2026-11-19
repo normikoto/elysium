@@ -17,14 +17,25 @@ import java.util.UUID;
  * @param quotePolicy    who can quote it, or null to keep that
  * @param poll           what to do to its poll, or null to keep the one it has, or that it has none
  * @param contentType    what the new text is written in, or null to keep what the status was written in
+ * @param quoteReview    whose quotes of it its author approves by hand, or null to keep that
  */
 public record StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
                          List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy,
-                         PollChange poll, ContentType contentType) {
+                         PollChange poll, ContentType contentType, QuoteReview quoteReview) {
 
     public StatusEdit {
         mediaIds = mediaIds == null ? null : List.copyOf(mediaIds);
         mediaChanges = mediaChanges == null ? List.of() : List.copyOf(mediaChanges);
+    }
+
+    /**
+     * An edit that keeps how quotes of the status are approved.
+     */
+    public StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
+                      List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy, PollChange poll,
+                      ContentType contentType) {
+        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quotedStatusId, quotePolicy, poll, contentType,
+                null);
     }
 
     /**

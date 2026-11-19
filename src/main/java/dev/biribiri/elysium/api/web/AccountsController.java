@@ -228,6 +228,9 @@ public class AccountsController {
         if (request.quotePolicy() != null) {
             postingDefaults.setQuotePolicy(actorId, request.quotePolicy());
         }
+        if (request.quoteReview() != null) {
+            postingDefaults.setQuoteReview(actorId, request.quoteReview());
+        }
         return actors.findLocalById(actorId)
                 .map(accounts::credential)
                 .orElseThrow(RecordNotFoundException::new);
@@ -774,7 +777,7 @@ public class AccountsController {
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")
             Boolean hide_collections,
-            @Schema(description = "Posting settings. Only `quote_policy` can be changed.")
+            @Schema(description = "Posting settings. Only `quote_policy` and `quote_review` can be changed.")
             SourceBody source) {
     }
 
@@ -782,7 +785,11 @@ public class AccountsController {
     private record SourceBody(
             @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
                     Who can quote the user's new statuses when the client doesn't say.""")
-            String quote_policy) {
+            String quote_policy,
+            @Schema(allowableValues = {"none", "non_followers", "all"}, description = """
+                    Not in Mastodon. Whose quotes of the user's new statuses they approve by hand when the client \
+                    doesn't say: nobody's, those of accounts that don't follow them, or everyone's.""")
+            String quote_review) {
     }
 
     @Schema(name = "AccountMute")
