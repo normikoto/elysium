@@ -12,11 +12,13 @@ import java.util.UUID;
  * @param authorId         its author
  * @param waitedForSending whether the request was still being sent when this last ran, so that it may only just have
  *                         arrived
+ * @param requestUri       the request to send again, which its author can have replaced by asking again, or null for a job
+ *                         queued before they could
  */
-record QuoteRequestResendJob(UUID statusId, UUID authorId, Instant queuedAt, boolean waitedForSending)
+record QuoteRequestResendJob(UUID statusId, UUID authorId, Instant queuedAt, boolean waitedForSending, String requestUri)
         implements QueuedJob {
 
     QuoteRequestResendJob waitingForSending(boolean waiting) {
-        return new QuoteRequestResendJob(statusId, authorId, queuedAt, waiting);
+        return new QuoteRequestResendJob(statusId, authorId, queuedAt, waiting, requestUri);
     }
 }

@@ -96,9 +96,10 @@ public class QuoteDeliveries {
         var sent = sendRequest(event.statusId(), event.authorId(), false);
         if (sent.filter(request -> request.quote().state() == QuoteState.PENDING).isPresent()) {
             var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+            var requestUri = sent.get().id();
             Jobs.scheduleAt(scheduler, RESEND_TASK,
-                    new QuoteRequestResendJob(event.statusId(), event.authorId(), now, false),
-                    now.plus(RESEND_AFTER), RESEND_TASK.getTaskName(), event.statusId().toString());
+                    new QuoteRequestResendJob(event.statusId(), event.authorId(), now, false, requestUri),
+                    now.plus(RESEND_AFTER), RESEND_TASK.getTaskName(), event.statusId().toString(), requestUri);
         }
     }
 
@@ -114,7 +115,8 @@ public class QuoteDeliveries {
             return Jobs.done();
         }
         var next = transaction.execute(ignored -> {
-            var request = pendingRequest(job.statusId(), job.authorId());
+            var request = pendingRequest(job.statusId(), job.authorId())
+                    .filter(found -> job.requestUri() == null || found.id().equals(job.requestUri()));
             if (request.isEmpty()) {
                 return Optional.<QuoteRequestResendJob>empty();
             }

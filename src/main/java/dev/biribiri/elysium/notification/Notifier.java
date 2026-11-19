@@ -4,6 +4,8 @@ import dev.biribiri.elysium.auth.AccountActions;
 import dev.biribiri.elysium.content.PollEnded;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteAccepted;
+import dev.biribiri.elysium.content.QuoteReviewRequested;
+import dev.biribiri.elysium.content.QuoteReviewed;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteStatusEdited;
 import dev.biribiri.elysium.content.StatusEdited;
@@ -116,7 +118,8 @@ public class Notifier {
     }
 
     /**
-     * Tells a local author that their status was quoted, once the quote is approved, or needed no approval.
+     * Tells a local author that their status was quoted, once the quote is approved, or needed no approval. A quote that
+     * waited for them to review it has its notification replaced, as an approved follow request's is.
      */
     @ApplicationModuleListener
     public void on(QuoteAccepted event) {
@@ -124,8 +127,39 @@ public class Notifier {
                 || conversations.localRecipients(List.of(event.quotedAuthorId())).isEmpty()) return;
         notifications.lock();
         conversations.holdActors(List.of(event.authorId(), event.quotedAuthorId()));
+        notifications.deletePendingQuote(event.quotedAuthorId(), event.statusId());
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
                 .ifPresent(source -> notified(event.quotedAuthorId(), notifications.insertQuote(event.quotedAuthorId(), event.authorId(), source.id())));
+    }
+
+    /**
+     * Asks a local author to review a quote of their status. One that's been decided by the time this runs isn't asked
+     * about, and asking again replaces the old notification, so that it's new again.
+     */
+    @ApplicationModuleListener
+    public void on(QuoteReviewRequested event) {
+        if (conversations.localRecipients(List.of(event.quotedAuthorId())).isEmpty()) return;
+        notifications.lock();
+        conversations.holdActors(List.of(event.authorId(), event.quotedAuthorId()));
+        var waiting = quotes.find(event.statusId())
+                .filter(quote -> quote.isUnderReview() && event.quotedAuthorId().equals(quote.quotedAccountId()));
+        if (waiting.isEmpty()) return;
+        conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
+                .ifPresent(source -> {
+                    notifications.deletePendingQuote(event.quotedAuthorId(), source.id());
+                    notified(event.quotedAuthorId(),
+                            notifications.insertPendingQuote(event.quotedAuthorId(), event.authorId(), source.id()));
+                });
+    }
+
+    /**
+     * A rejected quote takes its request's notification with it. An approved one is replaced on {@link QuoteAccepted}.
+     */
+    @ApplicationModuleListener
+    public void on(QuoteReviewed event) {
+        if (!event.accepted()) {
+            notifications.deletePendingQuote(event.quotedAuthorId(), event.statusId());
+        }
     }
 
     /**

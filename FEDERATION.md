@@ -1064,10 +1064,14 @@ user and sent to the quoted author's own `inbox`, with the quote embedded as its
 The real `@context` and `instrument` have every term and property that a `Note` has. The `Create` is sent straight away, as
 on Mastodon, rather than after the answer. An `Accept` has to be signed by the quoted author, name the request by its `id`,
 alone or embedded, and have a `QuoteAuthorization` on the quoted author's host and port as its `result`, which isn't
-fetched. A `Reject` from the quoted author rejects the quote. Either way, an `Update` of the quote follows, as below, unless
-a rejection only changes a quote that was never shown. A request whose status is deleted first isn't sent. A request
+fetched. A `Reject` from the quoted author rejects the quote, and an `Accept` that follows it approves it. Either way, an
+`Update` of the quote follows, as below, unless a rejection only changes a quote that was never shown. A request whose status is deleted first isn't sent. A request
 that's still unanswered a minute after it was delivered is sent once more, under the same `id`, since Mastodon can drop
 one that it reads while it's still storing the `Create`.
+
+A local user can ask again for a quote that's pending, rejected, or revoked, at most once an hour. That sends a new
+`QuoteRequest` under a new `id`, `{status-uri}#quote_request/{milliseconds}`, since a server answers a repeat of the
+same request the same way. Only the newest request's answer counts.
 
 A status on a server that doesn't say who can quote it, with an `interactionPolicy`, is taken to be from a server that
 can't approve quotes, so a quote of it is shown, and sent with all of the properties above, straight away. Its
@@ -1081,7 +1085,7 @@ edits by `updated` takes it as the newest. A fetched `Note`'s `updated` is still
 
 #### Quote policies
 
-Each local `Note` says who can quote it in an `interactionPolicy`, with only `automaticApproval`, as Mastodon sends it:
+Each local `Note` says who can quote it in an `interactionPolicy`, as Mastodon sends it:
 
 ```json
 "interactionPolicy": {"canQuote": {"automaticApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}
@@ -1089,8 +1093,22 @@ Each local `Note` says who can quote it in an `interactionPolicy`, with only `au
 
 It holds the public collection, the author's `followers` collection, or, when only the author can quote it, the author.
 A followers-only or direct status, or one posted before this server supported quotes, can only be quoted by its author.
-Approval is always automatic, so the policy is what decides, at the time of the request. Changing it doesn't change what's
-been approved.
+A local user can choose to approve quotes by hand, for each status or for all of their new ones, either from everyone,
+or only from actors that don't follow them. Their `Note` then has the audience they review in `manualApproval`. When they
+review everyone's quotes, `automaticApproval` has the author alone:
+
+```json
+"interactionPolicy": {"canQuote": {"automaticApproval": ["https://elysium.example/users/bob"], "manualApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}
+```
+
+When they only review those of actors that don't follow them, `automaticApproval` has their `followers`:
+
+```json
+"interactionPolicy": {"canQuote": {"automaticApproval": ["https://elysium.example/users/bob/followers"], "manualApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}
+```
+
+The policy is what decides, at the time of the request. Changing it doesn't change what's been approved, or what's
+waiting for the author.
 
 A remote `Note`'s `interactionPolicy.canQuote` is read as Mastodon reads it: `automaticApproval` and `manualApproval` can
 each name the public collection, written in any of its three forms, the author's `followers`, or `{actor-uri}/following`,
@@ -1106,8 +1124,10 @@ followers-only or direct status is only quoted by its author, so a request for o
 
 A request that the policy refuses, including from an actor the author has blocked, gets a `Reject` that embeds it, and
 nothing is stored. One that it allows stores the `instrument` as the actor's status, if it isn't stored already, as long as
-it's public or unlisted, or names the quoted author in `to` or `cc`. Then it gets an `Accept`, signed as the quoted author
-and sent to the actor's own `inbox`:
+it's public or unlisted, or names the quoted author in `to` or `cc`. A request the policy approves automatically then gets
+an `Accept`. One the author approves by hand gets nothing until they decide, which can be any time later, and then an
+`Accept` or a `Reject` as below. A repeat while it's waiting gets nothing either. The `Accept` is signed as the quoted
+author and sent to the actor's own `inbox`:
 
 ```json
 {
@@ -1128,7 +1148,10 @@ and sent to the actor's own `inbox`:
 ```
 
 A `Reject` has the same shape, with `#rejects/` in its `id` and no `result`. A repeated request gets the same answer, with
-the same `id`. A quote that was rejected or revoked isn't approved by asking again.
+the same `id`. A quote that was rejected or revoked can be asked for again with a request under a new `id`, which waits
+for the author to decide by hand, whatever the policy says, so that asking again can't undo their decision. It can be
+asked for once an hour, and a request that comes sooner gets a `Reject`. An author can
+also approve a quote they rejected, which sends an `Accept` of the request after its `Reject`.
 
 #### Approvals
 
@@ -1166,7 +1189,8 @@ user's status, unless that user blocks its author. It's shown as a quote once it
 
 - **Its author's own:** a quote of a status by the same actor is approved.
 - **A local status:** the quote is approved through a `QuoteRequest`, above. A quote with only the older properties, from a
-  server that can't ask, is approved if the status's policy would allow it, and rejected otherwise.
+  server that can't ask, is approved if the status's policy would allow it automatically, waits for the author if they
+  approve quotes by hand, and is rejected otherwise. Nothing is sent to its server either way.
 - **Older properties:** a quote of another server's status with none of FEP-044f's properties, only the older ones, is
   approved, since its server can't ask.
 - **`quoteAuthorization`:** otherwise, it's fetched, signed as the [instance actor](#instance-actor), if it's on the quoted
@@ -1195,7 +1219,11 @@ arrives first is remembered for 34 days, like a status's, and a quote that names
 - When the quoted author's server revokes the approval of a local quote, the quote's `Update` goes to its audience, rather
   than a forwarded `Delete`, which FEP-044f asks for.
 - Approvals aren't checked again later, so a revocation that isn't sent here isn't seen.
-- Quotes are never approved by hand, and a remote status's `manualApproval` is only shown to clients.
+- A remote status's `manualApproval` is only shown to clients.
+- A quote that was rejected or revoked can be asked for again, under a new request `id`. FEP-044f doesn't say whether
+  it can.
+- Mastodon only takes an `Accept` of a quote that's pending, so when a local user approves a Mastodon user's quote that
+  they rejected, it's only shown here.
 
 ### Polls
 

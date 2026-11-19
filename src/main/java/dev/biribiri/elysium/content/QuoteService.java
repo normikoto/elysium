@@ -13,6 +13,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Comparator;
@@ -43,6 +44,7 @@ public class QuoteService {
     private final QuoteRules rules;
     private final FollowService follows;
     private final BlockService blocks;
+    private final PostingDefaults postingDefaults;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate transaction;
 
@@ -54,6 +56,7 @@ public class QuoteService {
             QuoteRules rules,
             FollowService follows,
             BlockService blocks,
+            PostingDefaults postingDefaults,
             ApplicationEventPublisher events,
             PlatformTransactionManager transactionManager) {
         this.quotes = quotes;
@@ -63,6 +66,7 @@ public class QuoteService {
         this.rules = rules;
         this.follows = follows;
         this.blocks = blocks;
+        this.postingDefaults = postingDefaults;
         this.events = events;
         this.transaction = new TransactionTemplate(transactionManager);
     }
@@ -221,20 +225,24 @@ public class QuoteService {
     }
 
     /**
-     * Changes who can quote one of the author's statuses. It doesn't change what's been approved already, as on Mastodon.
-     * A followers-only or direct status can only be quoted by its author, whatever it's set to.
+     * Changes who can quote one of the author's statuses, and whose quotes they approve by hand. It doesn't change what's
+     * been approved already, as on Mastodon, nor what's waiting for them to review. A followers-only or direct status can
+     * only be quoted by its author, whatever it's set to.
      *
+     * @param policy who can quote it, or null to keep that
+     * @param review whose quotes the author approves by hand, or null to keep that
      * @return the status, or empty if the author has no status with this ID
      */
-    public Optional<Status> setPolicy(UUID statusId, UUID authorId, QuotePolicy policy) {
+    public Optional<Status> setPolicy(UUID statusId, UUID authorId, QuotePolicy policy, QuoteReview review) {
         return transaction.execute(tx -> {
             var status = statuses.findByIdForEdit(statusId)
                     .filter(found -> found.actorId().equals(authorId) && !found.isReblog());
             if (status.isEmpty() || !status.get().visibility().isOpen()) {
                 return status;
             }
-            var approval = policy.approval();
-            if (approval.equals(status.get().quoteApproval())) {
+            var approval = StatusService.changedPolicy(status.get().quoteApproval(), policy, review,
+                    () -> postingDefaults.quoteReview(authorId));
+            if (Objects.equals(approval, status.get().quoteApproval())) {
                 return status;
             }
             quotes.setPolicy(statusId, approval);
@@ -249,7 +257,9 @@ public class QuoteService {
         /** Only a {@code QuoteAuthorization} from the quoted author's server can approve it. */
         NEEDS_PROOF,
         /** Nothing can be decided now, so it isn't shown. */
-        LEFT_PENDING
+        LEFT_PENDING,
+        /** Its quoted author, who's local, approves quotes by hand. */
+        NEEDS_REVIEW
     }
 
     /**
@@ -269,7 +279,11 @@ public class QuoteService {
             if (!quote.legacy()) {
                 return Settlement.LEFT_PENDING;
             }
-            return decide(quoted, quoting.actorId()) == QuoteDecision.AUTOMATIC ? Settlement.ACCEPTED : Settlement.REJECTED;
+            return switch (decide(quoted, quoting.actorId())) {
+                case AUTOMATIC -> Settlement.ACCEPTED;
+                case MANUAL -> Settlement.NEEDS_REVIEW;
+                case DENIED, UNKNOWN -> Settlement.REJECTED;
+            };
         }
         return quote.legacy() ? Settlement.ACCEPTED : Settlement.NEEDS_PROOF;
     }
@@ -296,39 +310,273 @@ public class QuoteService {
     }
 
     /**
-     * Approves another server's quote of a local status, which its author asked for with a {@code QuoteRequest}, and which
-     * the caller has decided to approve. A repeat gives the same {@code QuoteAuthorization}.
-     *
-     * @return this server's {@code QuoteAuthorization}, or empty if the quote isn't of this status, or was revoked or
-     * rejected
+     * How a {@code QuoteRequest} for a quote of a local status is answered.
      */
-    public Optional<UUID> approveRequest(UUID quotingStatusId, UUID quotedStatusId, URI requestUri) {
+    public sealed interface RequestAnswer {
+
+        /** @param stampId this server's {@code QuoteAuthorization} */
+        record Accept(UUID stampId) implements RequestAnswer {
+        }
+
+        record Reject() implements RequestAnswer {
+        }
+
+        /** The quoted author hasn't decided yet, so nothing is sent. */
+        record Wait() implements RequestAnswer {
+        }
+    }
+
+    /**
+     * Decides another server's request for approval of a quote of a local status, which the caller has found the policy
+     * doesn't refuse, and whose quote is stored. A repeat of a request gets the answer it got before. A new request for a
+     * quote that was rejected or revoked goes to the quoted author, whatever the policy says, so that asking again can't
+     * undo what they decided.
+     *
+     * @param decision what the quoted status's policy says of the requester
+     * @return a rejection if the quote isn't of this status
+     */
+    public RequestAnswer answerIncomingRequest(
+            UUID quotingStatusId, UUID quotedStatusId, URI requestUri, QuoteDecision decision) {
         return transaction.execute(tx -> {
             // Held so that it can't be deleted before it's approved.
             if (statuses.findByIdAndLock(quotedStatusId).isEmpty()) {
-                return Optional.<UUID>empty();
+                return new RequestAnswer.Reject();
             }
             var quote = quotes.findAndLock(quotingStatusId)
                     .filter(found -> quotedStatusId.equals(found.quotedStatusId()));
             if (quote.isEmpty()) {
-                return Optional.<UUID>empty();
+                return new RequestAnswer.Reject();
             }
             var found = quote.get();
-            if (found.state() == QuoteState.ACCEPTED && found.stampId() != null) {
-                return Optional.of(found.stampId());
+            var repeat = requestUri.equals(found.requestUri());
+            return switch (found.state()) {
+                case ACCEPTED -> found.stampId() != null
+                        ? new RequestAnswer.Accept(found.stampId())
+                        : new RequestAnswer.Accept(approve(found, requestUri));
+                case REJECTED, REVOKED -> {
+                    // As often as a local author can ask, so that the quoted author isn't asked over and over.
+                    if (repeat || (found.requestedAt() != null
+                            && found.requestedAt().plus(RETRY_AFTER).isAfter(Instant.now()))) {
+                        yield new RequestAnswer.Reject();
+                    }
+                    putToReview(found, requestUri);
+                    yield new RequestAnswer.Wait();
+                }
+                case PENDING -> {
+                    if (found.isUnderReview()) {
+                        if (!repeat) {
+                            quotes.setRequest(quotingStatusId, requestUri);
+                        }
+                        yield new RequestAnswer.Wait();
+                    }
+                    if (decision == QuoteDecision.AUTOMATIC) {
+                        yield new RequestAnswer.Accept(approve(found, requestUri));
+                    }
+                    putToReview(found, requestUri);
+                    yield new RequestAnswer.Wait();
+                }
+            };
+        });
+    }
+
+    /**
+     * @param requestUri the {@code QuoteRequest} that asked for it, or null for a quote from a server that can't ask
+     * @return the new {@code QuoteAuthorization}
+     */
+    private UUID approve(StatusQuote quote, URI requestUri) {
+        var stamp = Ids.timeOrdered(Instant.now());
+        quotes.changeState(quote.statusId(), QuoteState.ACCEPTED, requestUri == null && quote.legacy(), null, stamp);
+        if (requestUri != null) {
+            quotes.setRequest(quote.statusId(), requestUri);
+        }
+        if (quote.state() != QuoteState.ACCEPTED) {
+            notifyLocalAuthor(quote);
+        }
+        return stamp;
+    }
+
+    /**
+     * Only for a quote that isn't shown, so that nothing other servers have changes.
+     */
+    private void putToReview(StatusQuote quote, URI requestUri) {
+        if (quote.state() == QuoteState.ACCEPTED) {
+            throw new IllegalStateException("An accepted quote can't be put to review");
+        }
+        if (quote.state() != QuoteState.PENDING) {
+            quotes.changeState(quote.statusId(), QuoteState.PENDING, quote.legacy(), null, null);
+        }
+        quotes.setRequested(quote.statusId(), requestUri);
+        statuses.findById(quote.statusId()).ifPresent(quoting -> events.publishEvent(
+                new QuoteReviewRequested(quoting.id(), quoting.actorId(), quote.quotedAccountId())));
+    }
+
+    /**
+     * Puts a quote of a local status from a server that can't ask for approval to its author, if it's still waiting for
+     * that check, and still quotes what was checked.
+     */
+    public void awaitReview(UUID statusId, URI quotedUri) {
+        transaction.executeWithoutResult(tx -> quotes.findAndLock(statusId)
+                .filter(found -> found.state() == QuoteState.PENDING && !found.isUnderReview()
+                        && found.quotedUri().equals(quotedUri))
+                .ifPresent(found -> putToReview(found, null)));
+    }
+
+    /**
+     * Finds a quote of one of this author's statuses, for them to review, whatever state it's in.
+     */
+    public Optional<StatusQuote> findReview(UUID quotingStatusId, UUID ownerId) {
+        return quotes.find(quotingStatusId)
+                .filter(found -> ownerId.equals(found.quotedAccountId()) && found.quotedStatusId() != null)
+                .filter(found -> statuses.findById(found.statusId()).isPresent());
+    }
+
+    /**
+     * Lists the quotes of this author's statuses that wait for them to review, newest first.
+     *
+     * @param quotedStatusId only quotes of this status, or null for any
+     * @return the quotes, which are each of a stored status
+     */
+    public List<StatusQuote> findReviews(UUID ownerId, UUID quotedStatusId, StatusPage page) {
+        var ids = quotes.pageReviews(ownerId, quotedStatusId, page.maxId(), page.sinceId(), page.minId(), page.limit());
+        var found = quotes.findAll(ids);
+        return ids.stream().map(found::get).filter(Objects::nonNull).toList();
+    }
+
+    /**
+     * Approves a quote of one of the author's statuses that waits for them to review, or that they rejected before, as
+     * long as its author can still quote it.
+     *
+     * @return the quote as it is now, or empty if there's no such quote, or it can't be approved
+     */
+    public Optional<StatusQuote> authorizeReview(UUID quotingStatusId, UUID ownerId) {
+        return transaction.execute(tx -> {
+            var quoted = lockQuoted(quotingStatusId);
+            var quote = quoted.flatMap(status -> lockQuote(quotingStatusId, status.id()))
+                    .filter(found -> ownerId.equals(found.quotedAccountId()));
+            if (quote.isEmpty()) {
+                return Optional.<StatusQuote>empty();
             }
-            var approvable = found.state() == QuoteState.PENDING
-                    || (found.state() == QuoteState.ACCEPTED && found.legacy());
-            if (!approvable) {
-                return Optional.<UUID>empty();
+            var found = quote.get();
+            if (found.state() == QuoteState.ACCEPTED) {
+                return quote;
             }
-            var stamp = Ids.timeOrdered(Instant.now());
-            quotes.changeState(quotingStatusId, QuoteState.ACCEPTED, false, null, stamp);
-            quotes.setRequest(quotingStatusId, requestUri);
-            if (found.state() != QuoteState.ACCEPTED) {
-                notifyLocalAuthor(found);
+            if (!found.isUnderReview() && found.state() != QuoteState.REJECTED) {
+                return Optional.<StatusQuote>empty();
             }
-            return Optional.of(stamp);
+            var quoting = statuses.findById(quotingStatusId);
+            if (quoting.isEmpty() || decide(quoted.get(), quoting.get().actorId()) == QuoteDecision.DENIED) {
+                return Optional.<StatusQuote>empty();
+            }
+            approve(found, null);
+            events.publishEvent(new QuoteReviewed(quotingStatusId, quoting.get().actorId(), ownerId, true));
+            noteChanged(quoting.get());
+            return quotes.find(quotingStatusId);
+        });
+    }
+
+    /**
+     * Locks the status that a quote is of, which comes before locking the quote, as when answering a {@code QuoteRequest},
+     * so that two changes to the same quote can't each hold the lock that the other waits for.
+     */
+    private Optional<Status> lockQuoted(UUID quotingStatusId) {
+        return quotes.find(quotingStatusId).map(StatusQuote::quotedStatusId).flatMap(statuses::findByIdAndLock);
+    }
+
+    /**
+     * @return the quote, locked, if it's still of this status
+     */
+    private Optional<StatusQuote> lockQuote(UUID quotingStatusId, UUID quotedStatusId) {
+        return quotes.findAndLock(quotingStatusId).filter(found -> quotedStatusId.equals(found.quotedStatusId()));
+    }
+
+    /**
+     * Rejects a quote of one of the author's statuses that waits for them to review. A repeat changes nothing.
+     *
+     * @return the quote as it is now, or empty if there's no such quote, or it isn't waiting
+     */
+    public Optional<StatusQuote> rejectReview(UUID quotingStatusId, UUID ownerId) {
+        return transaction.execute(tx -> {
+            var quote = quotes.findAndLock(quotingStatusId)
+                    .filter(found -> ownerId.equals(found.quotedAccountId()) && found.quotedStatusId() != null);
+            if (quote.isEmpty() || quote.get().state() == QuoteState.REJECTED) {
+                return quote;
+            }
+            if (!quote.get().isUnderReview()) {
+                return Optional.<StatusQuote>empty();
+            }
+            var found = quote.get();
+            quotes.changeState(quotingStatusId, QuoteState.REJECTED, found.legacy(), null, null);
+            statuses.findById(quotingStatusId).ifPresent(quoting ->
+                    events.publishEvent(new QuoteReviewed(quotingStatusId, quoting.actorId(), ownerId, false)));
+            return quotes.find(quotingStatusId);
+        });
+    }
+
+    public enum Retry {
+        ASKED,
+        /** The author has no status with this ID that quotes something. */
+        NOT_FOUND,
+        ALREADY_ACCEPTED,
+        /** Asked too recently, so that the quoted author isn't asked over and over. */
+        TOO_SOON,
+        /** The quoted status is gone, or its author doesn't allow this author to quote it any more. */
+        NOT_ALLOWED
+    }
+
+    /**
+     * How long a local author waits between asking for approval of the same quote.
+     */
+    public static final Duration RETRY_AFTER = Duration.ofHours(1);
+
+    /**
+     * Asks again for approval of one of the author's quotes that's waiting, or was rejected or revoked. A quote of a local
+     * status is decided again by its policy. One of a remote status gets a new {@code QuoteRequest}, under a new ID, since a
+     * server that answered the old one answers a repeat the same way.
+     */
+    public Retry askAgain(UUID statusId, UUID authorId) {
+        return transaction.execute(tx -> {
+            var quoting = statuses.findByIdAndLock(statusId).filter(found -> found.actorId().equals(authorId));
+            if (quoting.isEmpty() || quotes.find(statusId).isEmpty()) {
+                return Retry.NOT_FOUND;
+            }
+            var quoted = lockQuoted(statusId);
+            var quote = quoted.isPresent() ? lockQuote(statusId, quoted.get().id()) : quotes.findAndLock(statusId);
+            if (quote.isEmpty()) {
+                return Retry.NOT_FOUND;
+            }
+            var found = quote.get();
+            if (found.state() == QuoteState.ACCEPTED) {
+                return Retry.ALREADY_ACCEPTED;
+            }
+            var now = Instant.now();
+            if (found.requestedAt() != null && found.requestedAt().plus(RETRY_AFTER).isAfter(now)) {
+                return Retry.TOO_SOON;
+            }
+            var quotedAuthor = Optional.ofNullable(found.quotedAccountId()).flatMap(actors::findById)
+                    .filter(Actor::isActive);
+            var decision = quoted.map(status -> decide(status, authorId)).orElse(QuoteDecision.DENIED);
+            if (quotedAuthor.isEmpty() || decision == QuoteDecision.DENIED) {
+                return Retry.NOT_ALLOWED;
+            }
+            var status = quoting.get();
+            if (actors.isLocal(quotedAuthor.get())) {
+                if (decision == QuoteDecision.AUTOMATIC) {
+                    approve(found, null);
+                    noteChanged(status);
+                } else {
+                    putToReview(found, null);
+                }
+                return Retry.ASKED;
+            }
+            // A quote of a status on a server that can't approve it is shown while it's asked, as it was at first.
+            var legacy = quoted.get().quoteApproval() == null;
+            quotes.changeState(statusId, legacy ? QuoteState.ACCEPTED : QuoteState.PENDING, legacy, null, null);
+            quotes.setRequested(statusId, StatusQuote.requestUriFor(status.uri(), now));
+            if (legacy) {
+                noteChanged(status);
+            }
+            events.publishEvent(new QuoteRequested(statusId, authorId));
+            return Retry.ASKED;
         });
     }
 
@@ -349,8 +597,10 @@ public class QuoteService {
                 return false;
             }
             var found = quote.get();
+            // A rejection can be followed by an approval, when the quoted author changes their mind.
             var answerable = found.state() == QuoteState.PENDING
-                    || (found.state() == QuoteState.ACCEPTED && found.legacy());
+                    || (found.state() == QuoteState.ACCEPTED && found.legacy())
+                    || (found.state() == QuoteState.REJECTED && approvalUri != null);
             if (!answerable) {
                 return true;
             }

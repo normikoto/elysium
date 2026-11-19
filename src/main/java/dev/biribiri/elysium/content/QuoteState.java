@@ -7,7 +7,10 @@ import java.util.Locale;
  * Whether a quote has its quoted author's consent. Only an accepted quote shows the status it quotes.
  */
 public enum QuoteState {
-    /** Waiting for the quoted author's server to answer, or for this server to check the answer. */
+    /**
+     * Waiting for the quoted author's server to answer, for this server to check the answer, or for a local quoted author
+     * to review it.
+     */
     PENDING,
     ACCEPTED,
     REJECTED,

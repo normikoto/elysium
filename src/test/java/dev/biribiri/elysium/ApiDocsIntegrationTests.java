@@ -189,9 +189,12 @@ class ApiDocsIntegrationTests {
                 var name = operation.getKey() + " " + path.getKey();
                 var op = operation.getValue();
                 var docs = op.path("externalDocs").path("url").asString("");
-                // Pleroma's extensions, which Mastodon doesn't have, link to Akkoma's documentation of them.
+                // Pleroma's extensions, which Mastodon doesn't have, link to Akkoma's documentation of them, and
+                // GoToSocial's to GoToSocial's.
                 var linksToMastodon = docs.startsWith("https://docs.joinmastodon.org/methods/")
-                        || (path.getKey().startsWith("/api/v1/pleroma/") && docs.startsWith("https://docs.akkoma.dev/"));
+                        || (path.getKey().startsWith("/api/v1/pleroma/") && docs.startsWith("https://docs.akkoma.dev/"))
+                        || (path.getKey().startsWith("/api/v1/interaction_requests")
+                        && docs.startsWith("https://docs.gotosocial.org/"));
                 if (op.path("summary").asString("").isEmpty()
                         || (path.getKey().startsWith("/api/") && !linksToMastodon)) {
                     undescribed.add(name);

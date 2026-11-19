@@ -124,7 +124,7 @@ public class StatusDeliveries {
         var updates = Update.idPrefixFor(event.statusUri());
         deliveries.cancel(create);
         deliveries.cancelStartingWith(updates);
-        deliveries.cancel(StatusQuote.requestUriFor(event.statusUri()).toString());
+        deliveries.cancelStartingWith(StatusQuote.requestUriPrefix(event.statusUri()));
         var author = actors.findAnyLocalById(event.authorId()).filter(found -> !found.isDeleted());
         if (author.isEmpty() || event.localOnly()) {
             followersOnly.forget(event.statusId());

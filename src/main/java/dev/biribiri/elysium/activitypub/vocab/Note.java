@@ -130,15 +130,24 @@ public record Note(
      */
     public record InteractionPolicy(CanQuote canQuote) {
 
-        /**
-         * Only automatic approval, as on Mastodon.
-         */
         public static InteractionPolicy automatic(List<String> approved) {
-            return new InteractionPolicy(new CanQuote(List.copyOf(approved)));
+            return new InteractionPolicy(new CanQuote(List.copyOf(approved), null));
+        }
+
+        /**
+         * @param approved whose quotes are approved without the author looking at them
+         * @param reviewed whose quotes the author approves by hand
+         */
+        public static InteractionPolicy manual(List<String> approved, List<String> reviewed) {
+            return new InteractionPolicy(new CanQuote(List.copyOf(approved), List.copyOf(reviewed)));
         }
     }
 
-    public record CanQuote(List<String> automaticApproval) {
+    /**
+     * @param manualApproval null when approval is only automatic, as Mastodon sends it then
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record CanQuote(List<String> automaticApproval, List<String> manualApproval) {
     }
 
     /**

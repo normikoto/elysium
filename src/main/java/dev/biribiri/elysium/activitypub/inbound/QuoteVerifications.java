@@ -158,11 +158,20 @@ class QuoteVerifications {
     private CompletionHandler<QuoteVerificationJob> check(
             QuoteVerificationJob job, StatusQuote quote, Status quoting, Status quoted, URI approvalUri) {
         var settlement = quotes.settleWithoutProof(quote, quoting, quoted);
-        if (settlement != QuoteService.Settlement.NEEDS_PROOF) {
-            if (settlement != QuoteService.Settlement.LEFT_PENDING) {
+        switch (settlement) {
+            case ACCEPTED, REJECTED -> {
                 finish(quote, approvalUri, settlement == QuoteService.Settlement.ACCEPTED);
+                return Jobs.done();
             }
-            return Jobs.done();
+            case NEEDS_REVIEW -> {
+                quotes.awaitReview(quote.statusId(), quote.quotedUri());
+                return Jobs.done();
+            }
+            case LEFT_PENDING -> {
+                return Jobs.done();
+            }
+            case NEEDS_PROOF -> {
+            }
         }
         var quotedAuthor = actors.findById(quoted.actorId()).map(Actor::uri);
         if (quotedAuthor.isEmpty() || approvalUri == null || quotes.wasApprovalDeleted(approvalUri, quotedAuthor.get())

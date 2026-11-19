@@ -293,7 +293,8 @@ public class ScheduledStatusService {
         var draft = status.draft();
         var withIds = new NewStatus(draft.text(), draft.spoilerText(), draft.language(), draft.visibility(),
                 draft.sensitive(), draft.inReplyToId(), held.stream().map(MediaAttachment::id).toList(),
-                draft.quotedStatusId(), draft.quotePolicy(), draft.poll(), draft.localOnly(), draft.contentType());
+                draft.quotedStatusId(), draft.quotePolicy(), draft.poll(), draft.localOnly(), draft.contentType(),
+                draft.quoteReview());
         return new ScheduledStatus(status.id(), status.authorId(), status.scheduledAt(), withIds, List.copyOf(held));
     }
 }

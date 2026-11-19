@@ -28,6 +28,17 @@ public class PostingDefaults {
         repository.setQuotePolicy(actorId, policy.value());
     }
 
+    /**
+     * {@link QuoteReview#NONE} until the account chooses, so that quotes are approved automatically, as on Mastodon.
+     */
+    public QuoteReview quoteReview(UUID actorId) {
+        return repository.findQuoteReview(actorId).flatMap(QuoteReview::fromValue).orElse(QuoteReview.NONE);
+    }
+
+    public void setQuoteReview(UUID actorId, QuoteReview review) {
+        repository.setQuoteReview(actorId, review.value());
+    }
+
     public void removeFor(UUID actorId) {
         repository.removeFor(actorId);
     }

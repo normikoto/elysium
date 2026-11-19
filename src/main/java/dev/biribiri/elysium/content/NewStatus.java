@@ -16,6 +16,7 @@ import java.util.UUID;
  * @param localOnly   whether it stays on this server. A reply to or quote of a local-only status is local-only whatever
  *                    this says
  * @param contentType what its text is written in
+ * @param quoteReview whose quotes of it its author approves by hand, or null for the author's default
  */
 public record NewStatus(
         String text,
@@ -29,12 +30,23 @@ public record NewStatus(
         QuotePolicy quotePolicy,
         NewPoll poll,
         boolean localOnly,
-        ContentType contentType
+        ContentType contentType,
+        QuoteReview quoteReview
 ) {
 
     public NewStatus {
         mediaIds = mediaIds == null ? List.of() : List.copyOf(mediaIds);
         contentType = contentType == null ? ContentType.PLAIN : contentType;
+    }
+
+    /**
+     * A status whose quotes are approved as its author's default says.
+     */
+    public NewStatus(String text, String spoilerText, String language, Visibility visibility, boolean sensitive,
+                     UUID inReplyToId, List<UUID> mediaIds, UUID quotedStatusId, QuotePolicy quotePolicy, NewPoll poll,
+                     boolean localOnly, ContentType contentType) {
+        this(text, spoilerText, language, visibility, sensitive, inReplyToId, mediaIds, quotedStatusId, quotePolicy, poll,
+                localOnly, contentType, null);
     }
 
     /**

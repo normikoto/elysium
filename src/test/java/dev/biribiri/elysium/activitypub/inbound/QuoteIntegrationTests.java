@@ -11,9 +11,11 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.QuotePolicy;
+import dev.biribiri.elysium.content.QuoteReview;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -28,6 +30,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
@@ -38,6 +41,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
@@ -50,6 +54,7 @@ import static org.mockito.Mockito.when;
 class QuoteIntegrationTests {
 
     private static final String PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
+    private static final Duration WAIT = Duration.ofSeconds(30);
 
     @Autowired CreateHandler creates;
     @Autowired UpdateHandler updates;
@@ -249,6 +254,157 @@ class QuoteIntegrationTests {
     }
 
     @Test
+    void aQuoteRequestWaitsForAnAuthorWhoReviewsQuotes() {
+        var quoted = reviewed(alice);
+        var request = quoteRequest(quoter, quoted.uri(), Map.of("to", List.of(PUBLIC)));
+
+        requests.handle(request);
+        requests.handle(request);
+
+        var quote = statusId(URI.create(JsonPath.<String>read(request.body(), "$.instrument.id"))).orElseThrow();
+        assertThat(quote(quote).isUnderReview()).isTrue();
+        assertThat(answers(alice, "Accept")).isEmpty();
+        assertThat(answers(alice, "Reject")).isEmpty();
+
+        var authorized = quotes.authorizeReview(quote, alice.id()).orElseThrow();
+
+        assertThat(authorized.state()).isEqualTo(QuoteState.ACCEPTED);
+        var accept = await().atMost(WAIT).until(() -> answers(alice, "Accept"), found -> !found.isEmpty()).getFirst();
+        assertThat(JsonPath.<String>read(accept, "$.object.id")).isEqualTo(request.id());
+        assertThat(JsonPath.<String>read(accept, "$.object.instrument")).isEqualTo(uriOf(quote).toString());
+        assertThat(JsonPath.<String>read(accept, "$.result"))
+                .isEqualTo(alice.uri() + "/quote_authorizations/" + authorized.stampId());
+
+        requests.handle(request);
+        assertThat(answers(alice, "Accept")).hasSize(1);
+    }
+
+    @Test
+    void anAuthorCanReviewOnlyTheQuotesOfAccountsThatDontFollowThem() {
+        var quoted = statuses.create(alice.id(), new NewStatus("followers first", null, null, Visibility.PUBLIC, false,
+                null, List.of(), null, QuotePolicy.PUBLIC, null, false, null, QuoteReview.NON_FOLLOWERS));
+        var stranger = remote();
+        follow(quoter, alice);
+        var followers = quoteRequest(quoter, quoted.uri(), Map.of("to", List.of(PUBLIC)));
+        var others = quoteRequest(stranger, quoted.uri(), Map.of("to", List.of(PUBLIC)));
+
+        requests.handle(followers);
+        requests.handle(others);
+
+        var followerQuote = statusId(URI.create(JsonPath.<String>read(followers.body(), "$.instrument.id"))).orElseThrow();
+        var strangerQuote = statusId(URI.create(JsonPath.<String>read(others.body(), "$.instrument.id"))).orElseThrow();
+        assertThat(quote(followerQuote).state()).isEqualTo(QuoteState.ACCEPTED);
+        assertThat(quote(strangerQuote).isUnderReview()).isTrue();
+        assertThat(answers(alice, "Accept")).hasSize(1);
+    }
+
+    @Test
+    void aQuoteRequestThatsAskedAgainAfterARejectionGoesBackToTheAuthor() {
+        var quoted = reviewed(alice);
+        var instrument = URI.create(quoter.uri() + "/statuses/" + UUID.randomUUID());
+        var first = quoteRequest(quoter, quoted.uri(), instrument, Map.of("to", List.of(PUBLIC)));
+        requests.handle(first);
+        var quote = statusId(instrument).orElseThrow();
+
+        quotes.rejectReview(quote, alice.id()).orElseThrow();
+
+        var reject = await().atMost(WAIT).until(() -> answers(alice, "Reject"), found -> !found.isEmpty()).getFirst();
+        assertThat(JsonPath.<String>read(reject, "$.object.id")).isEqualTo(first.id());
+        requests.handle(first);
+        assertThat(quote(quote).state()).isEqualTo(QuoteState.REJECTED);
+
+        // Asking again too soon is refused, so that the author isn't asked over and over.
+        var tooSoon = quoteRequest(quoter, quoted.uri(), instrument, Map.of("to", List.of(PUBLIC)));
+        requests.handle(tooSoon);
+        assertThat(quote(quote).state()).isEqualTo(QuoteState.REJECTED);
+        await().atMost(WAIT).until(() -> answers(alice, "Reject"), found -> found.stream()
+                .anyMatch(body -> JsonPath.<String>read(body, "$.object.id").equals(tooSoon.id())));
+        askedLongAgo(quote);
+
+        // Even once the author approves quotes automatically, asking again can't undo what they decided.
+        quotes.setPolicy(quoted.id(), alice.id(), QuotePolicy.PUBLIC, QuoteReview.NONE);
+        var second = quoteRequest(quoter, quoted.uri(), instrument, Map.of("to", List.of(PUBLIC)));
+        requests.handle(second);
+
+        assertThat(quote(quote).isUnderReview()).isTrue();
+        assertThat(quote(quote).requestUri()).hasToString(second.id());
+        assertThat(answers(alice, "Accept")).isEmpty();
+
+        quotes.authorizeReview(quote, alice.id()).orElseThrow();
+        var accept = await().atMost(WAIT).until(() -> answers(alice, "Accept"), found -> !found.isEmpty()).getFirst();
+        assertThat(JsonPath.<String>read(accept, "$.object.id")).isEqualTo(second.id());
+    }
+
+    @Test
+    void theAuthorCanApproveAQuoteTheyRejected() {
+        var quoted = reviewed(alice);
+        var request = quoteRequest(quoter, quoted.uri(), Map.of("to", List.of(PUBLIC)));
+        requests.handle(request);
+        var quote = statusId(URI.create(JsonPath.<String>read(request.body(), "$.instrument.id"))).orElseThrow();
+        quotes.rejectReview(quote, alice.id()).orElseThrow();
+        await().atMost(WAIT).until(() -> answers(alice, "Reject"), found -> !found.isEmpty());
+
+        quotes.authorizeReview(quote, alice.id()).orElseThrow();
+
+        assertThat(quote(quote).state()).isEqualTo(QuoteState.ACCEPTED);
+        await().atMost(WAIT).until(() -> answers(alice, "Accept"), found -> !found.isEmpty());
+        // The Reject is cancelled, so that it can't arrive after the Accept.
+        assertThat(answers(alice, "Reject")).isEmpty();
+        assertThat(quotes.authorizeReview(quote, quoter.id())).isEmpty();
+    }
+
+    @Test
+    void aQuoteThatsUpdatedToQuoteSomethingElseIsAskedForAfresh() {
+        var reviewedStatus = reviewed(alice);
+        var open = statuses.create(alice.id(), new NewStatus("open", null, null, Visibility.PUBLIC, false, null,
+                List.of(), null, QuotePolicy.PUBLIC));
+        var instrument = URI.create(quoter.uri() + "/statuses/" + UUID.randomUUID());
+        requests.handle(quoteRequest(quoter, reviewedStatus.uri(), instrument, Map.of("to", List.of(PUBLIC))));
+        var quote = statusId(instrument).orElseThrow();
+        assertThat(quote(quote).isUnderReview()).isTrue();
+
+        updates.handle(activity(quoter, "Update", note(quoter, instrument, Map.of("quote", open.uri().toString(),
+                "updated", Instant.now().toString()))));
+
+        assertThat(quote(quote)).extracting(StatusQuote::isUnderReview, StatusQuote::requestUri)
+                .containsExactly(false, null);
+        var request = quoteRequest(quoter, open.uri(), instrument, Map.of("to", List.of(PUBLIC)));
+        requests.handle(request);
+        assertThat(quote(quote).state()).isEqualTo(QuoteState.ACCEPTED);
+        assertThat(answers(alice, "Accept")).anyMatch(body -> JsonPath.<String>read(body, "$.object.id").equals(request.id()));
+    }
+
+    @Test
+    void aLegacyQuoteOfAStatusWhoseAuthorReviewsQuotesWaitsForThem() {
+        var quoted = reviewed(alice);
+        var quote = createFrom(quoter, Map.of("_misskey_quote", quoted.uri().toString()));
+
+        verify(quote);
+
+        assertThat(quote(quote).isUnderReview()).isTrue();
+        quotes.authorizeReview(quote, alice.id()).orElseThrow();
+        assertThat(quote(quote).state()).isEqualTo(QuoteState.ACCEPTED);
+    }
+
+    @Test
+    void anAcceptAfterARejectionOfItsOwnRequestApprovesTheQuote() {
+        var quotedUri = storeRemote(author, "<p>theirs</p>");
+        jdbc.sql("UPDATE status SET quote_manual = '{public}', quote_automatic = '{}' WHERE uri = :uri")
+                .param("uri", quotedUri.toString()).update();
+        var quoting = statuses.create(alice.id(), new NewStatus("mine", null, null, Visibility.PUBLIC, false, null,
+                List.of(), statusId(quotedUri).orElseThrow(), null));
+        var request = quoting.uri() + "#quote_request";
+        var stamp = URI.create(author.uri() + "/quote_authorizations/" + UUID.randomUUID());
+
+        rejects.handle(answerTo(author, "Reject", request, null));
+        assertThat(quote(quoting.id()).state()).isEqualTo(QuoteState.REJECTED);
+        accepts.handle(answerTo(author, "Accept", request, stamp));
+
+        assertThat(quote(quoting.id())).extracting(StatusQuote::state, StatusQuote::approvalUri)
+                .containsExactly(QuoteState.ACCEPTED, stamp);
+    }
+
+    @Test
     void rejectsAQuoteRequestThatThePolicyRefusesAndStoresNothing() {
         var quoted = statuses.create(alice.id(), new NewStatus("closed", null, null, Visibility.PUBLIC, false, null,
                 List.of(), null, QuotePolicy.FOLLOWERS));
@@ -349,6 +505,19 @@ class QuoteIntegrationTests {
                 Instant.now().truncatedTo(ChronoUnit.MICROS), null, null);
     }
 
+    /**
+     * A public status whose author approves quotes by hand.
+     */
+    private Status reviewed(Actor author) {
+        return statuses.create(author.id(), new NewStatus("reviewed", null, null, Visibility.PUBLIC, false, null,
+                List.of(), null, QuotePolicy.PUBLIC, null, false, null, QuoteReview.ALL));
+    }
+
+    private void askedLongAgo(UUID quote) {
+        jdbc.sql("UPDATE status_quote SET requested_at = now() - interval '2 hours' WHERE status_id = :id")
+                .param("id", quote).update();
+    }
+
     private StatusQuote quote(UUID statusId) {
         return quotes.find(statusId).orElseThrow();
     }
@@ -379,7 +548,11 @@ class QuoteIntegrationTests {
     }
 
     private InboundActivity quoteRequest(Actor actor, URI quoted, Map<String, Object> properties) {
-        var instrument = note(actor, URI.create(actor.uri() + "/statuses/" + UUID.randomUUID()), Map.of());
+        return quoteRequest(actor, quoted, URI.create(actor.uri() + "/statuses/" + UUID.randomUUID()), properties);
+    }
+
+    private InboundActivity quoteRequest(Actor actor, URI quoted, URI quote, Map<String, Object> properties) {
+        var instrument = note(actor, quote, Map.of());
         instrument.put("quote", quoted.toString());
         instrument.putAll(properties);
         var id = actor.uri() + "/quote_requests/" + UUID.randomUUID();

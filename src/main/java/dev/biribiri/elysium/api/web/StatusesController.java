@@ -6,6 +6,7 @@ import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.QuotePolicy;
+import dev.biribiri.elysium.content.QuoteReview;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.ContentType;
@@ -641,6 +642,43 @@ public class StatusesController {
         };
     }
 
+    @PostMapping("/{id}/quote/request")
+    @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
+    @Operation(
+            operationId = "requestQuoteApproval",
+            summary = "Ask again for approval of a quote",
+            description = """
+                    Not in Mastodon. Asks again for approval of what one of the user's statuses quotes, when the quote \
+                    is `pending`, `rejected`, or `revoked`. A quote of a status on this server is decided again by its \
+                    author's policy, and may wait for them to review it. One of a status on another server gets a new \
+                    request, so its `quote.state` is `pending` again. A quote can only be asked for once an hour. \
+                    """ + ApiDocs.NEEDS_USER,
+            // Mastodon has no such endpoint, so this links to where quotes are made.
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status, with its `quote` as it is now."),
+                    @ApiResponse(responseCode = "404", description = """
+                            Not found, the status isn't the user's, or it doesn't quote anything."""),
+                    @ApiResponse(responseCode = "422", description = """
+                            The quote is accepted already, was asked for less than an hour ago, or can't be approved \
+                            any more, since the quoted status is gone or its author doesn't allow the user to quote it, \
+                            or the token has no user.""")
+            })
+    public StatusResponse requestQuoteApproval(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var author = requireUser(token);
+        var statusId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
+        return switch (quotes.askAgain(statusId, author)) {
+            case NOT_FOUND -> throw new RecordNotFoundException();
+            case ALREADY_ACCEPTED -> throw new InvalidRequestException("This quote is accepted already");
+            case TOO_SOON -> throw new InvalidRequestException("This quote was asked for too recently");
+            case NOT_ALLOWED -> throw new InvalidRequestException("This status can't be quoted");
+            case ASKED -> statuses.findStored(statusId)
+                    .map(found -> responses.one(found, Optional.of(author)))
+                    .orElseThrow(RecordNotFoundException::new);
+        };
+    }
+
     @PutMapping(value = "/{id}/interaction_policy",
             consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
@@ -658,16 +696,18 @@ public class StatusesController {
             summary = "Change who can quote a status",
             description = """
                     Sets `quote_approval_policy` on one of the user's own statuses, which other servers that were sent \
-                    it are sent in an `Update`. It doesn't change the quotes approved already. A followers-only or \
-                    direct status can only be quoted by its author, whatever this says. \
+                    it are sent in an `Update`. It doesn't change the quotes approved already, nor those waiting for \
+                    the user to review. A followers-only or direct status can only be quoted by its author, whatever \
+                    this says. Differences from Mastodon: `quote_review` sets whose quotes the user approves by hand. \
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#interaction_policy"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status, with its `quote_approval`."),
                     @ApiResponse(responseCode = "404", description = "Not found, the status isn't the user's, or it's a boost."),
                     @ApiResponse(responseCode = "422", description = """
-                            `quote_approval_policy` is missing or isn't one of `public`, `followers`, or `nobody`, or the \
-                            token has no user.""")
+                            Both `quote_approval_policy` and `quote_review` are missing, `quote_approval_policy` isn't \
+                            one of `public`, `followers`, or `nobody`, `quote_review` isn't one of `none`, \
+                            `non_followers`, or `all`, or the token has no user.""")
             })
     @RequestBody(required = true, content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = InteractionPolicyBody.class)))
@@ -681,10 +721,11 @@ public class StatusesController {
         var author = requireUser(token);
         var statusId = RequestParameters.uuid(id).orElseThrow(RecordNotFoundException::new);
         var policy = quotePolicy(parameters);
-        if (policy == null) {
+        var review = quoteReview(parameters);
+        if (policy == null && review == null) {
             throw new InvalidRequestException("Validation failed: quote_approval_policy is required");
         }
-        return quotes.setPolicy(statusId, author, policy)
+        return quotes.setPolicy(statusId, author, policy, review)
                 .map(found -> responses.one(found, Optional.of(author)))
                 .orElseThrow(RecordNotFoundException::new);
     }
@@ -700,6 +741,15 @@ public class StatusesController {
                     "Validation failed: quote_approval_policy must be public, followers, or nobody"));
             default -> throw new InvalidRequestException("Validation failed: quote_approval_policy must be a string");
         };
+    }
+
+    /**
+     * @return null if it wasn't given
+     */
+    private static QuoteReview quoteReview(Map<String, ?> parameters) {
+        var value = RequestParameters.string(parameters, "quote_review");
+        return value == null ? null : QuoteReview.fromValue(value).orElseThrow(() -> new InvalidRequestException(
+                "Validation failed: quote_review must be none, non_followers, or all"));
     }
 
     /**
@@ -737,7 +787,8 @@ public class StatusesController {
                 quotePolicy(parameters),
                 poll(parameters.get("poll")),
                 RequestParameters.flag(parameters, "local_only"),
-                contentType(parameters));
+                contentType(parameters),
+                quoteReview(parameters));
         // A time that's passed posts the status now, as on Mastodon, so a client whose clock is a little ahead still posts.
         if (scheduledAt != null && scheduledAt.isAfter(Instant.now())) {
             return ScheduledStatusResponse.from(scheduled.schedule(author, draft, scheduledAt), instance);
@@ -780,7 +831,8 @@ public class StatusesController {
                 quoted(RequestParameters.string(parameters, "quoted_status_id")),
                 quotePolicy(parameters),
                 parameters.containsKey("poll") ? new PollChange(poll(parameters.get("poll"))) : null,
-                contentType(parameters));
+                contentType(parameters),
+                quoteReview(parameters));
         return statuses.edit(statusId, author, draft)
                 .map(found -> responses.one(found, Optional.of(author)))
                 .orElseThrow(RecordNotFoundException::new);
@@ -930,6 +982,10 @@ public class StatusesController {
             @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
                     Who can quote it. Missing keeps who can. Ignored for a followers-only or direct status.""")
             String quote_approval_policy,
+            @Schema(allowableValues = {"none", "non_followers", "all"}, description = """
+                    Not in Mastodon. Whose quotes of it the user approves by hand: nobody's, those of accounts that \
+                    don't follow them, or everyone's. Missing keeps whose they do.""")
+            String quote_review,
             @Schema(allowableValues = {"text/plain", "text/markdown"}, description = """
                     What the text is written in. Missing keeps what the status was written in.""")
             String content_type) {
@@ -955,9 +1011,13 @@ public class StatusesController {
      */
     @Schema(name = "InteractionPolicy")
     private record InteractionPolicyBody(
-            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"public", "followers", "nobody"},
-                    description = "Who can quote the status.")
-            String quote_approval_policy) {
+            @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
+                    Who can quote the status. Missing keeps who can, if `quote_review` is given.""")
+            String quote_approval_policy,
+            @Schema(allowableValues = {"none", "non_followers", "all"}, description = """
+                    Not in Mastodon. Whose quotes of the status the user approves by hand: nobody's, those of \
+                    accounts that don't follow them, or everyone's. Missing keeps whose they do.""")
+            String quote_review) {
     }
 
     /**
@@ -1001,6 +1061,11 @@ public class StatusesController {
                     Who can quote this status. Missing means the user's default. A followers-only or direct status can \
                     only be quoted by its author.""")
             String quote_approval_policy,
+            @Schema(allowableValues = {"none", "non_followers", "all"}, description = """
+                    Not in Mastodon. Whose quotes of this status the user approves by hand, rather than \
+                    automatically: nobody's, those of accounts that don't follow them, or everyone's. Missing means \
+                    the user's `source[quote_review]`.""")
+            String quote_review,
             @Schema(description = """
                     Whether the status stays on this server, unsent to other servers and only shown to accounts \
                     logged in here. A reply to or quote of a local-only status is local-only whatever this says.""",

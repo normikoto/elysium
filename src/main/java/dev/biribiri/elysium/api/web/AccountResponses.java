@@ -68,7 +68,7 @@ class AccountResponses {
         var profile = profiles.find(actor.id());
         var account = byId(List.of(actor), Map.of(actor.id(), profile), true).get(actor.id());
         return CredentialAccountResponse.from(account, profile, follows.countRequests(actor.id()),
-                postingDefaults.quotePolicy(actor.id()));
+                postingDefaults.quotePolicy(actor.id()), postingDefaults.quoteReview(actor.id()));
     }
 
     /**

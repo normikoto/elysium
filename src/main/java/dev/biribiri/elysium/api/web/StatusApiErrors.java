@@ -28,6 +28,7 @@ import java.util.Map;
         AsyncRefreshesController.class,
         BlocksController.class,
         FollowRequestsController.class,
+        InteractionRequestsController.class,
         MutesController.class,
         UserDomainBlocksController.class,
         NotificationsController.class,

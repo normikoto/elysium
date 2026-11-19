@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.QuoteApproval;
+import dev.biribiri.elysium.content.QuoteDecision;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteQuote;
 import dev.biribiri.elysium.content.RemoteStatus;
@@ -37,6 +38,7 @@ import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -368,7 +370,9 @@ class QuotesIntegrationTests {
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(),
                 new RemoteQuote(URI.create("https://quotes.example/users/qbob/statuses/" + quoted), false, null), null))
                 .orElseThrow();
-        var stamp = quotes.approveRequest(quote, UUID.fromString(quoted), URI.create(remote.uri() + "/request")).orElseThrow();
+        var answer = quotes.answerIncomingRequest(quote, UUID.fromString(quoted), URI.create(remote.uri() + "/request"),
+                QuoteDecision.AUTOMATIC);
+        var stamp = ((QuoteService.RequestAnswer.Accept) answer).stampId();
         var stampPath = "/users/qbob/quote_authorizations/" + stamp;
         mockMvc.perform(get(stampPath).accept("application/activity+json")).andExpect(status().isOk());
 
@@ -415,6 +419,229 @@ class QuotesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.domain").value("quotes.example"))
                 .andExpect(jsonPath("$.api_versions.mastodon").value(7));
+    }
+
+    @Test
+    void aQuoteOfAStatusWhoseAuthorReviewsQuotesWaitsForThem() throws Exception {
+        var alice = account("qalice");
+        account("qbob");
+        var quoted = createStatus("qbob", Map.of("status", "original", "quote_review", "all"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + quoted), token("qalice")))
+                .andExpect(jsonPath("$.quote_approval.automatic").isEmpty())
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"))
+                .andExpect(jsonPath("$.quote_approval.current_user").value("manual"));
+        mockMvc.perform(get("/users/qbob/statuses/" + quoted).accept("application/activity+json"))
+                .andExpect(jsonPath("$.interactionPolicy.canQuote.automaticApproval[0]")
+                        .value("https://quotes.example/users/qbob"))
+                .andExpect(jsonPath("$.interactionPolicy.canQuote.manualApproval[0]").value(PUBLIC));
+
+        var quote = createStatus("qalice", Map.of("status", "look", "quoted_status_id", quoted));
+
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + quote), token("qalice")))
+                .andExpect(jsonPath("$.quote.state").value("pending"))
+                .andExpect(jsonPath("$.quote.quoted_status").isEmpty());
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "pending.quote"), token("qbob")))
+                .andExpect(jsonPath("$[0].type").value("pending.quote"))
+                .andExpect(jsonPath("$[0].status.id").value(quote)));
+        mockMvc.perform(withToken(get("/api/v1/interaction_requests"), token("qbob")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(quote))
+                .andExpect(jsonPath("$[0].type").value("quote"))
+                .andExpect(jsonPath("$[0].account.id").value(alice.id().toString()))
+                .andExpect(jsonPath("$[0].status.id").value(quoted))
+                .andExpect(jsonPath("$[0].quote.id").value(quote))
+                .andExpect(jsonPath("$[0].accepted_at").doesNotExist())
+                .andExpect(jsonPath("$[0].rejected_at").doesNotExist());
+        mockMvc.perform(withToken(get("/api/v1/interaction_requests").param("quotes", "false"), token("qbob")))
+                .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(withToken(get("/api/v1/interaction_requests").param("status_id", quote), token("qbob")))
+                .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(withToken(get("/api/v1/interaction_requests/" + quote), token("qalice")))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(withToken(post("/api/v1/interaction_requests/" + quote + "/authorize"), token("qalice")))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(withToken(post("/api/v1/interaction_requests/" + quote + "/reject"), token("qbob")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rejected_at").exists());
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + quote), token("qalice")))
+                .andExpect(jsonPath("$.quote.state").value("rejected"));
+        mockMvc.perform(withToken(get("/api/v1/interaction_requests"), token("qbob")))
+                .andExpect(jsonPath("$.length()").value(0));
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "pending.quote"), token("qbob")))
+                .andExpect(jsonPath("$.length()").value(0)));
+
+        var rejectedAt = jdbc.sql("SELECT decided_at FROM status_quote WHERE status_id = :id")
+                .param("id", UUID.fromString(quote)).query(Instant.class).single();
+        mockMvc.perform(withToken(post("/api/v1/interaction_requests/" + quote + "/authorize"), token("qbob")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accepted_at").exists())
+                .andExpect(jsonPath("$.rejected_at").doesNotExist());
+        assertThat(jdbc.sql("SELECT decided_at FROM status_quote WHERE status_id = :id")
+                .param("id", UUID.fromString(quote)).query(Instant.class).single()).isAfterOrEqualTo(rejectedAt);
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + quote), token("qalice")))
+                .andExpect(jsonPath("$.quote.state").value("accepted"))
+                .andExpect(jsonPath("$.quote.quoted_status.id").value(quoted));
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "quote"), token("qbob")))
+                .andExpect(jsonPath("$[0].status.id").value(quote)));
+        mockMvc.perform(withToken(post("/api/v1/interaction_requests/" + quote + "/reject"), token("qbob")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void theAccountChoosesWhetherItReviewsQuotes() throws Exception {
+        mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("source[quote_review]", "all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source.quote_review").value("all"))
+                .andExpect(jsonPath("$.source.quote_policy").value("public"));
+        var reviewed = createStatus("qbob", Map.of("status", "by default"));
+        var automatic = createStatus("qbob", Map.of("status", "not reviewed", "quote_review", "none"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + reviewed), token("qbob")))
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + automatic), token("qbob")))
+                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("public"));
+
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + reviewed + "/interaction_policy"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quote_approval_policy\":\"followers\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote_approval.automatic").isEmpty())
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("followers"));
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + reviewed + "/interaction_policy"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quote_review\":\"none\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
+                .andExpect(jsonPath("$.quote_approval.manual").isEmpty());
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + automatic), token("qbob"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "edited")
+                        .param("quote_review", "all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + automatic), token("qbob"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("status", "edited again"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
+    }
+
+    @Test
+    void anAuthorCanApproveFollowersQuotesAutomaticallyAndReviewOthers() throws Exception {
+        var bob = account("qbob");
+        account("qcarol");
+        var quoted = createStatus("qbob", Map.of("status", "original", "quote_review", "non_followers"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + quoted), token("qcarol")))
+                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"))
+                .andExpect(jsonPath("$.quote_approval.current_user").value("manual"));
+        mockMvc.perform(get("/users/qbob/statuses/" + quoted).accept("application/activity+json"))
+                .andExpect(jsonPath("$.interactionPolicy.canQuote.automaticApproval[0]")
+                        .value("https://quotes.example/users/qbob/followers"))
+                .andExpect(jsonPath("$.interactionPolicy.canQuote.manualApproval[0]").value(PUBLIC));
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/follow"), token("qalice")))
+                .andExpect(status().isOk());
+
+        var fromFollower = createStatus("qalice", Map.of("status", "follower", "quoted_status_id", quoted));
+        var fromOther = createStatus("qcarol", Map.of("status", "other", "quoted_status_id", quoted));
+
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + fromFollower), token("qalice")))
+                .andExpect(jsonPath("$.quote.state").value("accepted"));
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + fromOther), token("qcarol")))
+                .andExpect(jsonPath("$.quote.state").value("pending"));
+        mockMvc.perform(withToken(get("/api/v1/interaction_requests"), token("qbob")))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(fromOther));
+        mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("source[quote_review]", "followers"))
+                .andExpect(status().isUnprocessableContent());
+    }
+
+    @Test
+    void makingAFollowersOnlyPolicyPublicUsesTheAccountsDefaultReview() throws Exception {
+        mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("source[quote_review]", "non_followers"))
+                .andExpect(status().isOk());
+        var id = createStatus("qbob", Map.of("status", "followers", "quote_approval_policy", "followers"));
+
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id + "/interaction_policy"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quote_approval_policy\":\"public\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
+    }
+
+    @Test
+    void aLocalQuoteCanBeAskedForAgain() throws Exception {
+        account("qbob");
+        var quoted = createStatus("qbob", Map.of("status", "original", "quote_review", "all"));
+        var quote = createStatus("qalice", Map.of("status", "look", "quoted_status_id", quoted));
+        mockMvc.perform(withToken(post("/api/v1/interaction_requests/" + quote + "/reject"), token("qbob")))
+                .andExpect(status().isOk());
+
+        askAgain("qalice", quote).andExpect(status().isUnprocessableContent());
+        askAgain("qbob", quote).andExpect(status().isNotFound());
+        askedLongAgo(quote);
+        askAgain("qalice", quote).andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote.state").value("pending"));
+        mockMvc.perform(withToken(get("/api/v1/interaction_requests"), token("qbob")))
+                .andExpect(jsonPath("$[0].id").value(quote));
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "pending.quote"), token("qbob")))
+                .andExpect(jsonPath("$[0].status.id").value(quote)));
+
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + quoted + "/interaction_policy"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quote_review\":\"none\"}"))
+                .andExpect(status().isOk());
+        askedLongAgo(quote);
+        askAgain("qalice", quote).andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote.state").value("accepted"));
+        askAgain("qalice", quote).andExpect(status().isUnprocessableContent());
+    }
+
+    @Test
+    void aRemoteQuoteIsAskedForAgainUnderANewId() throws Exception {
+        var alice = account("qalice");
+        var remote = remote();
+        var quoted = storeRemote(remote, new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of()));
+        var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted.toString()));
+        var quoteUri = "https://quotes.example/users/qalice/statuses/" + quote;
+        jdbc.sql("UPDATE status_quote SET state = 'rejected' WHERE status_id = :id")
+                .param("id", UUID.fromString(quote)).update();
+        askedLongAgo(quote);
+
+        askAgain("qalice", quote).andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote.state").value("pending"));
+
+        var requests = await().atMost(WAIT).until(() -> bodiesOfType(alice, "QuoteRequest", quote),
+                found -> found.size() == 2);
+        var ids = requests.stream().map(body -> JsonPath.<String>read(body, "$.id")).toList();
+        assertThat(ids).contains(quoteUri + "#quote_request")
+                .anyMatch(id -> id.matches(java.util.regex.Pattern.quote(quoteUri + "#quote_request/") + "\\d+"));
+        var retried = ids.stream().filter(id -> !id.equals(quoteUri + "#quote_request")).findFirst().orElseThrow();
+        assertThat(deliveryInboxes(retried)).containsExactly(remote.inboxUri().toString());
+
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + quote), token("qalice"))).andExpect(status().isOk());
+        await().atMost(WAIT).until(() -> bodiesOfType(alice, "QuoteRequest", quote), List::isEmpty);
+    }
+
+    private org.springframework.test.web.servlet.ResultActions askAgain(String username, String quote) throws Exception {
+        return mockMvc.perform(withToken(post("/api/v1/statuses/" + quote + "/quote/request"), token(username)));
+    }
+
+    private void askedLongAgo(String quote) {
+        jdbc.sql("UPDATE status_quote SET requested_at = now() - interval '2 hours' WHERE status_id = :id")
+                .param("id", UUID.fromString(quote)).update();
     }
 
     private org.springframework.test.web.servlet.ResultActions quote(String username, String quoted) throws Exception {

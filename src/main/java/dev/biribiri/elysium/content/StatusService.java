@@ -48,6 +48,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -188,6 +189,7 @@ public class StatusService {
                 ? Visibility.PRIVATE : draft.visibility();
         var quotePolicy = !visibility.isOpen() ? QuotePolicy.NOBODY
                 : draft.quotePolicy() != null ? draft.quotePolicy() : postingDefaults.quotePolicy(authorId);
+        var quoteReview = draft.quoteReview() != null ? draft.quoteReview() : postingDefaults.quoteReview(authorId);
         var contentType = draft.contentType();
         var linkable = linkable(text, contentType);
         var mentioned = resolveMentions(author, linkable);
@@ -236,7 +238,7 @@ public class StatusService {
                     null,
                     null,
                     0,
-                    quotePolicy.approval(),
+                    quotePolicy.approval(quoteReview),
                     null,
                     localOnly,
                     contentType);
@@ -355,8 +357,9 @@ public class StatusService {
             }
             var old = found.get();
             var oldPolicy = old.quoteApproval();
-            var newPolicy = draft.quotePolicy() == null || !old.visibility().isOpen()
-                    ? oldPolicy : draft.quotePolicy().approval();
+            var newPolicy = (draft.quotePolicy() == null && draft.quoteReview() == null) || !old.visibility().isOpen()
+                    ? oldPolicy : changedPolicy(oldPolicy, draft.quotePolicy(), draft.quoteReview(),
+                    () -> postingDefaults.quoteReview(authorId));
             var policyChanged = !Objects.equals(oldPolicy, newPolicy);
             if (policyChanged) {
                 quotes.setPolicy(id, newPolicy);
@@ -489,6 +492,31 @@ public class StatusService {
     }
 
     /**
+     * A status from before quotes keeps having only its author able to quote it, unless the edit says who else can. One
+     * that only its author or their followers can quote doesn't keep whether non-followers' quotes would be reviewed, so a
+     * change that doesn't say uses the author's default for that.
+     *
+     * @param policy   who can quote it, or null to keep that
+     * @param review   whose quotes its author approves by hand, or null to keep that
+     * @param fallback the author's default review
+     */
+    static QuoteApproval changedPolicy(
+            QuoteApproval old, QuotePolicy policy, QuoteReview review, Supplier<QuoteReview> fallback) {
+        if (old == null && policy == null) {
+            return null;
+        }
+        QuoteReview byHand;
+        if (review != null) {
+            byHand = review;
+        } else if (old != null && (old.policy() == QuotePolicy.PUBLIC || old.review() == QuoteReview.ALL)) {
+            byHand = old.review();
+        } else {
+            byHand = fallback.get();
+        }
+        return (policy != null ? policy : old.policy()).approval(byHand);
+    }
+
+    /**
      * A status that the author is allowed to quote.
      *
      * @param local whether its author is this server's
@@ -511,21 +539,27 @@ public class StatusService {
     }
 
     /**
-     * A quote of a local status is decided here and now. One of a remote status is approved by its author's server,
-     * unless its server can't be asked, which a status with no policy says.
+     * A quote of a local status is decided here and now, unless its author approves quotes by hand. One of a remote status
+     * is approved by its author's server, unless its server can't be asked, which a status with no policy says.
      */
     private void insertLocalQuote(Status status, Status quoted, boolean local) {
         var self = quoted.actorId().equals(status.actorId());
         var target = Optional.of(new StatusRepository.Parent(quoted.id(), quoted.actorId()));
+        if (local && !self
+                && quoteRules.decide(quoted, quoted.quoteApproval(), true, status.actorId()) == QuoteDecision.MANUAL) {
+            quotes.insert(status.id(), quoted.uri(), target, QuoteState.PENDING, false, null, null, null, Instant.now());
+            events.publishEvent(new QuoteReviewRequested(status.id(), status.actorId(), quoted.actorId()));
+            return;
+        }
         if (local || self) {
             quotes.insert(status.id(), quoted.uri(), target, QuoteState.ACCEPTED, false, null,
-                    self ? null : Ids.timeOrdered(Instant.now()), null);
+                    self ? null : Ids.timeOrdered(Instant.now()), null, null);
             publishQuoteAccepted(status, quoted.actorId());
             return;
         }
         var legacy = quoted.quoteApproval() == null;
         quotes.insert(status.id(), quoted.uri(), target, legacy ? QuoteState.ACCEPTED : QuoteState.PENDING, legacy, null,
-                null, StatusQuote.requestUriFor(status.uri()));
+                null, StatusQuote.requestUriFor(status.uri()), Instant.now());
         events.publishEvent(new QuoteRequested(status.id(), status.actorId()));
     }
 
@@ -848,7 +882,7 @@ public class StatusService {
     void insertRemoteQuote(UUID statusId, RemoteQuote quote, boolean fetchQuoted) {
         var quoted = statuses.findParentByUriAndLock(quote.quotedUri());
         quotes.insert(statusId, quote.quotedUri(), quoted, QuoteState.PENDING, quote.legacy(), quote.authorizationUri(),
-                null, null);
+                null, null, null);
         events.publishEvent(new QuoteVerificationNeeded(statusId, fetchQuoted));
     }
 
@@ -1042,6 +1076,13 @@ public class StatusService {
      */
     public Optional<Status> findStored(UUID id) {
         return statuses.findById(id);
+    }
+
+    /**
+     * Like {@link #findStored(UUID)}, for several at once.
+     */
+    public List<Status> findStored(Collection<UUID> ids) {
+        return statuses.findByIds(ids);
     }
 
     /**
