@@ -2,16 +2,19 @@
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(${domain}, ~{::content})}">
 <th:block th:fragment="content">
     <div class="wide">
-        <p>Users: <span th:text="${userCount}"></span> · Posts: <span th:text="${statusCount}"></span></p>
-        <p>
-            <a href="/login" th:if="${showLogin}">Log in</a>
-            <a href="/signup" th:if="${registrationEnabled}">Create an account</a>
-            <a href="/settings" th:unless="${showLogin}">Settings</a>
-            <a href="/admin" th:if="${showAdmin}">Admin</a>
+        <p class="muted">
+            <span th:text="${#numbers.formatInteger(userCount, 1, 'COMMA')}"></span> users ·
+            <span th:text="${#numbers.formatInteger(statusCount, 1, 'COMMA')}"></span> posts
         </p>
-        <h2>Recent posts</h2>
-        <p th:if="${#lists.isEmpty(statuses)}">No posts yet.</p>
-        <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>
+        <p>
+            <a class="button" href="/signup" th:if="${registrationEnabled}">Create an account</a>
+            <a class="button button-quiet" href="/admin" th:if="${showAdmin}">Admin</a>
+        </p>
+        <section class="posts" aria-labelledby="recent-heading">
+            <h2 class="posts-heading" id="recent-heading">Recent posts</h2>
+            <p class="posts-empty" th:if="${#lists.isEmpty(statuses)}">No posts yet.</p>
+            <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>
+        </section>
     </div>
 </th:block>
 </html>

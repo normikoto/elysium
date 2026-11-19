@@ -1,26 +1,59 @@
 <!doctype html>
 <html xmlns:th="http://www.thymeleaf.org">
-<article class="status" th:fragment="card(view)" th:lang="${view.status.language} ?: 'und'">
-    <p class="status-boost" th:if="${view.boostedBy}">
-        <a th:href="@{/users/{username}(username=${view.boostedBy})}" th:text="|@${view.boostedBy}|"></a> boosted
+<article class="post" th:fragment="card(view)" th:lang="${view.status.language} ?: 'und'">
+    <p class="post-kicker" th:if="${view.boostedBy}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>
+        </svg>
+        <span><a th:href="@{/users/{username}(username=${view.boostedBy})}" th:text="|@${view.boostedBy}|"></a> boosted</span>
     </p>
-    <p class="status-meta">
-        <a th:href="@{${view.authorUrl}}" th:text="${view.authorName}"></a>
-        <a th:href="@{${view.url}}"><time th:datetime="${view.status.publishedAt}" th:text="${view.publishedAt}"></time></a>
-    </p>
-    <details th:if="${view.status.sensitive}">
-        <summary th:utext="${#strings.isEmpty(view.status.spoilerText)} ? 'Sensitive content' : ${view.spoilerHtml()}"></summary>
-        <div class="status-content" th:utext="${view.contentHtml()}"></div>
-        <div th:replace="~{status-card :: attachments(${view.attachments})}"></div>
-        <div th:replace="~{status-card :: poll(${view.poll})}"></div>
-    </details>
-    <th:block th:unless="${view.status.sensitive}">
-        <div class="status-content" th:utext="${view.contentHtml()}"></div>
-        <div th:replace="~{status-card :: attachments(${view.attachments})}"></div>
-        <div th:replace="~{status-card :: poll(${view.poll})}"></div>
-    </th:block>
+    <img class="post-avatar" th:if="${view.author.avatar != null}" th:src="${view.author.avatar}" alt="" loading="lazy">
+    <div class="post-avatar" th:if="${view.author.avatar == null}" aria-hidden="true" th:text="${view.author.initial()}"></div>
+    <div>
+        <p class="post-head">
+            <a class="post-name" th:href="@{${view.authorUrl}}" th:text="${view.author.displayName}"></a>
+            <span class="post-handle" th:text="${view.authorName}"></span>
+            <a class="post-time" th:href="@{${view.url}}"><time th:datetime="${view.status.publishedAt}"
+                    th:title="${view.publishedAt}" th:text="${view.publishedDay()}"></time></a>
+        </p>
+        <details th:if="${view.status.sensitive}">
+            <summary th:utext="${#strings.isEmpty(view.status.spoilerText)} ? 'Sensitive content' : ${view.spoilerHtml()}"></summary>
+            <div class="post-content" th:utext="${view.contentHtml()}"></div>
+            <div th:replace="~{status-card :: attachments(${view.attachments})}"></div>
+            <div th:replace="~{status-card :: poll(${view.poll})}"></div>
+        </details>
+        <th:block th:unless="${view.status.sensitive}">
+            <div class="post-content" th:utext="${view.contentHtml()}"></div>
+            <div th:replace="~{status-card :: attachments(${view.attachments})}"></div>
+            <div th:replace="~{status-card :: poll(${view.poll})}"></div>
+        </th:block>
+        <ul class="post-stats">
+            <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.5A8 8 0 1 1 21 12z"/>
+                </svg>
+                <span th:text="${view.status.repliesCount}"></span><span class="sr-only">replies</span>
+            </li>
+            <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>
+                </svg>
+                <span th:text="${view.boosts}"></span><span class="sr-only">boosts</span>
+            </li>
+            <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>
+                </svg>
+                <span th:text="${view.likes}"></span><span class="sr-only">likes</span>
+            </li>
+        </ul>
+    </div>
 </article>
-<div class="status-attachments" th:fragment="attachments(attachments)" th:unless="${#lists.isEmpty(attachments)}">
+<div class="post-attachments" th:fragment="attachments(attachments)" th:unless="${#lists.isEmpty(attachments)}">
     <th:block th:each="attachment : ${attachments}">
         <a th:if="${attachment.kind == 'image'}" th:href="${attachment.href}">
             <img loading="lazy" th:src="${attachment.preview} ?: ${attachment.src}" th:alt="${attachment.description} ?: ''"
@@ -34,14 +67,14 @@
            th:text="${attachment.description} ?: 'Attachment'"></a>
     </th:block>
 </div>
-<div class="status-poll" th:fragment="poll(poll)" th:if="${poll}">
+<div class="post-poll" th:fragment="poll(poll)" th:if="${poll}">
     <ul>
-        <li th:each="option : ${poll.options}">
+        <li th:each="option : ${poll.options}" th:style="${option.percent != null} ? |--share: ${option.percent}%|">
             <span th:text="${option.title}"></span>
-            <span class="status-poll-percent" th:if="${option.percent != null}" th:text="|${option.percent}%|"></span>
+            <span th:if="${option.percent != null}" th:text="|${option.percent}%|"></span>
         </li>
     </ul>
-    <p class="status-poll-meta">
+    <p class="post-poll-meta">
         <span th:if="${poll.votes != null}" th:text="${poll.votes == 1} ? '1 vote' : |${poll.votes} votes|"></span>
         <span th:if="${poll.closes != null}" th:text="${poll.ended} ? |Closed ${poll.closes}| : |Closes ${poll.closes}|"></span>
     </p>

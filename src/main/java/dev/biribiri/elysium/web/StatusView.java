@@ -7,6 +7,7 @@ import dev.biribiri.elysium.content.Status;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -20,12 +21,22 @@ import java.util.Map;
  * @param attachments the status's attachments, in order
  * @param poll        the status's poll, or null if it has none
  * @param emojis      the image of each custom emoji the status has, by shortcode
+ * @param author      the author's name and avatar
+ * @param boosts      how many times the status was boosted
+ * @param likes       how many times the status was liked
  */
 record StatusView(Status status, String authorName, String authorUrl, String url, String publishedAt, String boostedBy,
-                  List<AttachmentView> attachments, PollView poll, Map<String, String> emojis) {
+                  List<AttachmentView> attachments, PollView poll, Map<String, String> emojis, AuthorView author,
+                  long boosts, long likes) {
 
     static final DateTimeFormatter DISPLAY =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC);
+
+    /**
+     * The pages are in English, so the month's name is too, whatever the server's locale.
+     */
+    private static final DateTimeFormatter DAY =
+            DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH).withZone(ZoneOffset.UTC);
 
     static StatusView from(Status status, Actor author) {
         return new StatusView(
@@ -37,7 +48,10 @@ record StatusView(Status status, String authorName, String authorUrl, String url
                 null,
                 List.of(),
                 null,
-                Map.of());
+                Map.of(),
+                AuthorView.of(author),
+                0,
+                0);
     }
 
     /**
@@ -56,7 +70,10 @@ record StatusView(Status status, String authorName, String authorUrl, String url
                 null,
                 List.of(),
                 null,
-                Map.of());
+                Map.of(),
+                AuthorView.of(author),
+                0,
+                0);
     }
 
     /**
@@ -65,21 +82,39 @@ record StatusView(Status status, String authorName, String authorUrl, String url
     static StatusView boosted(Status status, Actor author, boolean local, Actor booster) {
         var view = of(status, author, local);
         return new StatusView(status, view.authorName, view.authorUrl, view.url, view.publishedAt, booster.username(),
-                List.of(), null, Map.of());
+                List.of(), null, Map.of(), view.author, 0, 0);
     }
 
     StatusView withAttachments(List<AttachmentView> attachments) {
         return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, List.copyOf(attachments), poll,
-                emojis);
+                emojis, author, boosts, likes);
     }
 
     StatusView withPoll(PollView poll) {
-        return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, attachments, poll, emojis);
+        return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, attachments, poll, emojis,
+                author, boosts, likes);
     }
 
     StatusView withEmojis(Map<String, String> emojis) {
         return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, attachments, poll,
-                Map.copyOf(emojis));
+                Map.copyOf(emojis), author, boosts, likes);
+    }
+
+    StatusView withAuthor(AuthorView author) {
+        return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, attachments, poll, emojis,
+                author, boosts, likes);
+    }
+
+    StatusView withCounts(long boosts, long likes) {
+        return new StatusView(status, authorName, authorUrl, url, publishedAt, boostedBy, attachments, poll, emojis,
+                author, boosts, likes);
+    }
+
+    /**
+     * The day it was published, short enough for the line with the author's name.
+     */
+    public String publishedDay() {
+        return DAY.format(status.publishedAt());
     }
 
     /**
