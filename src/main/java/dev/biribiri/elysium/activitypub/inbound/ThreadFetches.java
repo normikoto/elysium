@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -232,7 +233,13 @@ class ThreadFetches implements RemoteThreadFetcher {
         if (waiting.isPresent()) {
             return waiting.get();
         }
-        var note = fetch(parent).flatMap(document -> AttributedNote.of(parent, document));
+        Optional<JsonNode> fetched;
+        try {
+            fetched = fetch(parent);
+        } catch (HostBusyException e) {
+            return Jobs.waitForHost(job, job::withTurn);
+        }
+        var note = fetched.flatMap(document -> AttributedNote.of(parent, document));
         if (note.isEmpty() || storage.storeInThread(note.get().note(), note.get().author()) != NoteStorage.Result.STORED) {
             return Jobs.done();
         }
@@ -259,7 +266,12 @@ class ThreadFetches implements RemoteThreadFetcher {
         if (waiting.isPresent()) {
             return waiting.get();
         }
-        var document = fetch(target);
+        Optional<JsonNode> document;
+        try {
+            document = fetch(target);
+        } catch (HostBusyException e) {
+            return Jobs.waitForHost(job, job::withTurn);
+        }
         if (document.isEmpty()) {
             return Jobs.done();
         }
@@ -293,7 +305,12 @@ class ThreadFetches implements RemoteThreadFetcher {
         if (waiting.isPresent()) {
             return waiting.get();
         }
-        var document = fetch(target);
+        Optional<JsonNode> document;
+        try {
+            document = fetch(target);
+        } catch (HostBusyException e) {
+            return Jobs.waitForHost(job, job::withTurn);
+        }
         var note = document.flatMap(found -> AttributedNote.of(target, found))
                 .filter(found -> parent.get().uri().equals(found.note().inReplyTo()));
         if (note.isEmpty()) {

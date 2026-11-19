@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -147,7 +148,12 @@ class QuoteVerifications {
         if (turn.get().isAfter(Instant.now())) {
             return Optional.of(Jobs.waitUntil(turn.get(), job.withNoteTurn(turn.get())));
         }
-        var fetched = AttributedNote.fetch(quotedUri, documents);
+        Optional<AttributedNote> fetched;
+        try {
+            fetched = AttributedNote.fetch(quotedUri, documents);
+        } catch (HostBusyException e) {
+            return Optional.of(Jobs.waitForHost(job, job::withNoteTurn));
+        }
         if (fetched.isEmpty()) {
             return Optional.of(Jobs.done());
         }
@@ -185,7 +191,12 @@ class QuoteVerifications {
         if (turn.get().isAfter(Instant.now())) {
             return Jobs.waitUntil(turn.get(), job.withStampTurn(turn.get()));
         }
-        var stamp = fetch(approvalUri);
+        Optional<JsonNode> stamp;
+        try {
+            stamp = fetch(approvalUri);
+        } catch (HostBusyException e) {
+            return Jobs.waitForHost(job, job::withStampTurn);
+        }
         if (stamp.isPresent() && isAuthorization(stamp.get(), approvalUri, quotedAuthor.get(), quoting.uri(), quoted.uri())) {
             finish(quote, approvalUri, true);
         } else {

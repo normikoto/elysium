@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.Digests;
@@ -130,7 +131,11 @@ class ForwardedNotes {
         if (turn.get().isAfter(now)) {
             return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
         }
-        fetch(note, job.actorId(), type, job.queuedAt());
+        try {
+            fetch(note, job.actorId(), type, job.queuedAt());
+        } catch (HostBusyException e) {
+            return Jobs.waitForHost(job, job::withTurn);
+        }
         return Jobs.done();
     }
 

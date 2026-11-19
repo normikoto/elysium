@@ -2,8 +2,10 @@ package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
+import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
@@ -14,8 +16,11 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Fetches ActivityPub documents from other servers, signed as the instance actor. Documents are read as plain JSON, without a
@@ -23,6 +28,10 @@ import java.util.Set;
  *
  * <p>Each fetch counts against {@link HostRequests}, so that fetches of actors and objects can't take every connection to a
  * host, and hold deliveries back while they run, as key fetches do.
+ *
+ * <p>A fetch that finds no room fails straight away, unless it's part of a {@link #lookUp}. A job that waited here would
+ * hold one of the scheduler's few threads while it could be running jobs for other hosts, so {@code Jobs} has it wait in
+ * the queue instead.
  */
 @Component
 public class ActivityDocuments {
@@ -32,6 +41,14 @@ public class ActivityDocuments {
     private static final MediaType LD_JSON = MediaType.parseMediaType(ActivityStreams.ANY_LD_JSON);
 
     private static final Set<String> ACTOR_TYPES = Set.of("Application", "Group", "Organization", "Person", "Service");
+
+    /**
+     * How long a {@link #lookUp} can spend waiting for room, in all, across however many fetches it makes. Long enough for
+     * a running fetch to finish, and short enough that a person searching gets an answer.
+     */
+    static final Duration LOOKUP_WAIT = Duration.ofSeconds(2);
+    private static final Duration POLL = Duration.ofMillis(50);
+    private static final ScopedValue<Instant> WAIT_FOR_ROOM_UNTIL = ScopedValue.newInstance();
 
     private final SignedFetcher http;
     private final JsonMapper json;
@@ -47,8 +64,8 @@ public class ActivityDocuments {
      * Blocks while fetching, so this mustn't be called inside a database transaction.
      *
      * @return the document, which is always a JSON object
-     * @throws DocumentFetchException if the document can't be fetched, which is temporary if too many fetches are running
-     *                                for its host
+     * @throws DocumentFetchException if the document can't be fetched
+     * @throws HostBusyException      if too many fetches are running for its host, which isn't a failure of its server
      */
     public JsonNode fetch(URI url) throws DocumentFetchException {
         // A URL without a host can't be fetched anyway, and the client says why.
@@ -56,14 +73,51 @@ public class ActivityDocuments {
             return fetchUncounted(url);
         }
         var host = url.getHost().toLowerCase(Locale.ROOT);
-        if (!hostRequests.tryStartFetch(host)) {
-            throw DocumentFetchException.temporary("Too many fetches running for " + host, null);
+        if (!hostRequests.tryStartFetch(host) && !waitForRoom(host)) {
+            throw new HostBusyException(host);
         }
         try {
             return fetchUncounted(url);
         } finally {
             hostRequests.finishFetch(host);
         }
+    }
+
+    /**
+     * Runs a lookup that someone is waiting on, such as a search, during which a fetch from a busy host waits up to
+     * {@link #LOOKUP_WAIT} for room. Otherwise a search for an account on a server that's busy with this server's jobs
+     * would find nothing.
+     */
+    public static <T> T lookUp(Supplier<T> lookup) {
+        // Such as mentions in a scheduled post, whose job can wait in the queue instead.
+        if (WAIT_FOR_ROOM_UNTIL.isBound() || Jobs.isJobThread()) {
+            return lookup.get();
+        }
+        return ScopedValue.where(WAIT_FOR_ROOM_UNTIL, Instant.now().plus(LOOKUP_WAIT)).call(lookup::get);
+    }
+
+    /**
+     * Polls, since {@link HostRequests} doesn't say when a slot comes free. Lookups are rare enough for that not to matter.
+     *
+     * @return whether a fetch was started, which then needs {@link HostRequests#finishFetch}
+     */
+    private boolean waitForRoom(String host) {
+        if (!WAIT_FOR_ROOM_UNTIL.isBound()) {
+            return false;
+        }
+        var until = WAIT_FOR_ROOM_UNTIL.get();
+        while (Instant.now().isBefore(until)) {
+            try {
+                Thread.sleep(POLL);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            if (hostRequests.tryStartFetch(host)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

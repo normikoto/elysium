@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.resolve;
 
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.inbound.LookedUpNotes;
 import dev.biribiri.elysium.activitypub.inbound.RemoteActors;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -112,6 +113,13 @@ class RemoteUrlLookupTests {
         when(documents.fetch(other)).thenThrow(DocumentFetchException.gone("gone"));
         assertThat(lookup.resolveUrl(REQUESTER, other)).isEmpty();
         verify(notes, never()).store(any(), any());
+    }
+
+    @Test
+    void findsNothingWhenTheHostIsBusy() throws Exception {
+        when(documents.fetch(NOTE)).thenThrow(new HostBusyException("remote.example"));
+
+        assertThat(lookup.resolveUrl(REQUESTER, NOTE)).isEmpty();
     }
 
     @Test

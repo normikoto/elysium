@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.resolve;
 
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.inbound.LookedUpNotes;
 import dev.biribiri.elysium.activitypub.inbound.RemoteActors;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -63,6 +64,10 @@ class RemoteUrlLookup implements RemoteUrlResolver {
 
     @Override
     public Optional<Found> resolveUrl(UUID requester, URI url) {
+        return ActivityDocuments.lookUp(() -> lookUpUrl(requester, url));
+    }
+
+    private Optional<Found> lookUpUrl(UUID requester, URI url) {
         if (!"https".equalsIgnoreCase(url.getScheme()) || url.getHost() == null || blocks.isBlocked(url.getHost())) {
             return Optional.empty();
         }
@@ -85,7 +90,7 @@ class RemoteUrlLookup implements RemoteUrlResolver {
         JsonNode document;
         try {
             document = documents.fetch(url);
-        } catch (DocumentFetchException e) {
+        } catch (DocumentFetchException | HostBusyException e) {
             log.debug("Couldn't look up {}: {}", url, e.getMessage());
             return Optional.empty();
         }

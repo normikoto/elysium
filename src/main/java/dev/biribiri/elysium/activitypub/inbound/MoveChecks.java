@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.AccountMigrations;
 import dev.biribiri.elysium.actor.Actor;
@@ -97,6 +98,12 @@ class MoveChecks {
             if (turn.get().isAfter(now)) {
                 return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
             }
+            try {
+                confirm(job.activityId(), URI.create(job.actorId()), target);
+            } catch (HostBusyException e) {
+                return Jobs.waitForHost(job, job::withTurn);
+            }
+            return Jobs.done();
         }
         confirm(job.activityId(), URI.create(job.actorId()), target);
         return Jobs.done();

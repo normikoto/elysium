@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -142,7 +143,12 @@ class Boosts {
             if (turn.get().isAfter(now)) {
                 return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
             }
-            var fetched = AttributedNote.fetch(noteUri.get(), documents);
+            Optional<AttributedNote> fetched;
+            try {
+                fetched = AttributedNote.fetch(noteUri.get(), documents);
+            } catch (HostBusyException e) {
+                return Jobs.waitForHost(job, job::withTurn);
+            }
             if (fetched.isEmpty()) {
                 return Jobs.done();
             }
