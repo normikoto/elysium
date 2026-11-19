@@ -49,7 +49,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
-| `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `ratelimit`, `text` |
+| `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text` |
 | `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `moderation`, `notification`, `ratelimit`, `text`, `timeline` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.

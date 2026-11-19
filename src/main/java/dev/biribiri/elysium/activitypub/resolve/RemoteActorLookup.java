@@ -93,6 +93,10 @@ class RemoteActorLookup implements RemoteActorResolver {
      * @return the domain, normalized, or empty if the address can't be looked up: it's malformed, this server's, or blocked
      */
     private Optional<String> remoteDomain(String username, String domain) {
+        return remoteDomain(username, domain, instance, blocks);
+    }
+
+    static Optional<String> remoteDomain(String username, String domain, InstanceProperties instance, DomainBlocks blocks) {
         if (!WebFingerRequests.isAddress(username, domain)) {
             return Optional.empty();
         }

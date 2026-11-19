@@ -12,6 +12,7 @@ import dev.biribiri.elysium.actor.RemoteFollowPages;
 import dev.biribiri.elysium.content.RemoteUrlResolver;
 import dev.biribiri.elysium.graph.FollowNotAllowedException;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.ratelimit.ClientAddresses;
 import dev.biribiri.elysium.ratelimit.RateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -58,6 +59,7 @@ class FollowPagesController {
     private final RemoteActorResolver remoteActors;
     private final RemoteUrlResolver urls;
     private final RemoteFollowPages followPages;
+    private final DomainBlocks domainBlocks;
     private final InstanceProperties instance;
     private final ClientAddresses clients;
     private final RateLimiter remoteFollows;
@@ -69,6 +71,7 @@ class FollowPagesController {
             RemoteActorResolver remoteActors,
             RemoteUrlResolver urls,
             RemoteFollowPages followPages,
+            DomainBlocks domainBlocks,
             InstanceProperties instance,
             ClientAddresses clients) {
         this.actors = actors;
@@ -77,6 +80,7 @@ class FollowPagesController {
         this.remoteActors = remoteActors;
         this.urls = urls;
         this.followPages = followPages;
+        this.domainBlocks = domainBlocks;
         this.instance = instance;
         this.clients = clients;
         this.remoteFollows = new RateLimiter(
@@ -204,13 +208,14 @@ class FollowPagesController {
     }
 
     /**
-     * A remote account on a server that's been blocked since it was stored is left out, as the API's lookups leave it out.
+     * A remote account on a server that's been blocked since it was stored is left out. The block is checked on the host
+     * of its URI, as the API's follow checks it, since that's where the {@code Follow} would go, and its address can be on
+     * another domain.
      */
     private Actor followable(String id) {
         var account = Ids.parse(id).flatMap(actors::findById).filter(Actor::isActive)
                 .orElseThrow(FollowPagesController::notFound);
-        if (!actors.isLocal(account) && remoteActors.findStored(account.username(), account.domain())
-                .filter(stored -> stored.id().equals(account.id())).isEmpty()) {
+        if (!actors.isLocal(account) && domainBlocks.isBlocked(account.uri().getHost())) {
             throw notFound();
         }
         return account;
@@ -229,8 +234,8 @@ class FollowPagesController {
     private static String authorizeInteraction(String uri) {
         return UriComponentsBuilder.fromPath(AUTHORIZE_INTERACTION_PATH)
                 .queryParam("uri", "{uri}")
-                .buildAndExpand(uri)
                 .encode()
+                .buildAndExpand(uri)
                 .toUriString();
     }
 

@@ -35,8 +35,6 @@ public class WebFingerController {
      * Where a web page in the {@code web} module lets a logged-in user follow an account they name.
      */
     private static final String AUTHORIZE_INTERACTION_PATH = "/authorize_interaction";
-    private static final String OSTATUS_SUBSCRIBE = "http://ostatus.org/schema/1.0/subscribe";
-    private static final String FOLLOW_INTENT = "https://w3id.org/fep/3b86/Follow";
 
     private final ActorService actors;
     private final InstanceProperties instance;
@@ -129,8 +127,8 @@ public class WebFingerController {
         var links = new ArrayList<>(links(actor.uri(), actor.uri()));
         // What other servers' remote follow sends a user here to, so that they can follow from a profile there.
         var authorize = instance.resolve(AUTHORIZE_INTERACTION_PATH) + "?uri=";
-        links.add(JsonResourceDescriptor.Link.template(OSTATUS_SUBSCRIBE, authorize + "{uri}"));
-        links.add(JsonResourceDescriptor.Link.template(FOLLOW_INTENT, authorize + "{object}"));
+        links.add(JsonResourceDescriptor.Link.template(JsonResourceDescriptor.OSTATUS_SUBSCRIBE, authorize + "{uri}"));
+        links.add(JsonResourceDescriptor.Link.template(JsonResourceDescriptor.FOLLOW_INTENT, authorize + "{object}"));
         return descriptor(actor.username(), actor.domain(), actor.uri(), links);
     }
 

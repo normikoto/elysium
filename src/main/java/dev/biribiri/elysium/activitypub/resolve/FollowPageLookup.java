@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.resolve;
 
+import dev.biribiri.elysium.activitypub.vocab.JsonResourceDescriptor;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteFollowPages;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -10,7 +11,6 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -23,12 +23,9 @@ import java.util.Optional;
 @Component
 class FollowPageLookup implements RemoteFollowPages {
 
-    static final String FOLLOW_INTENT = "https://w3id.org/fep/3b86/Follow";
-    static final String OSTATUS_SUBSCRIBE = "http://ostatus.org/schema/1.0/subscribe";
-
     private static final List<Template> TEMPLATES = List.of(
-            new Template(FOLLOW_INTENT, "{object}"),
-            new Template(OSTATUS_SUBSCRIBE, "{uri}"));
+            new Template(JsonResourceDescriptor.FOLLOW_INTENT, "{object}"),
+            new Template(JsonResourceDescriptor.OSTATUS_SUBSCRIBE, "{uri}"));
 
     private final WebFingerRequests webFinger;
     private final DomainBlocks blocks;
@@ -42,15 +39,9 @@ class FollowPageLookup implements RemoteFollowPages {
 
     @Override
     public Optional<URI> find(String username, String domain, URI target) {
-        if (!WebFingerRequests.isAddress(username, domain)) {
-            return Optional.empty();
-        }
-        var normalized = domain.toLowerCase(Locale.ROOT);
-        var colon = normalized.indexOf(':');
-        if (normalized.equals(instance.domain()) || blocks.isBlocked(colon < 0 ? normalized : normalized.substring(0, colon))) {
-            return Optional.empty();
-        }
-        return webFinger.lookUp(username, normalized).flatMap(descriptor -> page(descriptor, target));
+        return RemoteActorLookup.remoteDomain(username, domain, instance, blocks)
+                .flatMap(normalized -> webFinger.lookUp(username, normalized))
+                .flatMap(descriptor -> page(descriptor, target));
     }
 
     private static Optional<URI> page(JsonNode descriptor, URI target) {

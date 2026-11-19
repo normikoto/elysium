@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.actor.RemoteFollowPages;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +74,8 @@ class FollowPagesIntegrationTests {
     private ProfileService profiles;
     @Autowired
     private FollowService follows;
+    @Autowired
+    private DomainBlocks domainBlocks;
     @MockitoBean
     private RemoteFollowPages followPages;
     @MockitoBean
@@ -171,7 +176,7 @@ class FollowPagesIntegrationTests {
     @Test
     void anAddressHereGoesThroughLogin() throws Exception {
         mockMvc.perform(post("/users/bob/remote-follow").with(csrf()).param("address", "alice@follow-pages.example"))
-                .andExpect(redirectedUrl("/authorize_interaction?uri=acct:bob@follow-pages.example"));
+                .andExpect(redirectedUrl("/authorize_interaction?uri=acct%3Abob%40follow-pages.example"));
         verify(followPages, never()).find(any(), any(), any());
 
         mockMvc.perform(get("/authorize_interaction").param("uri", "acct:bob@follow-pages.example"))
@@ -189,7 +194,6 @@ class FollowPagesIntegrationTests {
         var alice = session("alice");
         var dave = remote("remote.example");
         when(resolver.resolveAcct(any(), eq("dave"), eq("remote.example"))).thenReturn(Optional.of(dave));
-        when(resolver.findStored("dave", "remote.example")).thenReturn(Optional.of(dave));
 
         mockMvc.perform(get("/authorize_interaction").param("uri", "acct:dave@remote.example").session(alice))
                 .andExpect(status().isOk())
@@ -199,15 +203,20 @@ class FollowPagesIntegrationTests {
                 .andExpect(content().string(containsString("action=\"/follow\"")));
 
         mockMvc.perform(post("/follow").session(alice).with(csrf()).param("account", dave.id().toString()))
-                .andExpect(redirectedUrl("/authorize_interaction?uri=" + dave.uri()));
+                .andExpect(redirectedUrl("/authorize_interaction?uri="
+                        + URLEncoder.encode(dave.uri().toString(), StandardCharsets.UTF_8)));
         assertThat(follows.relationships(account("alice").id(), List.of(dave.id())).getFirst().requested())
                 .isTrue();
     }
 
     @Test
     void anAccountOnABlockedServerCantBeFollowed() throws Exception {
-        var dave = remote("blocked.example");
-        when(resolver.findStored(anyString(), anyString())).thenReturn(Optional.empty());
+        // Its address is on another domain than its server, which is the one that's blocked.
+        var uri = URI.create("https://social.blocked.example/users/" + UUID.randomUUID());
+        var dave = actors.upsertRemote(new RemoteActorProfile(
+                uri, "dave", "blocked.example", URI.create(uri + "/inbox"), null,
+                URI.create("https://social.blocked.example/inbox"), null, null));
+        domainBlocks.create("social.blocked.example", null);
 
         mockMvc.perform(post("/follow").session(session("alice")).with(csrf()).param("account", dave.id().toString()))
                 .andExpect(status().isNotFound());

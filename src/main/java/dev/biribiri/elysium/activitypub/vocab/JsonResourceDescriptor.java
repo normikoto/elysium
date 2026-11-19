@@ -12,6 +12,12 @@ import java.util.List;
 public record JsonResourceDescriptor(String subject, List<URI> aliases, List<Link> links) {
 
     /**
+     * The rels of the templates for following an account from another server's page, in a user's descriptor.
+     */
+    public static final String OSTATUS_SUBSCRIBE = "http://ostatus.org/schema/1.0/subscribe";
+    public static final String FOLLOW_INTENT = "https://w3id.org/fep/3b86/Follow";
+
+    /**
      * A descriptor that isn't about any particular subject, and only lists links.
      */
     public static JsonResourceDescriptor ofLinks(List<Link> links) {
