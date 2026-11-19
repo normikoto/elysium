@@ -37,16 +37,21 @@ public final class ActivityStreams {
     public static final String ANY_LD_JSON = "application/ld+json";
 
     /**
+     * The W3C Security Vocabulary {@code @context} that defines some security-related terms.
+     */
+    public static final String W3ID_SECURITY_V1 = "https://w3id.org/security/v1";
+
+    /**
      * The {@code @context} of an actor document, which includes the terms for its {@code publicKey}.
      */
-    static final List<String> ACTOR_CONTEXT = List.of(CONTEXT, "https://w3id.org/security/v1");
+    static final List<String> ACTOR_CONTEXT = List.of(CONTEXT, W3ID_SECURITY_V1);
 
     /**
      * The {@code @context} of a local account's actor document, which adds the terms Mastodon uses for profile fields.
      */
     static final List<Object> PERSON_CONTEXT = List.of(
             CONTEXT,
-            "https://w3id.org/security/v1",
+            W3ID_SECURITY_V1,
             Map.ofEntries(
                     Map.entry("schema", "http://schema.org#"),
                     Map.entry("PropertyValue", "schema:PropertyValue"),
@@ -67,7 +72,7 @@ public final class ActivityStreams {
      */
     static final List<Object> SUSPENDED_ACTOR_CONTEXT = List.of(
             CONTEXT,
-            "https://w3id.org/security/v1",
+            W3ID_SECURITY_V1,
             Map.of("toot", "http://joinmastodon.org/ns#", "suspended", "toot:suspended"));
 
     private ActivityStreams() {
