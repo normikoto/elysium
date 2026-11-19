@@ -442,6 +442,8 @@ class OAuthIntegrationTests {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(content().string(containsString("<title>Authorization code - Elysium</title>")))
+                .andExpect(content().string(containsString("<span>elysium.example</span>")))
+                .andExpect(content().string(containsString("href=\"/settings\"")))
                 .andReturn().getResponse().getContentAsString();
         var matcher = OOB_CODE.matcher(page);
         assertThat(matcher.find()).isTrue();

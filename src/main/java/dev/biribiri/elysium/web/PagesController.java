@@ -4,11 +4,16 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.actor.Profile;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.auth.Admins;
+import dev.biribiri.elysium.content.BoostService;
+import dev.biribiri.elysium.content.BoostStats;
 import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.CustomEmojis;
+import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.LikeStats;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.Status;
@@ -36,9 +41,11 @@ import org.springframework.web.server.ResponseStatusException;
 import java.security.Principal;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -57,6 +64,8 @@ class PagesController {
 
     private static final Optional<UUID> ANONYMOUS = Optional.empty();
 
+    private static final DateTimeFormatter JOINED = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
+
     private final ActorService actors;
     private final StatusService statuses;
     private final InstanceProperties instance;
@@ -69,6 +78,8 @@ class PagesController {
     private final CustomEmojis emojis;
     private final Admins admins;
     private final FollowService follows;
+    private final LikeService likes;
+    private final BoostService boosts;
 
     PagesController(
             ActorService actors,
@@ -82,7 +93,11 @@ class PagesController {
             StatusPinService pins,
             CustomEmojis emojis,
             Admins admins,
-            FollowService follows) {
+            FollowService follows,
+            LikeService likes,
+            BoostService boosts) {
+        this.likes = likes;
+        this.boosts = boosts;
         this.admins = admins;
         this.follows = follows;
         this.pins = pins;
@@ -102,7 +117,6 @@ class PagesController {
         model.addAttribute("domain", instance.domain());
         model.addAttribute("userCount", actors.countLocal());
         model.addAttribute("statusCount", statuses.countLocal());
-        model.addAttribute("showLogin", principal == null);
         model.addAttribute("showAdmin", viewer(principal).filter(admins::isAdmin).isPresent());
         model.addAttribute("registrationEnabled", registration.acceptsUninvited());
         model.addAttribute("statuses", views(statuses.findPublic(StatusOrigin.LOCAL, firstPage(null))));
@@ -121,13 +135,43 @@ class PagesController {
             Principal principal,
             Model model,
             HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
+        return profile(ProfileTab.POSTS, username, maxId, principal, model, request);
+    }
+
+    @GetMapping("/users/{username}/with_replies")
+    String profileWithReplies(
+            @PathVariable String username,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            Principal principal,
+            Model model,
+            HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
+        return profile(ProfileTab.WITH_REPLIES, username, maxId, principal, model, request);
+    }
+
+    @GetMapping("/users/{username}/media")
+    String profileMedia(
+            @PathVariable String username,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            Principal principal,
+            Model model,
+            HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
+        return profile(ProfileTab.MEDIA, username, maxId, principal, model, request);
+    }
+
+    private String profile(
+            ProfileTab tab, String username, String maxId, Principal principal, Model model, HttpServletRequest request)
+            throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
         var actor = actors.findLocalByUsername(username).orElseThrow(PagesController::notFound);
         var page = firstPage(maxId == null ? null : Ids.parse(maxId).orElseThrow(PagesController::notFound));
-        var found = statuses.findByAccount(actor.id(), ANONYMOUS, true, false, page);
+        var found = statuses.findByAccount(actor.id(), ANONYMOUS, tab.excludeReplies, false, tab.onlyMedia, page);
 
         var profile = profiles.find(actor.id());
         model.addAttribute("actor", actor);
+        model.addAttribute("tab", tab);
+        model.addAttribute("postCount", statuses.countVisibleToAnyone(actor.id()));
+        model.addAttribute("followingCount", follows.countFollowing(actor.id()));
+        model.addAttribute("followerCount", follows.countFollowers(actor.id()));
         model.addAttribute("follow", FollowControls.of(viewer(principal), actor, follows));
         model.addAttribute("profile", profile);
         var profileEmojis = new HashMap<String, String>();
@@ -141,9 +185,10 @@ class PagesController {
         model.addAttribute("name", profile.displayName().isEmpty() ? "@" + actor.username() : profile.displayName());
         model.addAttribute("avatar", profile.avatar() == null ? null : instance.resolve(profile.avatar().path()));
         model.addAttribute("header", profile.header() == null ? null : instance.resolve(profile.header().path()));
-        model.addAttribute("joined", LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC));
+        model.addAttribute("joined", JOINED.format(LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC)));
         // Above the first page only, and still in their place below, as on Mastodon.
-        model.addAttribute("pinned", maxId == null ? profileViews(pins.findPinned(actor.id(), ANONYMOUS), actor) : List.of());
+        model.addAttribute("pinned", maxId == null && tab == ProfileTab.POSTS
+                ? profileViews(pins.findPinned(actor.id(), ANONYMOUS), actor) : List.of());
         model.addAttribute("statuses", profileViews(found, actor));
         // Only a full page can have older statuses after it.
         model.addAttribute("olderThan", found.size() == page.limit() ? found.getLast().id() : null);
@@ -240,15 +285,24 @@ class PagesController {
     }
 
     /**
-     * One lookup for every status on a page, for its attachments and one for its polls.
+     * One lookup for every status on a page, for each of its attachments, polls, emoji, authors' profiles, and counts.
      */
     private List<StatusView> withAttachments(List<StatusView> views) {
         var ids = views.stream().map(view -> view.status().id()).distinct().toList();
         var found = attachments.findByStatuses(ids);
         var foundPolls = polls.findAll(ids, Optional.empty());
         var foundEmojis = emojis.findForStatuses(ids);
+        var authorIds = views.stream().map(view -> view.status().actorId()).collect(Collectors.toSet());
+        var foundProfiles = profiles.findAll(authorIds);
+        var likeStats = likes.stats(ids, ANONYMOUS);
+        var boostStats = boosts.stats(ids, ANONYMOUS);
         var now = Instant.now();
         return views.stream()
+                .map(view -> view.withAuthor(view.author().withProfile(
+                        foundProfiles.getOrDefault(view.status().actorId(), Profile.EMPTY), instance)))
+                .map(view -> view.withCounts(
+                        Optional.ofNullable(boostStats.get(view.status().id())).map(BoostStats::count).orElse(0L),
+                        Optional.ofNullable(likeStats.get(view.status().id())).map(LikeStats::count).orElse(0L)))
                 .map(view -> view.withEmojis(foundEmojis.getOrDefault(view.status().id(), List.of()).stream()
                         .collect(Collectors.toMap(CustomEmoji::shortcode, emoji -> emoji.url(instance).toString(),
                                 (first, second) -> first))))

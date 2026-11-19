@@ -2,6 +2,8 @@ package dev.biribiri.elysium;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileChange;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
@@ -25,6 +27,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,6 +80,9 @@ class WebPagesIntegrationTests {
 
     @Autowired
     private BoostService boosts;
+
+    @Autowired
+    private ProfileService profiles;
 
     private Actor wanda;
     private Actor walt;
@@ -149,6 +155,20 @@ class WebPagesIntegrationTests {
                     .andExpect(header().stringValues("Vary", hasItem("Accept")));
         }
         mockMvc.perform(get("/users/not-valid")).andExpect(status().isNotFound());
+    }
+
+    // Stylesheet
+
+    @Test
+    void linksAStylesheetThatCanBeCachedForGood() throws Exception {
+        var page = mockMvc.perform(get("/")).andReturn().getResponse().getContentAsString();
+        var matcher = Pattern.compile("href=\"(/css/elysium-[0-9a-f]+\\.css)\"").matcher(page);
+        assertThat(matcher.find()).isTrue();
+
+        mockMvc.perform(get(matcher.group(1)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("text/css"))
+                .andExpect(header().string("Cache-Control", containsString("immutable")));
     }
 
     // Front page
@@ -226,6 +246,65 @@ class WebPagesIntegrationTests {
 
         mockMvc.perform(get("/users/wanda").param("max_id", newer.id().toString()))
                 .andExpect(content().string(not(containsString("Pinned</h2>"))));
+    }
+
+    @Test
+    void profileShowsRepliesOnlyInItsTabWithReplies() throws Exception {
+        var parent = post(walt, "parent text", Visibility.PUBLIC);
+        reply(wanda, "reply text", parent);
+        post(wanda, "plain text", Visibility.PUBLIC);
+
+        mockMvc.perform(get("/users/wanda"))
+                .andExpect(content().string(containsString("plain text")))
+                .andExpect(content().string(not(containsString("reply text"))));
+        mockMvc.perform(get("/users/wanda/with_replies"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("plain text")))
+                .andExpect(content().string(containsString("reply text")));
+    }
+
+    @Test
+    void profileMediaTabLeavesOutStatusesWithoutAttachments() throws Exception {
+        post(wanda, "plain text", Visibility.PUBLIC);
+
+        mockMvc.perform(get("/users/wanda/media"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("plain text"))))
+                .andExpect(content().string(containsString("No posts to show.")));
+    }
+
+    @Test
+    void profileTabsShowPinsOnlyAboveItsPosts() throws Exception {
+        pins.pin(post(wanda, "pinned text", Visibility.PUBLIC).id(), wanda.id());
+
+        mockMvc.perform(get("/users/wanda/with_replies"))
+                .andExpect(content().string(not(containsString("Pinned</h2>"))));
+    }
+
+    @Test
+    void profileShowsItsCounts() throws Exception {
+        var cora = account("cora");
+        var cole = account("cole");
+        follows.follow(cole, cora);
+        post(cora, "first", Visibility.PUBLIC);
+        post(cora, "second", Visibility.UNLISTED);
+        post(cora, "hidden", Visibility.PRIVATE);
+
+        mockMvc.perform(get("/users/cora"))
+                .andExpect(content().string(containsString("<strong>2</strong> <span>Posts</span>")))
+                .andExpect(content().string(containsString("<strong>0</strong> <span>Following</span>")))
+                .andExpect(content().string(containsString("<strong>1</strong> <span>Followers</span>")));
+    }
+
+    @Test
+    void statusesShowTheirAuthorsDisplayName() throws Exception {
+        // An account of its own, so that its name doesn't change the other tests' pages.
+        var dana = account("dana");
+        profiles.update(dana.id(), ProfileChange.NONE.withDisplayName("Dana D"));
+        post(dana, "public text", Visibility.PUBLIC);
+
+        mockMvc.perform(get("/"))
+                .andExpect(content().string(containsString(">Dana D</a>")));
     }
 
     @Test

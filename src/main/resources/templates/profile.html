@@ -1,33 +1,67 @@
 <!doctype html>
-<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(${name}, ~{::content})}">
-<th:block th:fragment="content">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/* The profile's name is the page's heading, inside its card, so this page doesn't use the layout's. */-->
+<head th:replace="~{layout :: head(${name})}"></head>
+<body>
+<header th:replace="~{layout :: topbar}"></header>
+<main class="page">
     <div class="wide">
-        <img class="profile-header" th:if="${header != null}" th:src="${header}" alt="">
-        <img class="avatar" th:if="${avatar != null}" th:src="${avatar}" alt="">
-        <p th:text="|@${actor.username}@${actor.domain}|"></p>
-        <th:block th:replace="~{follow-controls :: controls(${follow})}"></th:block>
-        <!-- The bio and fields are rendered from plain text, which escapes everything they contain. -->
-        <div class="bio" th:if="${!profile.note().isEmpty()}" th:utext="${bio}"></div>
-        <dl class="fields" th:if="${!fields.isEmpty()}">
-            <th:block th:each="field : ${fields}">
-                <dt th:utext="${field.name()}"></dt>
-                <dd th:classappend="${field.verified()} ? 'verified'">
-                    <span th:utext="${field.value()}"></span>
-                    <span th:if="${field.verified()}" title="The page this links to links back here">✓</span>
-                </dd>
-            </th:block>
-        </dl>
-        <p>Joined <span th:text="${joined}"></span></p>
-        <section th:if="${!#lists.isEmpty(pinned)}" aria-labelledby="pinned-heading">
-            <h2 id="pinned-heading">Pinned</h2>
+        <img class="profile-banner" th:if="${header != null}" th:src="${header}" alt="">
+        <div class="profile-banner" th:if="${header == null}"></div>
+        <section class="profile" aria-labelledby="profile-name">
+            <div class="profile-top">
+                <img class="profile-avatar" th:if="${avatar != null}" th:src="${avatar}" alt="">
+                <div class="profile-avatar" th:if="${avatar == null}" aria-hidden="true"
+                     th:text="${#strings.toUpperCase(#strings.substring(actor.username, 0, 1))}"></div>
+                <div class="profile-names">
+                    <h1 id="profile-name" th:text="${name}"></h1>
+                    <p th:text="|@${actor.username}@${actor.domain}|"></p>
+                </div>
+                <th:block th:replace="~{follow-controls :: controls(${follow})}"></th:block>
+            </div>
+            <!--/* The bio and fields are rendered from plain text, which escapes everything they contain. */-->
+            <div class="bio" th:if="${!profile.note().isEmpty()}" th:utext="${bio}"></div>
+            <dl class="fields">
+                <div th:each="field : ${fields}">
+                    <dt th:utext="${field.name()}"></dt>
+                    <dd th:classappend="${field.verified()} ? 'verified'">
+                        <span th:utext="${field.value()}"></span>
+                        <span th:if="${field.verified()}" title="The page this links to links back here">✓</span>
+                    </dd>
+                </div>
+                <div>
+                    <dt>Joined</dt>
+                    <dd th:text="${joined}"></dd>
+                </div>
+            </dl>
+            <ul class="profile-counts">
+                <li><strong th:text="${#numbers.formatInteger(postCount, 1, 'COMMA')}"></strong> <span>Posts</span></li>
+                <li><strong th:text="${#numbers.formatInteger(followingCount, 1, 'COMMA')}"></strong> <span>Following</span></li>
+                <li><strong th:text="${#numbers.formatInteger(followerCount, 1, 'COMMA')}"></strong> <span>Followers</span></li>
+            </ul>
+        </section>
+
+        <section class="posts pinned" th:if="${!#lists.isEmpty(pinned)}" aria-labelledby="pinned-heading">
+            <h2 class="posts-heading" id="pinned-heading">Pinned</h2>
             <th:block th:each="view : ${pinned}" th:insert="~{status-card :: card(${view})}"></th:block>
         </section>
-        <p th:if="${#lists.isEmpty(statuses)}">No posts to show.</p>
-        <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>
-        <p th:if="${olderThan != null}">
-            <a th:href="@{/users/{username}(username=${actor.username},max_id=${olderThan})}">Older posts</a>
-        </p>
-        <p><a href="/">Back to the front page</a></p>
+
+        <nav class="tabs" aria-label="Posts">
+            <a th:href="@{/users/{username}(username=${actor.username})}"
+               th:attr="aria-current=${tab.name() == 'POSTS'} ? 'page'">Posts</a>
+            <a th:href="@{/users/{username}/with_replies(username=${actor.username})}"
+               th:attr="aria-current=${tab.name() == 'WITH_REPLIES'} ? 'page'">Posts &amp; replies</a>
+            <a th:href="@{/users/{username}/media(username=${actor.username})}"
+               th:attr="aria-current=${tab.name() == 'MEDIA'} ? 'page'">Media</a>
+        </nav>
+        <div class="posts">
+            <p class="posts-empty" th:if="${#lists.isEmpty(statuses)}">No posts to show.</p>
+            <th:block th:each="view : ${statuses}" th:insert="~{status-card :: card(${view})}"></th:block>
+            <p class="posts-more" th:if="${olderThan != null}">
+                <a th:href="@{|/users/${actor.username}${tab.path}|(max_id=${olderThan})}">Older posts</a>
+            </p>
+        </div>
     </div>
-</th:block>
+</main>
+</body>
 </html>

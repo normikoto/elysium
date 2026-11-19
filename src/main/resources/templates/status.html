@@ -2,15 +2,17 @@
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page(|Post by ${view.authorName}|, ~{::content})}">
 <th:block th:fragment="content">
     <div class="wide">
-        <p th:if="${parent != null}">
+        <p class="muted" th:if="${parent != null}">
             In reply to <a th:href="@{${parent.url}}" th:text="${parent.authorName}"></a>
         </p>
-        <p th:if="${view.status.visibility.name() == 'PRIVATE'}">Only visible to followers and mentioned accounts</p>
-        <p th:if="${view.status.visibility.name() == 'DIRECT'}">Only visible to mentioned accounts</p>
-        <p th:if="${view.status.localOnly and view.status.visibility.isOpen()}">Only visible to people on this server</p>
-        <p th:if="${view.status.localOnly and !view.status.visibility.isOpen()}">Not sent to other servers</p>
-        <th:block th:insert="~{status-card :: card(${view})}"></th:block>
-        <p><a th:href="@{${view.authorUrl}}" th:text="|More from ${view.authorName}|"></a></p>
+        <p class="muted" th:if="${view.status.visibility.name() == 'PRIVATE'}">Only visible to followers and mentioned accounts</p>
+        <p class="muted" th:if="${view.status.visibility.name() == 'DIRECT'}">Only visible to mentioned accounts</p>
+        <p class="muted" th:if="${view.status.localOnly and view.status.visibility.isOpen()}">Only visible to people on this server</p>
+        <p class="muted" th:if="${view.status.localOnly and !view.status.visibility.isOpen()}">Not sent to other servers</p>
+        <div class="posts">
+            <th:block th:insert="~{status-card :: card(${view})}"></th:block>
+        </div>
+        <p class="site-footer"><a th:href="@{${view.authorUrl}}" th:text="|More from ${view.authorName}|"></a></p>
     </div>
 </th:block>
 </html>

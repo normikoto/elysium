@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A post that another server forwards, such as a reply that Mastodon passes on to the followers of the account being
   replied to, is now kept when the server it came from serves the post but not the activity that created it, as long as
   it was posted in the last 3 days. Before, it was dropped.
+- The public pages have a new look, with light and dark themes that follow the visitor's device. Posts show their
+  author's name and avatar, and how many replies, boosts, and likes they have. Profiles show how many posts, follows, and
+  followers the account has, and have tabs for posts with replies, at `/users/<username>/with_replies`, and posts with
+  media, at `/users/<username>/media`.
 - An edit from another server of an older post that never arrived here, such as one whose delivery was held up, now
   stores it, in its place by date and without notifying anyone. Older direct messages are still left out. Before, edits
   of posts more than 3 days old were dropped.

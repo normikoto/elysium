@@ -1,12 +1,16 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.actor.InstanceProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.AuthenticationTrustResolver;
+import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
@@ -20,7 +24,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriUtils;
 import org.thymeleaf.ITemplateEngine;
-import org.thymeleaf.context.Context;
+import org.thymeleaf.context.WebContext;
+import org.thymeleaf.web.servlet.JakartaServletWebApplication;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
@@ -40,11 +45,14 @@ class OAuthResponses {
 
     private final JsonMapper json;
     private final ITemplateEngine templates;
+    private final InstanceProperties instance;
     private final RedirectStrategy redirects = new DefaultRedirectStrategy();
+    private final AuthenticationTrustResolver trust = new AuthenticationTrustResolverImpl();
 
-    OAuthResponses(JsonMapper json, ITemplateEngine templates) {
+    OAuthResponses(JsonMapper json, ITemplateEngine templates, InstanceProperties instance) {
         this.json = json;
         this.templates = templates;
+        this.instance = instance;
     }
 
     /**
@@ -57,7 +65,7 @@ class OAuthResponses {
         var redirectUri = result.getRedirectUri();
         var code = result.getAuthorizationCode().getTokenValue();
         if (OUT_OF_BAND_REDIRECT_URI.equals(redirectUri)) {
-            renderOutOfBand(response, HttpStatus.OK, Map.of("code", code));
+            renderOutOfBand(request, response, HttpStatus.OK, Map.of("code", code));
             return;
         }
 
@@ -84,7 +92,7 @@ class OAuthResponses {
 
         var redirectUri = result.getRedirectUri();
         if (OUT_OF_BAND_REDIRECT_URI.equals(redirectUri)) {
-            renderOutOfBand(response, HttpStatus.BAD_REQUEST, Map.of("error", error.getErrorCode()));
+            renderOutOfBand(request, response, HttpStatus.BAD_REQUEST, Map.of("error", error.getErrorCode()));
             return;
         }
 
@@ -181,14 +189,23 @@ class OAuthResponses {
         response.getWriter().write(json.writeValueAsString(body));
     }
 
-    private void renderOutOfBand(HttpServletResponse response, HttpStatus status, Map<String, Object> model)
+    /**
+     * This runs outside Spring MVC, so the page gets a web context of its own, which the layout's links need, and the top
+     * bar's details that {@code web.SiteHeader} gives every other page.
+     */
+    private void renderOutOfBand(
+            HttpServletRequest request, HttpServletResponse response, HttpStatus status, Map<String, Object> model)
             throws IOException {
         response.setStatus(status.value());
         response.setContentType(MediaType.TEXT_HTML_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-        var context = new Context();
+        var exchange = JakartaServletWebApplication.buildApplication(request.getServletContext())
+                .buildExchange(request, response);
+        var context = new WebContext(exchange);
         context.setVariables(model);
+        context.setVariable("siteDomain", instance.domain());
+        context.setVariable("signedIn", trust.isAuthenticated(SecurityContextHolder.getContext().getAuthentication()));
         templates.process("oob-code", context, response.getWriter());
     }
 
