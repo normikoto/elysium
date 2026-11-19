@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 
@@ -41,20 +42,44 @@ public final class Jobs {
     private static final Set<ExecutionComplete> WAITS = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
 
     /**
-     * How long a job waits after {@link HostBusyException}. Fetches end within the HTTP client's deadline, and most within
-     * a second or two.
+     * The shortest wait after {@link HostBusyException}. Fetches end within the HTTP client's deadline, and most within a
+     * second or two.
      */
-    static final Duration WAIT_FOR_HOST = Duration.ofSeconds(5);
+    static final Duration MIN_HOST_WAIT = Duration.ofSeconds(5);
+
+    /**
+     * The longest wait after {@link HostBusyException}, which a job reaches once it's 10 minutes old.
+     */
+    static final Duration MAX_HOST_WAIT = Duration.ofMinutes(1);
+
+    private static final ScopedValue<Boolean> JOB_THREAD = ScopedValue.newInstance();
 
     private Jobs() {
+    }
+
+    /**
+     * Makes threads that {@link #isJobThread} knows as the scheduler's, for every task it runs, including recurring ones
+     * that aren't built here.
+     */
+    static ThreadFactory markingJobThreads(ThreadFactory threads) {
+        return work -> threads.newThread(() -> ScopedValue.where(JOB_THREAD, true).run(work));
+    }
+
+    /**
+     * Whether this is one of the scheduler's threads, which there are only a few of, so that what would wait on a busy server
+     * for someone who's waiting can leave that to the job instead.
+     */
+    public static boolean isJobThread() {
+        return JOB_THREAD.isBound();
     }
 
     /**
      * Creates a task. The handler is given the job's data. It runs with no database transaction open, and it can be run again even after it succeeds,
      * so it has to be safe to repeat. A job abandoned by a node that died is picked up again by another one.
      *
-     * <p>A handler that finds a host busy waits for it, and then runs again from the start. Failing instead would put the job a minute or
-     * more behind, and the failures would bring it closer to being given up on, though its server did nothing wrong.
+     * <p>A handler that finds a host busy waits for it, through {@link #waitForHost}, and then runs again from the start.
+     * Failing instead would put the job a minute or more behind, and the failures would bring it closer to being given up
+     * on, though its server did nothing wrong.
      */
     public static <T extends QueuedJob> CustomTask<T> task(TaskDescriptor<T> descriptor, Function<T, CompletionHandler<T>> handler) {
         return Tasks.custom(descriptor)
@@ -63,13 +88,41 @@ public final class Jobs {
                     if (RetryPolicy.parkingExpired(context.getExecution(), Instant.now())) {
                         return done();
                     }
+                    var job = instance.getData();
                     try {
-                        return handler.apply(instance.getData());
+                        return handler.apply(job);
                     } catch (HostBusyException e) {
-                        return waitUntil(Instant.now().plus(WAIT_FOR_HOST)
-                                .plusMillis(ThreadLocalRandom.current().nextLong(WAIT_FOR_HOST.toMillis() / 5 + 1)));
+                        return waitUntil(hostWaitEnds(job, Instant.now()));
                     }
                 });
+    }
+
+    /**
+     * Waits for a busy host, as {@link #task} does, for a job that has to keep something it was given in this run, such as a
+     * turn from {@code TargetFetchTurns}. Taking a new turn after each wait would use up the host's rate without fetching
+     * anything.
+     *
+     * @param keeping the job's data to keep, given when the job runs again
+     */
+    public static <T extends QueuedJob> CompletionHandler<T> waitForHost(T job, Function<Instant, T> keeping) {
+        var time = hostWaitEnds(job, Instant.now());
+        return waitUntil(time, keeping.apply(time));
+    }
+
+    /**
+     * A tenth of the job's age, within {@link #MIN_HOST_WAIT} and {@link #MAX_HOST_WAIT}. A large backlog for one host would
+     * otherwise run every few seconds for as long as the host stays busy, taking threads from jobs for other hosts. The
+     * job's age needs nothing stored, unlike a count of its waits.
+     */
+    static Instant hostWaitEnds(QueuedJob job, Instant now) {
+        var wait = Duration.between(job.queuedAt(), now).dividedBy(10);
+        if (wait.compareTo(MIN_HOST_WAIT) < 0) {
+            wait = MIN_HOST_WAIT;
+        } else if (wait.compareTo(MAX_HOST_WAIT) > 0) {
+            wait = MAX_HOST_WAIT;
+        }
+        // Spreads out jobs that found the host busy together.
+        return now.plus(wait).plusMillis(ThreadLocalRandom.current().nextLong(wait.toMillis() / 5 + 1));
     }
 
     /**

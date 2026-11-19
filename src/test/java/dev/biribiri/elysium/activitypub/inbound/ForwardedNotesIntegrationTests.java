@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
@@ -11,6 +12,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,6 +33,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -233,6 +236,23 @@ class ForwardedNotesIntegrationTests {
         when(documents.fetch(URI.create(note))).thenThrow(DocumentFetchException.temporary("down", null));
 
         assertThatThrownBy(() -> notes.run(noteJob(now()))).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void keepsItsTurnWhileItsServerIsBusy() throws Exception {
+        when(documents.fetch(URI.create(note))).thenThrow(new HostBusyException(origin));
+        var job = noteJob(now());
+
+        var handler = notes.run(job);
+
+        ExecutionComplete complete = mock();
+        ExecutionOperations<ForwardedNoteJob> operations = mock();
+        handler.complete(complete, operations);
+        var time = ArgumentCaptor.forClass(Instant.class);
+        var data = ArgumentCaptor.forClass(ForwardedNoteJob.class);
+        verify(operations).reschedule(eq(complete), time.capture(), data.capture());
+        assertThat(data.getValue()).isEqualTo(job.withTurn(time.getValue()));
+        verify(turns, times(1)).take(any(), any(), any());
     }
 
     @Test

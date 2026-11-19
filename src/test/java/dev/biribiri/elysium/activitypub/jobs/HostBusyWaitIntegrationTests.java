@@ -26,6 +26,7 @@ class HostBusyWaitIntegrationTests {
 
     private static final TaskDescriptor<ProbeJob> PROBE = TaskDescriptor.of("host-busy-probe", ProbeJob.class);
     private static final List<Instant> runs = new CopyOnWriteArrayList<>();
+    private static final List<Boolean> onJobThread = new CopyOnWriteArrayList<>();
 
     @Autowired
     private SchedulerClient scheduler;
@@ -39,12 +40,14 @@ class HostBusyWaitIntegrationTests {
             var waiting = scheduler.getScheduledExecution(PROBE.instanceId(Jobs.instanceId("probe"))).orElseThrow();
             assertThat(waiting.getConsecutiveFailures()).isZero();
             assertThat(waiting.getLastFailure()).isNull();
-            assertThat(waiting.getExecutionTime()).isAfterOrEqualTo(runs.getFirst().plus(Jobs.WAIT_FOR_HOST));
+            assertThat(waiting.getExecutionTime()).isAfterOrEqualTo(runs.getFirst().plus(Jobs.MIN_HOST_WAIT));
         });
 
         await().atMost(Duration.ofSeconds(20)).until(() -> runs.size() == 2
                 && scheduler.getScheduledExecution(PROBE.instanceId(Jobs.instanceId("probe"))).isEmpty());
-        assertThat(Duration.between(runs.get(0), runs.get(1))).isGreaterThanOrEqualTo(Jobs.WAIT_FOR_HOST);
+        assertThat(Duration.between(runs.get(0), runs.get(1))).isGreaterThanOrEqualTo(Jobs.MIN_HOST_WAIT);
+        assertThat(onJobThread).containsOnly(true);
+        assertThat(Jobs.isJobThread()).isFalse();
     }
 
     record ProbeJob(Instant queuedAt) implements QueuedJob {
@@ -56,6 +59,7 @@ class HostBusyWaitIntegrationTests {
         Task<ProbeJob> hostBusyProbe() {
             return Jobs.task(PROBE, job -> {
                 runs.add(Instant.now());
+                onJobThread.add(Jobs.isJobThread());
                 if (runs.size() == 1) {
                     throw new HostBusyException("remote.example");
                 }

@@ -5,6 +5,7 @@ import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
+import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
@@ -88,7 +89,8 @@ public class ActivityDocuments {
      * would find nothing.
      */
     public static <T> T lookUp(Supplier<T> lookup) {
-        if (WAIT_FOR_ROOM_UNTIL.isBound()) {
+        // Such as mentions in a scheduled post, whose job can wait in the queue instead.
+        if (WAIT_FOR_ROOM_UNTIL.isBound() || Jobs.isJobThread()) {
             return lookup.get();
         }
         return ScopedValue.where(WAIT_FOR_ROOM_UNTIL, Instant.now().plus(LOOKUP_WAIT)).call(lookup::get);

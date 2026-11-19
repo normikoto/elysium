@@ -41,9 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   followers the account has, and have tabs for posts with replies, at `/users/<username>/with_replies`, and posts with
   media, at `/users/<username>/media`.
 - A job that has to fetch from a server already busy with this server's other fetches, such as an activity whose author
-  isn't stored yet, now waits a few seconds and tries again. Before, it failed and was retried a minute or more later,
-  and a large backlog of such jobs could come close to being given up on. Searching for an account or a post on such a
-  server, or mentioning an account there, now waits up to 2 seconds for it, where before it found nothing.
+  isn't stored yet, now waits and tries again, from a few seconds up to a minute for a job that's been waiting longer.
+  Before, it failed and was retried a minute or more later, and a large backlog of such jobs could come close to being
+  given up on. Searching for an account or a post on such a server now waits up to 2 seconds for it, where before it
+  found nothing. Posting waits the same way for each account it mentions there, though a scheduled post doesn't wait.
 - An edit from another server of an older post that never arrived here, such as one whose delivery was held up, now
   stores it, in its place by date and without notifying anyone. Older direct messages are still left out. Before, edits
   of posts more than 3 days old were dropped.

@@ -40,7 +40,8 @@ class JobsConfig {
 
             @Override
             public Optional<ExecutorService> executorService() {
-                return Optional.of(Executors.newFixedThreadPool(threads, Thread.ofVirtual().factory()));
+                var virtual = Thread.ofVirtual().factory();
+                return Optional.of(Executors.newFixedThreadPool(threads, Jobs.markingJobThreads(virtual)));
             }
         };
     }
