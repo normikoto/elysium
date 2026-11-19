@@ -193,7 +193,9 @@ class FollowPagesIntegrationTests {
 
         mockMvc.perform(get("/authorize_interaction").param("uri", "acct:dave@remote.example").session(alice))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("@dave@remote.example")))
+                .andExpect(content().string(containsString("<h1>@dave@remote.example</h1>")))
+                .andExpect(content().string(not(containsString("<p>@dave@remote.example</p>"))))
+                .andExpect(content().string(containsString("View on their server")))
                 .andExpect(content().string(containsString("action=\"/follow\"")));
 
         mockMvc.perform(post("/follow").session(alice).with(csrf()).param("account", dave.id().toString()))
