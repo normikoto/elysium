@@ -6,6 +6,7 @@ import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import com.github.kagkarlsson.scheduler.task.helper.CustomTask;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.signature.Digests;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 
 /**
@@ -38,19 +40,36 @@ public final class Jobs {
      */
     private static final Set<ExecutionComplete> WAITS = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
 
+    /**
+     * How long a job waits after {@link HostBusyException}. Fetches end within the HTTP client's deadline, and most within
+     * a second or two.
+     */
+    static final Duration WAIT_FOR_HOST = Duration.ofSeconds(5);
+
     private Jobs() {
     }
 
     /**
      * Creates a task. The handler is given the job's data. It runs with no database transaction open, and it can be run again even after it succeeds,
      * so it has to be safe to repeat. A job abandoned by a node that died is picked up again by another one.
+     *
+     * <p>A handler that finds a host busy waits for it, and then runs again from the start. Failing instead would put the job a minute or
+     * more behind, and the failures would bring it closer to being given up on, though its server did nothing wrong.
      */
     public static <T extends QueuedJob> CustomTask<T> task(TaskDescriptor<T> descriptor, Function<T, CompletionHandler<T>> handler) {
         return Tasks.custom(descriptor)
                 .onFailure(new RetryPolicy<>())
-                .execute((instance, context) -> RetryPolicy.parkingExpired(context.getExecution(), Instant.now())
-                        ? done()
-                        : handler.apply(instance.getData()));
+                .execute((instance, context) -> {
+                    if (RetryPolicy.parkingExpired(context.getExecution(), Instant.now())) {
+                        return done();
+                    }
+                    try {
+                        return handler.apply(instance.getData());
+                    } catch (HostBusyException e) {
+                        return waitUntil(Instant.now().plus(WAIT_FOR_HOST)
+                                .plusMillis(ThreadLocalRandom.current().nextLong(WAIT_FOR_HOST.toMillis() / 5 + 1)));
+                    }
+                });
     }
 
     /**

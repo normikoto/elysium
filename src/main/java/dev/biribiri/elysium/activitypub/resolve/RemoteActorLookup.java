@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.resolve;
 
 import dev.biribiri.elysium.activitypub.inbound.RemoteActors;
+import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
@@ -56,6 +57,10 @@ class RemoteActorLookup implements RemoteActorResolver {
 
     @Override
     public Optional<Actor> resolveAcct(UUID requester, String username, String domain) {
+        return ActivityDocuments.lookUp(() -> lookUpAcct(requester, username, domain));
+    }
+
+    private Optional<Actor> lookUpAcct(UUID requester, String username, String domain) {
         var remoteDomain = remoteDomain(username, domain);
         if (remoteDomain.isEmpty()) {
             return Optional.empty();
@@ -75,6 +80,10 @@ class RemoteActorLookup implements RemoteActorResolver {
 
     @Override
     public Optional<Actor> resolveAcctFresh(UUID requester, String username, String domain, URI alias) {
+        return ActivityDocuments.lookUp(() -> lookUpAcctFresh(requester, username, domain, alias));
+    }
+
+    private Optional<Actor> lookUpAcctFresh(UUID requester, String username, String domain, URI alias) {
         var remoteDomain = remoteDomain(username, domain);
         if (remoteDomain.isEmpty()) {
             return Optional.empty();

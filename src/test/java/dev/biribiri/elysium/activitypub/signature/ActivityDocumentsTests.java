@@ -2,13 +2,17 @@ package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
+import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.http.HostRequests;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,9 +63,67 @@ class ActivityDocumentsTests {
             hostRequests.tryStartFetch("remote.example");
         }
 
-        assertThatThrownBy(() -> documents.fetch(NOTE))
-                .isInstanceOfSatisfying(DocumentFetchException.class, e -> assertThat(e.isTemporary()).isTrue());
+        assertThatThrownBy(() -> documents.fetch(NOTE)).isInstanceOf(HostBusyException.class);
         verify(http, never()).get(any(), any());
+    }
+
+    @Test
+    void waitsForRoomDuringALookup() throws Exception {
+        fillFetchSlots();
+        when(http.get(eq(NOTE), any())).thenReturn(ok());
+        Thread.ofVirtual().start(() -> {
+            sleep(Duration.ofMillis(200));
+            hostRequests.finishFetch("remote.example");
+        });
+
+        var document = ActivityDocuments.lookUp(() -> fetch(NOTE));
+
+        assertThat(document.path("id").asString()).isEqualTo(NOTE.toString());
+    }
+
+    @Test
+    void givesUpOnALookupAfterItsWaitRunsOut() throws Exception {
+        fillFetchSlots();
+        var started = Instant.now();
+
+        assertThatThrownBy(() -> ActivityDocuments.lookUp(() -> fetch(NOTE))).isInstanceOf(HostBusyException.class);
+        assertThat(Duration.between(started, Instant.now())).isGreaterThanOrEqualTo(ActivityDocuments.LOOKUP_WAIT);
+        verify(http, never()).get(any(), any());
+    }
+
+    @Test
+    void sharesALookupsWaitAcrossItsFetches() throws Exception {
+        fillFetchSlots();
+        var started = Instant.now();
+
+        assertThatThrownBy(() -> ActivityDocuments.lookUp(() -> {
+            assertThatThrownBy(() -> fetch(NOTE)).isInstanceOf(HostBusyException.class);
+            return fetch(NOTE);
+        })).isInstanceOf(HostBusyException.class);
+        assertThat(Duration.between(started, Instant.now()))
+                .isLessThan(ActivityDocuments.LOOKUP_WAIT.multipliedBy(2));
+    }
+
+    private void fillFetchSlots() {
+        for (var i = 0; i < MAX_FETCHES; i++) {
+            hostRequests.tryStartFetch("remote.example");
+        }
+    }
+
+    private JsonNode fetch(URI url) {
+        try {
+            return documents.fetch(url);
+        } catch (DocumentFetchException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void sleep(Duration duration) {
+        try {
+            Thread.sleep(duration);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static Response ok() {
