@@ -1192,9 +1192,10 @@ once it's revoked.
 
 When a local user revokes an approval, a `Delete` of it, signed as the user, goes to the quote's author and to the user's
 followers, with the `QuoteAuthorization`'s `id` and `type` embedded and neither status. A local quote also gets an `Update`.
-Blocking someone revokes their accepted and pending quotes of the user's statuses in the same way. A remote actor's block
-of a local user doesn't change anything that was approved.
-A quote from a server that can't ask for approval has no `QuoteAuthorization`, so revoking it only hides it here.
+A quote whose `QuoteRequest` is waiting for the user to review gets a `Reject` of it instead. Blocking someone revokes their
+accepted and pending quotes of the user's statuses in the same way. A remote actor's block of a local user doesn't change
+anything that was approved. A quote from a server that can't ask for approval has no `QuoteAuthorization`, so revoking it
+only hides it here.
 
 #### Receiving quotes
 

@@ -217,7 +217,7 @@ public class QuoteService {
 
     /**
      * Revokes the quoter's accepted and pending quotes of a local author's statuses, as though the author had revoked each,
-     * once the author has blocked them. Lifting the block doesn't bring them back, as on Mastodon.
+     * once the author has blocked them. Lifting the block doesn't bring them back. Mastodon doesn't revoke them at all.
      */
     public void revokeQuotesBy(UUID quotedAuthorId, UUID quoterId) {
         if (!actors.isLocal(quotedAuthorId)) {
@@ -231,14 +231,13 @@ public class QuoteService {
     }
 
     private void revokeLocked(StatusQuote found, UUID ownerId) {
-        var quoting = statuses.findById(found.statusId());
         quotes.changeState(found.statusId(), QuoteState.REVOKED, found.legacy(), null, found.stampId());
-        quoting.ifPresent(status -> {
-            events.publishEvent(new QuoteRevoked(
-                    found.statusId(), status.actorId(), ownerId,
-                    found.state() == QuoteState.ACCEPTED ? found.stampId() : null, status.localOnly()));
-            noteChanged(status);
-        });
+        // Even for a suspended quoter, whom nothing is sent to, since the quoted author's followers may have seen the quote.
+        statuses.findForModeration(found.statusId()).ifPresent(status -> events.publishEvent(new QuoteRevoked(
+                found.statusId(), status.actorId(), ownerId,
+                found.state() == QuoteState.ACCEPTED ? found.stampId() : null, status.localOnly(),
+                found.state() == QuoteState.PENDING && found.requestUri() != null)));
+        statuses.findById(found.statusId()).ifPresent(this::noteChanged);
     }
 
     /**

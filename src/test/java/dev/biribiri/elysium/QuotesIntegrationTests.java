@@ -8,10 +8,12 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.QuoteDecision;
 import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.content.QuoteState;
 import dev.biribiri.elysium.content.RemoteQuote;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.graph.BlockService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,6 +76,8 @@ class QuotesIntegrationTests {
     private StatusService statuses;
     @Autowired
     private QuoteService quotes;
+    @Autowired
+    private BlockService blocks;
     @MockitoBean
     private RemoteActorResolver resolver;
 
@@ -408,18 +412,57 @@ class QuotesIntegrationTests {
     }
 
     @Test
+    void blockingASuspendedQuoterStillTellsFollowersItsApprovalIsGone() throws Exception {
+        var bob = account("qbob");
+        var remote = remote();
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var stamp = approvedRemoteQuote(remote, quoted);
+        var follower = remote();
+        jdbc.sql("""
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
+                        VALUES (:id, :follower, :followed, 'accepted', :activity)
+                        """)
+                .param("id", UUID.randomUUID())
+                .param("follower", follower.id())
+                .param("followed", bob.id())
+                .param("activity", follower.uri() + "#follows/" + UUID.randomUUID())
+                .update();
+        actors.suspend(remote.id());
+
+        blocks.block(bob, actors.findById(remote.id()).orElseThrow());
+
+        // Nothing is sent to a suspended actor, but the quoted author's followers may have seen the quote.
+        var delete = await().atMost(WAIT).until(() -> bodiesOfType(bob, "Delete", stamp.toString()), found -> !found.isEmpty())
+                .getFirst();
+        assertThat(deliveryInboxes(JsonPath.read(delete, "$.id"))).containsExactly(follower.sharedInboxUri().toString());
+    }
+
+    @Test
+    void blockingSomeoneWhoseQuoteWaitsForReviewRejectsTheirRequest() throws Exception {
+        var bob = account("qbob");
+        var remote = remote();
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var quote = remoteQuote(remote, quoted);
+        var requestUri = remote.uri() + "/requests/" + UUID.randomUUID();
+        assertThat(quotes.answerIncomingRequest(quote, UUID.fromString(quoted), URI.create(requestUri), QuoteDecision.MANUAL))
+                .isInstanceOf(QuoteService.RequestAnswer.Wait.class);
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + remote.id() + "/block"), token("qbob")))
+                .andExpect(status().isOk());
+
+        var reject = await().atMost(WAIT).until(() -> bodiesOfType(bob, "Reject", "quote_requests").stream()
+                        .filter(body -> JsonPath.<String>read(body, "$.object.id").equals(requestUri)).toList(),
+                found -> !found.isEmpty()).getFirst();
+        assertThat(deliveryInboxes(JsonPath.read(reject, "$.id"))).containsExactly(remote.inboxUri().toString());
+        assertThat(quotes.find(quote).orElseThrow().state()).isEqualTo(QuoteState.REVOKED);
+    }
+
+    @Test
     void blockingARemoteQuoterDeletesItsApproval() throws Exception {
         var bob = account("qbob");
         var remote = remote();
         var quoted = createStatus("qbob", Map.of("status", "original"));
-        var quoteUri = URI.create(remote.uri() + "/statuses/" + UUID.randomUUID());
-        var quote = statuses.storeRemote(new RemoteStatus(quoteUri, null, remote.id(), "<p>quote</p>", null, null,
-                Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(),
-                new RemoteQuote(URI.create("https://quotes.example/users/qbob/statuses/" + quoted), false, null), null))
-                .orElseThrow();
-        var answer = quotes.answerIncomingRequest(quote, UUID.fromString(quoted), URI.create(remote.uri() + "/request"),
-                QuoteDecision.AUTOMATIC);
-        var stamp = ((QuoteService.RequestAnswer.Accept) answer).stampId();
+        var stamp = approvedRemoteQuote(remote, quoted);
 
         mockMvc.perform(withToken(post("/api/v1/accounts/" + remote.id() + "/block"), token("qbob")))
                 .andExpect(status().isOk());
@@ -701,6 +744,23 @@ class QuotesIntegrationTests {
             throws Exception {
         return mockMvc.perform(withToken(post("/api/v1/statuses/" + quoted + "/quotes/" + quoting + "/revoke"),
                 token(username)));
+    }
+
+    private UUID remoteQuote(Actor author, String quoted) {
+        return statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/statuses/" + UUID.randomUUID()), null,
+                author.id(), "<p>quote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(),
+                List.of(), List.of(),
+                new RemoteQuote(URI.create("https://quotes.example/users/qbob/statuses/" + quoted), false, null), null))
+                .orElseThrow();
+    }
+
+    /**
+     * @return the {@code QuoteAuthorization}'s ID
+     */
+    private UUID approvedRemoteQuote(Actor author, String quoted) {
+        var answer = quotes.answerIncomingRequest(remoteQuote(author, quoted), UUID.fromString(quoted),
+                URI.create(author.uri() + "/requests/" + UUID.randomUUID()), QuoteDecision.AUTOMATIC);
+        return ((QuoteService.RequestAnswer.Accept) answer).stampId();
     }
 
     private UUID storeRemote(Actor author, QuoteApproval policy) {
