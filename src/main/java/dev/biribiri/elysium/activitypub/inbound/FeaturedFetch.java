@@ -39,8 +39,12 @@ import java.util.UUID;
  * <p>The collection is read like an outbox in {@link OutboxBackfill}: from the actor's own server, as
  * {@link RemoteActorDocument} requires of it, with what it embeds taken as that server's word, and up to
  * {@link StatusPinService#MAX_REMOTE} items of its first page. A status it only names is fetched in a job of its own, unless
- * it's stored already. Only public and unlisted statuses are stored that way, since the fetch isn't made for anyone in
- * particular. Each fetch takes a turn in {@link TargetFetchTurns}.
+ * it's stored already. Each fetch takes a turn in {@link TargetFetchTurns}.
+ *
+ * <p>Fetches are signed as the local account that has followed the actor the longest, as Mastodon signs them as one of its
+ * followers, so that the actor's server can list and serve followers-only pins. Mastodon lists them by ID to any follower,
+ * and this server embeds them for followers it sent them to, which the longest follower is the likeliest to be. They're
+ * shown here to the actor's followers, as a followers-only {@code Create} is.
  */
 @Component
 class FeaturedFetch {
@@ -127,8 +131,12 @@ class FeaturedFetch {
             }
         }
         var uri = actors.findById(actorId).filter(found -> found.isActive() && !actors.isLocal(found)).map(Actor::uri);
-        // Unfollowed while this waited, or never followed here at all, such as for a job an admin retried.
-        if (uri.isEmpty() || blocks.isBlocked(uri.get().getHost()) || !follows.hasLocalFollowers(uri.get())) {
+        if (uri.isEmpty() || blocks.isBlocked(uri.get().getHost())) {
+            return Jobs.done();
+        }
+        // Empty if unfollowed while this waited, or never followed here at all, such as for a job an admin retried.
+        var signer = follows.earliestLocalFollower(uri.get()).flatMap(actors::findById);
+        if (signer.isEmpty()) {
             return Jobs.done();
         }
         Actor actor;
@@ -160,7 +168,7 @@ class FeaturedFetch {
         }
         Optional<JsonNode> document;
         try {
-            document = fetch(target.get());
+            document = fetch(target.get(), signer.get());
         } catch (HostBusyException e) {
             return Jobs.waitForHost(job, job::withTurn);
         }
@@ -170,7 +178,7 @@ class FeaturedFetch {
         if (note.isPresent()) {
             RemoteNote.read(document.get())
                     .filter(found -> found.id().equals(target.get()) && ActorCollections.isActors(found, actor))
-                    .filter(found -> storage.storeBackfilled(found, actor) != NoteStorage.Result.IGNORED)
+                    .filter(found -> storage.storePinned(found, actor) != NoteStorage.Result.IGNORED)
                     .flatMap(found -> statuses.findStoredByUri(found.id(), actor.id()))
                     .ifPresent(status -> pins.receivePin(actor.id(), status, job.pinnedAt()));
             return Jobs.done();
@@ -218,7 +226,7 @@ class FeaturedFetch {
             Optional<URI> id;
             if (item.isObject()) {
                 var embedded = RemoteNote.read(item).filter(found -> ActorCollections.isActors(found, actor));
-                embedded.ifPresent(found -> storage.storeBackfilled(found, actor));
+                embedded.ifPresent(found -> storage.storePinned(found, actor));
                 id = embedded.map(RemoteNote::id);
             } else {
                 id = ActorCollections.idOnActorsServer(item, actor);
@@ -242,9 +250,9 @@ class FeaturedFetch {
      * @return the document, or empty if the actor's server refuses to serve it
      * @throws IllegalStateException if the server couldn't be reached, which is worth trying again
      */
-    private Optional<JsonNode> fetch(URI url) {
+    private Optional<JsonNode> fetch(URI url, Actor signer) {
         try {
-            return Optional.of(documents.fetch(url));
+            return Optional.of(documents.fetchAs(url, signer));
         } catch (DocumentFetchException e) {
             if (e.isTemporary()) {
                 throw new IllegalStateException(e.getMessage(), e);

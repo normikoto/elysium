@@ -986,8 +986,12 @@ ends.
 A local user can pin up to 5 of their own public, unlisted, or followers-only statuses. Their actor's `featured` collection,
 at `/users/{username}/collections/featured`, is an `OrderedCollection` that lists the public and unlisted ones, the most
 recently pinned first. It isn't paged: each item is the status's `Note`, embedded in `orderedItems` as it's served on its
-own, and `totalItems` counts them. It's served like the [outbox](#actors), with the same media types, CORS, 403, and 410,
-and any signature is ignored unless [signed fetches are required](#authorized-fetch).
+own, and `totalItems` counts them. It's served like the [outbox](#actors), with the same media types, CORS, 403, and 410.
+
+A signature is read if there is one, as for a [`Note`](#objects). A signer is also listed the followers-only pins it could
+fetch as `Note`s, and that answer has `Cache-Control: no-store, private`. A signer that the user blocks,
+or whose server they block, is listed nothing. A signature that can't be accepted gets the unsigned answer, unless
+[signed fetches are required](#authorized-fetch).
 
 Pinning a status sends an `Add`, signed as the user, to their followers. Its `object` is the status's ID, and its `target`
 is the `featured` collection. It's addressed like the status, without its mentions, and goes to the followers who were sent
@@ -1018,20 +1022,22 @@ without an `id`, as Mastodon and Misskey send them, is only accepted from the ac
 [forwarded](#forwarded-activities).
 
 An `Add` pins the status if it's stored here and attributed to the actor. One that isn't stored is fetched from its `id`,
-signed as the [instance actor](#instance-actor), once its host has a [turn](#forwarded-activities), and pinned if it comes
-back as a public or unlisted `Note` with that `id`, attributed to the actor alone, with a `published`. It's stored as
+signed as the local account that has followed the actor the longest, once its host has a [turn](#forwarded-activities),
+and pinned if it comes back as a public, unlisted, or followers-only `Note` with that `id`, attributed to the actor alone,
+with a `published`. A followers-only one is shown to the actor's followers here. It's stored as
 [backfill](#backfill) stores statuses. Nothing is fetched if no local account follows the actor. A `Remove` unpins the
 status whether or not it's stored. A repeat of either is processed again, since pinning a status a second time sends the same
 `Add` as the first time, and they're ordered by when they last arrived here: a `Remove` stops an `Add` that arrived before it
 from pinning the status if that's processed later, for about 34 days. At most 40 pins are kept for an actor.
 
 When a `Follow` from here is accepted, and when an actor sends an `Update` of itself, its `featured` collection is fetched,
-signed as the instance actor, with a turn of its own, and replaces the actor's pins. This is how pins from before a follow
+signed as the local account that has followed the actor the longest, as Mastodon signs it as one of its followers, with a
+turn of its own, and replaces the actor's pins. This is how pins from before a follow
 are learned, and the only way at all from servers that don't send `Add`s, such as GoToSocial. The collection is read like an
 outbox for [backfill](#backfill): it has to be an `OrderedCollection` or `Collection` with the `id` that was fetched, its
 `first` page can be embedded or fetched, and up to 40 items of `orderedItems` or `items` are read, the first as the most
-recently pinned. An item can be an embedded `Note` attributed to the actor, which is stored, or the ID of a status on the
-actor's host and port, which is fetched like a status an `Add` names if it isn't stored. Other items are skipped. An actor
+recently pinned. An item can be an embedded `Note` attributed to the actor, which is stored if an `Add` could pin it, or the
+ID of a status on the actor's host and port, which is fetched like a status an `Add` names if it isn't stored. Other items are skipped. An actor
 whose document has no `featured` has no pins.
 
 ### Quotes
@@ -1410,11 +1416,10 @@ never says whether admins acted on it.
 - A local user's boost of a status that's removed with its author's account, or with a blocked domain's statuses, goes
   without an `Undo`.
 - Fetches only need a signature if an admin [requires one](#authorized-fetch), which is off by default. Otherwise only
-  fetches of `Note`s and quote approvals check one, and any signature on other fetches is ignored.
+  fetches of `Note`s, `featured` collections, and quote approvals check one, and any signature on other fetches is ignored.
 - Backfill only reads the first page of an outbox, and only its `Create`s.
-- A `featured` collection only lists public and unlisted pins, where Mastodon also names followers-only ones to a
-  follower's signed fetch. Pins from another server are kept for its followers-only statuses that were sent here, but those
-  aren't fetched.
+- A `featured` collection lists followers-only pins only to a signer that could fetch them as `Note`s, and embeds them.
+  Mastodon lists them by ID to any follower's signed fetch.
 - Mastodon doesn't send `source`. A status written in Markdown here has one, as on Misskey and Pleroma, and its
   `content` uses the same tags as any other.
 - Mastodon has no [local-only statuses](#local-only-statuses). They work like glitch-soc's, which aren't sent to other
@@ -1622,7 +1627,8 @@ An actor document only answers with the `403`.
 
 These are checked before the document is looked up, so a refusal doesn't say whether it exists. Any other valid signature
 is accepted, including an instance actor's, or one from an actor this server hasn't seen before, and gets what an
-unsigned request gets when this is off, apart from followers-only and direct [`Note`s](#objects). Key fetches count toward
+unsigned request gets when this is off, apart from followers-only and direct [`Note`s](#objects), and
+followers-only [pins](#pinned-statuses). Key fetches count toward
 the same [limits](#inboxes) as for inboxes.
 
 Answers from these URLs vary by `Signature` whether or not this is on, and when it's on, a signed answer has

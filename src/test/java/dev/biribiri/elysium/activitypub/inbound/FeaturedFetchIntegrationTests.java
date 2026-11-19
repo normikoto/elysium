@@ -38,6 +38,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -132,7 +133,47 @@ class FeaturedFetchIntegrationTests {
         assertThat(pinned()).isEmpty();
         assertThat(statusId(theirs)).isEmpty();
         assertThat(jobs()).isZero();
-        verify(documents, never()).fetch(elsewhere);
+        verify(documents, never()).fetchAs(eq(elsewhere), any());
+    }
+
+    @Test
+    void signsAsTheAccountThatHasFollowedTheLongest() throws Exception {
+        var newer = actors.createLocalIfAbsent(alice.username() + "n", actor -> {}).orElseThrow();
+        follow(newer, remote, Duration.ZERO);
+        follow(alice, remote, Duration.ofDays(1));
+        var named = noteUri();
+        serve(featuredUri(), collection(List.of(named.toString())));
+        serve(named, note(named, remote));
+
+        runToTheEnd(job());
+        runToTheEnd(FeaturedFetchJob.ofNote(remote.id().toString(), now(), named, now()));
+
+        verify(documents).fetchAs(eq(featuredUri()), argThat(signer -> signer.id().equals(alice.id())));
+        verify(documents).fetchAs(eq(named), argThat(signer -> signer.id().equals(alice.id())));
+        verify(documents, never()).fetch(any());
+    }
+
+    @Test
+    void keepsFollowersOnlyPinsForTheActorsFollowersButNotDirectOnes() throws Exception {
+        follow(alice, remote);
+        var stranger = actors.createLocalIfAbsent(alice.username() + "s", actor -> {}).orElseThrow();
+        var followers = remote.uri() + "/followers";
+        var embedded = noteUri();
+        var named = noteUri();
+        var direct = noteUri();
+        serve(featuredUri(), collection(List.of(note(embedded, remote, followers), named.toString(),
+                note(direct, remote, alice.uri().toString()))));
+        serve(named, note(named, remote, followers));
+
+        runToTheEnd(job());
+        runToTheEnd(FeaturedFetchJob.ofNote(remote.id().toString(), now(), named, now()));
+
+        assertThat(statusId(direct)).isEmpty();
+        var both = List.of(statusId(named).orElseThrow(), statusId(embedded).orElseThrow());
+        assertThat(pins.findPinned(remote.id(), Optional.of(alice.id())).stream().map(Status::id))
+                .containsExactlyInAnyOrderElementsOf(both);
+        assertThat(pins.findPinned(remote.id(), Optional.of(stranger.id()))).isEmpty();
+        assertThat(pinned()).isEmpty();
     }
 
     @Test
@@ -150,7 +191,7 @@ class FeaturedFetchIntegrationTests {
     @Test
     void readsNothingForAnActorNobodyHereFollows() throws Exception {
         runToTheEnd(job());
-        verify(documents, never()).fetch(any());
+        verify(documents, never()).fetchAs(any(), any());
     }
 
     @Test
@@ -164,7 +205,7 @@ class FeaturedFetchIntegrationTests {
         runToTheEnd(job());
 
         assertThat(pinned()).isEmpty();
-        verify(documents, never()).fetch(any());
+        verify(documents, never()).fetchAs(any(), any());
     }
 
     private void runToTheEnd(FeaturedFetchJob job) {
@@ -197,10 +238,18 @@ class FeaturedFetchIntegrationTests {
      * Accepted straight away, as the other server would have.
      */
     private void follow(Actor follower, Actor followed) {
+        follow(follower, followed, Duration.ZERO);
+    }
+
+    /**
+     * @param age how long ago the follow started
+     */
+    private void follow(Actor follower, Actor followed, Duration age) {
         jdbc.sql("""
-                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri, activity_at)
-                        VALUES (:id, :follower, :followed, 'accepted', :activity, now())
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri, activity_at, created_at)
+                        VALUES (:id, :follower, :followed, 'accepted', :activity, now(), now() - :age * interval '1 second')
                         """)
+                .param("age", age.toSeconds())
                 .param("id", UUID.randomUUID())
                 .param("follower", follower.id())
                 .param("followed", followed.id())
@@ -243,19 +292,26 @@ class FeaturedFetchIntegrationTests {
     }
 
     private Map<String, Object> note(URI id, Actor author) {
+        return note(id, author, PUBLIC);
+    }
+
+    /**
+     * @param to the note's only audience
+     */
+    private Map<String, Object> note(URI id, Actor author, String to) {
         var note = new LinkedHashMap<String, Object>();
         note.put("id", id.toString());
         note.put("type", "Note");
         note.put("attributedTo", author.uri().toString());
         note.put("content", "<p>pinned</p>");
         note.put("published", Instant.now().minusSeconds(3600).toString());
-        note.put("to", List.of(PUBLIC));
+        note.put("to", List.of(to));
         note.put("cc", List.of());
         return note;
     }
 
     private void serve(URI uri, Map<String, Object> document) throws DocumentFetchException {
-        when(documents.fetch(uri)).thenReturn(json.readTree(json.writeValueAsString(document)));
+        when(documents.fetchAs(eq(uri), any())).thenReturn(json.readTree(json.writeValueAsString(document)));
     }
 
     private long jobs() {

@@ -340,8 +340,9 @@ public class ActivityPubController {
     }
 
     /**
-     * Like {@link #outbox}. Mastodon lists followers-only pins by ID to a follower's signed fetch, but that would only tell
-     * other servers which statuses are pinned, without letting them show any.
+     * Like {@link #outbox}, but a signer is also shown the followers-only pins it could fetch as {@code Note}s. Mastodon
+     * lists those by ID to any follower, and then serves them to any follower. Here a follower isn't always served one,
+     * so they're embedded only for those it would be, which tells nobody else that they exist.
      */
     @CrossOrigin(allowedHeaders = HttpHeaders.ACCEPT)
     @GetMapping(path = "/users/{username}/collections/featured", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
@@ -360,16 +361,21 @@ public class ActivityPubController {
                     @ApiResponse(responseCode = "410", description = "The user was deleted.")
             })
     @SignedFetch
-    ResponseEntity<?> featured(@PathVariable String username) {
+    ResponseEntity<?> featured(@PathVariable String username, HttpServletRequest request) {
+        var signer = signers.signer(request).map(Actor::id);
         var actor = actors.findAnyLocalByUsername(username);
         var unavailable = unavailable(actor);
         if (unavailable.isPresent()) {
             return unavailable.get();
         }
         var author = actor.get();
-        var pinned = pins.findPinned(author.id(), ANONYMOUS);
+        var pinned = pins.findFetchablePinned(author.id(), signer);
         var notesById = notesOf(author, pinned);
-        return ResponseEntity.ok(OrderedCollection.of(Person.featuredOf(author),
+        var ok = ResponseEntity.ok();
+        if (pinned.stream().anyMatch(status -> !status.isVisibleTo(ANONYMOUS))) {
+            ok.cacheControl(CacheControl.noStore().cachePrivate());
+        }
+        return ok.body(OrderedCollection.of(Person.featuredOf(author),
                 pinned.stream().map(status -> notesById.get(status.id()).withoutContext()).toList()));
     }
 

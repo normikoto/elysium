@@ -66,7 +66,13 @@ final class FederationDocs {
             An `OrderedCollection` of the user's pinned public and unlisted posts, as embedded `Note`s in \
             `orderedItems`, the most recently pinned first, with `totalItems`. It isn't paged, since a user can pin at \
             most\s""" + StatusPinService.MAX_PER_ACCOUNT + """
-             posts. Pinned followers-only posts are left out.\s""" + DOCUMENT + " " + SIGNED_FETCH;
+             posts. Pinned followers-only posts are left out, unless the request is signed by an actor that could \
+            fetch them as `Note`s, which gets them too, with `Cache-Control: no-store, private`. A signer that the user \
+            blocks, or whose server they block, is listed nothing.\s""" + DOCUMENT + """
+             A signature is only needed if the server requires signed fetches. Then a request with none gets a 401, and \
+            one whose signature can't be accepted gets the status an inbox would answer it with, and a signed answer \
+            has `Cache-Control: no-store, private`. Otherwise a signature that can't be accepted is answered as if \
+            there were none.\s""" + VARIES_BY_SIGNATURE;
 
     static final String USERNAME = "The username, matched case-insensitively.";
 

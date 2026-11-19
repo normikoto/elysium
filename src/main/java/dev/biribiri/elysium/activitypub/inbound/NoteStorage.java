@@ -153,7 +153,7 @@ class NoteStorage {
         if (blocks.isBlocked(author.getHost())) {
             return Result.IGNORED;
         }
-        return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), store);
+        return storeFetched(note, remoteActors.fetchOrRefresh(author), Instant.now(), false, store);
     }
 
     /**
@@ -189,7 +189,21 @@ class NoteStorage {
         if (note.published() == null) {
             return Result.IGNORED;
         }
-        return storeFetched(note, author, note.published(), statuses::storeBackfilled);
+        return storeFetched(note, author, note.published(), false, statuses::storeBackfilled);
+    }
+
+    /**
+     * Like {@link #storeBackfilled}, for a pin read from its author's {@code featured} collection, fetched signed as one of
+     * the author's followers here. A followers-only note is kept too, since the author's server showed it to a follower,
+     * and here it's shown to the author's followers, as for a {@code Create}. A direct one isn't, since it can't be pinned.
+     *
+     * @param author already fetched or refreshed by the caller
+     */
+    Result storePinned(RemoteNote note, Actor author) {
+        if (note.published() == null) {
+            return Result.IGNORED;
+        }
+        return storeFetched(note, author, note.published(), true, statuses::storeBackfilled);
     }
 
     /**
@@ -217,14 +231,16 @@ class NoteStorage {
     }
 
     /**
-     * For a note fetched on its own rather than sent to someone here, which only anyone can be shown, so its addressing
-     * decides nothing else.
+     * For a note fetched on its own rather than sent to someone here, which only anyone can be shown, or the author's
+     * followers if it was fetched as one of them, so its addressing decides nothing else.
+     *
+     * @param asFollower whether it was fetched signed as one of the author's followers here
      */
-    private Result storeFetched(
-            RemoteNote note, Actor author, Instant arrivedAt, Function<RemoteStatus, Optional<UUID>> store) {
+    private Result storeFetched(RemoteNote note, Actor author, Instant arrivedAt, boolean asFollower,
+                                Function<RemoteStatus, Optional<UUID>> store) {
         var visibility = visibility(note.addressing(), author);
-        if (visibility != Visibility.PUBLIC && visibility != Visibility.UNLISTED) {
-            log.debug("Ignoring fetched note {}, which not everyone can see", note.id());
+        if (!visibility.isOpen() && !(asFollower && visibility == Visibility.PRIVATE)) {
+            log.debug("Ignoring fetched note {}, which this fetch can't show to anyone here", note.id());
             return Result.IGNORED;
         }
         if (blocks.isBlocked(author.uri().getHost()) || actors.isInactive(author.uri())) {

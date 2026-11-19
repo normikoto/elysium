@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Followers-only pinned posts now show on profiles from other servers, such as Mastodon, to people here who follow the
+  account. Pins are read signed as the account here that has followed it the longest. Other servers that ask for a
+  user's pins, signed as one of their followers, now get their followers-only pinned posts too, if that follower could
+  already fetch them. See `FEDERATION.md`.
 - Blocking someone revokes their quotes of your posts for good, as though you had revoked each one, and tells their
   server. Unblocking them doesn't bring the quotes back, though they can then ask again. Blocks made before upgrading
   don't revoke anything.

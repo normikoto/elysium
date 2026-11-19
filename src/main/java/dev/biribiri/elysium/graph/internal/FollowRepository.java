@@ -484,6 +484,25 @@ public class FollowRepository {
     }
 
     /**
+     * @return the active local follower whose follow is the oldest
+     */
+    public Optional<UUID> findEarliestLocalFollowerId(URI followedUri) {
+        return jdbc.sql("""
+                        SELECT f.follower_id
+                        FROM follow f
+                        JOIN actor a ON a.id = f.follower_id
+                        JOIN actor followed ON followed.id = f.followed_id
+                        WHERE followed.uri = :followedUri AND f.state = 'accepted' AND a.is_local
+                          AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        ORDER BY f.created_at, f.follower_id
+                        LIMIT 1
+                        """)
+                .param("followedUri", followedUri.toString())
+                .query(UUID.class)
+                .optional();
+    }
+
+    /**
      * @return the local accounts that follow an actor, leaving out suspended and deleted ones
      */
     public List<UUID> findLocalFollowerIds(URI followedUri) {
