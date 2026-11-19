@@ -97,6 +97,11 @@ class ForwardedNotes {
     CompletionHandler<ForwardedNoteJob> run(ForwardedNoteJob job) {
         var note = URI.create(job.noteId());
         var id = createId(job.actorId(), note);
+        // The actor's URI hasn't been limited, and the ID would otherwise fail every retry, long after the fetch.
+        if (!InboundActivity.isStorableId(id)) {
+            log.debug("Dropping a forwarded Create of {}, whose actor's URI is too long", note);
+            return Jobs.done();
+        }
         // A block can have been added since this was queued, and another forward of the note can have been stored.
         if (blocks.isBlocked(note.getHost()) || stored.exists(id)) {
             return Jobs.done();

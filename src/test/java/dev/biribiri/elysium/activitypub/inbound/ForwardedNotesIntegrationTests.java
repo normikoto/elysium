@@ -257,6 +257,15 @@ class ForwardedNotesIntegrationTests {
     }
 
     @Test
+    void dropsAForwardWhoseActorIsTooLongToStoreUnder() throws Exception {
+        var longActor = "https://" + origin + "/users/" + "a".repeat(InboundActivity.MAX_ID_BYTES);
+
+        notes.run(new ForwardedNoteJob(note, longActor, now(), null));
+
+        verify(documents, never()).fetch(URI.create(note));
+    }
+
+    @Test
     void doesNotFetchANoteOnAnotherServer() {
         var elsewhere = "https://elsewhere.test/notes/" + UUID.randomUUID();
         receive(create(id, elsewhere, recipient.uri().toString()));

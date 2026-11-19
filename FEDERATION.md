@@ -328,9 +328,10 @@ port as the `actor`:
 - A `Delete`, such as Mastodon's, whose `id` has a fragment, has its `object` [checked with its own
   server](#receiving-deletes) instead.
 - A `Create` has its `object` fetched instead, signed as the instance actor. It's kept only if what's served is a `Note`
-  with exactly that `id`, attributed to the `actor` alone, and with a `published` no more than 3 days before the first
-  forwarded copy arrived. Who it's for comes from the fetched `Note`'s addressing, and nothing else from the forwarded
-  copy is kept. The real `Create` is still accepted if it's delivered later, and its `Note` is then already stored.
+  or a `Question` with exactly that `id`, attributed to the `actor` alone, and with a `published` no more than 3 days
+  before the first forwarded copy arrived. Who it's for comes from the fetched object's addressing, and nothing else from
+  the forwarded copy is kept. The real `Create` is still accepted if it's delivered later, and its object is then already
+  stored.
 
 The sender chooses where these fetches go, so each host gets at most 60 of them a minute, with bursts of up to 60, counting
 the fetches of forwarded activities, of the objects of forwarded `Create`s, of objects
