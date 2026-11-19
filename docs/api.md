@@ -247,7 +247,9 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   [interaction requests](#interaction-requests): `none`, `non_followers`, or `all`. `non_followers` approves followers'
   quotes automatically and waits for the user to review everyone else's, so it only differs from `none` for a `public`
   status. It's accepted in the same three places. Missing means the account's `source[quote_review]` on a new status,
-  which is `none` until it's changed, and keeps whose quotes are reviewed in an edit.
+  which is `none` until it's changed, and keeps whose quotes are reviewed in an edit. A status that only followers or
+  nobody can quote doesn't keep whether non-followers' quotes are reviewed, so making it `public` without
+  `quote_review` uses the account's default.
   `PUT /api/v1/statuses/:id/interaction_policy` takes either field alone. Another value gets a 422.
 - The audience whose quotes are reviewed is in `quote_approval.manual` rather than `automatic`, so a client shows
   `current_user` as `manual` for them. With `non_followers`, `automatic` has `followers` and `manual` has `public`.
@@ -276,8 +278,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `POST /api/v1/statuses/:id/quotes/:quoting_status_id/revoke` revokes any quote of the user's status, accepted or not,
   and gets a 404 for a status that doesn't quote it. Revoking a quote from a server that can't ask for approval only
   hides it here.
-- A quote that was rejected or revoked can be asked for again, by its author here or by its server, and then waits for
-  the quoted author to review it, even if their policy approves quotes automatically.
+- A quote that was rejected or revoked can be asked for again, by its author here or by its server, once an hour, and
+  then waits for the quoted author to review it, even if their policy approves quotes automatically.
 
 ### Interaction requests
 

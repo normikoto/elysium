@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
@@ -23,10 +24,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * GoToSocial's API for approving interactions by hand, which Mastodon doesn't have. Only quotes are approved by hand here,
@@ -126,7 +132,7 @@ public class InteractionRequestsController {
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, "/api/v1/interaction_requests", filters, page.limit(),
                 found.stream().map(StatusQuote::statusId).toList());
-        return response.body(found.stream().flatMap(quote -> render(quote, viewer).stream()).toList());
+        return response.body(render(found, viewer));
     }
 
     @GetMapping("/{id}")
@@ -205,19 +211,38 @@ public class InteractionRequestsController {
                 .orElseThrow(RecordNotFoundException::new);
     }
 
-    /**
-     * @return empty if either status, or the quote's author, can't be shown any more
-     */
     private Optional<InteractionRequestResponse> render(StatusQuote quote, UUID viewer) {
-        var quoting = statuses.findStored(quote.statusId());
-        var quoted = Optional.ofNullable(quote.quotedStatusId()).flatMap(statuses::findStored);
-        var author = quoting.flatMap(status -> actors.findById(status.actorId()));
-        if (quoting.isEmpty() || quoted.isEmpty() || author.isEmpty()) {
-            return Optional.empty();
+        return render(List.of(quote), viewer).stream().findFirst();
+    }
+
+    /**
+     * With one lookup of each kind for the whole page.
+     *
+     * @return a response for each quote whose statuses, and whose author, can still be shown, in the same order
+     */
+    private List<InteractionRequestResponse> render(List<StatusQuote> found, UUID viewer) {
+        var ids = new LinkedHashSet<UUID>();
+        found.forEach(quote -> {
+            ids.add(quote.statusId());
+            if (quote.quotedStatusId() != null) {
+                ids.add(quote.quotedStatusId());
+            }
+        });
+        var stored = statuses.findStored(ids);
+        var responses = statusResponses.list(stored, Optional.of(viewer), Optional.empty()).stream()
+                .collect(Collectors.toMap(StatusResponse::id, Function.identity()));
+        var authorIds = stored.stream().collect(Collectors.toMap(Status::id, Status::actorId));
+        var authors = accounts.byId(actors.findByIds(Set.copyOf(authorIds.values())));
+        var rendered = new ArrayList<InteractionRequestResponse>();
+        for (var quote : found) {
+            var quoting = responses.get(quote.statusId().toString());
+            var quoted = quote.quotedStatusId() == null ? null : responses.get(quote.quotedStatusId().toString());
+            var author = quoting == null ? null : authors.get(authorIds.get(quote.statusId()));
+            if (quoted != null && author != null) {
+                rendered.add(InteractionRequestResponse.of(quote, author, quoted, quoting));
+            }
         }
-        var viewing = Optional.of(viewer);
-        return Optional.of(InteractionRequestResponse.of(quote, accounts.one(author.get()),
-                statusResponses.one(quoted.get(), viewing), statusResponses.one(quoting.get(), viewing)));
+        return rendered;
     }
 
     private static UUID viewer(TokenPrincipal token) {

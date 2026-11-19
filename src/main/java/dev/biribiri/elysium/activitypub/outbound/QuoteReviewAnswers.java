@@ -19,7 +19,8 @@ import java.util.List;
 /**
  * Answers another server's {@code QuoteRequest} once the quoted author has reviewed it by hand, with the same
  * {@code Accept} or {@code Reject} that answering it straight away would have sent. Only what the quote is now is sent,
- * so that this running again, or after the author changed their mind, sends nothing that's since been undone.
+ * so that this running again, or after the author changed their mind, sends nothing that's since been undone, and an
+ * {@code Accept} goes after any {@code Reject} it replaces.
  */
 @Service
 public class QuoteReviewAnswers {
@@ -66,11 +67,22 @@ public class QuoteReviewAnswers {
             return;
         }
         var authorUri = quotedAuthor.get().uri();
-        var authorization = event.accepted() ? QuoteAuthorization.idFor(authorUri, quote.get().stampId()) : null;
-        var answer = QuoteRequestAnswer.of(authorUri, quote.get().requestUri().toString(), requester.get().uri(),
-                quoted.get().uri(), quoting.get().uri(), authorization);
-        deliveries.enqueue(
-                new OutboundActivity(answer.id().toString(), quotedAuthor.get().id(), json.writeValueAsString(answer)),
-                List.of(requester.get().inboxUri()));
+        var requestId = quote.get().requestUri().toString();
+        var inboxes = List.of(requester.get().inboxUri());
+        if (!event.accepted()) {
+            var reject = QuoteRequestAnswer.reject(authorUri, requestId, requester.get().uri(), quoted.get().uri(),
+                    quoting.get().uri());
+            deliveries.enqueue(new OutboundActivity(reject.id().toString(), quotedAuthor.get().id(),
+                    json.writeValueAsString(reject)), inboxes);
+            return;
+        }
+        var accept = QuoteRequestAnswer.accept(authorUri, requestId, requester.get().uri(), quoted.get().uri(),
+                quoting.get().uri(), QuoteAuthorization.idFor(authorUri, quote.get().stampId()));
+        // An author who rejected the quote first has a Reject that may still be being sent, which can't arrive after this.
+        var rejectId = QuoteRequestAnswer.reject(authorUri, requestId, requester.get().uri(), quoted.get().uri(),
+                quoting.get().uri()).id().toString();
+        deliveries.cancel(rejectId);
+        deliveries.enqueueAfter(new OutboundActivity(accept.id().toString(), quotedAuthor.get().id(),
+                json.writeValueAsString(accept)), inboxes, rejectId);
     }
 }

@@ -44,6 +44,7 @@ public class QuoteService {
     private final QuoteRules rules;
     private final FollowService follows;
     private final BlockService blocks;
+    private final PostingDefaults postingDefaults;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate transaction;
 
@@ -55,6 +56,7 @@ public class QuoteService {
             QuoteRules rules,
             FollowService follows,
             BlockService blocks,
+            PostingDefaults postingDefaults,
             ApplicationEventPublisher events,
             PlatformTransactionManager transactionManager) {
         this.quotes = quotes;
@@ -64,6 +66,7 @@ public class QuoteService {
         this.rules = rules;
         this.follows = follows;
         this.blocks = blocks;
+        this.postingDefaults = postingDefaults;
         this.events = events;
         this.transaction = new TransactionTemplate(transactionManager);
     }
@@ -237,7 +240,8 @@ public class QuoteService {
             if (status.isEmpty() || !status.get().visibility().isOpen()) {
                 return status;
             }
-            var approval = StatusService.changedPolicy(status.get().quoteApproval(), policy, review);
+            var approval = StatusService.changedPolicy(status.get().quoteApproval(), policy, review,
+                    () -> postingDefaults.quoteReview(authorId));
             if (Objects.equals(approval, status.get().quoteApproval())) {
                 return status;
             }
@@ -350,7 +354,9 @@ public class QuoteService {
                         ? new RequestAnswer.Accept(found.stampId())
                         : new RequestAnswer.Accept(approve(found, requestUri));
                 case REJECTED, REVOKED -> {
-                    if (repeat) {
+                    // As often as a local author can ask, so that the quoted author isn't asked over and over.
+                    if (repeat || (found.requestedAt() != null
+                            && found.requestedAt().plus(RETRY_AFTER).isAfter(Instant.now()))) {
                         yield new RequestAnswer.Reject();
                     }
                     putToReview(found, requestUri);
@@ -389,18 +395,19 @@ public class QuoteService {
         return stamp;
     }
 
+    /**
+     * Only for a quote that isn't shown, so that nothing other servers have changes.
+     */
     private void putToReview(StatusQuote quote, URI requestUri) {
+        if (quote.state() == QuoteState.ACCEPTED) {
+            throw new IllegalStateException("An accepted quote can't be put to review");
+        }
         if (quote.state() != QuoteState.PENDING) {
             quotes.changeState(quote.statusId(), QuoteState.PENDING, quote.legacy(), null, null);
         }
         quotes.setRequested(quote.statusId(), requestUri);
-        statuses.findById(quote.statusId()).ifPresent(quoting -> {
-            events.publishEvent(new QuoteReviewRequested(quoting.id(), quoting.actorId(), quote.quotedAccountId()));
-            // A quote that's no longer shown has changed for anyone who had it.
-            if (quote.state() == QuoteState.ACCEPTED) {
-                noteChanged(quoting);
-            }
-        });
+        statuses.findById(quote.statusId()).ifPresent(quoting -> events.publishEvent(
+                new QuoteReviewRequested(quoting.id(), quoting.actorId(), quote.quotedAccountId())));
     }
 
     /**
@@ -443,8 +450,9 @@ public class QuoteService {
      */
     public Optional<StatusQuote> authorizeReview(UUID quotingStatusId, UUID ownerId) {
         return transaction.execute(tx -> {
-            var quote = quotes.findAndLock(quotingStatusId)
-                    .filter(found -> ownerId.equals(found.quotedAccountId()) && found.quotedStatusId() != null);
+            var quoted = lockQuoted(quotingStatusId);
+            var quote = quoted.flatMap(status -> lockQuote(quotingStatusId, status.id()))
+                    .filter(found -> ownerId.equals(found.quotedAccountId()));
             if (quote.isEmpty()) {
                 return Optional.<StatusQuote>empty();
             }
@@ -455,10 +463,8 @@ public class QuoteService {
             if (!found.isUnderReview() && found.state() != QuoteState.REJECTED) {
                 return Optional.<StatusQuote>empty();
             }
-            var quoted = statuses.findByIdAndLock(found.quotedStatusId());
             var quoting = statuses.findById(quotingStatusId);
-            if (quoted.isEmpty() || quoting.isEmpty()
-                    || decide(quoted.get(), quoting.get().actorId()) == QuoteDecision.DENIED) {
+            if (quoting.isEmpty() || decide(quoted.get(), quoting.get().actorId()) == QuoteDecision.DENIED) {
                 return Optional.<StatusQuote>empty();
             }
             approve(found, null);
@@ -466,6 +472,21 @@ public class QuoteService {
             noteChanged(quoting.get());
             return quotes.find(quotingStatusId);
         });
+    }
+
+    /**
+     * Locks the status that a quote is of, which comes before locking the quote, as when answering a {@code QuoteRequest},
+     * so that two changes to the same quote can't each hold the lock that the other waits for.
+     */
+    private Optional<Status> lockQuoted(UUID quotingStatusId) {
+        return quotes.find(quotingStatusId).map(StatusQuote::quotedStatusId).flatMap(statuses::findByIdAndLock);
+    }
+
+    /**
+     * @return the quote, locked, if it's still of this status
+     */
+    private Optional<StatusQuote> lockQuote(UUID quotingStatusId, UUID quotedStatusId) {
+        return quotes.findAndLock(quotingStatusId).filter(found -> quotedStatusId.equals(found.quotedStatusId()));
     }
 
     /**
@@ -515,7 +536,11 @@ public class QuoteService {
     public Retry askAgain(UUID statusId, UUID authorId) {
         return transaction.execute(tx -> {
             var quoting = statuses.findByIdAndLock(statusId).filter(found -> found.actorId().equals(authorId));
-            var quote = quoting.flatMap(found -> quotes.findAndLock(statusId));
+            if (quoting.isEmpty() || quotes.find(statusId).isEmpty()) {
+                return Retry.NOT_FOUND;
+            }
+            var quoted = lockQuoted(statusId);
+            var quote = quoted.isPresent() ? lockQuote(statusId, quoted.get().id()) : quotes.findAndLock(statusId);
             if (quote.isEmpty()) {
                 return Retry.NOT_FOUND;
             }
@@ -527,16 +552,15 @@ public class QuoteService {
             if (found.requestedAt() != null && found.requestedAt().plus(RETRY_AFTER).isAfter(now)) {
                 return Retry.TOO_SOON;
             }
-            var quoted = Optional.ofNullable(found.quotedStatusId()).flatMap(statuses::findByIdAndLock);
             var quotedAuthor = Optional.ofNullable(found.quotedAccountId()).flatMap(actors::findById)
                     .filter(Actor::isActive);
-            if (quoted.isEmpty() || quotedAuthor.isEmpty()
-                    || decide(quoted.get(), authorId) == QuoteDecision.DENIED) {
+            var decision = quoted.map(status -> decide(status, authorId)).orElse(QuoteDecision.DENIED);
+            if (quotedAuthor.isEmpty() || decision == QuoteDecision.DENIED) {
                 return Retry.NOT_ALLOWED;
             }
             var status = quoting.get();
             if (actors.isLocal(quotedAuthor.get())) {
-                if (decide(quoted.get(), authorId) == QuoteDecision.AUTOMATIC) {
+                if (decision == QuoteDecision.AUTOMATIC) {
                     approve(found, null);
                     noteChanged(status);
                 } else {

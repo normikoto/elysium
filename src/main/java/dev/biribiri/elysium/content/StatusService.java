@@ -48,6 +48,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -357,7 +358,8 @@ public class StatusService {
             var old = found.get();
             var oldPolicy = old.quoteApproval();
             var newPolicy = (draft.quotePolicy() == null && draft.quoteReview() == null) || !old.visibility().isOpen()
-                    ? oldPolicy : changedPolicy(oldPolicy, draft.quotePolicy(), draft.quoteReview());
+                    ? oldPolicy : changedPolicy(oldPolicy, draft.quotePolicy(), draft.quoteReview(),
+                    () -> postingDefaults.quoteReview(authorId));
             var policyChanged = !Objects.equals(oldPolicy, newPolicy);
             if (policyChanged) {
                 quotes.setPolicy(id, newPolicy);
@@ -490,16 +492,27 @@ public class StatusService {
     }
 
     /**
-     * A status from before quotes keeps having only its author able to quote it, unless the edit says who else can.
+     * A status from before quotes keeps having only its author able to quote it, unless the edit says who else can. One
+     * that only its author or their followers can quote doesn't keep whether non-followers' quotes would be reviewed, so a
+     * change that doesn't say uses the author's default for that.
      *
-     * @param policy who can quote it, or null to keep that
-     * @param review whose quotes its author approves by hand, or null to keep that
+     * @param policy   who can quote it, or null to keep that
+     * @param review   whose quotes its author approves by hand, or null to keep that
+     * @param fallback the author's default review
      */
-    static QuoteApproval changedPolicy(QuoteApproval old, QuotePolicy policy, QuoteReview review) {
+    static QuoteApproval changedPolicy(
+            QuoteApproval old, QuotePolicy policy, QuoteReview review, Supplier<QuoteReview> fallback) {
         if (old == null && policy == null) {
             return null;
         }
-        var byHand = review != null ? review : old != null ? old.review() : QuoteReview.NONE;
+        QuoteReview byHand;
+        if (review != null) {
+            byHand = review;
+        } else if (old != null && (old.policy() == QuotePolicy.PUBLIC || old.review() == QuoteReview.ALL)) {
+            byHand = old.review();
+        } else {
+            byHand = fallback.get();
+        }
         return (policy != null ? policy : old.policy()).approval(byHand);
     }
 
@@ -1063,6 +1076,13 @@ public class StatusService {
      */
     public Optional<Status> findStored(UUID id) {
         return statuses.findById(id);
+    }
+
+    /**
+     * Like {@link #findStored(UUID)}, for several at once.
+     */
+    public List<Status> findStored(Collection<UUID> ids) {
+        return statuses.findByIds(ids);
     }
 
     /**

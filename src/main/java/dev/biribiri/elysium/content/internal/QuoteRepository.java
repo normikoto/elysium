@@ -181,13 +181,16 @@ public class QuoteRepository {
                 .update();
     }
 
+    /**
+     * Re-points a quote at another status, as a quote that hasn't been asked for, since what was asked was about the other.
+     */
     public void replace(UUID statusId, URI quotedUri, Optional<StatusRepository.Parent> quoted, boolean legacy,
                         URI approvalUri) {
         bindQuoted(jdbc.sql("""
                         UPDATE status_quote SET quoted_uri = :quotedUri, quoted_status_id = :quotedStatusId,
                                                 quoted_account_id = :quotedAccountId, linked = :linked, state = 'pending',
                                                 legacy = :legacy, approval_uri = :approvalUri, stamp_id = NULL,
-                                                decided_at = NULL
+                                                decided_at = NULL, request_uri = NULL, requested_at = NULL
                         WHERE status_id = :statusId
                         """), quoted)
                 .param("statusId", statusId)

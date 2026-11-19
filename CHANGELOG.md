@@ -25,8 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it, and review them with GoToSocial's interaction requests. They can review everyone's quotes, or only those of
   people who don't follow them, so that followers' quotes are approved straight away. Quotes waiting for them give a `pending.quote`
   notification. A rejected quote can be approved later. Someone whose quote was rejected or revoked can ask again, at
-  most once an hour, and a server that asks again after a rejection gets a new answer, which always waits for the
-  quoted author. See `docs/api.md` and `FEDERATION.md`.
+  most once an hour, from here or from their server, and asking again always waits for the quoted author. See `docs/api.md` and `FEDERATION.md`.
 
 ### Changed
 

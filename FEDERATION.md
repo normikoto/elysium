@@ -1149,7 +1149,8 @@ author and sent to the actor's own `inbox`:
 
 A `Reject` has the same shape, with `#rejects/` in its `id` and no `result`. A repeated request gets the same answer, with
 the same `id`. A quote that was rejected or revoked can be asked for again with a request under a new `id`, which waits
-for the author to decide by hand, whatever the policy says, so that asking again can't undo their decision. An author can
+for the author to decide by hand, whatever the policy says, so that asking again can't undo their decision. It can be
+asked for once an hour, and a request that comes sooner gets a `Reject`. An author can
 also approve a quote they rejected, which sends an `Accept` of the request after its `Reject`.
 
 #### Approvals

@@ -565,6 +565,22 @@ class QuotesIntegrationTests {
     }
 
     @Test
+    void makingAFollowersOnlyPolicyPublicUsesTheAccountsDefaultReview() throws Exception {
+        mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("source[quote_review]", "non_followers"))
+                .andExpect(status().isOk());
+        var id = createStatus("qbob", Map.of("status", "followers", "quote_approval_policy", "followers"));
+
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + id + "/interaction_policy"), token("qbob"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quote_approval_policy\":\"public\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
+    }
+
+    @Test
     void aLocalQuoteCanBeAskedForAgain() throws Exception {
         account("qbob");
         var quoted = createStatus("qbob", Map.of("status", "original", "quote_review", "all"));
