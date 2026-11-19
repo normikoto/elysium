@@ -189,7 +189,8 @@ public class StatusService {
                 ? Visibility.PRIVATE : draft.visibility();
         var quotePolicy = !visibility.isOpen() ? QuotePolicy.NOBODY
                 : draft.quotePolicy() != null ? draft.quotePolicy() : postingDefaults.quotePolicy(authorId);
-        var quoteReview = draft.quoteReview() != null ? draft.quoteReview() : postingDefaults.quoteReview(authorId);
+        var quoteOthers = !visibility.isOpen() ? OtherQuotes.REJECT
+                : draft.quoteOthers() != null ? draft.quoteOthers() : postingDefaults.quoteOthers(authorId);
         var contentType = draft.contentType();
         var linkable = linkable(text, contentType);
         var mentioned = resolveMentions(author, linkable);
@@ -238,7 +239,7 @@ public class StatusService {
                     null,
                     null,
                     0,
-                    quotePolicy.approval(quoteReview),
+                    quotePolicy.approval(quoteOthers),
                     null,
                     localOnly,
                     contentType);
@@ -357,9 +358,9 @@ public class StatusService {
             }
             var old = found.get();
             var oldPolicy = old.quoteApproval();
-            var newPolicy = (draft.quotePolicy() == null && draft.quoteReview() == null) || !old.visibility().isOpen()
-                    ? oldPolicy : changedPolicy(oldPolicy, draft.quotePolicy(), draft.quoteReview(),
-                    () -> postingDefaults.quoteReview(authorId));
+            var newPolicy = (draft.quotePolicy() == null && draft.quoteOthers() == null) || !old.visibility().isOpen()
+                    ? oldPolicy : changedPolicy(oldPolicy, draft.quotePolicy(), draft.quoteOthers(),
+                    () -> postingDefaults.quoteOthers(authorId));
             var policyChanged = !Objects.equals(oldPolicy, newPolicy);
             if (policyChanged) {
                 quotes.setPolicy(id, newPolicy);
@@ -493,27 +494,27 @@ public class StatusService {
 
     /**
      * A status from before quotes keeps having only its author able to quote it, unless the edit says who else can. One
-     * that only its author or their followers can quote doesn't keep whether non-followers' quotes would be reviewed, so a
-     * change that doesn't say uses the author's default for that.
+     * whose quotes are all approved automatically doesn't keep what would happen to anyone else's, so a change that
+     * doesn't say uses the author's default for that.
      *
-     * @param policy   who can quote it, or null to keep that
-     * @param review   whose quotes its author approves by hand, or null to keep that
-     * @param fallback the author's default review
+     * @param policy   whose quotes of it are approved automatically, or null to keep that
+     * @param others   what happens to everyone else's, or null to keep that
+     * @param fallback the author's default for everyone else's
      */
     static QuoteApproval changedPolicy(
-            QuoteApproval old, QuotePolicy policy, QuoteReview review, Supplier<QuoteReview> fallback) {
+            QuoteApproval old, QuotePolicy policy, OtherQuotes others, Supplier<OtherQuotes> fallback) {
         if (old == null && policy == null) {
             return null;
         }
-        QuoteReview byHand;
-        if (review != null) {
-            byHand = review;
-        } else if (old != null && (old.policy() == QuotePolicy.PUBLIC || old.review() == QuoteReview.ALL)) {
-            byHand = old.review();
+        OtherQuotes rest;
+        if (others != null) {
+            rest = others;
+        } else if (old != null && old.policy() != QuotePolicy.PUBLIC) {
+            rest = old.others();
         } else {
-            byHand = fallback.get();
+            rest = fallback.get();
         }
-        return (policy != null ? policy : old.policy()).approval(byHand);
+        return (policy != null ? policy : old.policy()).approval(rest);
     }
 
     /**

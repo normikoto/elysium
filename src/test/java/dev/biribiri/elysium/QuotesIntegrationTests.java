@@ -514,7 +514,8 @@ class QuotesIntegrationTests {
     void aQuoteOfAStatusWhoseAuthorReviewsQuotesWaitsForThem() throws Exception {
         var alice = account("qalice");
         account("qbob");
-        var quoted = createStatus("qbob", Map.of("status", "original", "quote_review", "all"));
+        var quoted = createStatus("qbob", Map.of("status", "original", "quote_approval_policy", "nobody",
+                "quote_others", "review"));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + quoted), token("qalice")))
                 .andExpect(jsonPath("$.quote_approval.automatic").isEmpty())
                 .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"))
@@ -582,36 +583,39 @@ class QuotesIntegrationTests {
     }
 
     @Test
-    void theAccountChoosesWhetherItReviewsQuotes() throws Exception {
+    void theAccountChoosesWhetherItReviewsOrRejectsOtherQuotes() throws Exception {
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("qbob"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("source[quote_review]", "all"))
+                        .param("source[quote_policy]", "followers")
+                        .param("source[quote_others]", "review"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.source.quote_review").value("all"))
-                .andExpect(jsonPath("$.source.quote_policy").value("public"));
+                .andExpect(jsonPath("$.source.quote_others").value("review"))
+                .andExpect(jsonPath("$.source.quote_policy").value("followers"));
         var reviewed = createStatus("qbob", Map.of("status", "by default"));
-        var automatic = createStatus("qbob", Map.of("status", "not reviewed", "quote_review", "none"));
+        var automatic = createStatus("qbob", Map.of("status", "not reviewed", "quote_others", "reject"));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + reviewed), token("qbob")))
+                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
                 .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + automatic), token("qbob")))
-                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("public"));
+                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
+                .andExpect(jsonPath("$.quote_approval.manual").isEmpty());
 
         mockMvc.perform(withToken(put("/api/v1/statuses/" + reviewed + "/interaction_policy"), token("qbob"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"quote_approval_policy\":\"followers\"}"))
+                        .content("{\"quote_approval_policy\":\"nobody\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.quote_approval.automatic").isEmpty())
-                .andExpect(jsonPath("$.quote_approval.manual[0]").value("followers"));
+                .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
         mockMvc.perform(withToken(put("/api/v1/statuses/" + reviewed + "/interaction_policy"), token("qbob"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"quote_review\":\"none\"}"))
+                        .content("{\"quote_others\":\"reject\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
+                .andExpect(jsonPath("$.quote_approval.automatic").isEmpty())
                 .andExpect(jsonPath("$.quote_approval.manual").isEmpty());
         mockMvc.perform(withToken(put("/api/v1/statuses/" + automatic), token("qbob"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("status", "edited")
-                        .param("quote_review", "all"))
+                        .param("quote_others", "review"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
         mockMvc.perform(withToken(put("/api/v1/statuses/" + automatic), token("qbob"))
@@ -625,7 +629,8 @@ class QuotesIntegrationTests {
     void anAuthorCanApproveFollowersQuotesAutomaticallyAndReviewOthers() throws Exception {
         var bob = account("qbob");
         account("qcarol");
-        var quoted = createStatus("qbob", Map.of("status", "original", "quote_review", "non_followers"));
+        var quoted = createStatus("qbob", Map.of("status", "original", "quote_approval_policy", "followers",
+                "quote_others", "review"));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + quoted), token("qcarol")))
                 .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
                 .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"))
@@ -649,21 +654,21 @@ class QuotesIntegrationTests {
                 .andExpect(jsonPath("$[0].id").value(fromOther));
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("qbob"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("source[quote_review]", "followers"))
+                        .param("source[quote_others]", "followers"))
                 .andExpect(status().isUnprocessableContent());
     }
 
     @Test
-    void makingAFollowersOnlyPolicyPublicUsesTheAccountsDefaultReview() throws Exception {
+    void narrowingAPublicPolicyUsesTheAccountsDefaultForOtherQuotes() throws Exception {
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("qbob"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("source[quote_review]", "non_followers"))
+                        .param("source[quote_others]", "review"))
                 .andExpect(status().isOk());
-        var id = createStatus("qbob", Map.of("status", "followers", "quote_approval_policy", "followers"));
+        var id = createStatus("qbob", Map.of("status", "anyone", "quote_approval_policy", "public"));
 
         mockMvc.perform(withToken(put("/api/v1/statuses/" + id + "/interaction_policy"), token("qbob"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"quote_approval_policy\":\"public\"}"))
+                        .content("{\"quote_approval_policy\":\"followers\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.quote_approval.automatic[0]").value("followers"))
                 .andExpect(jsonPath("$.quote_approval.manual[0]").value("public"));
@@ -672,7 +677,8 @@ class QuotesIntegrationTests {
     @Test
     void aLocalQuoteCanBeAskedForAgain() throws Exception {
         account("qbob");
-        var quoted = createStatus("qbob", Map.of("status", "original", "quote_review", "all"));
+        var quoted = createStatus("qbob", Map.of("status", "original", "quote_approval_policy", "nobody",
+                "quote_others", "review"));
         var quote = createStatus("qalice", Map.of("status", "look", "quoted_status_id", quoted));
         mockMvc.perform(withToken(post("/api/v1/interaction_requests/" + quote + "/reject"), token("qbob")))
                 .andExpect(status().isOk());
@@ -690,7 +696,7 @@ class QuotesIntegrationTests {
 
         mockMvc.perform(withToken(put("/api/v1/statuses/" + quoted + "/interaction_policy"), token("qbob"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"quote_review\":\"none\"}"))
+                        .content("{\"quote_approval_policy\":\"public\"}"))
                 .andExpect(status().isOk());
         askedLongAgo(quote);
         askAgain("qalice", quote).andExpect(status().isOk())

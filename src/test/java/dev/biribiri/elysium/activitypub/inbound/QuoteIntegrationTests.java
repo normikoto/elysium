@@ -9,9 +9,9 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.OtherQuotes;
 import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.QuotePolicy;
-import dev.biribiri.elysium.content.QuoteReview;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
 import dev.biribiri.elysium.content.RemoteStatus;
@@ -280,9 +280,9 @@ class QuoteIntegrationTests {
     }
 
     @Test
-    void anAuthorCanReviewOnlyTheQuotesOfAccountsThatDontFollowThem() {
+    void anAuthorCanApproveTheirFollowersQuotesAndReviewEveryoneElses() {
         var quoted = statuses.create(alice.id(), new NewStatus("followers first", null, null, Visibility.PUBLIC, false,
-                null, List.of(), null, QuotePolicy.PUBLIC, null, false, null, QuoteReview.NON_FOLLOWERS));
+                null, List.of(), null, QuotePolicy.FOLLOWERS, null, false, null, OtherQuotes.REVIEW));
         var stranger = remote();
         follow(quoter, alice);
         var followers = quoteRequest(quoter, quoted.uri(), Map.of("to", List.of(PUBLIC)));
@@ -322,7 +322,7 @@ class QuoteIntegrationTests {
         askedLongAgo(quote);
 
         // Even once the author approves quotes automatically, asking again can't undo what they decided.
-        quotes.setPolicy(quoted.id(), alice.id(), QuotePolicy.PUBLIC, QuoteReview.NONE);
+        quotes.setPolicy(quoted.id(), alice.id(), QuotePolicy.PUBLIC, OtherQuotes.REJECT);
         var second = quoteRequest(quoter, quoted.uri(), instrument, Map.of("to", List.of(PUBLIC)));
         requests.handle(second);
 
@@ -510,7 +510,7 @@ class QuoteIntegrationTests {
      */
     private Status reviewed(Actor author) {
         return statuses.create(author.id(), new NewStatus("reviewed", null, null, Visibility.PUBLIC, false, null,
-                List.of(), null, QuotePolicy.PUBLIC, null, false, null, QuoteReview.ALL));
+                List.of(), null, QuotePolicy.NOBODY, null, false, null, OtherQuotes.REVIEW));
     }
 
     private void askedLongAgo(UUID quote) {

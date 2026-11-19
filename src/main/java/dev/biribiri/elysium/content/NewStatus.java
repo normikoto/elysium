@@ -11,12 +11,12 @@ import java.util.UUID;
  * @param inReplyToId the status being replied to, or null if this isn't a reply
  * @param mediaIds    the author's uploads to attach, in order
  * @param quotedStatusId the status to quote, or null for none
- * @param quotePolicy who can quote this status, or null for the author's default
+ * @param quotePolicy whose quotes of this status are approved automatically, or null for the author's default
  * @param poll        its poll, or null for none
  * @param localOnly   whether it stays on this server. A reply to or quote of a local-only status is local-only whatever
  *                    this says
  * @param contentType what its text is written in
- * @param quoteReview whose quotes of it its author approves by hand, or null for the author's default
+ * @param quoteOthers what happens to everyone else's quotes of it, or null for the author's default
  */
 public record NewStatus(
         String text,
@@ -31,7 +31,7 @@ public record NewStatus(
         NewPoll poll,
         boolean localOnly,
         ContentType contentType,
-        QuoteReview quoteReview
+        OtherQuotes quoteOthers
 ) {
 
     public NewStatus {

@@ -3,8 +3,8 @@ package dev.biribiri.elysium.api.web;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import dev.biribiri.elysium.actor.Profile;
+import dev.biribiri.elysium.content.OtherQuotes;
 import dev.biribiri.elysium.content.QuotePolicy;
-import dev.biribiri.elysium.content.QuoteReview;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
@@ -15,7 +15,7 @@ import java.util.List;
  */
 @Schema(name = "CredentialAccount", description = """
         Mastodon's CredentialAccount entity: an Account, plus `source`, which has the note and fields as they were \
-        written. The settings in `source` other than `quote_policy` and `quote_review` don't exist yet, so they have the values a new \
+        written. The settings in `source` other than `quote_policy` and `quote_others` don't exist yet, so they have the values a new \
         account would have.""")
 record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source source) {
 
@@ -24,11 +24,11 @@ record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source 
      */
     static CredentialAccountResponse from(
             AccountResponse account, Profile profile, long followRequests, QuotePolicy quotePolicy,
-            QuoteReview quoteReview) {
+            OtherQuotes quoteOthers) {
         var fields = profile.fields().stream().map(field -> AccountResponse.Field.of(field, field.value())).toList();
         return new CredentialAccountResponse(
                 account, new Source("public", false, "", profile.note(), fields, followRequests, quotePolicy.value(),
-                quoteReview.value()));
+                quoteOthers.value()));
     }
 
     /**
@@ -43,12 +43,14 @@ record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source 
             List<AccountResponse.Field> fields,
             @JsonProperty("follow_requests_count") long followRequestsCount,
             @Schema(allowableValues = {"public", "followers", "nobody"},
-                    description = "Who can quote the account's new statuses when the client doesn't say.")
+                    description = """
+                            Whose quotes of the account's new statuses are approved automatically when the client \
+                            doesn't say.""")
             @JsonProperty("quote_policy") String quotePolicy,
-            @Schema(allowableValues = {"none", "non_followers", "all"}, description = """
-                    Not in Mastodon. Whose quotes of the account's new statuses it approves by hand when the client \
-                    doesn't say: nobody's, those of accounts that don't follow it, or everyone's.""")
-            @JsonProperty("quote_review") String quoteReview
+            @Schema(allowableValues = {"reject", "review"}, description = """
+                    Not in Mastodon. Whether the quotes of the account's new statuses that aren't approved \
+                    automatically are rejected, or wait for it to review them, when the client doesn't say.""")
+            @JsonProperty("quote_others") String quoteOthers
     ) {
     }
 }

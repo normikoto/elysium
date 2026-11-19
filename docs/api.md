@@ -240,19 +240,19 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   be asked.
 - The text starts with a `<p class="quote-inline">RE: …</p>` link to the quoted status unless it links to it already,
   as on Mastodon.
-- `quote_approval_policy` can be `public`, `followers`, or `nobody`, on a new status, in `PUT /api/v1/statuses/:id`, and
-  in `PUT /api/v1/statuses/:id/interaction_policy`. Missing means the account's `source[quote_policy]`, which is
+- `quote_approval_policy` says whose quotes are approved automatically: `public`, `followers`, or `nobody`, meaning
+  only the author. It's accepted on a new status, in `PUT /api/v1/statuses/:id`, and in
+  `PUT /api/v1/statuses/:id/interaction_policy`. Missing means the account's `source[quote_policy]`, which is
   `public` until it's changed. A followers-only or direct status is always `nobody`.
-- `quote_review`, which Mastodon doesn't have, says whose quotes the user approves by hand, with
-  [interaction requests](#interaction-requests): `none`, `non_followers`, or `all`. `non_followers` approves followers'
-  quotes automatically and waits for the user to review everyone else's, so it only differs from `none` for a `public`
-  status. It's accepted in the same three places. Missing means the account's `source[quote_review]` on a new status,
-  which is `none` until it's changed, and keeps whose quotes are reviewed in an edit. A status that only followers or
-  nobody can quote doesn't keep whether non-followers' quotes are reviewed, so making it `public` without
-  `quote_review` uses the account's default.
+- `quote_others`, which Mastodon doesn't have, says what happens to everyone else's quotes: `reject`, as on Mastodon,
+  or `review`, which waits for the user to approve or reject them with
+  [interaction requests](#interaction-requests). It changes nothing for a `public` status. It's accepted in the same
+  three places. Missing means the account's `source[quote_others]` on a new status, which is `reject` until it's
+  changed, and keeps what it was in an edit. A `public` status doesn't keep it, so changing one to `followers` or
+  `nobody` without `quote_others` uses the account's default.
   `PUT /api/v1/statuses/:id/interaction_policy` takes either field alone. Another value gets a 422.
-- The audience whose quotes are reviewed is in `quote_approval.manual` rather than `automatic`, so a client shows
-  `current_user` as `manual` for them. With `non_followers`, `automatic` has `followers` and `manual` has `public`.
+- With `review`, `quote_approval.manual` has `public`, so a client shows `current_user` as `manual` for everyone whose
+  quotes aren't approved automatically. With `followers`, `automatic` has `followers`, and with `nobody` it's empty.
   Changing either setting doesn't change the quotes approved or waiting already.
 - `PUT /api/v1/statuses/:id` can't change what a status quotes, and a `quoted_status_id` other than the one it has gets
   a 422.
@@ -377,7 +377,7 @@ Follow [Mastodon's scheduled statuses API](https://docs.joinmastodon.org/methods
 - `PUT /api/v1/scheduled_statuses/:id` only changes `scheduled_at`, as on Mastodon, which is required, and has the same
   limits. A time in the past gets a 422 there, as on Mastodon.
 - `params` has the fields the request gave, and also `quoted_status_id`, `quote_approval_policy`, `local_only`,
-  `content_type`, and `quote_review`. `idempotency`, `scheduled_at`, and `application_id` are always null, and a poll's `expires_in` is a
+  `content_type`, and `quote_others`. `idempotency`, `scheduled_at`, and `application_id` are always null, and a poll's `expires_in` is a
   string, as on Mastodon.
 - When it's posted, its `created_at` is when it was posted, and a poll's `expires_in` counts from then.
 
@@ -649,7 +649,7 @@ Only these exist:
 ### Profile
 
 - `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`,
-  `indexable`, `hide_collections`, `source[quote_policy]`, and `source[quote_review]`, which Mastodon doesn't
+  `indexable`, `hide_collections`, `source[quote_policy]`, and `source[quote_others]`, which Mastodon doesn't
   have, and which `source` has too.
   - `bot`, `discoverable`, and the rest of `source` are accepted only with the values the account already has: false,
     and `public` for `source[privacy]`.
