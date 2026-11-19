@@ -278,6 +278,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `POST /api/v1/statuses/:id/quotes/:quoting_status_id/revoke` revokes any quote of the user's status, accepted or not,
   and gets a 404 for a status that doesn't quote it. Revoking a quote from a server that can't ask for approval only
   hides it here.
+- Blocking an account revokes its accepted and pending quotes of the user's statuses, which Mastodon doesn't do.
+  Unblocking it doesn't bring them back.
 - A quote that was rejected or revoked can be asked for again, by its author here or by its server, once an hour, and
   then waits for the quoted author to review it, even if their policy approves quotes automatically.
 

@@ -9,6 +9,9 @@ import java.util.UUID;
  * @param stampId  the {@code QuoteAuthorization} that was withdrawn, or null if none was given
  * @param localOnly whether the quoting status is local-only, so nothing elsewhere knows of the quote. False for an event
  *                  stored before this was added, when there were none
+ * @param unanswered whether the quote was waiting with a {@code QuoteRequest}, which has to be answered now. False for an
+ *                   event stored before this was added
  */
-public record QuoteRevoked(UUID statusId, UUID authorId, UUID quotedAuthorId, UUID stampId, boolean localOnly) {
+public record QuoteRevoked(
+        UUID statusId, UUID authorId, UUID quotedAuthorId, UUID stampId, boolean localOnly, boolean unanswered) {
 }

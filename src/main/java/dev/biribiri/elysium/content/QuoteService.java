@@ -208,20 +208,36 @@ public class QuoteService {
             if (quote.isEmpty()) {
                 return Revocation.NOT_FOUND;
             }
-            var found = quote.get();
-            if (found.state() == QuoteState.REVOKED) {
-                return Revocation.REVOKED;
+            if (quote.get().state() != QuoteState.REVOKED) {
+                revokeLocked(quote.get(), ownerId);
             }
-            var quoting = statuses.findById(quotingStatusId);
-            quotes.changeState(quotingStatusId, QuoteState.REVOKED, found.legacy(), null, found.stampId());
-            quoting.ifPresent(status -> {
-                events.publishEvent(new QuoteRevoked(
-                        quotingStatusId, status.actorId(), ownerId,
-                        found.state() == QuoteState.ACCEPTED ? found.stampId() : null, status.localOnly()));
-                noteChanged(status);
-            });
             return Revocation.REVOKED;
         });
+    }
+
+    /**
+     * Revokes the quoter's accepted and pending quotes of a local author's statuses, as though the author had revoked each,
+     * once the author has blocked them. Lifting the block doesn't bring them back. Mastodon doesn't revoke them at all.
+     */
+    public void revokeQuotesBy(UUID quotedAuthorId, UUID quoterId) {
+        if (!actors.isLocal(quotedAuthorId)) {
+            return;
+        }
+        transaction.executeWithoutResult(tx -> {
+            for (var quote : quotes.findByQuoterAndLock(quotedAuthorId, quoterId)) {
+                revokeLocked(quote, quotedAuthorId);
+            }
+        });
+    }
+
+    private void revokeLocked(StatusQuote found, UUID ownerId) {
+        quotes.changeState(found.statusId(), QuoteState.REVOKED, found.legacy(), null, found.stampId());
+        // Even for a suspended quoter, whom nothing is sent to, since the quoted author's followers may have seen the quote.
+        statuses.findForModeration(found.statusId()).ifPresent(status -> events.publishEvent(new QuoteRevoked(
+                found.statusId(), status.actorId(), ownerId,
+                found.state() == QuoteState.ACCEPTED ? found.stampId() : null, status.localOnly(),
+                found.state() == QuoteState.PENDING && found.requestUri() != null)));
+        statuses.findById(found.statusId()).ifPresent(this::noteChanged);
     }
 
     /**

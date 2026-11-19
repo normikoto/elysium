@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Blocking someone revokes their quotes of your posts for good, as though you had revoked each one, and tells their
+  server. Unblocking them doesn't bring the quotes back, though they can then ask again. Blocks made before upgrading
+  don't revoke anything.
 - A post that another server forwards, such as a reply that Mastodon passes on to the followers of the account being
   replied to, is now kept when the server it came from serves the post but not the activity that created it, as long as
   it was posted in the last 3 days. A forwarded edit of a post, such as Mastodon's, is now applied the same way. Before,

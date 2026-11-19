@@ -133,6 +133,21 @@ public class QuoteRepository {
                 .param("uri", approvalUri.toString()).query(MAPPER).list();
     }
 
+    /**
+     * @return the quoter's quotes of this account's statuses that are accepted or pending, locked
+     */
+    public List<StatusQuote> findByQuoterAndLock(UUID quotedAccountId, UUID quoterId) {
+        return jdbc.sql("SELECT " + COLUMNS + """
+                         FROM status_quote q JOIN status s ON s.id = q.status_id
+                        WHERE s.actor_id = :quoter AND q.quoted_account_id = :quoted
+                          AND q.state IN ('accepted', 'pending')
+                        ORDER BY q.status_id FOR UPDATE OF q
+                        """)
+                .param("quoter", quoterId)
+                .param("quoted", quotedAccountId)
+                .query(MAPPER).list();
+    }
+
     public boolean isKnownRequest(URI requestUri) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM status_quote "
                         + "WHERE md5(request_uri) = md5(:uri) AND request_uri = :uri)")
