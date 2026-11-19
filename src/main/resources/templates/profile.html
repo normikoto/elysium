@@ -5,6 +5,7 @@
         <img class="profile-header" th:if="${header != null}" th:src="${header}" alt="">
         <img class="avatar" th:if="${avatar != null}" th:src="${avatar}" alt="">
         <p th:text="|@${actor.username}@${actor.domain}|"></p>
+        <th:block th:replace="~{follow-controls :: controls(${follow})}"></th:block>
         <!-- The bio and fields are rendered from plain text, which escapes everything they contain. -->
         <div class="bio" th:if="${!profile.note().isEmpty()}" th:utext="${bio}"></div>
         <dl class="fields" th:if="${!fields.isEmpty()}">

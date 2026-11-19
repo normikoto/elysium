@@ -1617,6 +1617,22 @@ other sites can read through CORS is the unsigned answer: a `401`, or the shorte
 are served as `application/jrd+json` or `application/json`, include a `self` link to the actor document and a
 `http://webfinger.net/rel/profile-page` link to the user's profile page, and can be read from any origin through CORS.
 
+A user's answer, but not the instance actor's, also has two `template` links for following from another server's pages, as
+Mastodon's does. `http://ostatus.org/schema/1.0/subscribe` is `{base-url}/authorize_interaction?uri={uri}`, and
+[FEP-3b86](https://codeberg.org/fediverse/fep/src/branch/main/fep/3b86/fep-3b86.md)'s `https://w3id.org/fep/3b86/Follow`
+is `{base-url}/authorize_interaction?uri={object}`. That page takes an `acct:` address, with or without the `acct:`, or an
+actor's `https` URL. After logging in, the user can follow the account from there. A status's URL is refused, since only
+following is supported there.
+
+### Remote follow from profile pages
+
+A visitor can enter their own `username@domain` on a user's profile page to follow from their own server. This server
+makes the same unsigned WebFinger request as [for following](#following-other-actors), and reads the template of the first
+`https://w3id.org/fep/3b86/Follow` link, or else of the first `http://ostatus.org/schema/1.0/subscribe` link. It fills
+`{object}` or `{uri}` with the user's actor URI, percent-encoded, and sends the visitor's browser there. The visitor's server
+is then expected to send the `Follow`. A template that doesn't give an `https` URL with a host is ignored. Servers whose
+domain is suspended aren't asked.
+
 ## NodeInfo
 
 `/.well-known/nodeinfo` links to NodeInfo documents at `/nodeinfo/2.1` and `/nodeinfo/2.0`, and all of these can be read

@@ -193,6 +193,12 @@ save a profile can make your server fetch a page. It only fetches public address
 
 Other servers that follow the account are told about each change.
 
+Profile pages have a follow button for people who are logged in. A visitor from another server can enter their own
+address instead, such as `@alice@mastodon.social`, and is sent to their server to follow from there. That works with
+Mastodon, Akkoma, Misskey, and other servers that say where to follow from. When a visitor's server doesn't say, they're
+told to search for the account in their app instead. In the other direction, when someone with an account here follows from a profile on another
+server and enters their address here, they're sent to a page here where they can follow it.
+
 When someone looks up an account on another server, this server asks that server about it. Each person can make 30 of these
 lookups a minute, so that nobody can use this server to flood another one with requests.
 
@@ -378,6 +384,7 @@ Logins, sign-ups, and app registrations are limited, and requests over a limit g
 | Wrong two-factor codes for one account from any address | 50 per hour |
 | Sign-ups from one address                        | 5 per hour        |
 | Apps registered from one address                 | 30 per hour       |
+| Follows from a profile page by visitors from other servers, from one address | 10 per minute |
 
 Wrong two-factor codes also count toward the limit for their address. After 5 wrong codes in a row, logging in starts again
 from the password, and so does waiting more than 5 minutes after typing it.
@@ -390,7 +397,8 @@ If the server is behind a reverse proxy, it has to be [set up correctly](configu
 clients can share one limit, or clients can get around the limits by making up their addresses.
 
 To turn the limits off, because you enforce your own elsewhere, set `elysium.rate-limit.enabled=false`. This doesn't turn off
-the [limit on inboxes](../FEDERATION.md#inboxes), which can't be replaced by one elsewhere.
+the [limit on inboxes](../FEDERATION.md#inboxes), which can't be replaced by one elsewhere, or the limit on follows from
+profile pages, since each one makes this server send a request to a server the visitor chooses.
 
 These limits only slow down abuse from a small number of addresses. To stop people with many addresses, use
 [`approval` or `closed`](#sign-ups).

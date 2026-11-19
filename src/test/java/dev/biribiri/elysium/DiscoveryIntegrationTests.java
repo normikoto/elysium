@@ -80,7 +80,13 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.links[0].href").value(ACTOR_URI))
                 .andExpect(jsonPath("$.links[1].rel").value("http://webfinger.net/rel/profile-page"))
                 .andExpect(jsonPath("$.links[1].type").value("text/html"))
-                .andExpect(jsonPath("$.links[1].href").value(ACTOR_URI));
+                .andExpect(jsonPath("$.links[1].href").value(ACTOR_URI))
+                .andExpect(jsonPath("$.links[2].rel").value("http://ostatus.org/schema/1.0/subscribe"))
+                .andExpect(jsonPath("$.links[2].template")
+                        .value("https://elysium.example/authorize_interaction?uri={uri}"))
+                .andExpect(jsonPath("$.links[3].rel").value("https://w3id.org/fep/3b86/Follow"))
+                .andExpect(jsonPath("$.links[3].template")
+                        .value("https://elysium.example/authorize_interaction?uri={object}"));
     }
 
     @Test
@@ -174,7 +180,9 @@ class DiscoveryIntegrationTests {
                     .andExpect(jsonPath("$.links[0].rel").value("self"))
                     .andExpect(jsonPath("$.links[0].type").value("application/activity+json"))
                     .andExpect(jsonPath("$.links[0].href").value(INSTANCE_ACTOR_URI))
-                    .andExpect(jsonPath("$.links[1].href").value("https://elysium.example/"));
+                    .andExpect(jsonPath("$.links[1].href").value("https://elysium.example/"))
+                    // It can't be followed.
+                    .andExpect(jsonPath("$.links.length()").value(2));
         }
         mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:instance.actor@other.example"))
                 .andExpect(status().isNotFound());

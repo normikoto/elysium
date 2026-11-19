@@ -18,11 +18,22 @@ public record JsonResourceDescriptor(String subject, List<URI> aliases, List<Lin
         return new JsonResourceDescriptor(null, null, links);
     }
 
+    /**
+     * @param template a URI template, as RFC 7033 allows in place of {@code href}
+     */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Link(String rel, String type, URI href) {
+    public record Link(String rel, String type, URI href, String template) {
+
+        public Link(String rel, String type, URI href) {
+            this(rel, type, href, null);
+        }
 
         public Link(String rel, URI href) {
             this(rel, null, href);
+        }
+
+        public static Link template(String rel, String template) {
+            return new Link(rel, null, null, template);
         }
     }
 }

@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -29,6 +30,13 @@ import java.util.Optional;
 @Tag(name = "WebFinger", description = "Finding actors by address.",
         externalDocs = @ExternalDocumentation(url = "https://webfinger.net/"))
 public class WebFingerController {
+
+    /**
+     * Where a web page in the {@code web} module lets a logged-in user follow an account they name.
+     */
+    private static final String AUTHORIZE_INTERACTION_PATH = "/authorize_interaction";
+    private static final String OSTATUS_SUBSCRIBE = "http://ostatus.org/schema/1.0/subscribe";
+    private static final String FOLLOW_INTENT = "https://w3id.org/fep/3b86/Follow";
 
     private final ActorService actors;
     private final InstanceProperties instance;
@@ -45,8 +53,10 @@ public class WebFingerController {
             summary = "Find an actor by its address or URL",
             description = """
                     Gives a `self` link to the actor document, of type `""" + ActivityStreams.ACTIVITY_JSON + """
-                    `, and an `http://webfinger.net/rel/profile-page` link to the profile page. The instance actor can \
-                    be found as `acct:""" + InstanceActor.USERNAME + "@{domain}` or by its URL, `{base-url}"
+                    `, and an `http://webfinger.net/rel/profile-page` link to the profile page. A user's also has \
+                    `http://ostatus.org/schema/1.0/subscribe` and `https://w3id.org/fep/3b86/Follow` templates, which \
+                    lead to `{base-url}/authorize_interaction?uri=…`, where they can follow the account given as `uri`. \
+                    The instance actor can be found as `acct:""" + InstanceActor.USERNAME + "@{domain}` or by its URL, `{base-url}"
                     + InstanceActor.PATH + """
                     `, and its profile page is the front page. A suspended user is still found. Served as \
                     `application/jrd+json` or `application/json`, and any origin can read it through CORS.""",
@@ -108,28 +118,38 @@ public class WebFingerController {
     /**
      * A suspended actor is still found, because it can come back.
      */
-    private static ResponseEntity<JsonResourceDescriptor> answer(Optional<Actor> actor) {
+    private ResponseEntity<JsonResourceDescriptor> answer(Optional<Actor> actor) {
         if (actor.filter(Actor::isDeleted).isPresent()) {
             return ResponseEntity.status(HttpStatus.GONE).build();
         }
-        return ResponseEntity.of(actor.map(WebFingerController::descriptor));
+        return ResponseEntity.of(actor.map(this::descriptor));
     }
 
-    private static JsonResourceDescriptor descriptor(Actor actor) {
-        return descriptor(actor.username(), actor.domain(), actor.uri(), actor.uri());
+    private JsonResourceDescriptor descriptor(Actor actor) {
+        var links = new ArrayList<>(links(actor.uri(), actor.uri()));
+        // What other servers' remote follow sends a user here to, so that they can follow from a profile there.
+        var authorize = instance.resolve(AUTHORIZE_INTERACTION_PATH) + "?uri=";
+        links.add(JsonResourceDescriptor.Link.template(OSTATUS_SUBSCRIBE, authorize + "{uri}"));
+        links.add(JsonResourceDescriptor.Link.template(FOLLOW_INTENT, authorize + "{object}"));
+        return descriptor(actor.username(), actor.domain(), actor.uri(), links);
     }
 
+    /**
+     * The instance actor can't be followed, so it has no templates.
+     */
     private static JsonResourceDescriptor descriptor(InstanceActor actor) {
-        return descriptor(actor.username(), actor.domain(), actor.uri(), actor.url());
+        return descriptor(actor.username(), actor.domain(), actor.uri(), links(actor.uri(), actor.url()));
     }
 
-    private static JsonResourceDescriptor descriptor(String username, String domain, URI uri, URI profilePage) {
-        return new JsonResourceDescriptor(
-                "acct:" + username + "@" + domain,
-                List.of(uri),
-                List.of(
-                        new JsonResourceDescriptor.Link("self", ActivityStreams.ACTIVITY_JSON, uri),
-                        new JsonResourceDescriptor.Link(
-                                "http://webfinger.net/rel/profile-page", MediaType.TEXT_HTML_VALUE, profilePage)));
+    private static List<JsonResourceDescriptor.Link> links(URI uri, URI profilePage) {
+        return List.of(
+                new JsonResourceDescriptor.Link("self", ActivityStreams.ACTIVITY_JSON, uri),
+                new JsonResourceDescriptor.Link(
+                        "http://webfinger.net/rel/profile-page", MediaType.TEXT_HTML_VALUE, profilePage));
+    }
+
+    private static JsonResourceDescriptor descriptor(
+            String username, String domain, URI uri, List<JsonResourceDescriptor.Link> links) {
+        return new JsonResourceDescriptor("acct:" + username + "@" + domain, List.of(uri), links);
     }
 }

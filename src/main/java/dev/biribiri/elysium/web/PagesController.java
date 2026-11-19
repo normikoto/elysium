@@ -17,6 +17,7 @@ import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
+import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.text.Hashtags;
 import jakarta.servlet.http.HttpServletRequest;
 import dev.biribiri.elysium.text.EmojiHtml;
@@ -48,7 +49,8 @@ import java.util.stream.Stream;
 /**
  * Pages read as an anonymous viewer, even with a login session, so that a page someone shares shows everyone the same.
  * A status's own page is the exception: it's where apps link every status but a boost, so it shows the logged-in account
- * what it could see in the API.
+ * what it could see in the API. A profile's follow controls are the other: they're the viewer's own, and change nothing
+ * else on the page.
  */
 @Controller
 class PagesController {
@@ -66,6 +68,7 @@ class PagesController {
     private final StatusPinService pins;
     private final CustomEmojis emojis;
     private final Admins admins;
+    private final FollowService follows;
 
     PagesController(
             ActorService actors,
@@ -78,8 +81,10 @@ class PagesController {
             PollService polls,
             StatusPinService pins,
             CustomEmojis emojis,
-            Admins admins) {
+            Admins admins,
+            FollowService follows) {
         this.admins = admins;
+        this.follows = follows;
         this.pins = pins;
         this.emojis = emojis;
         this.attachments = attachments;
@@ -113,6 +118,7 @@ class PagesController {
     String profile(
             @PathVariable String username,
             @RequestParam(name = "max_id", required = false) String maxId,
+            Principal principal,
             Model model,
             HttpServletRequest request) throws HttpMediaTypeNotAcceptableException {
         requireHtmlAccepted(request);
@@ -122,6 +128,7 @@ class PagesController {
 
         var profile = profiles.find(actor.id());
         model.addAttribute("actor", actor);
+        model.addAttribute("follow", FollowControls.of(viewer(principal), actor, follows));
         model.addAttribute("profile", profile);
         var profileEmojis = new HashMap<String, String>();
         emojis.findLocalIn(profile.texts()).forEach((shortcode, emoji) ->

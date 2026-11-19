@@ -1,6 +1,5 @@
 package dev.biribiri.elysium.activitypub.resolve;
 
-import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.inbound.RemoteActors;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -9,20 +8,14 @@ import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
-import org.springframework.web.util.UriComponentsBuilder;
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
-import java.io.IOException;
 import java.net.URI;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * Finds actors on other servers for local accounts, through WebFinger, or by URL for {@link RemoteUrlLookup}. What's found
@@ -35,35 +28,29 @@ class RemoteActorLookup implements RemoteActorResolver {
 
     private static final Logger log = LoggerFactory.getLogger(RemoteActorLookup.class);
 
-    private static final Pattern USERNAME = Pattern.compile("[^\\s@/?#%]{1,255}");
-    private static final Pattern DOMAIN = Pattern.compile("[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?");
-    private static final String JRD_ACCEPT = "application/jrd+json, application/json";
     private static final Set<String> ACTOR_LINK_TYPES = Set.of(
             "application/activity+json",
             "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"");
 
     private final ActorService actors;
     private final RemoteActors remoteActors;
-    private final FederationHttpClient http;
+    private final WebFingerRequests webFinger;
     private final DomainBlocks blocks;
     private final InstanceProperties instance;
-    private final JsonMapper json;
     private final ResolveLimits limits;
 
     RemoteActorLookup(
             ActorService actors,
             RemoteActors remoteActors,
-            FederationHttpClient http,
+            WebFingerRequests webFinger,
             DomainBlocks blocks,
             InstanceProperties instance,
-            JsonMapper json,
             ResolveLimits limits) {
         this.actors = actors;
         this.remoteActors = remoteActors;
-        this.http = http;
+        this.webFinger = webFinger;
         this.blocks = blocks;
         this.instance = instance;
-        this.json = json;
         this.limits = limits;
     }
 
@@ -106,7 +93,7 @@ class RemoteActorLookup implements RemoteActorResolver {
      * @return the domain, normalized, or empty if the address can't be looked up: it's malformed, this server's, or blocked
      */
     private Optional<String> remoteDomain(String username, String domain) {
-        if (!USERNAME.matcher(username).matches() || !DOMAIN.matcher(domain).matches()) {
+        if (!WebFingerRequests.isAddress(username, domain)) {
             return Optional.empty();
         }
         var normalized = domain.toLowerCase(Locale.ROOT);
@@ -154,29 +141,10 @@ class RemoteActorLookup implements RemoteActorResolver {
      * @return the actor's ID, from the first link to an ActivityPub document, and the address the answer gives for it
      */
     private Optional<WebFingerAnswer> webFinger(String username, String domain) {
-        var url = UriComponentsBuilder.fromUriString("https://" + domain)
-                .path("/.well-known/webfinger")
-                .queryParam("resource", "acct:" + username + "@" + domain)
-                .encode()
-                .build()
-                .toUri();
-        FederationHttpClient.Response response;
-        try {
-            response = http.get(url, JRD_ACCEPT, new HttpHeaders());
-        } catch (IOException e) {
-            log.debug("Couldn't look up {}@{}: {}", username, domain, e.getMessage());
-            return Optional.empty();
-        }
-        if (response.status() != 200) {
-            log.debug("Looking up {}@{} returned {}", username, domain, response.status());
-            return Optional.empty();
-        }
-        JsonNode descriptor;
-        try {
-            descriptor = json.readTree(response.body());
-        } catch (JacksonException e) {
-            return Optional.empty();
-        }
+        return webFinger.lookUp(username, domain).flatMap(RemoteActorLookup::answer);
+    }
+
+    private static Optional<WebFingerAnswer> answer(JsonNode descriptor) {
         var subject = descriptor.path("subject").stringValue(null);
         return descriptor.path("links").valueStream()
                 .filter(link -> "self".equals(link.path("rel").stringValue(null)))
