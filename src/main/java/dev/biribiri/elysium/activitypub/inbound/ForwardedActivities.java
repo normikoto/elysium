@@ -27,6 +27,9 @@ import java.util.Optional;
  *
  * <p>Nothing is stored under the ID until the origin has answered. Otherwise a server could forward a forged activity under
  * a real one's ID, and the real one would then be dropped as a repeat.
+ *
+ * <p>Many servers don't serve their activities, so a {@code Delete} or a {@code Create} that the origin doesn't vouch for
+ * is checked through its object instead, by {@link DeletionChecks} or {@link ForwardedNotes}.
  */
 @Component
 class ForwardedActivities {
@@ -42,6 +45,7 @@ class ForwardedActivities {
     private final DomainBlocks blocks;
     private final ActorService actors;
     private final DeletionChecks deletions;
+    private final ForwardedNotes notes;
     private final TargetFetchTurns turns;
     private final JsonMapper json;
 
@@ -53,6 +57,7 @@ class ForwardedActivities {
             DomainBlocks blocks,
             ActorService actors,
             DeletionChecks deletions,
+            ForwardedNotes notes,
             TargetFetchTurns turns,
             JsonMapper json) {
         this.scheduler = scheduler;
@@ -62,6 +67,7 @@ class ForwardedActivities {
         this.blocks = blocks;
         this.actors = actors;
         this.deletions = deletions;
+        this.notes = notes;
         this.turns = turns;
         this.json = json;
     }
@@ -69,24 +75,28 @@ class ForwardedActivities {
     /**
      * Queues a fetch of the activity, unless one is already queued.
      *
-     * @param id            an ID that {@link Inbox} has checked
-     * @param deletedObject for a {@code Delete}, its object, checked to be on the actor's server, and otherwise empty
+     * @param id     an ID that {@link Inbox} has checked
+     * @param object for a {@code Delete} or a {@code Create}, its object, checked to be on the actor's server, and otherwise
+     *               empty
      */
-    void queue(String id, URI actor, Optional<URI> deletedObject) {
+    void queue(String id, URI actor, String type, Optional<URI> object) {
         // PostgreSQL stores microseconds, so this matches what a later read of the activity returns.
         var arrivedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var checked = object.map(URI::toString).orElse(null);
         var job = new ForwardedJob(
                 id,
                 arrivedAt,
-                deletedObject.map(URI::toString).orElse(null),
-                deletedObject.isPresent() ? actor.toString() : null);
+                "Delete".equals(type) ? checked : null,
+                "Create".equals(type) ? checked : null,
+                checked != null ? actor.toString() : null,
+                null);
         Jobs.schedule(scheduler, TASK, job, "forwarded", id);
     }
 
     /**
      * Fetches the activity, and stores it if the origin vouches for it, once the origin's host has a turn in
-     * {@link TargetFetchTurns}. A {@code Delete} that the origin doesn't vouch for is checked with its object's server
-     * instead, in a job of its own, which takes its own turn. This has to be called with no transaction open, because it
+     * {@link TargetFetchTurns}. A {@code Delete} or a {@code Create} that the origin doesn't vouch for is checked with its
+     * object's server instead, in a job of its own, which takes its own turn. This has to be called with no transaction open, because it
      * waits on other servers.
      *
      * @return what to do with the job, which is to wait for its turn if it hasn't come yet
@@ -112,8 +122,12 @@ class ForwardedActivities {
         if (turn.get().isAfter(now)) {
             return Jobs.waitUntil(turn.get(), job.withTurn(turn.get()));
         }
-        if (!fetch(uri, job.queuedAt()) && job.deletedObject() != null) {
-            deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt());
+        if (!fetch(uri, job.queuedAt())) {
+            if (job.deletedObject() != null) {
+                deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt());
+            } else if (job.createdObject() != null) {
+                notes.queue(URI.create(job.createdObject()), URI.create(job.actorId()), job.queuedAt());
+            }
         }
         return Jobs.done();
     }

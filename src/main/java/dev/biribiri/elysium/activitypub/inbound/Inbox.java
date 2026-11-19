@@ -170,19 +170,25 @@ public class Inbox {
         }
         return admitted(signer.owner(), bodyBytes, () -> {
             if (!stored.exists(envelope.id())) {
-                forwarded.queue(envelope.id(), actor.get(), deletedObject(envelope, actor.get()));
+                forwarded.queue(envelope.id(), actor.get(), envelope.type(), checkedObject(envelope, actor.get()));
             }
         }, Outcome.FORWARDED);
     }
 
     /**
-     * @return a {@code Delete}'s object, if it's on the actor's server, which is the only one that can say it's gone
+     * @return a {@code Delete}'s or a {@code Create}'s object, if it's on the actor's server, which is the only one that can
+     * say it's gone, or serve it, when the origin doesn't serve the activity
      */
-    private Optional<URI> deletedObject(ActivityEnvelope envelope, URI actor) {
-        if (!"Delete".equals(envelope.type())) {
-            return Optional.empty();
-        }
-        return DeleteHandler.objectOf(envelope.body(), json).filter(object -> isOnActorsServer(object, actor));
+    private Optional<URI> checkedObject(ActivityEnvelope envelope, URI actor) {
+        var object = switch (envelope.type()) {
+            case "Delete" -> DeleteHandler.objectOf(envelope.body(), json);
+            case "Create" -> ActivityObject.of(envelope.body(), json)
+                    .map(ActivityObject::id)
+                    .filter(InboundActivity::isStorableId)
+                    .flatMap(ActivityObject::parseUri);
+            case null, default -> Optional.<URI>empty();
+        };
+        return object.filter(id -> isOnActorsServer(id, actor));
     }
 
     /**
