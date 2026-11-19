@@ -4,13 +4,33 @@ paths:
   - "CHANGELOG.md"
   - "FEDERATION.md"
   - "docs/**/*.md"
+  - "federation/README.md"
 ---
 
 # Writing documentation
 
-These add to the audiences and scope in `AGENTS.md`'s Documentation section. They're written for the admin docs:
-`README.md`, `CHANGELOG.md`, and `docs/` other than `docs/api.md`. Warnings, examples, and consistent wording apply to
-every document.
+Each document has one audience. Keep each fact short, put it in one place, and link to it from elsewhere. Describe only
+what its readers can observe or have to do, and leave out how the server is built: class names, tables, job internals,
+the order things happen in inside the server, exact retention times, and edge cases its readers won't notice.
+`federation/README.md` is the exception, since it's for contributors.
+
+## Audiences
+
+- **`README.md`, `CHANGELOG.md`, and `docs/` other than `docs/api.md`** are for instance admins. Write only what an admin
+  needs to install, configure, operate, or understand the server's visible behavior: settings, commands, what happens to
+  their users and data, limits they may hit, and security pitfalls to avoid.
+- **`CHANGELOG.md`** gets every user-facing change in its `[Unreleased]` section, with upgrade steps when an operator has
+  to do something.
+- **`FEDERATION.md`** follows FEP-67ff, so it's for developers of other fediverse servers as well as admins. Describe what
+  another server can observe and has to know to interoperate: endpoints, content types, response codes, which activities
+  are sent and accepted and what they look like, how they're addressed, IDs, signature requirements, limits, ordering and
+  repeat behavior, and differences from common implementations. Link to `docs/` for admin steps rather than repeating
+  them.
+- **`docs/api.md`** is for developers of client applications. List every difference from Mastodon's API that a client
+  could run into: missing endpoints, parameters, and fields, different defaults, limits, validation that refuses what
+  Mastodon accepts, and different error responses.
+
+The rest of this file is written for the admin docs. Warnings, examples, and consistent wording apply to every document.
 
 ## Warnings
 
