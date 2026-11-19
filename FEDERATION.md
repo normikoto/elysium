@@ -322,12 +322,20 @@ not when it's fetched, so an `Undo` that arrives in between still covers a forwa
 What the origin serves is only accepted if it's an activity whose `id` is exactly the one fetched, with one `actor` on the
 same host and port. That actor is the one believed, even if the forwarded copy named another. A `404`, `410`, or another
 refusal drops the activity, and a server error or timeout is tried again later. This means an activity that its origin
-doesn't serve is lost when it's forwarded, except for a `Delete`, such as Mastodon's, whose `id` has a fragment. Its `object`
-is [checked with its own server](#receiving-deletes) instead, if it's on the same host and port as the `actor`.
+doesn't serve is lost when it's forwarded, except for a `Delete` or a `Create`, if its `object` is on the same host and
+port as the `actor`:
+
+- A `Delete`, such as Mastodon's, whose `id` has a fragment, has its `object` [checked with its own
+  server](#receiving-deletes) instead.
+- A `Create` has its `object` fetched instead, signed as the instance actor. It's kept only if what's served is a `Note`
+  or a `Question` with exactly that `id`, attributed to the `actor` alone, and with a `published` no more than 3 days
+  before the first forwarded copy arrived. Who it's for comes from the fetched object's addressing, and nothing else from
+  the forwarded copy is kept. The real `Create` is still accepted if it's delivered later, and its object is then already
+  stored.
 
 The sender chooses where these fetches go, so each host gets at most 60 of them a minute, with bursts of up to 60, counting
-the fetches of forwarded activities, of objects [checked for a `Delete`](#receiving-deletes), and of
-[boosted statuses](#boosts) together. A fetch over that waits for its turn, and is dropped if that's more than an hour away.
+the fetches of forwarded activities, of the objects of forwarded `Create`s, of objects
+[checked for a `Delete`](#receiving-deletes), and of [boosted statuses](#boosts) together. A fetch over that waits for its turn, and is dropped if that's more than an hour away.
 This is counted by each of this server's nodes separately. No more than 4 requests to one host are made at once for fetches of any kind, and a fetch that would be over
 that is tried again later.
 
