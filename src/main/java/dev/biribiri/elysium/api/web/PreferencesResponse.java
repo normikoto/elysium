@@ -23,13 +23,12 @@ record PreferencesResponse(
         @JsonProperty("posting:default:language") String language,
         @Schema(allowableValues = {"public", "followers", "nobody"})
         @JsonProperty("posting:default:quote_policy") String quotePolicy,
-        @JsonProperty("posting:default:spoiler_field") boolean spoilerField,
         @Schema(allowableValues = {"default", "show_all", "hide_all"})
         @JsonProperty("reading:expand:media") String expandMedia,
         @JsonProperty("reading:expand:spoilers") boolean expandSpoilers,
         @JsonProperty("reading:autoplay:gifs") boolean autoplayGifs) {
 
     static PreferencesResponse from(QuotePolicy quotePolicy) {
-        return new PreferencesResponse("public", false, null, quotePolicy.value(), false, "default", false, false);
+        return new PreferencesResponse("public", false, null, quotePolicy.value(), "default", false, false);
     }
 }

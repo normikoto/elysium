@@ -117,7 +117,7 @@ class ProfileIntegrationTests {
                 .andExpect(jsonPath("$['posting:default:sensitive']").value(false))
                 .andExpect(content().string(containsString("\"posting:default:language\":null")))
                 .andExpect(jsonPath("$['posting:default:quote_policy']").value("public"))
-                .andExpect(jsonPath("$['posting:default:spoiler_field']").value(false))
+                .andExpect(jsonPath("$['posting:default:spoiler_field']").doesNotExist())
                 .andExpect(jsonPath("$['reading:expand:media']").value("default"))
                 .andExpect(jsonPath("$['reading:expand:spoilers']").value(false))
                 .andExpect(jsonPath("$['reading:autoplay:gifs']").value(false));
