@@ -12,7 +12,7 @@
         <ol>
             <li th:each="rule : ${rules}">
                 <strong th:text="${rule.text()}"></strong>
-                <p th:unless="${rule.hint().isEmpty()}" th:text="${rule.hint()}"></p>
+                <p class="plain-text" th:unless="${rule.hint().isEmpty()}" th:text="${rule.hint()}"></p>
             </li>
         </ol>
     </th:block>
