@@ -13,7 +13,7 @@
             <p th:if="${report.fromOtherServer()}" th:text="|Sent by the server ${report.reporter()}, which doesn't say who reported it.|"></p>
             <p th:unless="${report.fromOtherServer()}" th:text="|Reported by ${report.reporter()}|"></p>
             <p th:if="${report.forwarded()}">This report was also sent to the account's server.</p>
-            <p class="status-content" th:if="${!report.comment().isEmpty()}" th:text="${report.comment()}"></p>
+            <p class="status-content plain-text" th:if="${!report.comment().isEmpty()}" th:text="${report.comment()}"></p>
             <p th:if="${report.comment().isEmpty()}">There's no comment.</p>
             <p th:if="${report.assignedTo() != null}" th:text="|Assigned to ${report.assignedTo()}|"></p>
             <p th:if="${report.resolved()}"

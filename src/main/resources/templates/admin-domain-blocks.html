@@ -31,7 +31,7 @@
                 <time th:datetime="${block.createdAt()}" th:text="${block.createdAt()}"></time>
             </p>
             <p th:text="${block.suspended()} ? 'Suspended' : (${block.rejectMedia()} ? 'Limited: media rejected' : 'Limited')"></p>
-            <p class="status-content" th:if="${block.comment() != null}" th:text="${block.comment()}"></p>
+            <p class="status-content plain-text" th:if="${block.comment() != null}" th:text="${block.comment()}"></p>
             <form class="actions" method="post" th:action="@{/admin/domain-blocks/{id}(id=${block.id()})}">
                 <select name="severity" th:aria-label="|What to do about ${block.domain()}|">
                     <option value="suspend" th:selected="${block.suspended()}">Suspend</option>
