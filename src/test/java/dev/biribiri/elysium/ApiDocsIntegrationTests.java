@@ -48,6 +48,7 @@ class ApiDocsIntegrationTests {
                 .andExpect(jsonPath("$.paths['/api/v1/admin/domain_blocks']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/admin/domain_blocks/{id}']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/accounts/verify_credentials']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/preferences']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/accounts/{id}/statuses']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/statuses']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/statuses/{id}']").exists())
