@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it for all of their new posts or for each one, in apps that support it, and review quotes with GoToSocial's
   interaction requests. Quotes waiting for them give a `pending.quote` notification. A rejected quote can be approved later. Someone whose quote was rejected or revoked can ask again, at
   most once an hour, from here or from their server, and asking again always waits for the quoted author. See `docs/api.md` and `FEDERATION.md`.
+- Editing a post can change what it quotes, or remove the quote, in apps that send `quoted_status_id` when editing.
+  Mastodon doesn't allow this. A new quote is approved as it would be in a new post. See `docs/api.md` and
+  `FEDERATION.md`.
 
 ### Changed
 

@@ -138,6 +138,16 @@ public class NotificationRepository {
     }
 
     /**
+     * Removes the notification that a quote was approved, once the status no longer quotes what it was about.
+     */
+    public void deleteQuote(UUID recipient, UUID status) {
+        jdbc.sql("DELETE FROM notification WHERE recipient_id = :recipient AND type = 'quote' AND source_id = :status")
+                .param("recipient", recipient)
+                .param("status", status)
+                .update();
+    }
+
+    /**
      * Removes the notification asking to review a quote, once it's been answered, or asked for again.
      */
     public void deletePendingQuote(UUID recipient, UUID status) {

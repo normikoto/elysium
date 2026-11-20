@@ -6,6 +6,7 @@ import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.OtherQuotes;
+import dev.biribiri.elysium.content.QuoteChange;
 import dev.biribiri.elysium.content.QuotePolicy;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.LikeService;
@@ -278,8 +279,12 @@ public class StatusesController {
                     - Earlier versions in the status's history don't keep their attachments.
                     - A missing `sensitive` or `language` keeps what the status has, as Mastodon does, and so does an \
                     empty `language`, so a language can't be removed. `visibility` and `in_reply_to_id` are ignored.
-                    - `quoted_status_id` can only name the status it quotes already, and anything else gets a 422, \
-                    since what a status quotes can't be changed.
+                    - `quoted_status_id` changes what the status quotes, which Mastodon doesn't allow. A missing one, \
+                    or the status it quotes already, keeps the quote and its approval, and a null or empty one removes \
+                    it. Another status is quoted as it would be in a new status, and its quote is approved again. A \
+                    status that isn't followers-only or direct can't quote a followers-only one, a local-only one \
+                    can't quote one from another server, and one that isn't local-only can't quote a local-only one, \
+                    since the status's visibility can't change.
                     - `content_type` is `text/plain` or `text/markdown`, as for a new status. A missing one keeps \
                     what the status was written in, and `GET /api/v1/statuses/:id/source` gives it.
 
@@ -288,12 +293,13 @@ public class StatusesController {
             responses = {
                     @ApiResponse(responseCode = "200", description = """
                             The status as it is now, which is unchanged if the edit changes nothing."""),
-                    @ApiResponse(responseCode = "404", description = "Not found, the status isn't the user's, or it's a boost."),
+                    @ApiResponse(responseCode = "404", description = """
+                            Not found, the status isn't the user's, or it's a boost, or `quoted_status_id` isn't a \
+                            status the user can see."""),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
-                            The status is empty or too long, media can't be attached, a value is unsupported or of the \
-                            wrong type, or the token \
-                            has no user.""")
+                            The status is empty or too long, media can't be attached, the status to quote can't be \
+                            quoted by it, a value is unsupported or of the wrong type, or the token has no user.""")
             })
     @RequestBody(required = true, content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = StatusEditBody.class)))
@@ -829,7 +835,8 @@ public class StatusesController {
                 isPresent(parameters.get("sensitive")) ? RequestParameters.flag(parameters, "sensitive") : null,
                 parameters.containsKey("media_ids") ? mediaIds(parameters.get("media_ids")) : null,
                 MediaAttributes.read(parameters.get("media_attributes")),
-                quoted(RequestParameters.string(parameters, "quoted_status_id")),
+                parameters.containsKey("quoted_status_id")
+                        ? new QuoteChange(quoted(RequestParameters.string(parameters, "quoted_status_id"))) : null,
                 quotePolicy(parameters),
                 parameters.containsKey("poll") ? new PollChange(poll(parameters.get("poll"))) : null,
                 contentType(parameters),
@@ -978,7 +985,9 @@ public class StatusesController {
                     The poll it's to have. Missing keeps the one it has, and null or empty removes it. Changing its \
                     options or `multiple` resets its votes.""")
             PollBody poll,
-            @Schema(description = "The status it quotes, which can't be changed. Missing keeps it.")
+            @Schema(description = """
+                    The status it's to quote, which Mastodon doesn't allow changing. Missing, or the status it quotes \
+                    already, keeps the quote, and null or empty removes it.""")
             String quoted_status_id,
             @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
                     Whose quotes of it are approved automatically. Missing keeps whose are. Ignored for a \

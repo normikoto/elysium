@@ -7,7 +7,7 @@
 # Elysium's pins, which it only does when it refreshes an actor. Elysium fetches a post that a followed account
 # boosts, and it backfills a followed account's older post from its outbox. Elysium quotes the other server's post, and
 # Mastodon and Misskey quote Elysium's, with Mastodon's approvals and a revocation checked on both sides, and quotes that
-# alice reviews by hand. Each server forwards a report to the other. On Mastodon, each server shows the other's custom emoji, and on Misskey, each server
+# alice reviews by hand. On Mastodon, alice edits her quote to quote another post, and then to quote nothing. Each server forwards a report to the other. On Mastodon, each server shows the other's custom emoji, and on Misskey, each server
 # shows the other's emoji reactions.
 # Usage: federation/smoke.sh gotosocial|mastodon|misskey
 #
@@ -1655,6 +1655,34 @@ expect_peer_boosts() {
     esac
 }
 
+# alice edits her quote of a Mastodon post to quote another, which Mastodon has to approve as a new quote, and then edits the
+# quote away, which Mastodon has to drop. Mastodon only applies a changed quote from an Update with a later updated.
+check_quote_edits() {
+    local quote_uri=$1 read_token=$2 write_token=$3 quote_id other_uri other_id body
+    quote_id=$(elysium_status_id "$quote_uri")
+    other_uri=$(quotable_post_from_mastodon "Quote me instead")
+    other_id=$(elysium_status_id "$other_uri")
+
+    body=$(driver curl -fsS -X PUT "https://elysium.test/api/v1/statuses/$quote_id" \
+        -H "Authorization: Bearer $write_token" \
+        --data-urlencode "status=Quoting the other lab post" --data-urlencode "quoted_status_id=$other_id")
+    jq -e --arg id "$other_id" '.quote.state == "pending" or .quote.quoted_status.id == $id' <<<"$body" >/dev/null \
+        || fail "alice couldn't change what her status quotes: $body"
+    expect_delivered "$quote_uri#quote_request/%"
+    expect_elysium_quote "$quote_uri" accepted "$read_token"
+    body=$(driver curl -fsS "https://elysium.test/api/v1/statuses/$quote_id" -H "Authorization: Bearer $read_token")
+    jq -e --arg id "$other_id" '.quote.quoted_status.id == $id' <<<"$body" >/dev/null \
+        || fail "Elysium shows alice's status quoting something else: $body"
+    mastodon_expect_quote "$quote_uri" accepted "" "$other_uri"
+
+    body=$(driver curl -fsS -X PUT "https://elysium.test/api/v1/statuses/$quote_id" \
+        -H "Authorization: Bearer $write_token" \
+        --data-urlencode "status=Not quoting anything now" --data-urlencode "quoted_status_id=")
+    jq -e '.quote == null' <<<"$body" >/dev/null || fail "alice couldn't remove her quote: $body"
+    mastodon_expect_quote "$quote_uri" none ""
+    echo "alice changed what her status quotes, which Mastodon approved, and then removed the quote, which Mastodon dropped"
+}
+
 # Run while both the mentioned remote post and alice's public post still exist.
 check_boosts() {
     local server=$1 remote_uri remote_id read_token write_token body collection
@@ -1738,15 +1766,23 @@ quote_from_peer() {
     esac
 }
 
-# Mastodon keeps a Quote for each quote it stores, with what approved it.
+# Mastodon keeps a Quote for each quote it stores, with what approved it. An expected state of none means the status it has
+# stored doesn't quote anything, and a fourth argument is the URI of the status it has to quote.
 mastodon_expect_quote() {
-    local uri=$1 expected=$2 approval=$3 output
-    output=$(docker compose exec -T -e STATUS_URI="$uri" -e EXPECTED="$expected" -e APPROVAL="$approval" mastodon-web \
-        bin/rails runner '
+    local uri=$1 expected=$2 approval=$3 quoted=${4:-} output
+    output=$(docker compose exec -T -e STATUS_URI="$uri" -e EXPECTED="$expected" -e APPROVAL="$approval" \
+        -e QUOTED="$quoted" mastodon-web bin/rails runner '
             matched = false
             60.times do
-                quote = Quote.uncached { Status.find_by(uri: ENV["STATUS_URI"])&.quote&.reload }
-                matched = quote&.state == ENV["EXPECTED"] && quote.approval_uri.to_s.start_with?(ENV["APPROVAL"])
+                status = Status.uncached { Status.find_by(uri: ENV["STATUS_URI"]) }
+                quote = Quote.uncached { Quote.find_by(status: status) } if status
+                matched = if ENV["EXPECTED"] == "none"
+                    status.present? && quote.nil?
+                else
+                    quote&.state == ENV["EXPECTED"] && quote.approval_uri.to_s.start_with?(ENV["APPROVAL"]) &&
+                        (ENV["QUOTED"].empty? || (quote.quoted_status &&
+                            ActivityPub::TagManager.instance.uri_for(quote.quoted_status) == ENV["QUOTED"]))
+                end
                 break if matched
                 sleep 2
             end
@@ -1758,13 +1794,13 @@ mastodon_expect_quote() {
 # A public post on Mastodon that anyone can quote, stored here. Posts made through PostStatusService can otherwise only be
 # quoted by their author.
 quotable_post_from_mastodon() {
-    local uri
-    docker compose exec -T mastodon-web bin/rails runner '
-        PostStatusService.new.call(Account.find_local("lab"), text: "@alice@elysium.test Quote me from the lab",
+    local text=${1:-Quote me from the lab} uri
+    docker compose exec -T -e TEXT="$text" mastodon-web bin/rails runner '
+        PostStatusService.new.call(Account.find_local("lab"), text: "@alice@elysium.test #{ENV["TEXT"]}",
             quote_approval_policy: InteractionPolicy::POLICY_FLAGS[:public] << 16)' >/dev/null
     for _ in $(seq 1 60); do
         uri=$(docker compose exec -T postgres psql -U elysium -d elysium -tAc \
-            "SELECT uri FROM status WHERE text LIKE '%Quote me from the lab%'")
+            "SELECT uri FROM status WHERE text LIKE '%$text%'")
         if [[ -n $uri ]]; then
             echo "$uri"
             return
@@ -1772,6 +1808,34 @@ quotable_post_from_mastodon() {
         sleep 2
     done
     fail "Elysium didn't store Mastodon's quotable post"
+}
+
+# alice edits her quote of a Mastodon post to quote another, which Mastodon has to approve as a new quote, and then edits the
+# quote away, which Mastodon has to drop. Mastodon only applies a changed quote from an Update with a later updated.
+check_quote_edits() {
+    local quote_uri=$1 read_token=$2 write_token=$3 quote_id other_uri other_id body
+    quote_id=$(elysium_status_id "$quote_uri")
+    other_uri=$(quotable_post_from_mastodon "Quote me instead")
+    other_id=$(elysium_status_id "$other_uri")
+
+    body=$(driver curl -fsS -X PUT "https://elysium.test/api/v1/statuses/$quote_id" \
+        -H "Authorization: Bearer $write_token" \
+        --data-urlencode "status=Quoting the other lab post" --data-urlencode "quoted_status_id=$other_id")
+    jq -e --arg id "$other_id" '.quote.state == "pending" or .quote.quoted_status.id == $id' <<<"$body" >/dev/null \
+        || fail "alice couldn't change what her status quotes: $body"
+    expect_delivered "$quote_uri#quote_request/%"
+    expect_elysium_quote "$quote_uri" accepted "$read_token"
+    body=$(driver curl -fsS "https://elysium.test/api/v1/statuses/$quote_id" -H "Authorization: Bearer $read_token")
+    jq -e --arg id "$other_id" '.quote.quoted_status.id == $id' <<<"$body" >/dev/null \
+        || fail "Elysium shows alice's status quoting something else: $body"
+    mastodon_expect_quote "$quote_uri" accepted "" "$other_uri"
+
+    body=$(driver curl -fsS -X PUT "https://elysium.test/api/v1/statuses/$quote_id" \
+        -H "Authorization: Bearer $write_token" \
+        --data-urlencode "status=Not quoting anything now" --data-urlencode "quoted_status_id=")
+    jq -e '.quote == null' <<<"$body" >/dev/null || fail "alice couldn't remove her quote: $body"
+    mastodon_expect_quote "$quote_uri" none ""
+    echo "alice changed what her status quotes, which Mastodon approved, and then removed the quote, which Mastodon dropped"
 }
 
 # Run while both the mentioned remote post and alice's public post still exist. GoToSocial's posts say that only their author
@@ -1807,6 +1871,7 @@ check_quotes() {
             expect_elysium_quote "$quote_uri" accepted "$read_token"
             # Mastodon keeps no approval URI for a quote of its own status.
             mastodon_expect_quote "$quote_uri" accepted ""
+            check_quote_edits "$quote_uri" "$read_token" "$write_token"
             ;;
         misskey)
             # Misskey doesn't say who can quote its notes, so Elysium quotes it as Misskey quotes, without asking.

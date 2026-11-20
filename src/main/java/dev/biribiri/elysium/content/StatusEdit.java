@@ -13,14 +13,14 @@ import java.util.UUID;
  * @param mediaIds     every attachment it's to have, in order, which can include new uploads, or null to keep the ones it
  *                     has
  * @param mediaChanges changes to the descriptions and focus of its attachments
- * @param quotedStatusId the status it quotes, or null to keep what it quotes. A quote can't be changed, as on Mastodon
+ * @param quote          what to do to what it quotes, or null to keep that
  * @param quotePolicy    whose quotes of it are approved automatically, or null to keep that
  * @param poll           what to do to its poll, or null to keep the one it has, or that it has none
  * @param contentType    what the new text is written in, or null to keep what the status was written in
  * @param quoteOthers    what happens to everyone else's quotes of it, or null to keep that
  */
 public record StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
-                         List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy,
+                         List<MediaChange> mediaChanges, QuoteChange quote, QuotePolicy quotePolicy,
                          PollChange poll, ContentType contentType, OtherQuotes quoteOthers) {
 
     public StatusEdit {
@@ -32,9 +32,9 @@ public record StatusEdit(String text, String spoilerText, String language, Boole
      * An edit that keeps how quotes of the status are approved.
      */
     public StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
-                      List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy, PollChange poll,
+                      List<MediaChange> mediaChanges, QuoteChange quote, QuotePolicy quotePolicy, PollChange poll,
                       ContentType contentType) {
-        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quotedStatusId, quotePolicy, poll, contentType,
+        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quote, quotePolicy, poll, contentType,
                 null);
     }
 
@@ -42,8 +42,8 @@ public record StatusEdit(String text, String spoilerText, String language, Boole
      * An edit that keeps what the status was written in.
      */
     public StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
-                      List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy, PollChange poll) {
-        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quotedStatusId, quotePolicy, poll, null);
+                      List<MediaChange> mediaChanges, QuoteChange quote, QuotePolicy quotePolicy, PollChange poll) {
+        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quote, quotePolicy, poll, null);
     }
 
     public StatusEdit(String text, String spoilerText, String language, Boolean sensitive) {
@@ -59,7 +59,7 @@ public record StatusEdit(String text, String spoilerText, String language, Boole
      * An edit that keeps the status's poll.
      */
     public StatusEdit(String text, String spoilerText, String language, Boolean sensitive, List<UUID> mediaIds,
-                      List<MediaChange> mediaChanges, UUID quotedStatusId, QuotePolicy quotePolicy) {
-        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quotedStatusId, quotePolicy, null);
+                      List<MediaChange> mediaChanges, QuoteChange quote, QuotePolicy quotePolicy) {
+        this(text, spoilerText, language, sensitive, mediaIds, mediaChanges, quote, quotePolicy, null);
     }
 }

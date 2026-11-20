@@ -259,7 +259,7 @@ public class StatusService {
             emojis.insertForStatus(id, localEmojis);
             threads.assign(status, parent.map(Status::uri).orElse(null));
             if (quoted != null) {
-                insertLocalQuote(status, quoted, quoting.local());
+                insertLocalQuote(status, quoted, quoting.local(), StatusQuote.requestUriFor(status.uri()));
             }
             events.publishEvent(new StatusStored(id));
             events.publishEvent(new StatusPublished(id, authorId));
@@ -311,10 +311,12 @@ public class StatusService {
     /**
      * Replaces the text of one of the author's own statuses, as on Mastodon: its visibility and parent stay as they were.
      * Mentions are looked up again, as for {@link #create}, and an account that the new text no longer mentions keeps the
-     * status as a silent mention. Each earlier version is kept. An edit that changes nothing does nothing.
+     * status as a silent mention. Each earlier version is kept. An edit that changes nothing does nothing. Unlike on
+     * Mastodon, an edit can change or remove what the status quotes, and a new quote is approved as one in a new status is.
      *
      * @return the status as it is now, or empty if the author has no status with this ID, or it's a boost
-     * @throws InvalidStatusException if the new version breaks a validation rule
+     * @throws InvalidStatusException        if the new version breaks a validation rule
+     * @throws QuotedStatusNotFoundException if the status it's to quote doesn't exist or the author can't see it
      */
     public Optional<Status> edit(UUID id, UUID authorId, StatusEdit draft) {
         var text = normalize(draft.text());
@@ -344,12 +346,16 @@ public class StatusService {
         // Rendered before the lock below, so a concurrent edit that changes it is overwritten with what this rendered.
         var contentType = draft.contentType() == null ? editable.get().contentType() : draft.contentType();
         var quote = quotes.find(id).orElse(null);
-        if (draft.quotedStatusId() != null && (quote == null || !draft.quotedStatusId().equals(quote.quotedStatusId()))) {
-            throw new InvalidStatusException("What a status quotes can't be changed");
-        }
+        var quoteChange = isQuoteChange(draft.quote(), quote) ? draft.quote() : null;
+        // Before looking up mentions, as for a new status, so that a quote that can't be made makes no requests.
+        var requoting = quoteChange == null || quoteChange.quotedStatusId() == null ? null
+                : requotable(editable.get(), quoteChange.quotedStatusId(), authorId);
         var linkable = linkable(text, contentType);
         var mentioned = resolveMentions(author, linkable);
-        var content = withQuoteFallback(render(text, contentType, mentioned), text, quote);
+        var rendered = render(text, contentType, mentioned);
+        var content = quoteChange == null ? withQuoteFallback(rendered, text, quote)
+                : requoting == null ? rendered
+                : withQuoteFallback(rendered, text, requoting.status().link(), requoting.status().uri());
 
         var edited = transaction.execute(tx -> {
             var found = statuses.findByIdForEdit(id).filter(candidate -> isEditableBy(candidate, authorId));
@@ -357,6 +363,14 @@ public class StatusService {
                 return new Edited(Optional.<Status>empty(), false);
             }
             var old = found.get();
+            // Held so that it can't be deleted before the quote is linked to it, as for a new status.
+            var requoted = requoting == null ? null : statuses.findByIdAndLock(requoting.status().id())
+                    .filter(candidate -> isVisible(candidate, Optional.of(authorId)))
+                    .orElseThrow(QuotedStatusNotFoundException::new);
+            var oldQuote = quoteChange == null ? Optional.<StatusQuote>empty() : quotes.findAndLock(id);
+            // Checked again, since a concurrent edit can have made the same change.
+            var quoteChanged = quoteChange != null && (requoted == null ? oldQuote.isPresent()
+                    : oldQuote.map(StatusQuote::quotedStatusId).filter(requoted.id()::equals).isEmpty());
             var oldPolicy = old.quoteApproval();
             var newPolicy = (draft.quotePolicy() == null && draft.quoteOthers() == null) || !old.visibility().isOpen()
                     ? oldPolicy : changedPolicy(oldPolicy, draft.quotePolicy(), draft.quoteOthers(),
@@ -395,7 +409,7 @@ public class StatusService {
             var unchanged = text.equals(old.text()) && content.equals(old.content()) && contentType == old.contentType()
                     && spoilerText.equals(old.spoilerText()) && Objects.equals(newLanguage, old.language())
                     && sensitive == old.sensitive() && mediaIds.equals(currentIds) && describe.isEmpty()
-                    && pollEdit == PollEdit.KEEP;
+                    && pollEdit == PollEdit.KEEP && !quoteChanged;
             if (unchanged) {
                 if (!policyChanged) {
                     return new Edited(found, false);
@@ -445,6 +459,9 @@ public class StatusService {
                 case KEEP -> oldPoll.map(PollRepository.Row::titles).orElse(List.of());
             };
             emojis.replaceForStatus(id, localEmojiIds(text, spoilerText, pollOptions));
+            if (quoteChanged) {
+                requote(old, oldQuote, requoted, requoting, now);
+            }
             events.publishEvent(new StatusEdited(id, authorId, editedAt, addedMentions));
             return new Edited(statuses.findById(id), removed);
         });
@@ -523,6 +540,70 @@ public class StatusService {
     }
 
     /**
+     * Naming what it quotes already keeps the quote, and its approval, and so does removing a quote it doesn't have.
+     */
+    private static boolean isQuoteChange(QuoteChange change, StatusQuote quote) {
+        if (change == null) {
+            return false;
+        }
+        if (quote == null) {
+            return change.quotedStatusId() != null;
+        }
+        // A quote whose quoted status is gone has no ID to compare, and can still be removed.
+        return change.quotedStatusId() == null || !change.quotedStatusId().equals(quote.quotedStatusId());
+    }
+
+    /**
+     * A status that an edit can make this one quote. A new status would be narrowed to followers-only, or to local-only,
+     * by what it quotes, but an edit can't change either, since the status has been sent already.
+     *
+     * @throws QuotedStatusNotFoundException if it can't be found, or the author can't see it
+     * @throws InvalidStatusException        if it can't be quoted, or not by this status
+     */
+    private Quoting requotable(Status status, UUID quotedId, UUID authorId) {
+        if (quotedId.equals(status.id())) {
+            throw new InvalidStatusException("A status can't quote itself");
+        }
+        var quoting = quotable(quotedId, authorId);
+        if (quoting.status().visibility() == Visibility.PRIVATE && status.visibility().isOpen()) {
+            throw new InvalidStatusException("Only a followers-only or direct status can quote a followers-only status");
+        }
+        if (status.localOnly() && !quoting.local()) {
+            throw new InvalidStatusException(LOCAL_ONLY_REMOTE_QUOTE);
+        }
+        if (!status.localOnly() && quoting.status().localOnly()) {
+            throw new InvalidStatusException("Only a local-only status can quote a local-only status");
+        }
+        return quoting;
+    }
+
+    /**
+     * Replaces or removes what a status quotes, in the transaction of the edit. The quoted author keeps their silent
+     * mention, as anyone an edit stops mentioning does, so that their server is sent the {@code Update} that drops it.
+     *
+     * @param quoted    the status it's to quote, locked, or null to remove the quote
+     * @param requoting what {@link #requotable} found of it, or null
+     */
+    private void requote(Status status, Optional<StatusQuote> old, Status quoted, Quoting requoting, Instant now) {
+        old.ifPresent(found -> {
+            quotes.delete(status.id());
+            if (found.quotedAccountId() != null && !found.quotedAccountId().equals(status.actorId())
+                    && actors.isLocal(found.quotedAccountId())) {
+                events.publishEvent(new QuoteRemoved(status.id(), status.actorId(), found.quotedAccountId()));
+            }
+        });
+        if (quoted == null) {
+            return;
+        }
+        if (!quoted.actorId().equals(status.actorId())) {
+            statuses.insertMentions(status.id(), Map.of(quoted.actorId(), true));
+        }
+        // A new ID, so that a late answer to a request for what it quoted before can't decide this, and a server that
+        // answered the status's first request isn't asked again under the same ID.
+        insertLocalQuote(status, quoted, requoting.local(), StatusQuote.requestUriFor(status.uri(), now));
+    }
+
+    /**
      * A status that the author is allowed to quote.
      *
      * @param local whether its author is this server's
@@ -547,8 +628,10 @@ public class StatusService {
     /**
      * A quote of a local status is decided here and now, unless its author approves quotes by hand. One of a remote status
      * is approved by its author's server, unless its server can't be asked, which a status with no policy says.
+     *
+     * @param requestUri the {@code QuoteRequest} to send for a quote of a remote status
      */
-    private void insertLocalQuote(Status status, Status quoted, boolean local) {
+    private void insertLocalQuote(Status status, Status quoted, boolean local, URI requestUri) {
         var self = quoted.actorId().equals(status.actorId());
         var target = Optional.of(new StatusRepository.Parent(quoted.id(), quoted.actorId()));
         if (local && !self
@@ -565,7 +648,7 @@ public class StatusService {
         }
         var legacy = quoted.quoteApproval() == null;
         quotes.insert(status.id(), quoted.uri(), target, legacy ? QuoteState.ACCEPTED : QuoteState.PENDING, legacy, null,
-                null, StatusQuote.requestUriFor(status.uri()), Instant.now());
+                null, requestUri, Instant.now());
         events.publishEvent(new QuoteRequested(status.id(), status.actorId()));
     }
 
@@ -594,7 +677,7 @@ public class StatusService {
     }
 
     /**
-     * The fallback for what a status quotes, which is kept through edits, as is the quote.
+     * The fallback for what a status quotes, which is kept through edits that keep the quote.
      */
     private String withQuoteFallback(String content, String text, StatusQuote quote) {
         if (quote == null) {
