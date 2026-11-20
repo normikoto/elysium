@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Admins can write the server's rules on the admin page. The sign-up page lists them, and apps show them through the
   Mastodon API's `GET /api/v1/instance/rules` and the instance endpoints. Reports can't cite them yet. See
   `docs/api.md`.
+- Apps can read a user's posting and reading defaults through the Mastodon API's `GET /api/v1/preferences`. Only the
+  quote policy can be changed so far. See `docs/api.md`.
 
 ## [0.3.0] - 2026-11-20
 

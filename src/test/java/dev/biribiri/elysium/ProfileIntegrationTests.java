@@ -105,6 +105,40 @@ class ProfileIntegrationTests {
 
     // The client API
 
+    /**
+     * Its own account, since the quote policy it changes isn't reset between tests.
+     */
+    @Test
+    void preferencesReportTheDefaultsAndTheQuotePolicy() throws Exception {
+        var bearer = "Bearer " + token("prefs");
+        mockMvc.perform(get("/api/v1/preferences").header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['posting:default:visibility']").value("public"))
+                .andExpect(jsonPath("$['posting:default:sensitive']").value(false))
+                .andExpect(content().string(containsString("\"posting:default:language\":null")))
+                .andExpect(jsonPath("$['posting:default:quote_policy']").value("public"))
+                .andExpect(jsonPath("$['posting:default:spoiler_field']").doesNotExist())
+                .andExpect(jsonPath("$['reading:expand:media']").value("default"))
+                .andExpect(jsonPath("$['reading:expand:spoilers']").value(false))
+                .andExpect(jsonPath("$['reading:autoplay:gifs']").value(false));
+
+        mockMvc.perform(patch(UPDATE).header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("source[quote_policy]", "followers"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/preferences").header("Authorization", bearer))
+                .andExpect(jsonPath("$['posting:default:quote_policy']").value("followers"));
+    }
+
+    @Test
+    void preferencesNeedReadAccounts() throws Exception {
+        account("alice");
+        var token = TestOAuth.userToken(mockMvc, "alice", PASSWORD, "write");
+        mockMvc.perform(get("/api/v1/preferences").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/preferences")).andExpect(status().isUnauthorized());
+    }
+
     @Test
     void changesTheProfileFromAForm() throws Exception {
         mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)

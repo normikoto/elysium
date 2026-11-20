@@ -691,6 +691,10 @@ Only these exist:
     and `public` for `source[privacy]`.
   - Any other value for them, or any other field with a value, gets a 422 naming it, and nothing is changed.
   - Empty values are ignored, except that an empty `display_name` or `note` clears it, as on Mastodon.
+- `GET /api/v1/preferences` needs `read:accounts`, as on Mastodon. `posting:default:quote_policy` is
+  `source[quote_policy]`. The other preferences can't be changed yet, so they have the values a new account would have
+  on Mastodon: `public`, not sensitive, no language (`null`), media hidden only when sensitive, content warnings
+  collapsed, and GIFs not autoplayed.
 - `fields_attributes` replaces all of the fields. It can be a list or an object keyed by position, in JSON or in a form
   (`fields_attributes[0][name]` or `fields_attributes[][name]`). Fields with an empty name and value are left out.
 - How many fields there can be is set by the admin, and defaults to 4. `GET /api/v1/instance` reports it in
