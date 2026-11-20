@@ -76,7 +76,34 @@ These reach beyond `activitypub`, and a change can break them without a test not
   of anything from `findByUri` or `findById`. `auth.AccountActions` decides who can be suspended or deleted.
 - **Cleanup:** new remote data has to be removed by `DomainBlockCleanupTask`, and new remote or account data by
   `AccountCleanupTask`, including files in the media directory.
-- **Domain blocks:** a block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended.
+- **Domain blocks:** a block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended, and
+  SQL that reads `domain_block` has to filter on `severity`.
+
+### Persistence
+
+There's no ORM. Repositories use `JdbcClient` with hand-written SQL, and the schema comes from Flyway migrations in
+`src/main/resources/db/migration`. These run at startup, and when CLI commands run.
+
+- IDs are UUIDs, and `actor.Ids.parse` is the strict way to read them from a request.
+- Read queries with `.list()` or `.optional()`, not `.stream()`, which holds a connection until it's closed.
+  `DatabaseStreamsTests` enforces this.
+
+### CLI commands
+
+`ElysiumApplication.main` treats any argument that isn't an option as a command, and hands it to `CommandRunner`.
+
+- To add one, write a picocli `@Command` class anywhere, implementing `Callable<Integer>`, with a no-argument
+  constructor and `@Autowired` methods for its dependencies.
+- The command line is parsed before Spring starts.
+- Commands run with no web server and no job worker, so they're safe to run alongside the server.
+
+### Configuration
+
+- `src/main/resources/application.properties` holds defaults built into the JAR, and deployments only override what
+  they change.
+- New settings an operator would use also belong in `application.properties.example`, `docs/configuration.md`,
+  `.env.example`, and the `environment` section of `compose.yaml`, which passes them to the container.
+- `elysium.instance.base-url` is required, and actor URIs are derived from it.
 
 ### Area rules
 
@@ -87,13 +114,27 @@ that applies before changing an area from somewhere it doesn't load:
 |---------------------|-----------------------------------------------------------------|
 | `federation.md`     | Inbound and outbound activities, signatures, outbound HTTP      |
 | `jobs.md`           | db-scheduler tasks, retries, ordering, delivery                 |
-| `persistence.md`    | `JdbcClient` SQL, Flyway migrations, IDs                        |
-| `cli-commands.md`   | Adding a CLI command                                            |
-| `configuration.md`  | Adding or changing a setting, and where else it has to appear   |
-| `testing.md`        | Integration tests, Testcontainers, rate limits in tests         |
 | `openapi.md`        | Annotating client API and federation endpoints                  |
-| `code-comments.md`  | What comments and `package-info.java` should say                |
 | `documentation.md`  | Each document's audience, and how to write them                 |
+
+## Testing
+
+- Integration tests are `@SpringBootTest` with `@Import(TestcontainersConfiguration.class)`, which runs a real
+  PostgreSQL. One container serves the whole run, and each Spring context gets an empty database of its own in it.
+- `src/test/resources/config/application.properties` turns the login and sign-up rate limits off, because test classes
+  share contexts and one address. `RateLimitIntegrationTests` turns them back on.
+- The inbox's limit on key fetches is always on, so tests that make an inbox fetch keys should set their own address, as
+  `InboxIntegrationTests` does.
+- The sign-up page refuses to create the first account, and a test class's database can start empty. Call
+  `TestAccounts.makeSureAnAccountExists` before a test signs up.
+
+## Code comments
+
+Comments and `package-info.java` explain _why_ the code does what it does: the constraint it works within, the failure
+it prevents, the decision behind it, or what would break if it changed.
+
+- Don't restate or overdescribe what the code does, narrate it step by step, or repeat what names and types already say.
+- If a comment would only paraphrase the code beneath it, leave it out.
 
 ## Documentation
 
