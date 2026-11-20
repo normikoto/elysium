@@ -771,7 +771,7 @@ public class AccountsController {
             Boolean locked,
             @Schema(description = """
                     Whether anyone's search can find the user's public statuses. Without it, only those who wrote, \
-                    favourited, or are mentioned in a status can find it.""")
+                    favourited, bookmarked, or are mentioned in a status can find it.""")
             Boolean indexable,
             @Schema(description = """
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \

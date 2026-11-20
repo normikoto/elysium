@@ -7,6 +7,7 @@ import dev.biribiri.elysium.actor.AccountMigrations;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.FollowersOnlyRecipients;
+import dev.biribiri.elysium.content.BookmarkService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.PollService;
@@ -58,6 +59,7 @@ class AccountCleanupTask {
     private final AccountMigrations migrations;
     private final ScheduledStatusService scheduled;
     private final Markers markers;
+    private final BookmarkService bookmarks;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles,
@@ -65,7 +67,8 @@ class AccountCleanupTask {
                        FollowersOnlyRecipients followersOnly,
                        PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
                        PostFilters filters, AccountLists lists, AccountMigrations migrations,
-                       ScheduledStatusService scheduled, Markers markers) {
+                       ScheduledStatusService scheduled, Markers markers, BookmarkService bookmarks) {
+        this.bookmarks = bookmarks;
         this.markers = markers;
         this.scheduled = scheduled;
         this.migrations = migrations;
@@ -100,6 +103,7 @@ class AccountCleanupTask {
                 likes.removeForActor(actor.id());
                 reactions.removeForActor(actor.id());
                 pins.removeForActor(actor.id());
+                bookmarks.removeForActor(actor.id());
                 polls.removeForActor(actor.id());
                 // Before its statuses, so that none is posted after they've been removed.
                 scheduled.removeAllBy(actor.id());

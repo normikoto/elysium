@@ -89,7 +89,8 @@ public class SearchController {
                     stemming. Words in quotes are a phrase, `OR` is between alternatives, and a word after `-` \
                     mustn't be there. Mastodon's operators, such as `from:` and `has:`, aren't supported, and poll \
                     options and media descriptions aren't searched.
-                    - Only a signed-in user finds statuses: those they wrote, favourited, or are mentioned in, and \
+                    - Only a signed-in user finds statuses: those they wrote, favourited, bookmarked, or are \
+                    mentioned in, and \
                     public statuses by accounts whose `indexable` is true, newest first. Of those, only what they can \
                     see is found, leaving out accounts they block or mute. Their filters don't leave statuses out, \
                     but are given in `filtered`. Only the first\s""" + MAX_STATUS_OFFSET + """

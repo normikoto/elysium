@@ -152,9 +152,9 @@ approve requests from people they follow straight away. Turning that on approves
 people they follow.
 
 People can choose, at `/settings` or from an app, whether anyone can find their public posts by searching. It's off at
-first, as on Mastodon. Either way, people here can find posts they wrote, favourited, or are mentioned in. Other servers
-are told about the choice and decide what their own search does with it. Posts on other servers are only found when their
-author has made the same choice there.
+first, as on Mastodon. Either way, people here can find posts they wrote, favourited, bookmarked, or are mentioned in.
+Other servers are told about the choice and decide what their own search does with it. Posts on other servers are only
+found when their author has made the same choice there.
 
 ## Moving accounts
 People can move their followers to another account, here or on another server, as on Mastodon. Moving can't be undone

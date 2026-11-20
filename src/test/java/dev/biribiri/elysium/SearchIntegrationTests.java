@@ -83,16 +83,18 @@ class SearchIntegrationTests {
     }
 
     @Test
-    void findsWhatTheViewerWroteFavouritedOrIsMentionedInAndIndexablePublicStatuses() throws Exception {
+    void findsWhatTheViewerWroteFavouritedBookmarkedOrIsMentionedInAndIndexablePublicStatuses() throws Exception {
         var mine = create(searcher(), "zebra mine", "public");
         var liked = create(closed(), "zebra liked", "public");
         favourite(searcher(), liked);
+        var saved = create(closed(), "zebra saved", "public");
+        mockMvc.perform(withToken(post("/api/v1/statuses/" + saved + "/bookmark"), searcher())).andExpect(status().isOk());
         var mention = create(closed(), "zebra hello @searcher", "unlisted");
         create(closed(), "zebra unseen", "public");
         var indexable = create(open(), "zebra open", "public");
         create(open(), "zebra quiet", "unlisted");
 
-        expectStatuses(search(searcher(), "zebra"), indexable, mention, liked, mine);
+        expectStatuses(search(searcher(), "zebra"), indexable, mention, saved, liked, mine);
     }
 
     @Test

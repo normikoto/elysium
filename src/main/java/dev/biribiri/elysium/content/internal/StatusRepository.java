@@ -1121,8 +1121,8 @@ public class StatusRepository {
     }
 
     /**
-     * Finds statuses by their words, newest first, as Mastodon does. A viewer finds what they wrote, favourited, or are
-     * mentioned in, and public statuses by accounts that let anyone's search find them. Of those, only what the viewer can
+     * Finds statuses by their words, newest first, as Mastodon does. A viewer finds what they wrote, favourited, bookmarked,
+     * or are mentioned in, and public statuses by accounts that let anyone's search find them. Of those, only what the viewer can
      * see is found, with followers-only statuses by accounts they no longer follow left out.
      *
      * @param query     in {@code websearch_to_tsquery}'s syntax, which accepts anything, so a query with no words finds
@@ -1137,6 +1137,7 @@ public class StatusRepository {
                 .append(SEARCH_VECTOR).append(" @@ websearch_to_tsquery('simple', :query)")
                 .append(" AND (s.actor_id = :viewer OR").append(MENTIONS_VIEWER)
                 .append(" OR EXISTS (SELECT 1 FROM status_like l WHERE l.status_id = s.id AND l.actor_id = :viewer)")
+                .append(" OR EXISTS (SELECT 1 FROM status_bookmark b WHERE b.status_id = s.id AND b.actor_id = :viewer)")
                 .append(" OR (s.visibility = 'public' AND ").append(Indexable.account("s.actor_id")).append("))")
                 .append(" AND (s.visibility IN ('public', 'unlisted') OR s.actor_id = :viewer OR").append(MENTIONS_VIEWER)
                 .append(" OR (s.visibility = 'private' AND ").append(Following.accepted(":viewer", "s.actor_id")).append("))")

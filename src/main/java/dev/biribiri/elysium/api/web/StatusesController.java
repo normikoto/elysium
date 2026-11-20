@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.PostFilter;
+import dev.biribiri.elysium.content.BookmarkService;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.OtherQuotes;
@@ -91,10 +92,12 @@ public class StatusesController {
     private final RemoteThreadFetcher threads;
     private final ScheduledStatusService scheduled;
     private final InstanceProperties instance;
+    private final BookmarkService bookmarks;
 
     StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes,
                        BoostService boosts, QuoteService quotes, StatusPinService pins, RemoteThreadFetcher threads,
-                       ScheduledStatusService scheduled, InstanceProperties instance) {
+                       ScheduledStatusService scheduled, InstanceProperties instance, BookmarkService bookmarks) {
+        this.bookmarks = bookmarks;
         this.scheduled = scheduled;
         this.instance = instance;
         this.quotes = quotes;
@@ -539,6 +542,48 @@ public class StatusesController {
     public StatusResponse unfavourite(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var viewer = requireUser(token);
         return RequestParameters.uuid(id).flatMap(boosts::original).flatMap(statusId -> likes.unfavourite(statusId, viewer))
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/bookmark")
+    @PreAuthorize("hasAuthority('SCOPE_write:bookmarks')")
+    @Operation(operationId = "bookmarkStatus", summary = "Bookmark a status",
+            description = "Bookmarks a visible status, privately: neither its author nor other servers are told. A "
+                    + "boost's ID bookmarks the status it boosts. Repeats have no additional effect. "
+                    + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#bookmark"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status, now bookmarked."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse bookmark(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = requireUser(token);
+        return RequestParameters.uuid(id).flatMap(boosts::original).flatMap(statusId -> bookmarks.bookmark(statusId, viewer))
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/unbookmark")
+    @PreAuthorize("hasAuthority('SCOPE_write:bookmarks')")
+    @Operation(operationId = "unbookmarkStatus", summary = "Remove a bookmark",
+            description = "Removes a bookmark of a status, which a boost's ID stands for. Repeats, and statuses that "
+                    + "aren't bookmarked, have no additional effect. The bookmark is removed even if the user can no "
+                    + "longer see the status, though that answers `404`. " + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unbookmark"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status, no longer bookmarked."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse unbookmark(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = requireUser(token);
+        // The raw ID too, for a status whose author has since been suspended, which isn't found as a boost or not.
+        return RequestParameters.uuid(id).map(raw -> boosts.original(raw).orElse(raw))
+                .flatMap(statusId -> bookmarks.unbookmark(statusId, viewer))
                 .map(found -> responses.one(found, RequestParameters.viewer(token)))
                 .orElseThrow(RecordNotFoundException::new);
     }

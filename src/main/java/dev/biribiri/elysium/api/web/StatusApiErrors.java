@@ -27,6 +27,7 @@ import java.util.Map;
         AccountsController.class,
         AsyncRefreshesController.class,
         BlocksController.class,
+        BookmarksController.class,
         FollowRequestsController.class,
         InteractionRequestsController.class,
         MutesController.class,
