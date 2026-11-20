@@ -18,6 +18,7 @@ import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +65,8 @@ class DomainBlockCleanupIntegrationTests {
     private ProfileService profiles;
     @Autowired
     private MediaProperties media;
+    @Autowired
+    private ThreadMuteService threadMutes;
 
     private Actor local;
     private String domain;
@@ -238,6 +241,30 @@ class DomainBlockCleanupIntegrationTests {
 
         await().atMost(WAIT).until(() -> !statusExists(removed));
         assertThat(statusExists(kept)).isTrue();
+    }
+
+    /**
+     * A thread that a local reply is still part of keeps its mute.
+     */
+    @Test
+    void removesMutesOfThreadsThatAreGone() {
+        var blocked = remote("social." + domain);
+        var gone = post(blocked);
+        var shared = post(blocked);
+        var reply = statuses.create(local.id(), new NewStatus("reply", null, null, Visibility.PUBLIC, false, shared));
+        threadMutes.mute(gone, local.id()).orElseThrow();
+        threadMutes.mute(shared, local.id()).orElseThrow();
+        assertThat(mutes(local)).isEqualTo(2);
+
+        blocks.create(domain, null);
+
+        await().atMost(WAIT).until(() -> !statusExists(gone) && !statusExists(shared) && mutes(local) == 1);
+        assertThat(threadMutes.isMuted(local.id(), reply.id())).isTrue();
+    }
+
+    private long mutes(Actor actor) {
+        return jdbc.sql("SELECT count(*) FROM status_thread_mute WHERE actor_id = :id")
+                .param("id", actor.id()).query(Long.class).single();
     }
 
     @Test

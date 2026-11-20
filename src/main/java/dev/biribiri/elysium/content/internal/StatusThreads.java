@@ -92,10 +92,16 @@ public class StatusThreads {
      */
     private void removeOrphans(List<UUID> threads) {
         if (threads.isEmpty()) return;
+        var ids = threads.stream().distinct().map(UUID::toString).toArray(String[]::new);
         jdbc.sql("""
                         DELETE FROM status_thread_alias a WHERE a.thread_id = ANY(CAST(:threads AS uuid[]))
                         AND NOT EXISTS (SELECT 1 FROM status s WHERE s.thread_id = a.thread_id)
-                        """).param("threads", threads.stream().distinct().map(UUID::toString).toArray(String[]::new)).update();
+                        """).param("threads", ids).update();
+        // Mutes have no foreign key on their thread, so a thread that's gone would otherwise keep them for good.
+        jdbc.sql("""
+                        DELETE FROM status_thread_mute m WHERE m.thread_id = ANY(CAST(:threads AS uuid[]))
+                        AND NOT EXISTS (SELECT 1 FROM status_thread_alias a WHERE a.thread_id = m.thread_id)
+                        """).param("threads", ids).update();
     }
 
     private record Pair(UUID keep, UUID remove) {
