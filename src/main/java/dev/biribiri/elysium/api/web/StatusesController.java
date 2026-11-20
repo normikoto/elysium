@@ -1,7 +1,10 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.AccountPage;
 import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.BookmarkService;
 import dev.biribiri.elysium.content.BoostService;
@@ -18,7 +21,10 @@ import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.PollChange;
 import dev.biribiri.elysium.content.RemoteThreadFetcher;
 import dev.biribiri.elysium.content.ScheduledStatusService;
+import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusEdit;
+import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
@@ -56,8 +62,11 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/statuses")
@@ -66,6 +75,14 @@ import java.util.UUID;
 public class StatusesController {
 
     private static final Optional<PostFilter.Context> THREAD = Optional.of(PostFilter.Context.THREAD);
+
+    private static final String INTERACTIONS = """
+            Works without a token for public and unlisted statuses. A boost's ID stands for the status it boosts. \
+            Pages are by when each was made, and the cursors are the IDs in the `Link` header, not account IDs, as on \
+            Mastodon. Suspended and deleted accounts, and those on suspended servers, are left out.""";
+
+    private static final String INTERACTION_LIMIT = "How many to return. Values outside 1 to "
+            + AccountPage.MAX_LIMIT + " are clamped to them.";
 
     /**
      * The most a character can take up in JSON, as an escaped surrogate pair like {@code \ud83d\ude00}.
@@ -93,10 +110,15 @@ public class StatusesController {
     private final ScheduledStatusService scheduled;
     private final InstanceProperties instance;
     private final BookmarkService bookmarks;
+    private final ActorService actors;
+    private final AccountResponses accounts;
 
     StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes,
                        BoostService boosts, QuoteService quotes, StatusPinService pins, RemoteThreadFetcher threads,
-                       ScheduledStatusService scheduled, InstanceProperties instance, BookmarkService bookmarks) {
+                       ScheduledStatusService scheduled, InstanceProperties instance, BookmarkService bookmarks,
+                       ActorService actors, AccountResponses accounts) {
+        this.actors = actors;
+        this.accounts = accounts;
         this.bookmarks = bookmarks;
         this.scheduled = scheduled;
         this.instance = instance;
@@ -360,6 +382,86 @@ public class StatusesController {
                 .flatMap(statusId -> statuses.findVisible(statusId, viewer))
                 .map(found -> responses.history(found, statuses.findHistory(found)))
                 .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @GetMapping("/{id}/favourited_by")
+    @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:accounts')")
+    @Operation(
+            operationId = "getStatusFavouritedBy",
+            summary = "List the accounts that favourited a status",
+            description = INTERACTIONS + " For a status from another server, only favourites from this server's "
+                    + "accounts are known here.",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#favourited_by"),
+            parameters = @Parameter(name = "limit", description = INTERACTION_LIMIT,
+                    schema = @Schema(type = "integer", defaultValue = "" + AccountPage.DEFAULT_LIMIT)),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The accounts, most recent favourite first."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
+            })
+    public ResponseEntity<List<AccountResponse>> favouritedBy(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            @RequestParam(required = false) String limit,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            @RequestParam(name = "since_id", required = false) String sinceId,
+            @RequestParam(name = "min_id", required = false) String minId) {
+        var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
+        var status = visibleOriginal(token, id);
+        var found = likes.likers(status.id(), page);
+        return interactions("/favourited_by", status, page,
+                found.stream().map(StatusLike::id).toList(), found.stream().map(StatusLike::actorId).toList());
+    }
+
+    @GetMapping("/{id}/reblogged_by")
+    @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:accounts')")
+    @Operation(
+            operationId = "getStatusRebloggedBy",
+            summary = "List the accounts that boosted a status",
+            description = INTERACTIONS + " Only public and unlisted boosts are listed, so an author's boost of their "
+                    + "own followers-only status isn't. For a status from another server, only the boosts that "
+                    + "reached this server are known here.",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#reblogged_by"),
+            parameters = @Parameter(name = "limit", description = INTERACTION_LIMIT,
+                    schema = @Schema(type = "integer", defaultValue = "" + AccountPage.DEFAULT_LIMIT)),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The accounts, most recent boost first."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
+            })
+    public ResponseEntity<List<AccountResponse>> rebloggedBy(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            @RequestParam(required = false) String limit,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            @RequestParam(name = "since_id", required = false) String sinceId,
+            @RequestParam(name = "min_id", required = false) String minId) {
+        var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
+        var status = visibleOriginal(token, id);
+        var found = boosts.boosters(status.id(), page);
+        return interactions("/reblogged_by", status, page,
+                found.stream().map(StatusBoost::id).toList(), found.stream().map(StatusBoost::actorId).toList());
+    }
+
+    /**
+     * Resolves the status before the cursors are used, so that one the viewer can't see gets a 404 even when they're
+     * valid.
+     */
+    private Status visibleOriginal(TokenPrincipal token, String id) {
+        return RequestParameters.uuid(id).flatMap(boosts::original)
+                .flatMap(statusId -> statuses.findVisible(statusId, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    /**
+     * @param cursors  the favourites' or boosts' IDs, newest first, which page links are made from
+     * @param actorIds their accounts, in the same order. An account suspended since the page was read is left out.
+     */
+    private ResponseEntity<List<AccountResponse>> interactions(
+            String suffix, Status status, AccountPage page, List<UUID> cursors, List<UUID> actorIds) {
+        var found = actors.findByIds(actorIds).stream().collect(Collectors.toMap(Actor::id, Function.identity()));
+        var listed = actorIds.stream().map(found::get).filter(Objects::nonNull).toList();
+        var response = ResponseEntity.ok();
+        PageLinks.addTo(response, instance, "/api/v1/statuses/" + status.id() + suffix, Map.of(), page.limit(), cursors);
+        return response.body(accounts.build(listed));
     }
 
     @GetMapping("/{id}/context")

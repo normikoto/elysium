@@ -154,6 +154,17 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - Unbookmarking a status the user can no longer see still removes the bookmark, but answers 404.
 - A bookmark goes when its status is deleted.
 
+### Favourites
+
+- `GET /api/v1/favourites` needs `read:favourites`, and pages by when each status was favourited, with the favourites'
+  IDs as cursors in the `Link` header, as on Mastodon. Statuses the user can no longer see are left out, so a page can be
+  shorter than `limit` and still have more after it. Filters don't hide them, but are given in `filtered`.
+- `GET /api/v1/statuses/:id/favourited_by` needs no token for a status anyone can see, and a boost's ID stands for the
+  status it boosts. It pages by the favourites' IDs, like `GET /api/v1/favourites`, and leaves out suspended and deleted
+  accounts, and those on suspended servers.
+- For a status from another server, `favourited_by` only lists this server's accounts, since favourites from elsewhere
+  aren't sent here.
+
 ### Statuses from other servers
 
 - A status from another server is only stored when it's sent here: when a local account follows its author or is
@@ -236,7 +247,9 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - Boosting a status again returns the boost that's there.
 - A boost's ID stands for the status it boosts when it's boosted, favourited, replied to, or asked for its context, and
   `DELETE /api/v1/statuses/:id` with a boost's ID unboosts it.
-- `GET /api/v1/statuses/:id/reblogged_by` isn't implemented.
+- `GET /api/v1/statuses/:id/reblogged_by` works like
+  [`favourited_by`](#favourites), but only lists public and unlisted boosts, so an author's boost of their own
+  followers-only status isn't listed. For a status from another server, it only lists the boosts this server knows of.
 - A boost from another server is only stored when it's of a local status, or when a local account follows the booster,
   so a remote account's other boosts aren't listed with its statuses.
 - A boosted status that isn't stored yet is fetched first, so the boost can show up a little later than on Mastodon.

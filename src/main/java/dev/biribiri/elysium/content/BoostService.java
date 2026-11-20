@@ -216,6 +216,14 @@ public class BoostService {
         return boosts.findLocal(statusId);
     }
 
+    /**
+     * The public and unlisted boosts of a status by accounts that haven't been suspended or deleted, newest first.
+     * Whether the status can be seen is the caller's to check.
+     */
+    public List<StatusBoost> boosters(UUID statusId, AccountPage page) {
+        return boosts.pagePublic(statusId, page);
+    }
+
     public Map<UUID, BoostStats> stats(Collection<UUID> ids, Optional<UUID> viewer) {
         return boosts.stats(ids, viewer);
     }
