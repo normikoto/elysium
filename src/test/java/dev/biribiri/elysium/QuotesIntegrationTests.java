@@ -247,24 +247,171 @@ class QuotesIntegrationTests {
     }
 
     @Test
-    void aQuoteCantBeChangedByAnEdit() throws Exception {
+    void anEditKeepsTheQuoteUnlessItNamesAnother() throws Exception {
         account("qbob");
         var quoted = createStatus("qbob", Map.of("status", "original"));
-        var other = createStatus("qbob", Map.of("status", "another"));
         var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted));
 
-        mockMvc.perform(withToken(put("/api/v1/statuses/" + quote), token("qalice"))
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("status", "edited")
-                        .param("quoted_status_id", other))
-                .andExpect(status().isUnprocessableContent());
-        mockMvc.perform(withToken(put("/api/v1/statuses/" + quote), token("qalice"))
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("status", "edited")
-                        .param("quoted_status_id", quoted))
+        edit("qalice", quote, Map.of("status", "edited"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", startsWith("<p class=\"quote-inline\">")))
                 .andExpect(jsonPath("$.quote.state").value("accepted"));
+        edit("qalice", quote, Map.of("status", "edited again", "quoted_status_id", quoted))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", startsWith("<p class=\"quote-inline\">")))
+                .andExpect(jsonPath("$.quote.state").value("accepted"))
+                .andExpect(jsonPath("$.quote.quoted_status.id").value(quoted));
+    }
+
+    @Test
+    void anEditCanRemoveTheQuote() throws Exception {
+        account("qalice");
+        account("qbob");
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted));
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "quote"), token("qbob")))
+                .andExpect(jsonPath("$[0].status.id").value(quote)));
+
+        edit("qalice", quote, Map.of("status", "no longer quoting", "quoted_status_id", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("<p>no longer quoting</p>"))
+                .andExpect(jsonPath("$.quote").isEmpty());
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + quoted), token("qbob")))
+                .andExpect(jsonPath("$.quotes_count").value(0));
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "quote"), token("qbob")))
+                .andExpect(jsonPath("$[?(@.status.id == '" + quote + "')]").isEmpty()));
+
+        var again = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted));
+        mockMvc.perform(withToken(put("/api/v1/statuses/" + again), token("qalice"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"no longer quoting\", \"quoted_status_id\": null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote").isEmpty());
+    }
+
+    @Test
+    void anEditCanRemoveAQuoteOfADeletedStatus() throws Exception {
+        account("qbob");
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted));
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + quoted), token("qbob"))).andExpect(status().isOk());
+
+        edit("qalice", quote, Map.of("status", "quoting", "quoted_status_id", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("<p>quoting</p>"))
+                .andExpect(jsonPath("$.quote").isEmpty());
+    }
+
+    @Test
+    void anEditCanQuoteAnotherStatus() throws Exception {
+        var bob = account("qbob");
+        var carol = account("qcarol");
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var other = createStatus("qcarol", Map.of("status", "another"));
+        var reviewed = createStatus("qcarol", Map.of("status", "reviewed", "quote_approval_policy", "nobody",
+                "quote_others", "review"));
+        var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted));
+
+        edit("qalice", quote, Map.of("status", "quoting another", "quoted_status_id", other))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", startsWith(
+                        "<p class=\"quote-inline\">RE: <a href=\"https://quotes.example/users/qcarol/statuses/" + other)))
+                .andExpect(jsonPath("$.quote.state").value("accepted"))
+                .andExpect(jsonPath("$.quote.quoted_status.id").value(other));
+        assertThat(silentMentions(quote)).contains(bob.id(), carol.id());
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "quote"), token("qcarol")))
+                .andExpect(jsonPath("$[0].status.id").value(quote)));
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "quote"), token("qbob")))
+                .andExpect(jsonPath("$[?(@.status.id == '" + quote + "')]").isEmpty()));
+
+        edit("qalice", quote, Map.of("status", "quoting one to review", "quoted_status_id", reviewed))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote.state").value("pending"));
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "pending.quote"), token("qcarol")))
+                .andExpect(jsonPath("$[0].status.id").value(quote)));
+        await().atMost(WAIT).untilAsserted(() -> mockMvc.perform(
+                        withToken(get("/api/v1/notifications").param("types[]", "quote"), token("qcarol")))
+                .andExpect(jsonPath("$[?(@.status.id == '" + quote + "')]").isEmpty()));
+
+        var unquoted = createStatus("qalice", Map.of("status", "nothing yet"));
+        edit("qalice", unquoted, Map.of("status", "something now", "quoted_status_id", quoted))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote.state").value("accepted"));
+        assertThat(silentMentions(unquoted)).containsExactly(bob.id());
+    }
+
+    @Test
+    void anEditCantQuoteWhatTheStatusCouldnt() throws Exception {
+        account("qbob");
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var closed = createStatus("qbob", Map.of("status", "mine", "quote_approval_policy", "nobody"));
+        var ownPrivate = createStatus("qalice", Map.of("status", "for followers", "visibility", "private"));
+        var localOnly = createStatus("qbob", Map.of("status", "here only", "local_only", "true"));
+        var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted));
+
+        edit("qalice", quote, Map.of("status", "edited", "quoted_status_id", closed))
+                .andExpect(status().isUnprocessableContent());
+        edit("qalice", quote, Map.of("status", "edited", "quoted_status_id", UUID.randomUUID().toString()))
+                .andExpect(status().isNotFound());
+        edit("qalice", quote, Map.of("status", "edited", "quoted_status_id", quote))
+                .andExpect(status().isUnprocessableContent());
+        edit("qalice", quote, Map.of("status", "edited", "quoted_status_id", ownPrivate))
+                .andExpect(status().isUnprocessableContent());
+        edit("qalice", quote, Map.of("status", "edited", "quoted_status_id", localOnly))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + quote), token("qalice")))
+                .andExpect(jsonPath("$.content", containsString("<p>quoting</p>")))
+                .andExpect(jsonPath("$.quote.quoted_status.id").value(quoted));
+
+        var remote = remote();
+        var remoteStatus = storeRemote(remote, null);
+        var hereOnly = createStatus("qalice", Map.of("status", "here", "local_only", "true"));
+        edit("qalice", hereOnly, Map.of("status", "edited", "quoted_status_id", remoteStatus.toString()))
+                .andExpect(status().isUnprocessableContent());
+    }
+
+    @Test
+    void anEditThatQuotesARemoteStatusAsksUnderANewRequest() throws Exception {
+        var alice = account("qalice");
+        account("qbob");
+        var remote = remote();
+        var remoteStatus = storeRemote(remote, new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of()));
+        var quoted = createStatus("qbob", Map.of("status", "original"));
+        var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", remoteStatus.toString()));
+        var quoteUri = "https://quotes.example/users/qalice/statuses/" + quote;
+        await().atMost(WAIT).until(() -> bodiesOfType(alice, "QuoteRequest", quote), found -> found.size() == 1);
+
+        edit("qalice", quote, Map.of("status", "quoting bob", "quoted_status_id", quoted))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote.state").value("accepted"));
+        assertThat(quotes.answerRequest(URI.create(quoteUri + "#quote_request"), remote.uri(),
+                URI.create(remote.uri() + "/approvals/1"))).isFalse();
+
+        edit("qalice", quote, Map.of("status", "quoting dave again", "quoted_status_id", remoteStatus.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quote.state").value("pending"));
+        var requests = await().atMost(WAIT).until(() -> bodiesOfType(alice, "QuoteRequest", quote),
+                found -> found.size() == 2);
+        var ids = requests.stream().map(body -> JsonPath.<String>read(body, "$.id")).toList();
+        assertThat(ids).contains(quoteUri + "#quote_request")
+                .anyMatch(id -> id.matches(java.util.regex.Pattern.quote(quoteUri + "#quote_request/") + "\\d+"));
+        var update = await().atMost(WAIT).until(() -> bodiesOfType(alice, "Update", quote),
+                found -> found.stream().anyMatch(body -> body.contains("quoting dave again")));
+        var latest = update.stream().filter(body -> body.contains("quoting dave again")).findFirst().orElseThrow();
+        assertThat(JsonPath.<String>read(latest, "$.object.quote")).isEqualTo(remote.uri() + "/statuses/1");
+        assertThat(JsonPath.<List<String>>read(latest, "$.object.cc")).contains(remote.uri().toString());
+
+        edit("qalice", quote, Map.of("status", "quoting nobody", "quoted_status_id", ""))
+                .andExpect(status().isOk());
+        var removal = await().atMost(WAIT).until(() -> bodiesOfType(alice, "Update", quote).stream()
+                .filter(body -> body.contains("quoting nobody")).toList(), found -> !found.isEmpty()).getFirst();
+        assertThat(JsonPath.<Map<String, Object>>read(removal, "$.object")).doesNotContainKey("quote");
+        assertThat(deliveryInboxes(JsonPath.read(removal, "$.id"))).contains(remote.sharedInboxUri().toString());
     }
 
     @Test
@@ -728,6 +875,19 @@ class QuotesIntegrationTests {
 
         mockMvc.perform(withToken(delete("/api/v1/statuses/" + quote), token("qalice"))).andExpect(status().isOk());
         await().atMost(WAIT).until(() -> bodiesOfType(alice, "QuoteRequest", quote), List::isEmpty);
+    }
+
+    private org.springframework.test.web.servlet.ResultActions edit(
+            String username, String status, Map<String, String> parameters) throws Exception {
+        var request = withToken(put("/api/v1/statuses/" + status), token(username))
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED);
+        parameters.forEach(request::param);
+        return mockMvc.perform(request);
+    }
+
+    private List<UUID> silentMentions(String status) {
+        return jdbc.sql("SELECT actor_id FROM status_mention WHERE status_id = :id AND silent")
+                .param("id", UUID.fromString(status)).query(UUID.class).list();
     }
 
     private org.springframework.test.web.servlet.ResultActions askAgain(String username, String quote) throws Exception {

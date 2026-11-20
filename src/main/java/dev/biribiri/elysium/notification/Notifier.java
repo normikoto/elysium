@@ -4,12 +4,15 @@ import dev.biribiri.elysium.auth.AccountActions;
 import dev.biribiri.elysium.content.PollEnded;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteAccepted;
+import dev.biribiri.elysium.content.QuoteRemoved;
 import dev.biribiri.elysium.content.QuoteReviewRequested;
 import dev.biribiri.elysium.content.QuoteReviewed;
 import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.content.QuoteState;
 import dev.biribiri.elysium.content.RemoteStatusEdited;
 import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusLiked;
+import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusReacted;
 import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusStored;
@@ -158,6 +161,23 @@ public class Notifier {
     @ApplicationModuleListener
     public void on(QuoteReviewed event) {
         if (!event.accepted()) {
+            notifications.deletePendingQuote(event.quotedAuthorId(), event.statusId());
+        }
+    }
+
+    /**
+     * Takes back what the quoted author was told of a quote that an edit removed. The edit can have made the status quote
+     * another of their statuses, whose notification can be stored before this runs, so only what the quote is now doesn't
+     * show is removed.
+     */
+    @ApplicationModuleListener
+    public void on(QuoteRemoved event) {
+        notifications.lock();
+        var current = quotes.find(event.statusId()).filter(quote -> event.quotedAuthorId().equals(quote.quotedAccountId()));
+        if (current.filter(quote -> quote.state() == QuoteState.ACCEPTED).isEmpty()) {
+            notifications.deleteQuote(event.quotedAuthorId(), event.statusId());
+        }
+        if (current.filter(StatusQuote::isUnderReview).isEmpty()) {
             notifications.deletePendingQuote(event.quotedAuthorId(), event.statusId());
         }
     }

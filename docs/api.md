@@ -255,8 +255,12 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - With `review`, `quote_approval.manual` has `public`, so a client shows `current_user` as `manual` for everyone whose
   quotes aren't approved automatically. With `followers`, `automatic` has `followers`, and with `nobody` it's empty.
   Changing either setting doesn't change the quotes approved or waiting already.
-- `PUT /api/v1/statuses/:id` can't change what a status quotes, and a `quoted_status_id` other than the one it has gets
-  a 422.
+- `PUT /api/v1/statuses/:id` can change what a status quotes, which Mastodon ignores. A missing `quoted_status_id`, or
+  the one it quotes already, keeps the quote and its approval, and a null or empty one removes it. Another status is
+  quoted as it would be by a new status, with the same 404 and 422, and its quote is approved again. A status that
+  isn't followers-only or direct can't quote a followers-only one, a local-only one can't quote one from another
+  server, and one that isn't local-only can't quote a local-only one, since an edit can't change its visibility: each
+  gets a 422, as does quoting itself. The quoted author of a quote that's removed loses its notification.
 - A quote of a status on another server is `pending` until that server approves it, and `rejected` if it refuses.
   A quote of a local status whose quotes need approval is `pending` until its author decides.
 - `POST /api/v1/statuses/:id/quote/request`, which Mastodon doesn't have, asks again for approval of what one of the

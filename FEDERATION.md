@@ -1044,7 +1044,7 @@ whose document has no `featured` has no pins.
 
 Quotes follow [FEP-044f](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as on Mastodon: someone
 else's status is only shown in a quote once its author's server has approved the quote with a `QuoteAuthorization`. A
-status quotes at most one other, and a local user can't change what a status quotes by editing it.
+status quotes at most one other. A local user can change what a status quotes by editing it, or remove the quote.
 
 #### Quoting a status
 
@@ -1093,6 +1093,11 @@ one that it reads while it's still storing the `Create`.
 A local user can ask again for a quote that's pending, rejected, or revoked, at most once an hour. That sends a new
 `QuoteRequest` under a new `id`, `{status-uri}#quote_request/{milliseconds}`, since a server answers a repeat of the
 same request the same way. Only the newest request's answer counts.
+
+An edit that removes a quote sends an `Update` whose `Note` has none of the properties above. One that quotes another
+status sends an `Update` with the new quote, and approval is asked for as for a new quote, except that a `QuoteRequest`
+has a new `id`, as when asking again, so an answer to an earlier request doesn't count. The quoted author of a quote
+that's removed or replaced stays addressed in `cc`, or in `to` for a direct status, so their server gets the `Update`.
 
 A status on a server that doesn't say who can quote it, with an `interactionPolicy`, is taken to be from a server that
 can't approve quotes, so a quote of it is shown, and sent with all of the properties above, straight away. Its
@@ -1249,6 +1254,12 @@ arrives first is remembered for 34 days, like a status's, and a quote that names
   it can.
 - Mastodon only takes an `Accept` of a quote that's pending, so when a local user approves a Mastodon user's quote that
   they rejected, it's only shown here.
+- A local user can change or remove what a status quotes by editing it, which Mastodon doesn't allow. Nothing withdraws
+  a `QuoteRequest` that was waiting for the earlier quote, since FEP-044f has no way to, so its server can still show it
+  to the quoted author until they answer.
+- Servers that keep the quote a `Note` was created with, such as Pleroma, Akkoma, Iceshrimp.NET, and Misskey, go on
+  showing the earlier quote after an edit changes or removes it. Mastodon applies the change, since the `Update` has a
+  later `updated`.
 
 ### Polls
 
