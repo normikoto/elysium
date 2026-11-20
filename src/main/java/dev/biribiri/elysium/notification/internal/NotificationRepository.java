@@ -168,7 +168,7 @@ public class NotificationRepository {
     /**
      * @param source what identifies this edit of the boosted status, so that a repeat adds nothing
      * @param status the boosted status
-     * @param reblog the recipient's boost, which takes this with it when it's removed, as on Mastodon
+     * @param reblog the recipient's boost, which takes this with it when it's removed
      */
     public Optional<UUID> insertUpdate(UUID recipient, UUID sender, UUID source, UUID status, UUID reblog) {
         return insert(recipient, sender, "update", source, status, null, null, reblog, null);

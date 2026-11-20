@@ -448,7 +448,7 @@ Only these types are generated: `mention`, `follow`, `follow_request`, `favourit
 `pending.quote`, which [interaction requests](#interaction-requests) describes.
 
 - A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user quoted.
-  `update` arrives once for each edit of a status that a user boosted, and goes away if they unboost it, as on Mastodon.
+  `update` arrives, as on Mastodon, once for each edit of a status that a user boosted, and goes away if they unboost it.
 - A `poll` arrives within about a minute of a poll ending, for its author if they're a local user, and for each local
   user who voted in it. Its `account` is the poll's author.
 - `admin.report` goes to each admin, except one who filed the report. Only admins see them, so an account that stops
