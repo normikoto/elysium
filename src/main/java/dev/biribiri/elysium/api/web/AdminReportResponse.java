@@ -6,9 +6,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 @Schema(name = "AdminReport", description = """
-        Mastodon's Admin::Report entity. `rules` is always empty, since this server has no rules, and `statuses` leaves \
-        out statuses that have been deleted since. For a report from another server, `account` is whoever sent it, \
-        usually that server's instance actor.""")
+        Mastodon's Admin::Report entity. `rules` is always empty, since reports can't cite rules yet, and `statuses` \
+        leaves out statuses that have been deleted since. For a report from another server, `account` is whoever sent \
+        it, usually that server's instance actor.""")
 record AdminReportResponse(
         String id,
         @JsonProperty("action_taken") boolean actionTaken,

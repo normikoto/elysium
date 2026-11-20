@@ -11,6 +11,7 @@ import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.moderation.Rules;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -50,6 +51,7 @@ public class InstanceController {
     private final RegistrationProperties registration;
     private final ProfileService profiles;
     private final AttachmentProperties attachments;
+    private final Rules rules;
 
     InstanceController(
             InstanceProperties instance,
@@ -58,8 +60,10 @@ public class InstanceController {
             StatusService statuses,
             RegistrationProperties registration,
             ProfileService profiles,
-            AttachmentProperties attachments) {
+            AttachmentProperties attachments,
+            Rules rules) {
         this.attachments = attachments;
+        this.rules = rules;
         this.profiles = profiles;
         this.instance = instance;
         this.statusProperties = statusProperties;
@@ -109,7 +113,20 @@ public class InstanceController {
                         new InstanceResponse.Polls(Poll.MAX_OPTIONS, Poll.MAX_OPTION_CHARACTERS, Poll.MIN_EXPIRATION,
                                 Poll.MAX_EXPIRATION)),
                 null,
-                List.of());
+                rules());
+    }
+
+    @GetMapping("/v1/instance/rules")
+    @Operation(
+            operationId = "getInstanceRules",
+            summary = "View the server's rules",
+            description = """
+                    Differences from Mastodon: IDs are UUIDs rather than numbers, and rules have no `translations`. \
+                    Admins set them on the `/admin/rules` page.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#rules"),
+            responses = @ApiResponse(responseCode = "200", description = "The rules, in order."))
+    public List<RuleResponse> rules() {
+        return rules.list().stream().map(RuleResponse::from).toList();
     }
 
     /**
@@ -126,7 +143,7 @@ public class InstanceController {
                     and defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS + """
                      rather than 500. `api_versions.mastodon` is\s""" + MASTODON_API_VERSION + """
                     , which is when Mastodon added quotes, though some of what Mastodon added in the versions before it \
-                    isn't here, as `docs/api.md` lists. There's no thumbnail, icon, contact account, or rules, and \
+                    isn't here, as `docs/api.md` lists. There's no thumbnail, icon, or contact account, and \
                     `usage.users.active_month` counts every local account. Push notifications aren't implemented.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v2"),
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
@@ -157,7 +174,7 @@ public class InstanceController {
                         registration.acceptsUninvited(), registration.approvalRequired(), null),
                 Map.of("mastodon", MASTODON_API_VERSION),
                 new InstanceV2Response.Contact("", null),
-                List.of());
+                rules());
     }
 
     /**

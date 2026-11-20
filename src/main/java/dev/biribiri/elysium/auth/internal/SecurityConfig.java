@@ -106,7 +106,8 @@ class SecurityConfig {
      * matched by an ID's characters, so that paths such as {@code verify_credentials} still need a token.
      */
     private static final String[] PUBLIC_API_PATHS = {
-            "/api/v1/instance", "/api/v2/instance", "/api/v1/statuses/*", "/api/v1/statuses/*/context",
+            "/api/v1/instance", "/api/v1/instance/rules", "/api/v2/instance",
+            "/api/v1/statuses/*", "/api/v1/statuses/*/context",
             "/api/v1/statuses/*/history", "/api/v1/statuses/*/favourited_by", "/api/v1/statuses/*/reblogged_by",
             "/api/v1/polls/*", "/api/v1/custom_emojis",
             "/api/v1/pleroma/statuses/*/reactions", "/api/v1/pleroma/statuses/*/reactions/*",

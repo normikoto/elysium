@@ -1,0 +1,48 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Rules', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>
+            People see these rules when they sign up, and apps show them on the server's page. Each rule can have a hint
+            that explains it. They're plain text.
+        </p>
+        <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+        <form method="post" th:action="@{/admin/rules}">
+            <label for="text">Rule</label>
+            <input type="text" id="text" name="text" th:value="${text}" th:maxlength="${maxTextLength}" required autofocus>
+            <label for="hint">Hint (optional)</label>
+            <textarea id="hint" name="hint" th:maxlength="${maxHintLength}" th:text="${hint}"></textarea>
+            <button type="submit">Add rule</button>
+        </form>
+
+        <h2>Rules</h2>
+        <p th:if="${rules.isEmpty()}">There are no rules yet.</p>
+        <div class="status" th:each="rule, row : ${rules}">
+            <p class="status-meta"><strong th:text="|Rule ${row.count}|"></strong></p>
+            <form method="post" th:action="@{/admin/rules/{id}(id=${rule.id()})}">
+                <label th:for="|text-${rule.id()}|">Rule</label>
+                <input type="text" th:id="|text-${rule.id()}|" name="text" th:value="${rule.text()}"
+                       th:maxlength="${maxTextLength}" required>
+                <label th:for="|hint-${rule.id()}|">Hint</label>
+                <textarea th:id="|hint-${rule.id()}|" name="hint" th:maxlength="${maxHintLength}"
+                          th:text="${rule.hint()}"></textarea>
+                <button type="submit">Save</button>
+            </form>
+            <form class="actions" method="post" th:unless="${row.first}"
+                  th:action="@{/admin/rules/{id}/move(id=${rule.id()})}">
+                <input type="hidden" name="direction" value="up">
+                <button type="submit" th:aria-label="|Move rule ${row.count} up|">Move up</button>
+            </form>
+            <form class="actions" method="post" th:unless="${row.last}"
+                  th:action="@{/admin/rules/{id}/move(id=${rule.id()})}">
+                <input type="hidden" name="direction" value="down">
+                <button type="submit" th:aria-label="|Move rule ${row.count} down|">Move down</button>
+            </form>
+            <form class="actions" method="post" th:action="@{/admin/rules/{id}/delete(id=${rule.id()})}">
+                <button type="submit" th:aria-label="|Remove rule ${row.count}|">Remove</button>
+            </form>
+        </div>
+        <p><a href="/admin">Back to admin</a></p>
+    </div>
+</th:block>
+</html>

@@ -3,6 +3,7 @@ package dev.biribiri.elysium.auth.internal;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.mail.MailNotSentException;
+import dev.biribiri.elysium.moderation.Rules;
 import dev.biribiri.elysium.ratelimit.RateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -27,18 +28,21 @@ class AccountPagesController {
     private final Invites invites;
     private final RegistrationProperties registration;
     private final AuthRateLimits limits;
+    private final Rules rules;
 
     AccountPagesController(
             LocalAccounts accounts,
             SignUps signUps,
             Invites invites,
             RegistrationProperties registration,
-            AuthRateLimits limits) {
+            AuthRateLimits limits,
+            Rules rules) {
         this.accounts = accounts;
         this.signUps = signUps;
         this.invites = invites;
         this.registration = registration;
         this.limits = limits;
+        this.rules = rules;
     }
 
     @GetMapping(SecurityConfig.LOGIN_PATH)
@@ -214,6 +218,7 @@ class AccountPagesController {
         model.addAttribute("reason", reason == null ? "" : reason);
         model.addAttribute("askForReason", invite == null && registration.approvalRequired());
         model.addAttribute("maxReasonLength", SignUps.MAX_REASON_LENGTH);
+        model.addAttribute("rules", rules.list());
         return "signup";
     }
 
