@@ -157,6 +157,19 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - Unbookmarking a status the user can no longer see still removes the bookmark, but answers 404.
 - A bookmark goes when its status is deleted.
 
+### Muting threads
+
+- `POST /api/v1/statuses/:id/mute` and `/unmute` need `write:mutes`, and work on any status the user can see, as on
+  Mastodon. Repeats do nothing more, and a boost's ID stands for the status it boosts, so `muted` is always false on the
+  boost itself.
+- A mute covers the status's whole thread. When a missing parent arrives and joins two parts of a thread, a mute of
+  either part covers all of it.
+- A muted thread adds no notifications about its statuses, and unmuting it doesn't bring back what came while it was
+  muted. Quotes waiting for the user's review still ask for it, and direct statuses still reach
+  `GET /api/v1/conversations`.
+- Mutes are private. Nobody else is told, including other servers.
+- Unmuting a status the user can no longer see still unmutes its thread, but answers 404.
+
 ### Favourites
 
 - `GET /api/v1/favourites` needs `read:favourites`, and pages by when each status was favourited, with the favourites'

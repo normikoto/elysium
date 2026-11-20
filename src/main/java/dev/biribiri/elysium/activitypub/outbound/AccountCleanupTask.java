@@ -17,6 +17,7 @@ import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.ScheduledStatusService;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;
 import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.BlockService;
@@ -60,6 +61,7 @@ class AccountCleanupTask {
     private final ScheduledStatusService scheduled;
     private final Markers markers;
     private final BookmarkService bookmarks;
+    private final ThreadMuteService threadMutes;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles,
@@ -67,8 +69,10 @@ class AccountCleanupTask {
                        FollowersOnlyRecipients followersOnly,
                        PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
                        PostFilters filters, AccountLists lists, AccountMigrations migrations,
-                       ScheduledStatusService scheduled, Markers markers, BookmarkService bookmarks) {
+                       ScheduledStatusService scheduled, Markers markers, BookmarkService bookmarks,
+                       ThreadMuteService threadMutes) {
         this.bookmarks = bookmarks;
+        this.threadMutes = threadMutes;
         this.markers = markers;
         this.scheduled = scheduled;
         this.migrations = migrations;
@@ -104,6 +108,7 @@ class AccountCleanupTask {
                 reactions.removeForActor(actor.id());
                 pins.removeForActor(actor.id());
                 bookmarks.removeForActor(actor.id());
+                threadMutes.removeForActor(actor.id());
                 polls.removeForActor(actor.id());
                 // Before its statuses, so that none is posted after they've been removed.
                 scheduled.removeAllBy(actor.id());

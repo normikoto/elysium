@@ -28,6 +28,7 @@ import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.content.Visibility;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -112,16 +113,19 @@ public class StatusesController {
     private final ScheduledStatusService scheduled;
     private final InstanceProperties instance;
     private final BookmarkService bookmarks;
+    private final ThreadMuteService threadMutes;
     private final ActorService actors;
     private final AccountResponses accounts;
 
     StatusesController(StatusService statuses, StatusResponses responses, JsonBodies json, LikeService likes,
                        BoostService boosts, QuoteService quotes, StatusPinService pins, RemoteThreadFetcher threads,
                        ScheduledStatusService scheduled, InstanceProperties instance, BookmarkService bookmarks,
+                       ThreadMuteService threadMutes,
                        ActorService actors, AccountResponses accounts) {
         this.actors = actors;
         this.accounts = accounts;
         this.bookmarks = bookmarks;
+        this.threadMutes = threadMutes;
         this.scheduled = scheduled;
         this.instance = instance;
         this.quotes = quotes;
@@ -688,6 +692,50 @@ public class StatusesController {
         // The raw ID too, for a status whose author has since been suspended, which isn't found as a boost or not.
         return RequestParameters.uuid(id).map(raw -> boosts.original(raw).orElse(raw))
                 .flatMap(statusId -> bookmarks.unbookmark(statusId, viewer))
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/mute")
+    @PreAuthorize("hasAuthority('SCOPE_write:mutes')")
+    @Operation(operationId = "muteStatusThread", summary = "Mute a status's thread",
+            description = "Stops new notifications about statuses in the thread of a visible status, which a boost's "
+                    + "ID stands for. It covers every status in the thread, including parts of it that are fetched "
+                    + "later. Direct statuses still reach conversations, and quotes waiting for review still ask for "
+                    + "it. Nobody else is told. Repeats have no additional effect. " + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#mute"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status, its thread now muted."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse mute(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = requireUser(token);
+        return RequestParameters.uuid(id).flatMap(boosts::original).flatMap(statusId -> threadMutes.mute(statusId, viewer))
+                .map(found -> responses.one(found, RequestParameters.viewer(token)))
+                .orElseThrow(RecordNotFoundException::new);
+    }
+
+    @PostMapping("/{id}/unmute")
+    @PreAuthorize("hasAuthority('SCOPE_write:mutes')")
+    @Operation(operationId = "unmuteStatusThread", summary = "Unmute a status's thread",
+            description = "Unmutes the thread of a status, which a boost's ID stands for. Notifications from while it "
+                    + "was muted don't come back. Repeats, and threads that aren't muted, have no additional effect. "
+                    + "The thread is unmuted even if the user can no longer see the status, though that answers `404`. "
+                    + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unmute"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The status, its thread no longer muted."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public StatusResponse unmute(
+            @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var viewer = requireUser(token);
+        // The raw ID too, for a status whose author has since been suspended, which isn't found as a boost or not.
+        return RequestParameters.uuid(id).map(raw -> boosts.original(raw).orElse(raw))
+                .flatMap(statusId -> threadMutes.unmute(statusId, viewer))
                 .map(found -> responses.one(found, RequestParameters.viewer(token)))
                 .orElseThrow(RecordNotFoundException::new);
     }

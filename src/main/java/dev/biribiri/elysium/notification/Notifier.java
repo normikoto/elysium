@@ -19,6 +19,7 @@ import dev.biribiri.elysium.content.StatusReacted;
 import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
+import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.graph.AccountBlocked;
 import dev.biribiri.elysium.graph.FollowEstablished;
 import dev.biribiri.elysium.graph.FollowMoved;
@@ -51,11 +52,13 @@ public class Notifier {
     private final Reports reports;
     private final AccountActions accounts;
     private final PollService polls;
+    private final ThreadMuteService threadMutes;
     private final ApplicationEventPublisher events;
 
     Notifier(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
              BoostService boosts, Reports reports, AccountActions accounts, PollService polls,
-             ApplicationEventPublisher events) {
+             ThreadMuteService threadMutes, ApplicationEventPublisher events) {
+        this.threadMutes = threadMutes;
         this.boosts = boosts;
         this.polls = polls;
         this.events = events;
@@ -121,6 +124,7 @@ public class Notifier {
         conversations.holdActors(people(List.copyOf(quoting.values()), editorId));
         quoting.forEach((quoteId, authorId) -> {
             conversations.holdSource(quoteId).filter(source -> source.authorId().equals(authorId))
+                    .filter(source -> !threadMuted(authorId, source.id()))
                     .ifPresent(source -> notified(authorId, notifications.insertQuotedUpdate(authorId, editorId,
                             UUID.nameUUIDFromBytes((quoteId + "\n" + editedAt.toEpochMilli())
                                     .getBytes(StandardCharsets.UTF_8)), quoteId)));
@@ -139,7 +143,8 @@ public class Notifier {
         conversations.holdActors(people(boosting.stream().map(StatusBoost::actorId).toList(), editorId));
         conversations.holdSource(statusId).filter(source -> source.authorId().equals(editorId)).ifPresent(source -> {
             for (var boost : boosting) {
-                if (conversations.currentReblog(boost.id(), boost.actorId(), statusId)) {
+                if (conversations.currentReblog(boost.id(), boost.actorId(), statusId)
+                        && !threadMuted(boost.actorId(), source.id())) {
                     notified(boost.actorId(), notifications.insertUpdate(boost.actorId(), editorId,
                             UUID.nameUUIDFromBytes((boost.id() + "\n" + editedAt.toEpochMilli())
                                     .getBytes(StandardCharsets.UTF_8)), source.id(), boost.id()));
@@ -160,6 +165,7 @@ public class Notifier {
         conversations.holdActors(List.of(event.authorId(), event.quotedAuthorId()));
         notifications.deletePendingQuote(event.quotedAuthorId(), event.statusId());
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
+                .filter(source -> !threadMuted(event.quotedAuthorId(), source.id()))
                 .ifPresent(source -> notified(event.quotedAuthorId(), notifications.insertQuote(event.quotedAuthorId(), event.authorId(), source.id())));
     }
 
@@ -224,7 +230,7 @@ public class Notifier {
         notifications.lock();
         conversations.holdActors(people(told, event.authorId()));
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
-                .ifPresent(source -> told.forEach(
+                .ifPresent(source -> told.stream().filter(recipient -> !threadMuted(recipient, source.id())).forEach(
                         recipient -> notified(recipient, notifications.insertPoll(recipient, event.authorId(), source.id()))));
     }
 
@@ -243,7 +249,7 @@ public class Notifier {
         conversations.holdActors(people);
         conversations.holdSource(statusId).ifPresent(source -> {
             for (var recipient : conversations.localRecipients(mentioned)) {
-                if (!recipient.equals(source.authorId()) && told.test(recipient)) {
+                if (!recipient.equals(source.authorId()) && told.test(recipient) && !threadMuted(recipient, source.id())) {
                     notified(recipient, notifications.insert(recipient, source.authorId(), "mention", source.id(), source.id(), null));
                 }
             }
@@ -266,6 +272,15 @@ public class Notifier {
         var here = conversations.localRecipients(people(mentioned, source.get().authorId()));
         return source.get().direct() ? !here.isEmpty()
                 : here.stream().anyMatch(id -> mentioned.contains(id) && !id.equals(source.get().authorId()));
+    }
+
+    /**
+     * As on Mastodon, a muted thread's notifications are never added, so unmuting it doesn't bring back what came while
+     * it was muted. A direct status still joins its conversation, and a quote waiting for review still asks for it, since
+     * the account has to decide on it.
+     */
+    private boolean threadMuted(UUID recipient, UUID statusId) {
+        return threadMutes.isMuted(recipient, statusId);
     }
 
     private void notified(UUID recipient, Optional<UUID> notification) {
@@ -336,6 +351,7 @@ public class Notifier {
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
                 .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
                 .filter(source -> conversations.currentLike(event.likeId(), event.actorId(), event.statusId()))
+                .filter(source -> !threadMuted(event.authorId(), source.id()))
                 .ifPresent(source -> notified(event.authorId(), notifications.insertFavourite(event.authorId(), event.actorId(), event.likeId(), source.id())));
     }
 
@@ -348,6 +364,7 @@ public class Notifier {
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
                 .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
                 .filter(source -> conversations.currentReaction(event.reactionId(), event.actorId(), event.statusId()))
+                .filter(source -> !threadMuted(event.authorId(), source.id()))
                 .ifPresent(source -> notified(event.authorId(),
                         notifications.insertReaction(event.authorId(), event.actorId(), event.reactionId(), source.id())));
     }
@@ -361,6 +378,7 @@ public class Notifier {
         conversations.holdSource(event.statusId()).filter(source -> source.authorId().equals(event.authorId()))
                 .filter(source -> !conversations.localRecipients(List.of(event.authorId())).isEmpty())
                 .filter(source -> conversations.currentReblog(event.boostId(), event.actorId(), event.statusId()))
+                .filter(source -> !threadMuted(event.authorId(), source.id()))
                 .ifPresent(source -> notified(event.authorId(), notifications.insertReblog(event.authorId(), event.actorId(), event.boostId(), source.id())));
     }
 
