@@ -57,6 +57,7 @@ record StatusResponse(
         PollResponse poll,
         boolean favourited,
         boolean reblogged,
+        @Schema(description = "Whether the viewer muted the status's thread. Always false for a boost.")
         boolean muted,
         boolean bookmarked,
         boolean pinned,
@@ -106,13 +107,14 @@ record StatusResponse(
      * @param reblog the boosted status, for a boost, or null
      * @param pinned   whether the viewer pinned it, which only its author can have
      * @param bookmarked whether the viewer bookmarked it
+     * @param muted whether the viewer muted its thread
      * @param filtered the viewer's filters that it matches, or null if there's no viewer
      */
     static StatusResponse from(
             Status status, boolean showsParent, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
             List<CustomEmojiResponse> emojis, List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
             Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll, boolean pinned,
-            boolean bookmarked, List<FilterResponse.ResultResponse> filtered, List<ReactionResponse> reactions) {
+            boolean bookmarked, boolean muted, List<FilterResponse.ResultResponse> filtered, List<ReactionResponse> reactions) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -142,7 +144,7 @@ record StatusResponse(
                 poll,
                 likes.favourited(),
                 boosts.reblogged(),
-                false,
+                muted,
                 bookmarked,
                 pinned,
                 quote,

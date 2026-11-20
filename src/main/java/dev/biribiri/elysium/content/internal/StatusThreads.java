@@ -17,8 +17,11 @@ public class StatusThreads {
     private final JdbcClient jdbc;
     private final ApplicationEventPublisher events;
     private final StatusRepository statuses;
+    private final ThreadMuteRepository mutes;
 
-    StatusThreads(JdbcClient jdbc, ApplicationEventPublisher events, StatusRepository statuses) {
+    StatusThreads(JdbcClient jdbc, ApplicationEventPublisher events, StatusRepository statuses,
+                  ThreadMuteRepository mutes) {
+        this.mutes = mutes;
         this.jdbc = jdbc;
         this.events = events;
         this.statuses = statuses;
@@ -44,6 +47,7 @@ public class StatusThreads {
                         .param("keep", pair.keep()).param("remove", pair.remove()).update();
                 jdbc.sql("UPDATE status_thread_alias SET thread_id = :keep WHERE thread_id = :remove")
                         .param("keep", pair.keep()).param("remove", pair.remove()).update();
+                mutes.move(pair.remove(), pair.keep());
                 events.publishEvent(new StatusThreadsMerged(pair.remove(), pair.keep()));
             }
         }

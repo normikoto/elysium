@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/api.md`.
 - Apps can read a user's posting and reading defaults through the Mastodon API's `GET /api/v1/preferences`. Only the
   quote policy can be changed so far. See `docs/api.md`.
+- People can mute a thread from apps that support it, through the Mastodon API's `POST /api/v1/statuses/:id/mute` and
+  `/unmute`, to stop getting notifications about its posts. See `docs/api.md`.
 
 ## [0.3.0] - 2026-11-20
 

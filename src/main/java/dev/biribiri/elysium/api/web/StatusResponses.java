@@ -22,6 +22,7 @@ import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.QuoteDecision;
@@ -67,12 +68,14 @@ class StatusResponses {
     private final CustomEmojis emojis;
     private final ReactionService reactions;
     private final BookmarkService bookmarks;
+    private final ThreadMuteService threadMutes;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
             StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments,
             QuoteService quotes, BlockService blocks, PollService polls, StatusPinService pins, PostFilters filters,
-            CustomEmojis emojis, ReactionService reactions, BookmarkService bookmarks) {
+            CustomEmojis emojis, ReactionService reactions, BookmarkService bookmarks, ThreadMuteService threadMutes) {
+        this.threadMutes = threadMutes;
         this.reactions = reactions;
         this.bookmarks = bookmarks;
         this.filters = filters;
@@ -244,6 +247,7 @@ class StatusResponses {
         var pollsById = polls.findAll(ids, viewer);
         var pinned = pins.pinnedIds(all, viewer);
         var bookmarked = bookmarks.bookmarkedIds(ids, viewer);
+        var muted = threadMutes.mutedIds(ids, viewer);
         var shownParents = shownParents(all, viewer);
         var matcher = viewer.map(filters::matcher).orElse(PostFilterMatcher.NONE);
         var byId = all.stream().collect(Collectors.toMap(Status::id, Function.identity(), (a, b) -> a));
@@ -291,6 +295,7 @@ class StatusResponses {
                         .orElse(null),
                 pinned.contains(status.id()),
                 !status.isReblog() && bookmarked.contains(status.id()),
+                !status.isReblog() && muted.contains(status.id()),
                 viewer.isEmpty() ? null
                         : matchesOf.apply(status).stream().map(FilterResponse.ResultResponse::from).toList(),
                 status.isReblog() ? List.of() : reactionsById.getOrDefault(status.id(), List.of()).stream()
