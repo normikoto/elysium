@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bookmarks, as on Mastodon, for apps that support them. They're private, and search finds bookmarked posts. See
+  `docs/api.md`.
 - Profile pages have a follow button. Visitors from other servers can enter their address to follow from their own server,
   and people here can follow from profiles on Mastodon and other servers that support remote follow. See
   `docs/accounts.md` and `FEDERATION.md`.

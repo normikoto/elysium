@@ -105,13 +105,14 @@ record StatusResponse(
      *                    named, as when the parent isn't stored
      * @param reblog the boosted status, for a boost, or null
      * @param pinned   whether the viewer pinned it, which only its author can have
+     * @param bookmarked whether the viewer bookmarked it
      * @param filtered the viewer's filters that it matches, or null if there's no viewer
      */
     static StatusResponse from(
             Status status, boolean showsParent, AccountResponse account, List<MentionResponse> mentions, List<StatusTagResponse> tags,
             List<CustomEmojiResponse> emojis, List<MediaAttachmentResponse> mediaAttachments, boolean includeText, LikeStats likes, BoostStats boosts, StatusResponse reblog,
             Object quote, QuoteApprovalResponse quoteApproval, long quotesCount, PollResponse poll, boolean pinned,
-            List<FilterResponse.ResultResponse> filtered, List<ReactionResponse> reactions) {
+            boolean bookmarked, List<FilterResponse.ResultResponse> filtered, List<ReactionResponse> reactions) {
         return new StatusResponse(
                 status.id().toString(),
                 ApiTimestamps.format(status.publishedAt()),
@@ -142,7 +143,7 @@ record StatusResponse(
                 likes.favourited(),
                 boosts.reblogged(),
                 false,
-                false,
+                bookmarked,
                 pinned,
                 quote,
                 quoteApproval,

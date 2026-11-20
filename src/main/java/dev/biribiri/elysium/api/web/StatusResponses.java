@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.BookmarkService;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.BoostStats;
 import dev.biribiri.elysium.content.Status;
@@ -65,13 +66,15 @@ class StatusResponses {
     private final PostFilters filters;
     private final CustomEmojis emojis;
     private final ReactionService reactions;
+    private final BookmarkService bookmarks;
 
     StatusResponses(
             ActorService actors, AccountResponses accounts, InstanceProperties instance,
             StatusService statuses, LikeService likes, BoostService boosts, MediaAttachments attachments,
             QuoteService quotes, BlockService blocks, PollService polls, StatusPinService pins, PostFilters filters,
-            CustomEmojis emojis, ReactionService reactions) {
+            CustomEmojis emojis, ReactionService reactions, BookmarkService bookmarks) {
         this.reactions = reactions;
+        this.bookmarks = bookmarks;
         this.filters = filters;
         this.emojis = emojis;
         this.polls = polls;
@@ -190,6 +193,18 @@ class StatusResponses {
     }
 
     /**
+     * Like {@link #page}, for a list paged by something other than its statuses' IDs.
+     *
+     * @param cursors the IDs that the page's links are made from, newest first, including any whose statuses were left out
+     */
+    ResponseEntity<List<StatusResponse>> page(
+            String path, StatusPage page, List<UUID> cursors, List<Status> found, Optional<UUID> viewer) {
+        var response = ResponseEntity.ok();
+        PageLinks.addTo(response, instance, path, Map.of(), page.limit(), cursors);
+        return response.body(shown(build(found, false, viewer, Map.of()), Optional.empty()));
+    }
+
+    /**
      * Leaves out statuses whose author can't be loaded, such as when the account was suspended or deleted after the
      * statuses were read, so that one of them doesn't fail the whole response. A boost is left out the same way when the
      * status it boosts can't be shown to the viewer.
@@ -228,6 +243,7 @@ class StatusResponses {
         var quoteCounts = quotes.acceptedCounts(ids);
         var pollsById = polls.findAll(ids, viewer);
         var pinned = pins.pinnedIds(all, viewer);
+        var bookmarked = bookmarks.bookmarkedIds(ids, viewer);
         var shownParents = shownParents(all, viewer);
         var matcher = viewer.map(filters::matcher).orElse(PostFilterMatcher.NONE);
         var byId = all.stream().collect(Collectors.toMap(Status::id, Function.identity(), (a, b) -> a));
@@ -274,6 +290,7 @@ class StatusResponses {
                         .map(poll -> PollResponse.from(poll, now, emojisById.getOrDefault(status.id(), List.of())))
                         .orElse(null),
                 pinned.contains(status.id()),
+                !status.isReblog() && bookmarked.contains(status.id()),
                 viewer.isEmpty() ? null
                         : matchesOf.apply(status).stream().map(FilterResponse.ResultResponse::from).toList(),
                 status.isReblog() ? List.of() : reactionsById.getOrDefault(status.id(), List.of()).stream()

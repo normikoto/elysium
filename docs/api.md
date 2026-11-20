@@ -141,6 +141,19 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   pin. Unpinning a status that isn't pinned does nothing.
 - `pinned` is only true for the user's own statuses.
 
+### Bookmarks
+
+- `POST /api/v1/statuses/:id/bookmark` and `/unbookmark` need `write:bookmarks`, and `GET /api/v1/bookmarks` needs
+  `read:bookmarks`. Repeats do nothing more, and a boost's ID stands for the status it boosts.
+- Bookmarks are private. Nobody else is told, including the status's author and other servers, and `bookmarked` is only
+  true for the user who made it.
+- `GET /api/v1/bookmarks` pages by when each status was bookmarked, with the bookmarks' IDs as cursors in the `Link`
+  header, as on Mastodon. Statuses the user can no longer see, such as those of an account that blocks them, are left
+  out, so a page can be shorter than `limit` and still have more after it. Filters don't hide them, but are given in
+  `filtered`.
+- Unbookmarking a status the user can no longer see still removes the bookmark, but answers 404.
+- A bookmark goes when its status is deleted.
+
 ### Statuses from other servers
 
 - A status from another server is only stored when it's sent here: when a local account follows its author or is
@@ -734,13 +747,13 @@ Only these exist:
 - `search` finds hashtags by the start of their name, from those that public statuses stored here use, most used first.
   A query that's a valid name, with or without its `#`, also finds that tag when nothing uses it, as the first result,
   as on Mastodon. Only the first 200 can be paged through with `offset`.
-- `search` only finds statuses for a signed-in user. As on Mastodon, those are the statuses they wrote, favourited, or
-  are mentioned in, and public statuses by accounts whose `indexable` is true, newest first. It only finds what the user
-  can see, and leaves out accounts they block or mute. Unlike Mastodon:
+- `search` only finds statuses for a signed-in user. As on Mastodon, those are the statuses they wrote, favourited,
+  bookmarked, or are mentioned in, and public statuses by accounts whose `indexable` is true, newest first. It only
+  finds what the user can see, and leaves out accounts they block or mute. Unlike Mastodon:
   - It matches whole words of a status's text and content warning, in any language, with no stemming, so `cats` doesn't
     find `cat`. Words in quotes are a phrase, `OR` goes between alternatives, and `-` before a word leaves out statuses
     that have it. Mastodon's operators, such as `from:`, `has:`, and `before:`, aren't supported, and are read as words.
-  - Poll options and media descriptions aren't searched, and there are no bookmarks to search.
+  - Poll options and media descriptions aren't searched.
   - A `username@domain` query finds no statuses, and an `https` query finds only the status at that URL.
   - The user's filters don't leave statuses out, but are given in `filtered`.
   - Only the first 200 statuses can be paged through with `offset`, and `max_id` and `min_id` page through the rest.
