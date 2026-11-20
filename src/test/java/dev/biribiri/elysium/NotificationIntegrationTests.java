@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.Status;
@@ -69,6 +70,7 @@ class NotificationIntegrationTests {
     @Autowired MockMvc mvc;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired BoostService boosts;
     @Autowired FollowService follows;
     @Autowired ProfileService profiles;
     @Autowired NotificationService notifications;
@@ -144,6 +146,31 @@ class NotificationIntegrationTests {
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].type").value("mention"))
                 .andExpect(jsonPath("$[0].status.id").value(status.id().toString()));
+    }
+
+    @Test
+    void eachEditNotifiesTheLocalAccountsThatBoostedItUntilTheyUnboost() throws Exception {
+        var status = createStatus(alice, "hi", PUBLIC, null);
+        assertThat(boosts.reblog(status.id(), bob.id(), PUBLIC)).isPresent();
+        assertThat(boosts.reblog(status.id(), alice.id(), PUBLIC)).isPresent();
+        settled();
+        statuses.edit(status.id(), alice.id(), new StatusEdit("hi again", null, null, null));
+        settled();
+        var updates = NOTIFICATIONS + "?types[]=update";
+        mvc.perform(get(updates).with(user(bob)))
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].type").value("update"))
+                .andExpect(jsonPath("$[0].account.id").value(alice.id().toString()))
+                .andExpect(jsonPath("$[0].status.id").value(status.id().toString()));
+        mvc.perform(get(updates).with(user(alice))).andExpect(jsonPath("$", empty()));
+        mvc.perform(get(updates).with(user(carol))).andExpect(jsonPath("$", empty()));
+
+        statuses.edit(status.id(), alice.id(), new StatusEdit("hi once more", null, null, null));
+        settled();
+        mvc.perform(get(updates).with(user(bob))).andExpect(jsonPath("$", hasSize(2)));
+
+        boosts.unreblog(status.id(), bob.id());
+        mvc.perform(get(updates).with(user(bob))).andExpect(jsonPath("$", empty()));
     }
 
     @Test

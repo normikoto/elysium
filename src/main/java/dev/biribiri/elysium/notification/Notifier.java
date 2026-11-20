@@ -1,6 +1,8 @@
 package dev.biribiri.elysium.notification;
 
 import dev.biribiri.elysium.auth.AccountActions;
+import dev.biribiri.elysium.content.BoostService;
+import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.PollEnded;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteAccepted;
@@ -45,13 +47,16 @@ public class Notifier {
     private final ConversationRepository conversations;
     private final NotificationRepository notifications;
     private final QuoteService quotes;
+    private final BoostService boosts;
     private final Reports reports;
     private final AccountActions accounts;
     private final PollService polls;
     private final ApplicationEventPublisher events;
 
     Notifier(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
-             Reports reports, AccountActions accounts, PollService polls, ApplicationEventPublisher events) {
+             BoostService boosts, Reports reports, AccountActions accounts, PollService polls,
+             ApplicationEventPublisher events) {
+        this.boosts = boosts;
         this.polls = polls;
         this.events = events;
         this.conversations = conversations;
@@ -93,6 +98,7 @@ public class Notifier {
     @ApplicationModuleListener
     public void on(StatusEdited event) {
         quotedUpdate(event.statusId(), event.authorId(), event.editedAt());
+        boostedUpdate(event.statusId(), event.authorId(), event.editedAt());
         if (event.addedMentions().isEmpty()) return;
         project(event.statusId(), Set.copyOf(event.addedMentions())::contains);
     }
@@ -100,6 +106,7 @@ public class Notifier {
     @ApplicationModuleListener
     public void on(RemoteStatusEdited event) {
         quotedUpdate(event.statusId(), event.authorId(), event.editedAt());
+        boostedUpdate(event.statusId(), event.authorId(), event.editedAt());
     }
 
     /**
@@ -117,6 +124,27 @@ public class Notifier {
                     .ifPresent(source -> notified(authorId, notifications.insertQuotedUpdate(authorId, editorId,
                             UUID.nameUUIDFromBytes((quoteId + "\n" + editedAt.toEpochMilli())
                                     .getBytes(StandardCharsets.UTF_8)), quoteId)));
+        });
+    }
+
+    /**
+     * Mastodon's {@code update}: tells the local accounts that boosted a status that it's been edited, since what they
+     * shared with their followers has changed. Each edit is told once, however often this runs.
+     */
+    private void boostedUpdate(UUID statusId, UUID editorId, Instant editedAt) {
+        var boosting = boosts.findLocal(statusId).stream()
+                .filter(boost -> !boost.actorId().equals(editorId)).toList();
+        if (boosting.isEmpty()) return;
+        notifications.lock();
+        conversations.holdActors(people(boosting.stream().map(StatusBoost::actorId).toList(), editorId));
+        conversations.holdSource(statusId).filter(source -> source.authorId().equals(editorId)).ifPresent(source -> {
+            for (var boost : boosting) {
+                if (conversations.currentReblog(boost.id(), boost.actorId(), statusId)) {
+                    notified(boost.actorId(), notifications.insertUpdate(boost.actorId(), editorId,
+                            UUID.nameUUIDFromBytes((boost.id() + "\n" + editedAt.toEpochMilli())
+                                    .getBytes(StandardCharsets.UTF_8)), source.id(), boost.id()));
+                }
+            }
         });
     }
 
