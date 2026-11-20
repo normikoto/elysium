@@ -58,6 +58,7 @@ class FavouritesIntegrationTests {
         TestAccounts.makeSureAnAccountExists(actors);
         jdbc.sql("DELETE FROM status").update();
         jdbc.sql("DELETE FROM account_block").update();
+        jdbc.sql("DELETE FROM account_mute").update();
         jdbc.sql("DELETE FROM follow").update();
         jdbc.sql("UPDATE actor SET suspended_at = NULL").update();
     }
@@ -182,6 +183,29 @@ class FavouritesIntegrationTests {
     }
 
     @Test
+    void leavesOutAccountsHiddenFromTheViewerOrBlockingThem() throws Exception {
+        var id = create(bob(), "public");
+        for (var token : new String[]{alice(), carol(), dave()}) {
+            favourite(token, id);
+            reblog(token, id, "public");
+        }
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + accountId(alice()) + "/block"), bob()))
+                .andExpect(status().isOk());
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + accountId(carol()) + "/mute"), bob()))
+                .andExpect(status().isOk());
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + accountId(bob()) + "/block"), dave()))
+                .andExpect(status().isOk());
+
+        for (var list : new String[]{"/favourited_by", "/reblogged_by"}) {
+            list(bob(), "/api/v1/statuses/" + id + list).andExpect(jsonPath("$", empty()));
+            mockMvc.perform(get("/api/v1/statuses/" + id + list)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$[*].username", contains("dave", "carol", "alice")));
+            list(carol(), "/api/v1/statuses/" + id + list)
+                    .andExpect(jsonPath("$[*].username", contains("dave", "carol", "alice")));
+        }
+    }
+
+    @Test
     void refusesStatusesTheViewerCantSee() throws Exception {
         var followersOnly = create(bob(), "private");
         favourite(bob(), followersOnly);
@@ -267,6 +291,10 @@ class FavouritesIntegrationTests {
 
     private String carol() throws Exception {
         return token("carol", "read write follow");
+    }
+
+    private String dave() throws Exception {
+        return token("dave", "read write follow");
     }
 
     /**

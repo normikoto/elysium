@@ -3,6 +3,7 @@ package dev.biribiri.elysium.content.internal;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.AccountPage;
 import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.graph.HiddenAccounts;
 import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.LikeStats;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -167,12 +169,23 @@ public class LikeRepository {
 
     /**
      * The likes of a status by eligible actors, paged by the likes' IDs.
+     *
+     * @param viewer a local account, from whom the actors it has hidden, or that block it, are left out
      */
-    public List<StatusLike> pageForStatus(UUID statusId, AccountPage page) {
+    public List<StatusLike> pageForStatus(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+        var parameters = new HashMap<String, Object>(Map.of("status", statusId));
+        viewer.ifPresent(id -> parameters.put("viewer", id));
         return IdPages.find(jdbc, "SELECT l.* FROM status_like l JOIN actor a ON a.id = l.actor_id "
-                        + "WHERE l.status_id = :status AND " + eligible("a"), Map.of("status", statusId), "l.id",
-                page.maxId(), page.sinceId(), page.minId(), page.limit(),
+                        + "WHERE l.status_id = :status AND " + eligible("a") + hiddenFrom(viewer, "a"), parameters,
+                "l.id", page.maxId(), page.sinceId(), page.minId(), page.limit(),
                 spec -> spec.query(StatusLike.class).list());
+    }
+
+    /**
+     * Filtered in the query rather than afterwards, so that a page isn't emptied after it's been chosen.
+     */
+    static String hiddenFrom(Optional<UUID> viewer, String actor) {
+        return viewer.isPresent() ? " AND " + HiddenAccounts.visibleInTimelines(actor) : "";
     }
 
     public record ActorLike(UUID id, UUID statusId) {

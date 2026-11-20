@@ -165,11 +165,12 @@ public class LikeService {
     }
 
     /**
-     * The likes of a status by accounts that haven't been suspended or deleted, newest first. Whether the status can be
-     * seen is the caller's to check.
+     * The likes of a status by accounts that haven't been suspended or deleted, newest first, leaving out those the
+     * viewer has blocked, muted, or blocked the server of, and those that block the viewer, as Mastodon does. Whether
+     * the status can be seen is the caller's to check.
      */
-    public List<StatusLike> likers(UUID statusId, AccountPage page) {
-        return likes.pageForStatus(statusId, page);
+    public List<StatusLike> likers(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+        return likes.pageForStatus(statusId, viewer, page);
     }
 
     /**

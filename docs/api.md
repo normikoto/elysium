@@ -161,7 +161,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   shorter than `limit` and still have more after it. Filters don't hide them, but are given in `filtered`.
 - `GET /api/v1/statuses/:id/favourited_by` needs no token for a status anyone can see, and a boost's ID stands for the
   status it boosts. It pages by the favourites' IDs, like `GET /api/v1/favourites`, and leaves out suspended and deleted
-  accounts, and those on suspended servers.
+  accounts, and those on suspended servers. With a token, it also leaves out accounts the user has blocked, muted, or
+  blocked the server of, and those that block the user, as on Mastodon.
 - For a status from another server, `favourited_by` only lists this server's accounts, since favourites from elsewhere
   aren't sent here.
 

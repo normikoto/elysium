@@ -218,10 +218,11 @@ public class BoostService {
 
     /**
      * The public and unlisted boosts of a status by accounts that haven't been suspended or deleted, newest first.
-     * Whether the status can be seen is the caller's to check.
+     * Accounts are left out for a viewer as in {@link LikeService#likers}. Whether the status can be seen is the
+     * caller's to check.
      */
-    public List<StatusBoost> boosters(UUID statusId, AccountPage page) {
-        return boosts.pagePublic(statusId, page);
+    public List<StatusBoost> boosters(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+        return boosts.pagePublic(statusId, viewer, page);
     }
 
     public Map<UUID, BoostStats> stats(Collection<UUID> ids, Optional<UUID> viewer) {

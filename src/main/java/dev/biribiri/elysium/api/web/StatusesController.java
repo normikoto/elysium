@@ -79,7 +79,9 @@ public class StatusesController {
     private static final String INTERACTIONS = """
             Works without a token for public and unlisted statuses. A boost's ID stands for the status it boosts. \
             Pages are by when each was made, and the cursors are the IDs in the `Link` header, not account IDs, as on \
-            Mastodon. Suspended and deleted accounts, and those on suspended servers, are left out.""";
+            Mastodon. Suspended and deleted accounts, and those on suspended servers, are left out. With a token, \
+            so are accounts the user has blocked, muted, or blocked the server of, and those that block the user, as \
+            on Mastodon.""";
 
     private static final String INTERACTION_LIMIT = "How many to return. Values outside 1 to "
             + AccountPage.MAX_LIMIT + " are clamped to them.";
@@ -407,7 +409,7 @@ public class StatusesController {
             @RequestParam(name = "min_id", required = false) String minId) {
         var status = visibleOriginal(token, id);
         var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
-        var found = likes.likers(status.id(), page);
+        var found = likes.likers(status.id(), RequestParameters.viewer(token), page);
         return interactions("/favourited_by", status, page,
                 found.stream().map(StatusLike::id).toList(), found.stream().map(StatusLike::actorId).toList());
     }
@@ -436,7 +438,7 @@ public class StatusesController {
             @RequestParam(name = "min_id", required = false) String minId) {
         var status = visibleOriginal(token, id);
         var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
-        var found = boosts.boosters(status.id(), page);
+        var found = boosts.boosters(status.id(), RequestParameters.viewer(token), page);
         return interactions("/reblogged_by", status, page,
                 found.stream().map(StatusBoost::id).toList(), found.stream().map(StatusBoost::actorId).toList());
     }
