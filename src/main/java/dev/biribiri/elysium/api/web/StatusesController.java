@@ -405,8 +405,8 @@ public class StatusesController {
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
             @RequestParam(name = "min_id", required = false) String minId) {
-        var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
         var status = visibleOriginal(token, id);
+        var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
         var found = likes.likers(status.id(), page);
         return interactions("/favourited_by", status, page,
                 found.stream().map(StatusLike::id).toList(), found.stream().map(StatusLike::actorId).toList());
@@ -434,16 +434,16 @@ public class StatusesController {
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
             @RequestParam(name = "min_id", required = false) String minId) {
-        var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
         var status = visibleOriginal(token, id);
+        var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
         var found = boosts.boosters(status.id(), page);
         return interactions("/reblogged_by", status, page,
                 found.stream().map(StatusBoost::id).toList(), found.stream().map(StatusBoost::actorId).toList());
     }
 
     /**
-     * Resolves the status before the cursors are used, so that one the viewer can't see gets a 404 even when they're
-     * valid.
+     * Resolves the status before the cursors are read, so that one the viewer can't see gets a 404 even when they
+     * aren't valid.
      */
     private Status visibleOriginal(TokenPrincipal token, String id) {
         return RequestParameters.uuid(id).flatMap(boosts::original)
@@ -453,7 +453,7 @@ public class StatusesController {
 
     /**
      * @param cursors  the favourites' or boosts' IDs, newest first, which page links are made from
-     * @param actorIds their accounts, in the same order. An account suspended since the page was read is left out.
+     * @param actorIds their accounts, in the same order. An account removed since the page was read is left out.
      */
     private ResponseEntity<List<AccountResponse>> interactions(
             String suffix, Status status, AccountPage page, List<UUID> cursors, List<UUID> actorIds) {
