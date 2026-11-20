@@ -71,7 +71,8 @@ The script checks:
   mentions alice, and Elysium's `?pinned=true` has to follow. GoToSocial doesn't send `Add`s either, so there the lab user's
   profile is changed after each, and Elysium reads its `featured` collection from the `Update`.
 - **Quotes:** alice quotes a lab post, which Elysium shows as accepted once the peer approves it, and Mastodon has to show
-  as approved too. The peer then quotes alice's public post, which Elysium approves automatically and notifies her of. On
+  as approved too. On Mastodon, alice then edits it to quote another lab post, which Mastodon has to approve and show as
+  the quote, and then edits the quote away, which Mastodon has to drop. The peer then quotes alice's public post, which Elysium approves automatically and notifies her of. On
   Mastodon, alice then revokes it, and Mastodon has to show it as revoked. GoToSocial's posts say only their author can
   quote them, so there this only checks that Elysium refuses to quote one.
 - **Reviewing quotes:** on Mastodon and Misskey, alice posts a status whose quotes she reviews by hand, and the peer quotes
