@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- People get an `update` notification when a post they boosted is edited, as on Mastodon. See `docs/api.md`.
+
 ## [0.3.0] - 2026-11-20
 
 ### Added

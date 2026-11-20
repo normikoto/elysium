@@ -444,10 +444,11 @@ Follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/noti
 ### Types
 
 Only these types are generated: `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`,
-`poll`, `move`, `admin.report`, `pleroma:emoji_reaction`, which [Emoji reactions](#emoji-reactions) describes, and
+`update`, `poll`, `move`, `admin.report`, `pleroma:emoji_reaction`, which [Emoji reactions](#emoji-reactions) describes, and
 `pending.quote`, which [interaction requests](#interaction-requests) describes.
 
 - A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user quoted.
+  `update` arrives, as on Mastodon, once for each edit of a status that a user boosted, and goes away if they unboost it.
 - A `poll` arrives within about a minute of a poll ending, for its author if they're a local user, and for each local
   user who voted in it. Its `account` is the poll's author.
 - `admin.report` goes to each admin, except one who filed the report. Only admins see them, so an account that stops
@@ -460,7 +461,7 @@ Only these types are generated: `mention`, `follow`, `follow_request`, `favourit
 - A `follow_request` notification is removed once the request is approved, refused, or withdrawn, as on Mastodon.
   Approving it adds a `follow` notification from the new follower, which Mastodon doesn't, including when requests are
   approved because the account stopped approving followers by hand, or approves requests from accounts it follows.
-- Notifications of subscribed accounts' posts and edits, and `admin.sign_up`, await their features.
+- Notifications of subscribed accounts' posts, and `admin.sign_up`, await their features.
 - Notifications start with new activity after upgrading, so historical mentions and follows don't generate any.
   Silent mentions and self-mentions don't notify.
 - An update may appear shortly after the activity that caused it is stored.

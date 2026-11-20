@@ -209,6 +209,13 @@ public class BoostService {
         return boosts.find(boostId);
     }
 
+    /**
+     * The boosts of a status by local accounts that haven't been deleted.
+     */
+    public List<StatusBoost> findLocal(UUID statusId) {
+        return boosts.findLocal(statusId);
+    }
+
     public Map<UUID, BoostStats> stats(Collection<UUID> ids, Optional<UUID> viewer) {
         return boosts.stats(ids, viewer);
     }
