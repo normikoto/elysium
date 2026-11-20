@@ -3,6 +3,7 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.AccountPage;
 import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.graph.DomainBlockListPage;
@@ -96,6 +97,14 @@ final class RequestParameters {
     static FollowPage followPage(String limit, String maxId, String sinceId, String minId) {
         return new FollowPage(
                 limit(limit, FollowPage.DEFAULT_LIMIT),
+                cursor("max_id", maxId),
+                cursor("since_id", sinceId),
+                cursor("min_id", minId));
+    }
+
+    static AccountPage accountPage(String limit, String maxId, String sinceId, String minId) {
+        return new AccountPage(
+                limit(limit, AccountPage.DEFAULT_LIMIT),
                 cursor("max_id", maxId),
                 cursor("since_id", sinceId),
                 cursor("min_id", minId));

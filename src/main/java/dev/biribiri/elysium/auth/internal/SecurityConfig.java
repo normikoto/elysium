@@ -107,7 +107,8 @@ class SecurityConfig {
      */
     private static final String[] PUBLIC_API_PATHS = {
             "/api/v1/instance", "/api/v2/instance", "/api/v1/statuses/*", "/api/v1/statuses/*/context",
-            "/api/v1/statuses/*/history", "/api/v1/polls/*", "/api/v1/custom_emojis",
+            "/api/v1/statuses/*/history", "/api/v1/statuses/*/favourited_by", "/api/v1/statuses/*/reblogged_by",
+            "/api/v1/polls/*", "/api/v1/custom_emojis",
             "/api/v1/pleroma/statuses/*/reactions", "/api/v1/pleroma/statuses/*/reactions/*",
             "/api/v1/accounts/*/statuses",
             "/api/v1/timelines/public", "/api/v1/timelines/tag/*", "/api/v1/tags/*",

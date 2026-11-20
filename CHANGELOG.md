@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - People get an `update` notification when a post they boosted is edited, as on Mastodon. See `docs/api.md`.
+- Apps can list a user's favourites, and who favourited or boosted a post, through the Mastodon API's
+  `GET /api/v1/favourites`, `GET /api/v1/statuses/:id/favourited_by`, and `GET /api/v1/statuses/:id/reblogged_by`.
 
 ## [0.3.0] - 2026-11-20
 

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.content.AccountPage;
 import dev.biribiri.elysium.content.BoostStats;
 import dev.biribiri.elysium.content.StatusBoost;
 import org.springframework.jdbc.core.RowMapper;
@@ -12,6 +13,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -130,5 +132,19 @@ public class BoostRepository {
                         + LikeRepository.eligible("a") + (maxId == null ? "" : " AND b.id < :max")
                         + " ORDER BY b.id DESC LIMIT :limit")
                 .param("status", statusId).param("max", maxId, Types.OTHER).param("limit", limit).query(MAPPER).list();
+    }
+
+    /**
+     * Like {@link #pagePublic(UUID, UUID, int)}, with Mastodon's cursors.
+     *
+     * @param viewer a local account, from whom the actors it has hidden, or that block it, are left out
+     */
+    public List<StatusBoost> pagePublic(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+        var parameters = new HashMap<String, Object>(Map.of("status", statusId));
+        viewer.ifPresent(id -> parameters.put("viewer", id));
+        return IdPages.find(jdbc, "SELECT " + COLUMNS + " FROM status b JOIN actor a ON a.id = b.actor_id "
+                        + "WHERE b.reblog_of_id = :status AND b.visibility IN ('public', 'unlisted') AND "
+                        + LikeRepository.eligible("a") + LikeRepository.hiddenFrom(viewer, "a"), parameters, "b.id",
+                page.maxId(), page.sinceId(), page.minId(), page.limit(), spec -> spec.query(MAPPER).list());
     }
 }

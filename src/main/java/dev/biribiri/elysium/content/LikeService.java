@@ -14,8 +14,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** Likes of stored posts, with actor-scoped Undo receipts for unordered federation jobs. */
 @Service
@@ -25,9 +28,11 @@ public class LikeService {
     private final ActorService actors;
     private final ApplicationEventPublisher events;
     private final StatusHolds holds;
+    private final StatusService statuses;
 
     LikeService(LikeRepository likes, StatusRepository repository, ActorService actors,
-                ApplicationEventPublisher events, StatusHolds holds) {
+                ApplicationEventPublisher events, StatusHolds holds, StatusService statuses) {
+        this.statuses = statuses;
         this.likes = likes;
         this.repository = repository;
         this.actors = actors;
@@ -157,6 +162,27 @@ public class LikeService {
 
     public List<StatusLike> page(UUID statusId, UUID maxId, int limit) {
         return likes.page(statusId, maxId, limit);
+    }
+
+    /**
+     * The likes of a status by accounts that haven't been suspended or deleted, newest first, leaving out those the
+     * viewer has blocked, muted, or blocked the server of, and those that block the viewer, as Mastodon does. Whether
+     * the status can be seen is the caller's to check.
+     */
+    public List<StatusLike> likers(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+        return likes.pageForStatus(statusId, viewer, page);
+    }
+
+    /**
+     * A local account's favourites, the most recent first, leaving out statuses it can no longer see.
+     */
+    public FavouritePage favourites(UUID actorId, StatusPage page) {
+        var rows = likes.pageByActor(actorId, page);
+        var visible = statuses.findVisible(rows.stream().map(LikeRepository.ActorLike::statusId).toList(), actorId)
+                .stream().collect(Collectors.toMap(Status::id, Function.identity()));
+        return new FavouritePage(
+                rows.stream().map(LikeRepository.ActorLike::id).toList(),
+                rows.stream().map(row -> visible.get(row.statusId())).filter(Objects::nonNull).toList());
     }
 
     public void removeForActor(UUID id) {
