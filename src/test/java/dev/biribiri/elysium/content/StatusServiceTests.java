@@ -53,7 +53,7 @@ class StatusServiceTests {
     @BeforeEach
     void setUp() {
         when(postingDefaults.quotePolicy(any())).thenReturn(QuotePolicy.PUBLIC);
-        when(postingDefaults.quoteReview(any())).thenReturn(QuoteReview.NONE);
+        when(postingDefaults.quoteOthers(any())).thenReturn(OtherQuotes.REJECT);
         when(actors.findLocalById(AUTHOR)).thenReturn(Optional.of(new Actor(
                 AUTHOR, BASE_URL.resolve("/users/alice"), "alice", "elysium.example", BASE_URL.resolve("/users/alice/inbox"),
                 BASE_URL.resolve("/users/alice/outbox"), null, "key", Instant.now(), Instant.now())));

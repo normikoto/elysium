@@ -294,7 +294,7 @@ public class ScheduledStatusService {
         var withIds = new NewStatus(draft.text(), draft.spoilerText(), draft.language(), draft.visibility(),
                 draft.sensitive(), draft.inReplyToId(), held.stream().map(MediaAttachment::id).toList(),
                 draft.quotedStatusId(), draft.quotePolicy(), draft.poll(), draft.localOnly(), draft.contentType(),
-                draft.quoteReview());
+                draft.quoteOthers());
         return new ScheduledStatus(status.id(), status.authorId(), status.scheduledAt(), withIds, List.copyOf(held));
     }
 }

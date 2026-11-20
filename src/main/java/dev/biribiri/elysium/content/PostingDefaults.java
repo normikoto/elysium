@@ -29,14 +29,14 @@ public class PostingDefaults {
     }
 
     /**
-     * {@link QuoteReview#NONE} until the account chooses, so that quotes are approved automatically, as on Mastodon.
+     * {@link OtherQuotes#REJECT} until the account chooses, as on Mastodon.
      */
-    public QuoteReview quoteReview(UUID actorId) {
-        return repository.findQuoteReview(actorId).flatMap(QuoteReview::fromValue).orElse(QuoteReview.NONE);
+    public OtherQuotes quoteOthers(UUID actorId) {
+        return repository.findQuoteOthers(actorId).flatMap(OtherQuotes::fromValue).orElse(OtherQuotes.REJECT);
     }
 
-    public void setQuoteReview(UUID actorId, QuoteReview review) {
-        repository.setQuoteReview(actorId, review.value());
+    public void setQuoteOthers(UUID actorId, OtherQuotes others) {
+        repository.setQuoteOthers(actorId, others.value());
     }
 
     public void removeFor(UUID actorId) {

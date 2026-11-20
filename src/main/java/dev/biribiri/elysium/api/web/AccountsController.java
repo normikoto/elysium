@@ -180,7 +180,7 @@ public class AccountsController {
             summary = "Change the user's profile and account settings",
             description = """
                     Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, \
-                    `locked`, `indexable`, `hide_collections`, and `source[quote_policy]` can be changed. `bot`, \
+                    `locked`, `indexable`, `hide_collections`, `source[quote_policy]`, and `source[quote_others]` can be changed. `bot`, \
                     `discoverable`, and the rest of `source` are accepted only with the values the account already has \
                     (false, and `public` for `source[privacy]`), and any other value for them, or any other field with \
                     a value, gets a 422 naming it. Then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it.
@@ -228,8 +228,8 @@ public class AccountsController {
         if (request.quotePolicy() != null) {
             postingDefaults.setQuotePolicy(actorId, request.quotePolicy());
         }
-        if (request.quoteReview() != null) {
-            postingDefaults.setQuoteReview(actorId, request.quoteReview());
+        if (request.quoteOthers() != null) {
+            postingDefaults.setQuoteOthers(actorId, request.quoteOthers());
         }
         return actors.findLocalById(actorId)
                 .map(accounts::credential)
@@ -777,19 +777,19 @@ public class AccountsController {
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")
             Boolean hide_collections,
-            @Schema(description = "Posting settings. Only `quote_policy` and `quote_review` can be changed.")
+            @Schema(description = "Posting settings. Only `quote_policy` and `quote_others` can be changed.")
             SourceBody source) {
     }
 
     @Schema(name = "AccountCredentialsSource")
     private record SourceBody(
             @Schema(allowableValues = {"public", "followers", "nobody"}, description = """
-                    Who can quote the user's new statuses when the client doesn't say.""")
+                    Whose quotes of the user's new statuses are approved automatically when the client doesn't say.""")
             String quote_policy,
-            @Schema(allowableValues = {"none", "non_followers", "all"}, description = """
-                    Not in Mastodon. Whose quotes of the user's new statuses they approve by hand when the client \
-                    doesn't say: nobody's, those of accounts that don't follow them, or everyone's.""")
-            String quote_review) {
+            @Schema(allowableValues = {"reject", "review"}, description = """
+                    Not in Mastodon. Whether the quotes of the user's new statuses that aren't approved automatically \
+                    are rejected, or wait for the user to review them, when the client doesn't say.""")
+            String quote_others) {
     }
 
     @Schema(name = "AccountMute")

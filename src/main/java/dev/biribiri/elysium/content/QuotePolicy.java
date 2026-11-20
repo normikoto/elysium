@@ -6,8 +6,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Who can quote a local status, as Mastodon offers it. Whether their quotes are approved automatically or by its author is
- * chosen apart from this, with {@link QuoteReview}.
+ * Whose quotes of a local status are approved automatically, as Mastodon offers it. Whether everyone else's are rejected
+ * or reviewed by its author is chosen apart from this, with {@link OtherQuotes}.
  */
 public enum QuotePolicy {
     PUBLIC,
@@ -25,20 +25,15 @@ public enum QuotePolicy {
     }
 
     /**
-     * Only a status anyone can quote has accounts that don't follow its author among those who can, so for one that only
-     * followers can quote, reviewing non-followers' quotes is the same as reviewing none.
+     * Everyone's quotes of a {@link #PUBLIC} status are approved automatically, so {@code others} changes nothing for one.
      */
-    QuoteApproval approval(QuoteReview review) {
-        var followers = Set.of(QuoteApproval.Audience.FOLLOWERS);
+    QuoteApproval approval(OtherQuotes others) {
+        var reviewed = others == OtherQuotes.REVIEW
+                ? Set.of(QuoteApproval.Audience.PUBLIC) : Set.<QuoteApproval.Audience>of();
         return switch (this) {
-            case PUBLIC -> switch (review) {
-                case NONE -> new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of());
-                case NON_FOLLOWERS -> new QuoteApproval(followers, Set.of(QuoteApproval.Audience.PUBLIC));
-                case ALL -> new QuoteApproval(Set.of(), Set.of(QuoteApproval.Audience.PUBLIC));
-            };
-            case FOLLOWERS -> review == QuoteReview.ALL
-                    ? new QuoteApproval(Set.of(), followers) : new QuoteApproval(followers, Set.of());
-            case NOBODY -> new QuoteApproval(Set.of(), Set.of());
+            case PUBLIC -> new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of());
+            case FOLLOWERS -> new QuoteApproval(Set.of(QuoteApproval.Audience.FOLLOWERS), reviewed);
+            case NOBODY -> new QuoteApproval(Set.of(), reviewed);
         };
     }
 }

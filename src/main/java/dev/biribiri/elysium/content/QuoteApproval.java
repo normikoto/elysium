@@ -32,24 +32,21 @@ public record QuoteApproval(Set<Audience> automatic, Set<Audience> manual) {
     }
 
     /**
-     * The policy a local status has this approval for, or {@link QuotePolicy#NOBODY} if it's one a local status can't have.
+     * Whose quotes a local status with this approval approves automatically, or {@link QuotePolicy#NOBODY} if it's an
+     * approval a local status can't have.
      */
     public QuotePolicy policy() {
-        if (automatic.contains(Audience.PUBLIC) || manual.contains(Audience.PUBLIC)) {
+        if (automatic.contains(Audience.PUBLIC)) {
             return QuotePolicy.PUBLIC;
         }
-        return automatic.contains(Audience.FOLLOWERS) || manual.contains(Audience.FOLLOWERS)
-                ? QuotePolicy.FOLLOWERS : QuotePolicy.NOBODY;
+        return automatic.contains(Audience.FOLLOWERS) ? QuotePolicy.FOLLOWERS : QuotePolicy.NOBODY;
     }
 
     /**
-     * Whose quotes a local status with this approval has its author approve by hand, as {@link QuotePolicy#approval} sets
-     * it.
+     * What a local status with this approval does with the quotes it doesn't approve automatically, as
+     * {@link QuotePolicy#approval} sets it.
      */
-    public QuoteReview review() {
-        if (manual.isEmpty()) {
-            return QuoteReview.NONE;
-        }
-        return automatic.isEmpty() ? QuoteReview.ALL : QuoteReview.NON_FOLLOWERS;
+    public OtherQuotes others() {
+        return manual.isEmpty() ? OtherQuotes.REJECT : OtherQuotes.REVIEW;
     }
 }

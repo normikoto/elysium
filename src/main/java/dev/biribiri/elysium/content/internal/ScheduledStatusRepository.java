@@ -3,8 +3,8 @@ package dev.biribiri.elysium.content.internal;
 import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.OtherQuotes;
 import dev.biribiri.elysium.content.QuotePolicy;
-import dev.biribiri.elysium.content.QuoteReview;
 import dev.biribiri.elysium.content.ScheduledStatus;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.Visibility;
@@ -44,7 +44,7 @@ public class ScheduledStatusRepository {
     private record Params(
             String text, String spoilerText, String language, String visibility, boolean sensitive, UUID inReplyToId,
             UUID quotedStatusId, String quotePolicy, Poll poll, boolean localOnly, String contentType,
-            String quoteReview) {
+            String quoteOthers) {
 
         record Poll(List<String> options, long expiresIn, boolean multiple, boolean hideTotals) {
         }
@@ -61,7 +61,7 @@ public class ScheduledStatusRepository {
                 draft.sensitive(), draft.inReplyToId(), draft.quotedStatusId(),
                 draft.quotePolicy() == null ? null : draft.quotePolicy().value(), poll, draft.localOnly(),
                 draft.contentType().value(),
-                draft.quoteReview() == null ? null : draft.quoteReview().value());
+                draft.quoteOthers() == null ? null : draft.quoteOthers().value());
         jdbc.sql("""
                         INSERT INTO scheduled_status (id, actor_id, scheduled_at, params)
                         VALUES (:id, :actorId, :scheduledAt, CAST(:params AS jsonb))
@@ -240,8 +240,8 @@ public class ScheduledStatusRepository {
                 Visibility.fromValue(params.visibility()), params.sensitive(), params.inReplyToId(), List.of(),
                 params.quotedStatusId(), params.quotePolicy() == null ? null
                 : QuotePolicy.fromValue(params.quotePolicy()).orElseThrow(), poll, params.localOnly(),
-                ContentType.fromValue(params.contentType()).orElseThrow(), params.quoteReview() == null ? null
-                : QuoteReview.fromValue(params.quoteReview()).orElseThrow());
+                ContentType.fromValue(params.contentType()).orElseThrow(), params.quoteOthers() == null ? null
+                : OtherQuotes.fromValue(params.quoteOthers()).orElseThrow());
         return new ScheduledStatus(rs.getObject("id", UUID.class), rs.getObject("actor_id", UUID.class),
                 rs.getTimestamp("scheduled_at").toInstant(), draft, List.of());
     }

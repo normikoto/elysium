@@ -241,23 +241,24 @@ public class QuoteService {
     }
 
     /**
-     * Changes who can quote one of the author's statuses, and whose quotes they approve by hand. It doesn't change what's
-     * been approved already, as on Mastodon, nor what's waiting for them to review. A followers-only or direct status can
+     * Changes whose quotes of one of the author's statuses are approved automatically, and whether everyone else's are
+     * rejected or reviewed by the author. It doesn't change what's been approved already, as on Mastodon, nor what's
+     * waiting for them to review. A followers-only or direct status can
      * only be quoted by its author, whatever it's set to.
      *
-     * @param policy who can quote it, or null to keep that
-     * @param review whose quotes the author approves by hand, or null to keep that
+     * @param policy whose quotes are approved automatically, or null to keep that
+     * @param others what happens to everyone else's, or null to keep that
      * @return the status, or empty if the author has no status with this ID
      */
-    public Optional<Status> setPolicy(UUID statusId, UUID authorId, QuotePolicy policy, QuoteReview review) {
+    public Optional<Status> setPolicy(UUID statusId, UUID authorId, QuotePolicy policy, OtherQuotes others) {
         return transaction.execute(tx -> {
             var status = statuses.findByIdForEdit(statusId)
                     .filter(found -> found.actorId().equals(authorId) && !found.isReblog());
             if (status.isEmpty() || !status.get().visibility().isOpen()) {
                 return status;
             }
-            var approval = StatusService.changedPolicy(status.get().quoteApproval(), policy, review,
-                    () -> postingDefaults.quoteReview(authorId));
+            var approval = StatusService.changedPolicy(status.get().quoteApproval(), policy, others,
+                    () -> postingDefaults.quoteOthers(authorId));
             if (Objects.equals(approval, status.get().quoteApproval())) {
                 return status;
             }

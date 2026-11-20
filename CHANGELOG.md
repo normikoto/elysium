@@ -24,10 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer be posted then, such as a reply to a post that's been deleted, is dropped. See `docs/api.md`.
 - People who approve followers by hand can choose at `/settings` to approve requests from people they follow straight
   away. Turning it on approves those requests that are already waiting. See `docs/accounts.md`.
-- People can approve quotes of their posts by hand, for all of their new posts or for each one, in apps that support
-  it, and review them with GoToSocial's interaction requests. They can review everyone's quotes, or only those of
-  people who don't follow them, so that followers' quotes are approved straight away. Quotes waiting for them give a `pending.quote`
-  notification. A rejected quote can be approved later. Someone whose quote was rejected or revoked can ask again, at
+- People can choose whether the quotes of their posts that aren't approved straight away, such as those of people who
+  don't follow them when only followers' quotes are, are rejected or wait for them to approve by hand. They can choose
+  it for all of their new posts or for each one, in apps that support it, and review quotes with GoToSocial's
+  interaction requests. Quotes waiting for them give a `pending.quote` notification. A rejected quote can be approved later. Someone whose quote was rejected or revoked can ask again, at
   most once an hour, from here or from their server, and asking again always waits for the quoted author. See `docs/api.md` and `FEDERATION.md`.
 
 ### Changed

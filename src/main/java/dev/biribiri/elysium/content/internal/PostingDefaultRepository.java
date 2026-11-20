@@ -28,21 +28,21 @@ public class PostingDefaultRepository {
                 .param("actorId", actorId).param("policy", policy).update();
     }
 
-    public Optional<String> findQuoteReview(UUID actorId) {
-        return jdbc.sql("SELECT quote_review FROM posting_default WHERE actor_id = :actorId")
+    public Optional<String> findQuoteOthers(UUID actorId) {
+        return jdbc.sql("SELECT quote_others FROM posting_default WHERE actor_id = :actorId")
                 .param("actorId", actorId).query(String.class).optional();
     }
 
     /**
      * An account with no row yet gets the default policy, which is what it had.
      */
-    public void setQuoteReview(UUID actorId, String review) {
+    public void setQuoteOthers(UUID actorId, String others) {
         jdbc.sql("""
-                        INSERT INTO posting_default (actor_id, quote_policy, quote_review)
-                        VALUES (:actorId, 'public', :review)
-                        ON CONFLICT (actor_id) DO UPDATE SET quote_review = excluded.quote_review
+                        INSERT INTO posting_default (actor_id, quote_policy, quote_others)
+                        VALUES (:actorId, 'public', :others)
+                        ON CONFLICT (actor_id) DO UPDATE SET quote_others = excluded.quote_others
                         """)
-                .param("actorId", actorId).param("review", review).update();
+                .param("actorId", actorId).param("others", others).update();
     }
 
     public void removeFor(UUID actorId) {

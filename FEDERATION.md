@@ -1112,17 +1112,17 @@ Each local `Note` says who can quote it in an `interactionPolicy`, as Mastodon s
 "interactionPolicy": {"canQuote": {"automaticApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}
 ```
 
-It holds the public collection, the author's `followers` collection, or, when only the author can quote it, the author.
-A followers-only or direct status, or one posted before this server supported quotes, can only be quoted by its author.
-A local user can choose to approve quotes by hand, for each status or for all of their new ones, either from everyone,
-or only from actors that don't follow them. Their `Note` then has the audience they review in `manualApproval`. When they
-review everyone's quotes, `automaticApproval` has the author alone:
+`automaticApproval` holds the public collection, the author's `followers` collection, or, when only the author's quotes
+are approved automatically, the author. A followers-only or direct status, or one posted before this server supported
+quotes, can only be quoted by its author. A local user can choose, for each status or for all of their new ones,
+whether the quotes that aren't approved automatically are rejected or wait for them to approve by hand. When they wait,
+`manualApproval` has the public collection. When nobody else's quotes are approved automatically:
 
 ```json
 "interactionPolicy": {"canQuote": {"automaticApproval": ["https://elysium.example/users/bob"], "manualApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}
 ```
 
-When they only review those of actors that don't follow them, `automaticApproval` has their `followers`:
+When their followers' quotes are approved automatically:
 
 ```json
 "interactionPolicy": {"canQuote": {"automaticApproval": ["https://elysium.example/users/bob/followers"], "manualApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}

@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.ProfileChange;
+import dev.biribiri.elysium.content.OtherQuotes;
 import dev.biribiri.elysium.content.QuotePolicy;
-import dev.biribiri.elysium.content.QuoteReview;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -27,12 +27,13 @@ import java.util.regex.Pattern;
  *
  * @param hideCollections null to leave it as it is
  * @param quotePolicy        the default for new statuses, or null to leave it as it is
- * @param quoteReview        whose quotes of new statuses are approved by hand, or null to leave it as it is
+ * @param quoteOthers        what happens to the quotes of new statuses that aren't approved automatically, or null to
+ *                           leave it as it is
  */
 record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuotePolicy quotePolicy,
-                          QuoteReview quoteReview) {
+                          OtherQuotes quoteOthers) {
 
-    private record Source(QuotePolicy quotePolicy, QuoteReview quoteReview) {
+    private record Source(QuotePolicy quotePolicy, OtherQuotes quoteOthers) {
 
         static final Source NONE = new Source(null, null);
     }
@@ -133,7 +134,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
             }
         }
         change = change.withAvatar(image(files.get("avatar"))).withHeader(image(files.get("header")));
-        return new CredentialsRequest(change, hide, source.quotePolicy(), source.quoteReview());
+        return new CredentialsRequest(change, hide, source.quotePolicy(), source.quoteOthers());
     }
 
     private static String text(String key, Object value) {
@@ -194,15 +195,15 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
             throw new InvalidRequestException("Validation failed: source must be an object");
         }
         QuotePolicy quotePolicy = null;
-        QuoteReview quoteReview = null;
+        OtherQuotes quoteOthers = null;
         for (var entry : source.entrySet()) {
             var key = String.valueOf(entry.getKey());
-            if (key.equals("quote_review")) {
+            if (key.equals("quote_others")) {
                 if (!isEmpty(entry.getValue())) {
-                    quoteReview = entry.getValue() instanceof String review ? QuoteReview.fromValue(review).orElse(null) : null;
-                    if (quoteReview == null) {
+                    quoteOthers = entry.getValue() instanceof String others ? OtherQuotes.fromValue(others).orElse(null) : null;
+                    if (quoteOthers == null) {
                         throw new InvalidRequestException(
-                                "Validation failed: source[quote_review] must be none, non_followers, or all");
+                                "Validation failed: source[quote_others] must be reject or review");
                     }
                 }
             } else if (key.equals("quote_policy")) {
@@ -217,7 +218,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                 checkFixed(key, entry.getValue(), FIXED_SOURCE, "source[" + key + "]");
             }
         }
-        return new Source(quotePolicy, quoteReview);
+        return new Source(quotePolicy, quoteOthers);
     }
 
     /**

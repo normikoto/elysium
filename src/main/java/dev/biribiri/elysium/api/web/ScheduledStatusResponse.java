@@ -40,7 +40,7 @@ record ScheduledStatusResponse(
             @JsonProperty("quote_approval_policy") String quoteApprovalPolicy,
             @JsonProperty("local_only") boolean localOnly,
             @JsonProperty("content_type") String contentType,
-            @JsonProperty("quote_review") String quoteReview
+            @JsonProperty("quote_others") String quoteOthers
     ) {
     }
 
@@ -77,7 +77,7 @@ record ScheduledStatusResponse(
                 draft.quotePolicy() == null ? null : draft.quotePolicy().value(),
                 draft.localOnly(),
                 draft.contentType().value(),
-                draft.quoteReview() == null ? null : draft.quoteReview().value());
+                draft.quoteOthers() == null ? null : draft.quoteOthers().value());
         return new ScheduledStatusResponse(
                 scheduled.id().toString(),
                 ApiTimestamps.format(scheduled.scheduledAt()),
