@@ -130,8 +130,11 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `GET /api/v2/instance` has the same limits in `configuration`, and `api_versions.mastodon` is 7, which is what clients
   look for before they offer quotes. Not everything Mastodon added up to that version is here, as this page lists, and
   what's missing gets a 404.
-- `GET /api/v2/instance` has no thumbnail, icon, contact account, or rules. `usage.users.active_month` counts every
-  local account, and `configuration.translation.enabled` is false.
+- `GET /api/v2/instance` has no thumbnail, icon, or contact account. `usage.users.active_month` counts every local
+  account, and `configuration.translation.enabled` is false.
+- Admins set the server's rules on the `/admin/rules` page. `GET /api/v1/instance/rules` lists them in order, as do
+  `rules` in `GET /api/v1/instance` and `GET /api/v2/instance`. Their IDs are UUIDs rather than numbers, and they have
+  no `translations`. The sign-up page lists them too.
 
 ### Pins
 
@@ -779,8 +782,8 @@ Only these exist:
 
 Follow [Mastodon's reports API](https://docs.joinmastodon.org/methods/reports/), with the `write:reports` scope.
 
-- There are no server rules, so a `category` of `violation`, or any `rule_ids`, gets a 422. `rule_ids` in a report is
-  always null.
+- Reports can't cite the server's rules yet, so a `category` of `violation`, or any `rule_ids`, gets a 422. `rule_ids`
+  in a report is always null.
 - A status in `status_ids` that isn't the account's, or that the user can't see, gets a 404 rather than being left out.
   A report can include up to 100 statuses, and more get a 422.
 - `comment` can be up to 1000 characters, as on Mastodon. Reporting your own account gets a 422.

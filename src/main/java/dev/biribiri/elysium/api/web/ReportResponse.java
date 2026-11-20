@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.UUID;
 
 @Schema(name = "Report", description = """
-        Mastodon's Report entity. `rule_ids` is always null, since this server has no rules, and `status_ids` leaves out \
-        statuses that have been deleted since.""")
+        Mastodon's Report entity. `rule_ids` is always null, since reports can't cite rules yet, and `status_ids` leaves \
+        out statuses that have been deleted since.""")
 record ReportResponse(
         String id,
         @JsonProperty("action_taken") boolean actionTaken,

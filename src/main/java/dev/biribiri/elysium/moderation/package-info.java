@@ -1,6 +1,7 @@
 /**
- * What admins use to keep this server's rules: blocks on other servers, and reports. This decides what's blocked, and the
- * {@code activitypub} module enforces it, because this module knows nothing about federation.
+ * What admins use to keep order on this server: blocks on other servers, reports, and the rules people agree to. This
+ * decides what's blocked, and the {@code activitypub} module enforces it, because this module knows nothing about
+ * federation.
  */
 @ApplicationModule(allowedDependencies = {"actor", "content"})
 package dev.biribiri.elysium.moderation;

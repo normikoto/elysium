@@ -81,7 +81,8 @@ public class ReportsController {
 
                     Differences from Mastodon:
 
-                    - There are no rules, so a `category` of `violation`, or any `rule_ids`, gets a 422.
+                    - Reports can't cite the server's rules yet, so a `category` of `violation`, or any `rule_ids`, \
+                    gets a 422.
                     - A status that isn't the account's, or that the user can't see, gets a 404 rather than being \
                     left out.
                     - A report can include at most 100 statuses, and more get a 422.

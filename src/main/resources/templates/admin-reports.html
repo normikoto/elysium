@@ -21,7 +21,7 @@
                 <time th:datetime="${report.createdAt()}" th:text="${report.createdAt()}"></time>
             </p>
             <p th:text="${report.fromOtherServer()} ? |From the server ${report.reporter()}| : |From ${report.reporter()}|"></p>
-            <p class="status-content" th:if="${!report.comment().isEmpty()}" th:text="${report.comment()}"></p>
+            <p class="status-content plain-text" th:if="${!report.comment().isEmpty()}" th:text="${report.comment()}"></p>
             <p th:if="${report.assignedTo() != null}" th:text="|Assigned to ${report.assignedTo()}|"></p>
             <a th:href="@{/admin/reports/{id}(id=${report.id()})}"
                th:text="${report.statusCount() == 1} ? 'View the report and its status' : |View the report and its ${report.statusCount()} statuses|"></a>

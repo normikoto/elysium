@@ -5,7 +5,7 @@ import java.util.Optional;
 
 /**
  * Why an account was reported, with the names Mastodon's API uses. There's no {@code violation}, which names the server's
- * rules, since this server doesn't have any.
+ * rules, since reports can't cite them yet.
  */
 public enum ReportCategory {
     SPAM("spam"),

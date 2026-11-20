@@ -147,8 +147,8 @@ public class AdminReportsController {
             operationId = "updateAdminReport",
             summary = "Change a report's category",
             description = """
-                    Differences from Mastodon: there are no rules, so a `category` of `violation`, or any `rule_ids`, \
-                    gets a 422.""",
+                    Differences from Mastodon: reports can't cite rules yet, so a `category` of `violation`, or any \
+                    `rule_ids`, gets a 422.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/reports/#update"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The report."),

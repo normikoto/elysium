@@ -42,10 +42,10 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `text`        | Rendering plain text as HTML               | nothing                                        |
 | `actor`       | Local and remote actors, profiles, keys    | `media`, `text`                                |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
-| `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `ratelimit`                   |
+| `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `moderation`, `ratelimit`     |
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
 | `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
-| `moderation`  | Domain blocks and reports                  | `actor`, `content`                             |
+| `moderation`  | Domain blocks, reports, and server rules   | `actor`, `content`                             |
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |

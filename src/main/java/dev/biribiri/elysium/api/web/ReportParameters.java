@@ -48,7 +48,7 @@ final class ReportParameters {
     }
 
     /**
-     * This server has no rules, so none can be named.
+     * Reports can't cite the server's rules yet, so none can be named.
      */
     static void requireNoRules(Map<String, ?> parameters) {
         if (!ids(parameters.get("rule_ids"), "rule_ids").isEmpty()) {
@@ -81,6 +81,6 @@ final class ReportParameters {
     }
 
     private static InvalidRequestException noRules() {
-        return new InvalidRequestException("Validation failed: this server has no rules, so none can be chosen");
+        return new InvalidRequestException("Validation failed: reports can't cite the server's rules yet");
     }
 }

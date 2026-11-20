@@ -11,7 +11,7 @@ import java.util.Map;
  * newer parts of the API to use.
  */
 @Schema(name = "InstanceV2", description = """
-        Mastodon's Instance entity. There's no thumbnail, contact account, or rules, and `usage.users.active_month` \
+        Mastodon's Instance entity. There's no thumbnail or contact account, and `usage.users.active_month` \
         counts every local account.""")
 record InstanceV2Response(
         String domain,
@@ -27,7 +27,7 @@ record InstanceV2Response(
         Registrations registrations,
         @JsonProperty("api_versions") Map<String, Integer> apiVersions,
         Contact contact,
-        List<Object> rules
+        List<RuleResponse> rules
 ) {
 
     record Usage(Users users) {

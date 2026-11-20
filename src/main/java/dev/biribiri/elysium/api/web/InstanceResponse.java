@@ -31,7 +31,7 @@ record InstanceResponse(
         @JsonProperty("max_toot_chars") int maxTootChars,
         Configuration configuration,
         @JsonProperty("contact_account") Object contactAccount,
-        List<Object> rules
+        List<RuleResponse> rules
 ) {
 
     record Urls(@JsonProperty("streaming_api") String streamingApi) {

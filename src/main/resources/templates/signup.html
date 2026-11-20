@@ -6,6 +6,16 @@
         We'll email you a link to confirm your address.
         <th:block th:if="${askForReason}">After that, an admin has to approve your account before you can log in.</th:block>
     </p>
+    <th:block th:unless="${rules.isEmpty()}">
+        <h2>Rules</h2>
+        <p>By creating an account, you agree to follow these rules.</p>
+        <ol>
+            <li th:each="rule : ${rules}">
+                <strong th:text="${rule.text()}"></strong>
+                <p class="plain-text" th:unless="${rule.hint().isEmpty()}" th:text="${rule.hint()}"></p>
+            </li>
+        </ol>
+    </th:block>
     <form method="post" action="/signup">
         <input type="hidden" th:name="${csrfParameter}" th:value="${csrfToken}">
         <input type="hidden" name="invite" th:if="${invite != null}" th:value="${invite}">

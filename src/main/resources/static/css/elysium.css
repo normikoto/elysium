@@ -274,6 +274,11 @@ td {
     color: var(--muted);
 }
 
+/* Plain text that someone typed in a textarea, which keeps its line breaks. */
+.plain-text {
+    white-space: pre-line;
+}
+
 .panel {
     background: var(--panel);
     border: 1px solid var(--border);
