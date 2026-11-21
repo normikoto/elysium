@@ -1635,7 +1635,8 @@ server that's sent an activity by someone else can check it with the proof, with
 - The proof's `@context` is the same as the activity's, `proofPurpose` is `assertionMethod`, `verificationMethod` is
   `{actor-uri}#ed25519-key`, and `created` is in whole seconds.
 - Most activity IDs are fragments of the object's URI, such as `{status-uri}#create`, and FEP-8b32 says objects with
-  fragment IDs shouldn't have proofs. These get one anyway, because each is sent as a document of its own.
+  fragment IDs shouldn't have proofs. These get one anyway, because each is sent as a document of its own. Fedify (and
+  so Hollo), tootik, and Streams also sign activities with fragment IDs, such as `#create`, `#delete`, and `#update`.
 - Objects that are fetched, such as `Note`s and actor documents, don't have proofs, and neither do the objects embedded in
   an activity, which the activity's proof covers.
 - Proofs on activities that arrive aren't checked yet, and an activity is accepted or refused on its HTTP signature alone.
