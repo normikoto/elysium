@@ -247,7 +247,7 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
-    void deletingAnAccountRemovesItsListsAndItFromOthers() {
+    void deletingAnAccountRemovesItsListsAndEndorsementsAndItFromOthers() {
         var other = newLocal();
         follow(local, other);
         follow(other, local);
@@ -255,11 +255,15 @@ class AccountCleanupIntegrationTests {
         assertThat(lists.addMembers(local.id(), own.id(), List.of(other.id()))).isTrue();
         var theirs = lists.create(other.id(), "Theirs", null, null);
         assertThat(lists.addMembers(other.id(), theirs.id(), List.of(local.id()))).isTrue();
+        insert("account_endorsement", local, other);
+        insert("account_endorsement", other, local);
 
         actors.markDeleted(local.id());
 
         await().atMost(WAIT).until(() -> count("SELECT count(*) FROM account_list WHERE owner_id = :id", local.id()) == 0);
         assertThat(count("SELECT count(*) FROM account_list_member WHERE target_id = :id OR account_id = :id", local.id()))
+                .isZero();
+        assertThat(count("SELECT count(*) FROM account_endorsement WHERE target_id = :id OR account_id = :id", local.id()))
                 .isZero();
         assertThat(lists.find(other.id(), theirs.id())).isPresent();
     }

@@ -33,6 +33,7 @@ import java.util.Map;
         FollowRequestsController.class,
         InteractionRequestsController.class,
         MutesController.class,
+        EndorsementsController.class,
         UserDomainBlocksController.class,
         NotificationsController.class,
         GroupedNotificationsController.class,

@@ -683,11 +683,12 @@ Only these exist:
 
 - `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `:id/statuses`, `:id/followers`, and
   `:id/following`
-- `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/block`, `/unblock`, `/mute`, `/unmute`, and `/note`
+- `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/block`, `/unblock`, `/mute`, `/unmute`, `/note`, `/endorse`,
+  `/unendorse`, `/pin`, and `/unpin`
 - `PATCH /api/v1/accounts/update_credentials`
 - `DELETE /api/v1/profile/avatar` and `/api/v1/profile/header`
 - `GET /api/v1/follow_requests`, and `POST /api/v1/follow_requests/:account_id/authorize` and `/reject`
-- `GET /api/v1/blocks` and `/api/v1/mutes`
+- `GET /api/v1/blocks`, `/api/v1/mutes`, and `/api/v1/endorsements`
 - `GET`, `POST`, and `DELETE /api/v1/domain_blocks`
 - `GET /api/v2/search`
 
@@ -745,7 +746,12 @@ Only these exist:
   blocks the other, or on a server the user has blocked, gets a 403, as on Mastodon.
 - `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true
   whenever `following` or `requested` is.
-- Endorsements and notifications of new statuses don't exist, so `endorsed` and `notifying` are always false.
+- Notifications of new statuses don't exist, so `notifying` is always false.
+- `POST /api/v1/accounts/:id/endorse` gets a 422 unless the user follows the account, as on Mastodon, and an endorsement
+  ends when the follow does, including when the account moves. `/pin` and `/unpin` are the same as `/endorse` and
+  `/unendorse`. Endorsements aren't sent to other servers, and `GET /api/v1/accounts/:id/endorsements` doesn't exist.
+- `GET /api/v1/endorsements` pages by when each endorsement was made, like `/api/v1/mutes`, and leaves out suspended and
+  deleted accounts.
 - `POST /api/v1/accounts/:id/note` reads `comment` from the query, a form, or JSON, and gets a 422 if it isn't text, is
   longer than 2,000 characters, or has a NUL character or an unpaired surrogate.
 - `GET /api/v1/follow_requests` pages by the request, like `:id/followers`, and leaves out suspended and deleted

@@ -13,6 +13,7 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.AccountLists;
+import dev.biribiri.elysium.graph.AccountEndorsements;
 import dev.biribiri.elysium.graph.AccountMemos;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
@@ -86,6 +87,13 @@ public class AccountsController {
      */
     private static final long MAX_MEMO_BODY_BYTES = 64 * 1024;
 
+    private static final String ENDORSE = """
+            Shows the account in `GET /api/v1/endorsements`, and as `endorsed` on the relationship. The user has to \
+            follow the account already, or gets a 422, as on Mastodon, and the endorsement ends when the follow does. \
+            Endorsing an account again changes nothing. Nothing is sent to other servers.
+
+            """;
+
     private static final String FOLLOW_LIMIT =
             "How many to return. Values outside 1 to " + PageLimits.MAX_ACCOUNTS + " are clamped to them.";
 
@@ -105,6 +113,7 @@ public class AccountsController {
     private final StatusPinService pins;
     private final AccountLists lists;
     private final AccountMemos memos;
+    private final AccountEndorsements endorsements;
 
     AccountsController(
             ActorService actors,
@@ -122,8 +131,10 @@ public class AccountsController {
             PostingDefaults postingDefaults,
             StatusPinService pins,
             AccountLists lists,
-            AccountMemos memos) {
+            AccountMemos memos,
+            AccountEndorsements endorsements) {
         this.memos = memos;
+        this.endorsements = endorsements;
         this.lists = lists;
         this.pins = pins;
         this.profiles = profiles;
@@ -285,9 +296,8 @@ public class AccountsController {
             operationId = "getRelationships",
             summary = "Check the user's relationships with accounts",
             description = """
-                    Differences from Mastodon: notes, endorsements, and notifications of new statuses don't exist, so \
-                    `note`, `endorsed`, and `notifying` are always empty or false, and `showing_reblogs` is true \
-                    whenever `following` or `requested` is. \
+                    Differences from Mastodon: notifications of new statuses don't exist, so `notifying` is always \
+                    false, and `showing_reblogs` is true whenever `following` or `requested` is. \
                     Suspended accounts are always left out, and `with_suspended` is ignored. Unknown and malformed \
                     IDs are left out, as on Mastodon.
 
@@ -603,6 +613,102 @@ public class AccountsController {
         }
         memos.set(owner.id(), target.id(), comment);
         return relationship(owner.id(), target.id());
+    }
+
+    @PostMapping("/{id}/endorse")
+    @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
+    @Operation(
+            operationId = "endorseAccount",
+            summary = "Endorse an account",
+            description = ENDORSE + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#endorse"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
+                    @ApiResponse(responseCode = "422", description = """
+                            The user doesn't follow the account, or the token has no user.""")
+            })
+    public RelationshipResponse endorse(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var owner = viewerAccount(token);
+        var target = activeAccount(id);
+        if (!endorsements.endorse(owner.id(), target.id())) {
+            throw new InvalidRequestException(
+                    "Validation failed: you must already be following the account to endorse it");
+        }
+        return relationship(owner.id(), target.id());
+    }
+
+    /**
+     * Mastodon's name for {@link #endorse} before 4.4, which clients still use.
+     */
+    @PostMapping("/{id}/pin")
+    @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
+    @Operation(
+            operationId = "pinAccount",
+            summary = "Endorse an account, under its old name",
+            description = "The same as `POST /api/v1/accounts/{id}/endorse`. " + ENDORSE + ApiDocs.NEEDS_USER,
+            deprecated = true,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#pin"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
+                    @ApiResponse(responseCode = "422", description = """
+                            The user doesn't follow the account, or the token has no user.""")
+            })
+    public RelationshipResponse pin(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        return endorse(token, id);
+    }
+
+    /**
+     * An account can be unendorsed whatever its state, as it can be unfollowed.
+     */
+    @PostMapping("/{id}/unendorse")
+    @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
+    @Operation(
+            operationId = "unendorseAccount",
+            summary = "Stop endorsing an account",
+            description = "An account can be unendorsed while it's suspended. " + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unendorse"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public RelationshipResponse unendorse(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var owner = viewerAccount(token);
+        var target = RequestParameters.uuid(id).flatMap(actors::findById).orElseThrow(RecordNotFoundException::new);
+        endorsements.unendorse(owner.id(), target.id());
+        return relationship(owner.id(), target.id());
+    }
+
+    /**
+     * Mastodon's name for {@link #unendorse} before 4.4, which clients still use.
+     */
+    @PostMapping("/{id}/unpin")
+    @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
+    @Operation(
+            operationId = "unpinAccount",
+            summary = "Stop endorsing an account, under its old name",
+            description = """
+                    The same as `POST /api/v1/accounts/{id}/unendorse`. An account can be unendorsed while it's \
+                    suspended.\s""" + ApiDocs.NEEDS_USER,
+            deprecated = true,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unpin"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public RelationshipResponse unpin(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        return unendorse(token, id);
     }
 
     @ExceptionHandler

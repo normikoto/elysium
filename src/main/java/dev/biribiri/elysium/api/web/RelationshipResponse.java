@@ -7,12 +7,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
- * Mastodon's Relationship entity. Endorsements and notifications of new statuses don't exist, so those fields hold the
- * values they'd have for an account with none.
+ * Mastodon's Relationship entity. Notifications of new statuses don't exist, so those fields hold the values they'd have
+ * for an account with none.
  */
 @Schema(name = "Relationship", description = """
-        Mastodon's Relationship entity. Endorsements and notifications of new statuses don't exist, so `endorsed`, \
-        `notifying`, and `languages` are always false or null.""")
+        Mastodon's Relationship entity. Notifications of new statuses don't exist, so `notifying` and `languages` are \
+        always false and null.""")
 record RelationshipResponse(
         String id,
         boolean following,
@@ -49,7 +49,7 @@ record RelationshipResponse(
                 relationship.requested(),
                 relationship.requestedBy(),
                 relationship.domainBlocking(),
-                false,
+                relationship.endorsed(),
                 relationship.memo());
     }
 }
