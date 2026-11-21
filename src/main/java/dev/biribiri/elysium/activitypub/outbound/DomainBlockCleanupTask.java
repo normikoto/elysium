@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Removes the follows, blocks of local accounts, statuses, profiles, moves, and reports of and by actors on blocked servers, and which
- * followers-only statuses they were sent. Local accounts' blocks, mutes, and notes
+ * followers-only statuses they were sent. Local accounts' blocks, mutes, and memos
  * of them are kept, since they're the accounts' own choices, and the domain block can be lifted. Actors themselves are kept, because other things can refer
  * to them, and nothing is sent to them. This has to be safe to run again, and it's fine for it to find nothing.
  */

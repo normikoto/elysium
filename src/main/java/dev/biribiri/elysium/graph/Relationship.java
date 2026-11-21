@@ -16,7 +16,7 @@ import java.util.UUID;
  * @param mutingNotifications whether that mute also hides the other's notifications
  * @param muteExpiresAt       when that mute ends, or null if it doesn't, or there's none
  * @param domainBlocking      whether the first account has blocked the other's server
- * @param note                the first account's private note about the other, or empty if it has none
+ * @param memo                the first account's private memo about the other, or empty if it has none
  */
 public record Relationship(
         UUID otherId,
@@ -30,5 +30,5 @@ public record Relationship(
         boolean mutingNotifications,
         Instant muteExpiresAt,
         boolean domainBlocking,
-        String note) {
+        String memo) {
 }

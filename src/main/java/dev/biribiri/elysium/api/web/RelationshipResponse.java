@@ -50,6 +50,6 @@ record RelationshipResponse(
                 relationship.requestedBy(),
                 relationship.domainBlocking(),
                 false,
-                relationship.note());
+                relationship.memo());
     }
 }

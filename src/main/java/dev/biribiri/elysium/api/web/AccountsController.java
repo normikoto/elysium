@@ -13,7 +13,7 @@ import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.AccountLists;
-import dev.biribiri.elysium.graph.AccountNotes;
+import dev.biribiri.elysium.graph.AccountMemos;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowNotAllowedException;
@@ -104,7 +104,7 @@ public class AccountsController {
     private final PostingDefaults postingDefaults;
     private final StatusPinService pins;
     private final AccountLists lists;
-    private final AccountNotes notes;
+    private final AccountMemos memos;
 
     AccountsController(
             ActorService actors,
@@ -122,8 +122,8 @@ public class AccountsController {
             PostingDefaults postingDefaults,
             StatusPinService pins,
             AccountLists lists,
-            AccountNotes notes) {
-        this.notes = notes;
+            AccountMemos memos) {
+        this.memos = memos;
         this.lists = lists;
         this.pins = pins;
         this.profiles = profiles;
@@ -576,7 +576,7 @@ public class AccountsController {
                     @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
-                            The note is too long or isn't text, or the token has no user.""")
+                            The note is too long, isn't text, or has a NUL character, or the token has no user.""")
             })
     @RequestBody(content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NoteBody.class)))
@@ -591,11 +591,15 @@ public class AccountsController {
             case String text -> text;
             default -> throw new InvalidRequestException("Validation failed: comment must be text");
         };
+        if (!AccountMemos.isStorable(comment)) {
+            throw new InvalidRequestException(
+                    "Validation failed: comment can't contain NUL characters or unpaired surrogates");
+        }
         try {
-            notes.set(owner.id(), target.id(), comment);
+            memos.set(owner.id(), target.id(), comment);
         } catch (IllegalArgumentException e) {
             throw new InvalidRequestException("Validation failed: comment is too long (maximum is "
-                    + AccountNotes.MAX_LENGTH + " characters)");
+                    + AccountMemos.MAX_LENGTH + " characters)");
         }
         return relationship(owner.id(), target.id());
     }
@@ -855,7 +859,7 @@ public class AccountsController {
 
     @Schema(name = "AccountNote")
     private record NoteBody(
-            @Schema(description = "The note, as plain text. Empty or none removes it.", maxLength = AccountNotes.MAX_LENGTH)
+            @Schema(description = "The note, as plain text. Empty or none removes it.", maxLength = AccountMemos.MAX_LENGTH)
             String comment) {
     }
 

@@ -9,50 +9,50 @@ import java.util.Map;
 import java.util.UUID;
 
 @Repository
-public class AccountNoteRepository {
+public class AccountMemoRepository {
 
     private final JdbcClient jdbc;
 
-    AccountNoteRepository(JdbcClient jdbc) {
+    AccountMemoRepository(JdbcClient jdbc) {
         this.jdbc = jdbc;
     }
 
-    public void save(UUID accountId, UUID targetId, String note) {
+    public void save(UUID accountId, UUID targetId, String memo) {
         jdbc.sql("""
-                        INSERT INTO account_note (account_id, target_id, note) VALUES (:account, :target, :note)
-                        ON CONFLICT (account_id, target_id) DO UPDATE SET note = EXCLUDED.note, updated_at = now()
+                        INSERT INTO account_memo (account_id, target_id, memo) VALUES (:account, :target, :memo)
+                        ON CONFLICT (account_id, target_id) DO UPDATE SET memo = EXCLUDED.memo, updated_at = now()
                         """)
                 .param("account", accountId)
                 .param("target", targetId)
-                .param("note", note)
+                .param("memo", memo)
                 .update();
     }
 
     public void delete(UUID accountId, UUID targetId) {
-        jdbc.sql("DELETE FROM account_note WHERE account_id = :account AND target_id = :target")
+        jdbc.sql("DELETE FROM account_memo WHERE account_id = :account AND target_id = :target")
                 .param("account", accountId)
                 .param("target", targetId)
                 .update();
     }
 
     /**
-     * @return the account's notes about these accounts, by the account each is about
+     * @return the account's memos about these accounts, by the account each is about
      */
     public Map<UUID, String> find(UUID accountId, Collection<UUID> targetIds) {
         var found = new HashMap<UUID, String>();
         if (targetIds.isEmpty()) {
             return found;
         }
-        jdbc.sql("SELECT target_id, note FROM account_note WHERE account_id = :account AND target_id IN (:targets)")
+        jdbc.sql("SELECT target_id, memo FROM account_memo WHERE account_id = :account AND target_id IN (:targets)")
                 .param("account", accountId)
                 .param("targets", targetIds)
                 .query(rs -> {
-                    found.put(rs.getObject("target_id", UUID.class), rs.getString("note"));
+                    found.put(rs.getObject("target_id", UUID.class), rs.getString("memo"));
                 });
         return found;
     }
 
     public void deleteForActor(UUID actorId) {
-        jdbc.sql("DELETE FROM account_note WHERE account_id = :id OR target_id = :id").param("id", actorId).update();
+        jdbc.sql("DELETE FROM account_memo WHERE account_id = :id OR target_id = :id").param("id", actorId).update();
     }
 }

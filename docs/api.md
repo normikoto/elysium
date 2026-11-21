@@ -733,7 +733,8 @@ Only these exist:
 - `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true
   whenever `following` or `requested` is.
 - Endorsements and notifications of new statuses don't exist, so `endorsed` and `notifying` are always false.
-- `POST /api/v1/accounts/:id/note` reads `comment` from the query, a form, or JSON, and gets a 422 if it isn't text.
+- `POST /api/v1/accounts/:id/note` reads `comment` from the query, a form, or JSON, and gets a 422 if it isn't text, is
+  longer than 2,000 characters, or has a NUL character.
 - `GET /api/v1/follow_requests` pages by the request, like `:id/followers`, and leaves out suspended and deleted
   accounts. `authorize` and `reject` get a 404 when that account has no request waiting.
 - `:id/followers` and `:id/following` page by the follow, so a cursor from a follow that's since been removed gives an

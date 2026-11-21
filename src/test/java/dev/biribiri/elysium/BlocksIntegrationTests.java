@@ -72,7 +72,7 @@ class BlocksIntegrationTests {
         jdbc.sql("DELETE FROM follow").update();
         jdbc.sql("DELETE FROM account_block").update();
         jdbc.sql("DELETE FROM account_mute").update();
-        jdbc.sql("DELETE FROM account_note").update();
+        jdbc.sql("DELETE FROM account_memo").update();
         jdbc.sql("DELETE FROM account_domain_block").update();
         jdbc.sql("DELETE FROM notification").update();
     }
@@ -386,8 +386,6 @@ class BlocksIntegrationTests {
                 .andExpect(status().isForbidden());
     }
 
-    // Helpers
-
     // Notes
 
     @Test
@@ -414,16 +412,16 @@ class BlocksIntegrationTests {
         var bob = account("bob");
         note("alice", bob, "{\"comment\":\"first\"}");
         note("alice", bob, "{\"comment\":\"second\"}").andExpect(jsonPath("$.note").value("second"));
-        assertThat(jdbc.sql("SELECT count(*) FROM account_note").query(Long.class).single()).isEqualTo(1);
+        assertThat(jdbc.sql("SELECT count(*) FROM account_memo").query(Long.class).single()).isEqualTo(1);
 
         note("alice", bob, "{\"comment\":\"  \"}").andExpect(jsonPath("$.note").value(""));
-        assertThat(jdbc.sql("SELECT count(*) FROM account_note").query(Long.class).single()).isZero();
+        assertThat(jdbc.sql("SELECT count(*) FROM account_memo").query(Long.class).single()).isZero();
 
         note("alice", bob, "{\"comment\":\"again\"}");
         mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.note").value(""));
-        assertThat(jdbc.sql("SELECT count(*) FROM account_note").query(Long.class).single()).isZero();
+        assertThat(jdbc.sql("SELECT count(*) FROM account_memo").query(Long.class).single()).isZero();
     }
 
     @Test
@@ -459,6 +457,19 @@ class BlocksIntegrationTests {
                         .param("comment", "x"))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void aNoteThatPostgresCantStoreIsRejected() throws Exception {
+        var bob = account("bob");
+        for (var comment : new String[]{"a\u0000b", "a\uD83Db"}) {
+            mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice"))
+                            .param("comment", comment))
+                    .andExpect(status().isUnprocessableContent());
+        }
+        assertThat(jdbc.sql("SELECT count(*) FROM account_memo").query(Long.class).single()).isZero();
+    }
+
+    // Helpers
 
     private void follow(String username, Actor followed) throws Exception {
         mockMvc.perform(withToken(post("/api/v1/accounts/" + followed.id() + "/follow"), token(username)))
