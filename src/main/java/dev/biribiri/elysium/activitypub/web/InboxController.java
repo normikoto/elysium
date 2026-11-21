@@ -44,7 +44,7 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
 // What every inbox answers. FederationApiDocs describes the request.
 @ApiResponse(responseCode = "202", description = """
         The activity is queued, repeats one with the same `id`, was forwarded and will be fetched from its origin, or was \
-        dropped. A stored actor's `Delete` of itself whose key is gone is also answered this way, and checked with its \
+        dropped. A forwarded activity with a valid integrity proof (FEP-8b32) from its `actor` is queued as it was sent. A stored actor's `Delete` of itself whose key is gone is also answered this way, and checked with its \
         server.""")
 @ApiResponse(responseCode = "400", description = """
         The signature or digest headers can't be read, the body isn't a UTF-8 JSON object with a string `id`, `type`, \
@@ -148,8 +148,9 @@ class InboxController {
         // Called with no transaction open, because this can wait on another server.
         var data = HttpRequestData.from(request, body);
         try {
-            var signer = verifier.verify(data, budgets.forAddress(address));
-            return respond(inbox.receive(signer, body));
+            var budget = budgets.forAddress(address);
+            var signer = verifier.verify(data, budget);
+            return respond(inbox.receive(signer, body, budget));
         } catch (SignatureVerificationException e) {
             var unverified = e.keyDocument().flatMap(actor -> inbox.receiveUnverifiedDelete(actor, body));
             if (unverified.isPresent()) {

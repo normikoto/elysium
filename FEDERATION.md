@@ -23,7 +23,8 @@ The extent of this support and its limitations are what's described in the rest 
   for the Ed25519 key that checks integrity proofs, as [Actors](#actors) describes
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
 - [FEP-8b32: Object Integrity Proofs](https://codeberg.org/fediverse/fep/src/branch/main/fep/8b32/fep-8b32.md), on
-  activities that are sent but not yet checked on those that arrive, as [Integrity proofs](#integrity-proofs) describes
+  activities that are sent, and checked on forwarded activities that arrive, as [Integrity proofs](#integrity-proofs)
+  describes
 - [FEP-7628: Move actor](https://codeberg.org/fediverse/fep/src/branch/main/fep/7628/fep-7628.md), with Mastodon's terms
   and only `movedTo`, as [Moving accounts](#moving-accounts) describes
 - [FEP-c0e0: Emoji reactions](https://codeberg.org/fediverse/fep/src/branch/main/fep/c0e0/fep-c0e0.md), as
@@ -329,9 +330,13 @@ verified.
 #### Forwarded activities
 
 An activity signed by someone other than its `actor`, such as a reply that Mastodon forwards to the followers of the
-account being replied to, is answered with a `202`, and fetched later from its `id`, signed as the
-[instance actor](#instance-actor). Nothing from the forwarded copy is kept: the `id` isn't stored until the origin answers,
-so a forwarded activity can't stop the real one from being accepted.
+account being replied to, is accepted as it was sent if it has a valid [integrity proof](#integrity-proofs) from its
+`actor`. It's then treated as if the `actor` had delivered it, except that it counts against the signer's server's
+[limits](#inboxes), and anything wrong with its `id` gets a `202` rather than a `403`, since the signer didn't make it.
+
+Otherwise it's answered with a `202`, and fetched later from its `id`, signed as the [instance actor](#instance-actor).
+Nothing from the forwarded copy is kept: the `id` isn't stored until the origin answers, so a forwarded activity can't
+stop the real one from being accepted.
 
 It's dropped, still with a `202`, unless its `id` is an HTTPS URL on the same host and port as its `actor`, on another
 server than this one, that isn't [blocked](#domain-blocks). Each counts against the signer's server's
@@ -1639,7 +1644,6 @@ server that's sent an activity by someone else can check it with the proof, with
   so Hollo), tootik, and Streams also sign activities with fragment IDs, such as `#create`, `#delete`, and `#update`.
 - Objects that are fetched, such as `Note`s and actor documents, don't have proofs, and neither do the objects embedded in
   an activity, which the activity's proof covers.
-- Proofs on activities that arrive aren't checked yet, and an activity is accepted or refused on its HTTP signature alone.
 
 ```json
 "proof": {
@@ -1653,11 +1657,33 @@ server that's sent an activity by someone else can check it with the proof, with
 }
 ```
 
+#### Proofs on activities that arrive
+
+A proof is only checked on a [forwarded activity](#forwarded-activities). An activity that its `actor` delivered is
+accepted or refused on its HTTP signature, whatever its proof says. A forwarded activity's proof is accepted if all of
+these are true, and otherwise the activity is fetched from its origin, as if it had no proof:
+
+- `type` is `DataIntegrityProof`, `cryptosuite` is `eddsa-jcs-2022`, and `proofPurpose` is `assertionMethod`.
+- `verificationMethod` is an Ed25519 `Multikey` in the `assertionMethod` of the `actor`'s document, as FEP-521a describes,
+  with the `actor` as its `controller`. It's looked up as an HTTP signature's key is, so it has to be on the `actor`'s
+  host, and the key has to be in the document, rather than only its ID. A key that's only in `assertionMethod` isn't
+  accepted for HTTP signatures, and a key in `publicKey` isn't accepted for proofs.
+- `created`, if it's there, is no more than an hour ahead of this server's clock, and `expires`, if it's there, is no more
+  than an hour behind it.
+- If the proof has a `@context`, the activity's `@context` starts with the same entries.
+- The signature matches the activity, without its `proof`, and without any `signature`, which FEP-8b32 has made after the
+  proof.
+
+Fetching the key counts against the sending address's [limit on key fetches](#inboxes), as an HTTP signature's key
+does. If `proof` is an array, only the first two proofs with a `verificationMethod` on the `actor`'s host are checked,
+since FEP-8b32 says an object shouldn't have more than one.
+
 ### Linked Data Signatures
 
 Linked Data Signatures aren't supported, and there are no plans to support them, since [integrity proofs](#integrity-proofs)
 do the same job. They aren't verified on activities that arrive, and aren't added to activities that are sent, so another server can't use one to have this server accept an
-activity it relays. A [forwarded activity](#forwarded-activities) is fetched from its origin instead.
+activity it relays. A [forwarded activity](#forwarded-activities) is fetched from its origin instead, unless it has an
+integrity proof.
 
 ### Authorized fetch
 

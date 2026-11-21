@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.web;
 
+import dev.biribiri.elysium.activitypub.signature.TestBudgets;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.inbound.Inbox;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -240,7 +241,7 @@ class InboxIntegrationTests {
         var actor = "https://blocked-actor.example/users/bob";
         var id = "https://blocked-actor.example/activities/" + UUID.randomUUID();
 
-        var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor)));
+        var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor)), TestBudgets.UNLIMITED);
 
         assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.FORBIDDEN);
         assertThat(stored(id)).isZero();
@@ -254,7 +255,7 @@ class InboxIntegrationTests {
         actors.suspend(stored.id());
         var id = "https://" + domain + "/activities/" + UUID.randomUUID();
 
-        var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", actor), bytes(activity(id, actor.toString())));
+        var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", actor), bytes(activity(id, actor.toString())), TestBudgets.UNLIMITED);
 
         assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.FORBIDDEN);
         assertThat(stored(id)).isZero();
@@ -284,7 +285,7 @@ class InboxIntegrationTests {
         assertThat(stored(id)).isZero();
 
         var outcome = inbox.receive(
-                new VerifiedSignature(realActor + "#main-key", URI.create(realActor)), bytes(activity(id, realActor)));
+                new VerifiedSignature(realActor + "#main-key", URI.create(realActor)), bytes(activity(id, realActor)), TestBudgets.UNLIMITED);
 
         assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
         assertThat(storedActor(id)).isEqualTo(realActor);
@@ -302,8 +303,8 @@ class InboxIntegrationTests {
                     + "/statuses/1\",\"target\":\"" + actor + "/collections/featured\"}";
             var id = actor + "#" + type.toLowerCase() + "/" + Digests.sha256Hex(body);
 
-            assertThat(inbox.receive(signature, bytes(body)).outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
-            assertThat(inbox.receive(signature, bytes(body)).outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
+            assertThat(inbox.receive(signature, bytes(body), TestBudgets.UNLIMITED).outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
+            assertThat(inbox.receive(signature, bytes(body), TestBudgets.UNLIMITED).outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
 
             assertThat(stored(id)).isOne();
             assertThat(storedActor(id)).isEqualTo(actor);
@@ -328,7 +329,7 @@ class InboxIntegrationTests {
         var body = "{\"type\":\"Add\",\"actor\":\"" + actor + "\",\"object\":\"" + actor
                 + "/statuses/1\",\"target\":\"" + actor + "/collections/featured\"}";
 
-        var outcome = inbox.receive(new VerifiedSignature(forwarder + "#main-key", URI.create(forwarder)), bytes(body));
+        var outcome = inbox.receive(new VerifiedSignature(forwarder + "#main-key", URI.create(forwarder)), bytes(body), TestBudgets.UNLIMITED);
 
         assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
         assertThat(stored(actor + "#add/" + Digests.sha256Hex(body))).isZero();

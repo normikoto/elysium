@@ -1,12 +1,15 @@
 package dev.biribiri.elysium.activitypub.vocab;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigInteger;
 import java.net.URI;
 import java.security.KeyPairGenerator;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HexFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,6 +42,39 @@ class MultikeyTests {
 
         assertThatThrownBy(() -> Multikey.ed25519(ALICE + "#ed25519-key", ALICE, pem(rsa.getEncoded())))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void readsBackTheKeyItEncodes() throws Exception {
+        var publicKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
+        var key = Multikey.ed25519(ALICE + "#ed25519-key", ALICE, pem(publicKey.getEncoded()));
+
+        assertThat(Multikey.parseEd25519(key.publicKeyMultibase())).isEqualTo(publicKey);
+    }
+
+    /**
+     * The key from the test vectors in W3C's Data Integrity EdDSA Cryptosuites, and FEP-521a's example.
+     */
+    @Test
+    void readsAKeyFromAnotherImplementation() {
+        var key = Multikey.parseEd25519("z6MkrJVnaZkeFzdQyMZu1cgjg7k1pZZ6pvBQ7XJPt4swbTQ2");
+
+        var spki = key.getEncoded();
+        assertThat(HexFormat.of().formatHex(Arrays.copyOfRange(spki, spki.length - 32, spki.length)))
+                .isEqualTo("b00d8d938e7f773d51565aad36a623f5344f7f5d1960f9cf3e8e12620ea2810f");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "",
+            "6MkrJVnaZkeFzdQyMZu1cgjg7k1pZZ6pvBQ7XJPt4swbTQ2",
+            "z6MkrJVnaZkeFzdQyMZu1cgjg7k1pZZ6pvBQ7XJPt4swbTQ",
+            "z0MkrJVnaZkeFzdQyMZu1cgjg7k1pZZ6pvBQ7XJPt4swbTQ2",
+            // A secp256k1 key, whose multicodec prefix is 0xe7.
+            "zQ3shokFTS3brHcDQrn82RUDfCZESWL1ZdCEJwekUDPQiYBme"
+    })
+    void refusesAnythingButAnEd25519Key(String multibase) {
+        assertThatThrownBy(() -> Multikey.parseEd25519(multibase)).isInstanceOf(IllegalArgumentException.class);
     }
 
     private static String pem(byte[] der) {

@@ -1,7 +1,9 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.activitypub.http.HostHeader;
+import dev.biribiri.elysium.activitypub.proof.ActivityProofs;
 import dev.biribiri.elysium.activitypub.signature.Digests;
+import dev.biribiri.elysium.activitypub.signature.KeyFetchBudget;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
@@ -10,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -22,8 +25,9 @@ import java.util.Optional;
  * {@link InboundActivities#accept}, where the first activity stored under an ID wins. Otherwise a server could use its own
  * valid key to send an activity with another server's ID, and the real one would be dropped as a repeat.
  *
- * <p>An activity signed by someone other than its actor is never stored as it was sent. {@link ForwardedActivities} fetches
- * it from its origin instead.
+ * <p>An activity signed by someone other than its actor is only stored as it was sent if it has an integrity proof
+ * (FEP-8b32) from its actor, which says the actor wrote it whoever passed it on. Otherwise {@link ForwardedActivities}
+ * fetches it from its origin instead.
  *
  * <p>An activity that passes the checks counts against its server's limits, through {@link ServerActivityLimits}, whether
  * or not it's a repeat. Requests that fail them don't count, so a server can't use up another's limit.
@@ -45,6 +49,7 @@ public class Inbox {
     private final ForwardedActivities forwarded;
     private final DeletionChecks deletions;
     private final InstanceProperties instance;
+    private final ActivityProofs proofs;
 
     Inbox(
             InboundActivities activities,
@@ -55,7 +60,9 @@ public class Inbox {
             StoredActivities stored,
             ForwardedActivities forwarded,
             DeletionChecks deletions,
-            InstanceProperties instance) {
+            InstanceProperties instance,
+            ActivityProofs proofs) {
+        this.proofs = proofs;
         this.deletions = deletions;
         this.stored = stored;
         this.forwarded = forwarded;
@@ -68,10 +75,15 @@ public class Inbox {
     }
 
     /**
+     * Blocks while fetching the key of a forwarded activity's actor, so this mustn't be called inside a database
+     * transaction.
+     *
      * @param signer who signed the request
      * @param body   the request's body
+     * @param budget the key fetches that the request's sender is allowed to cause, for checking a forwarded activity's
+     *               integrity proof
      */
-    public Result receive(VerifiedSignature signer, byte[] body) {
+    public Result receive(VerifiedSignature signer, byte[] body, KeyFetchBudget budget) {
         var parsed = ActivityEnvelope.parse(body, json);
         if (parsed.isEmpty()) {
             return Result.of(Outcome.INVALID);
@@ -94,27 +106,36 @@ public class Inbox {
             log.debug("Refusing activity {} from {}, who is suspended or deleted", envelope.id(), signer.owner());
             return Result.of(Outcome.FORBIDDEN);
         }
-        // Before the ID is read, because a forwarder isn't to blame for what's in the activity it passes on.
+        URI speaker = signer.owner();
         if (!signer.owner().toString().equals(envelope.actor())) {
-            return forwarded(signer, envelope, body.length);
+            var actor = ActivityObject.parseUri(envelope.actor());
+            if (actor.isEmpty() || !proofs.isSignedBy((ObjectNode) json.readTree(envelope.body()), actor.get(), budget)) {
+                // Before the ID is read, because a forwarder isn't to blame for what's in the activity it passes on.
+                return forwarded(signer, envelope, body.length);
+            }
+            speaker = actor.get();
         }
+        // Whatever's wrong with an activity that was passed on is its actor's doing, not the forwarder's.
+        var refused = speaker.equals(signer.owner()) ? Outcome.FORBIDDEN : Outcome.IGNORED;
+        var invalid = speaker.equals(signer.owner()) ? Outcome.INVALID : Outcome.IGNORED;
         var activityId = envelope.id() == null ? anonymousId(envelope) : envelope.id();
         URI id;
         try {
             id = new URI(activityId);
         } catch (URISyntaxException e) {
-            return Result.of(Outcome.INVALID);
+            return Result.of(invalid);
         }
-        if (!isOnActorsServer(id, signer.owner())) {
-            log.debug("Refusing activity {} from {}, which is on another server", envelope.id(), signer.owner());
-            return Result.of(Outcome.FORBIDDEN);
+        if (!isOnActorsServer(id, speaker)) {
+            log.debug("Refusing activity {} from {}, which is on another server", envelope.id(), speaker);
+            return Result.of(refused);
         }
         InboundActivity activity;
         try {
             activity = new InboundActivity(activityId, envelope.actor(), envelope.type(), envelope.body());
         } catch (IllegalArgumentException e) {
-            return Result.of(Outcome.INVALID);
+            return Result.of(invalid);
         }
+        // The signer's server, which sent it, rather than the actor's, so that a forwarder can't use up another's limits.
         return admitted(signer.owner(), body.length, () -> activities.accept(activity), Outcome.ACCEPTED);
     }
 

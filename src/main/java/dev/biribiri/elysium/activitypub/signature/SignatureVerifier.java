@@ -101,10 +101,15 @@ public class SignatureVerifier {
             throw suspended(keyId.document(), claim.keyId());
         }
         var key = keys.resolve(keyId, budget);
+        // An actor that lists a key only in assertionMethod has said it's for integrity proofs.
+        if (key.use() != ResolvedKey.Use.HTTP_SIGNATURES) {
+            throw new SignatureVerificationException(
+                    Failure.REJECTED, "Key " + claim.keyId() + " is only for integrity proofs");
+        }
         if (!matches(claim, key)) {
             // The sender may have changed its key since this server fetched it.
             key = keys.refresh(keyId, key, budget)
-                    .filter(refreshed -> matches(claim, refreshed))
+                    .filter(refreshed -> refreshed.use() == ResolvedKey.Use.HTTP_SIGNATURES && matches(claim, refreshed))
                     .orElseThrow(() -> new SignatureVerificationException(
                             Failure.REJECTED, "Signature doesn't match the key " + claim.keyId()));
         }

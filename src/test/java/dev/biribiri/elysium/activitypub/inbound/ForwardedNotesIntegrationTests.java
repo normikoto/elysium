@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.activitypub.signature.TestBudgets;
 import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
@@ -467,7 +468,7 @@ class ForwardedNotesIntegrationTests {
     }
 
     private Inbox.Result receive(String body) {
-        return inbox.receive(forwarder, body.getBytes(StandardCharsets.UTF_8));
+        return inbox.receive(forwarder, body.getBytes(StandardCharsets.UTF_8), TestBudgets.UNLIMITED);
     }
 
     /**

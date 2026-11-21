@@ -168,7 +168,7 @@ class CavageRequestSignerTests {
         var instance = new InstanceProperties(URI.create("https://example.test"));
         var keys = mock(PublicKeyResolver.class);
         when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(
-                KEY_ID, URI.create("https://remote.example/users/bob"), SignatureFixtures.publicKey()));
+                KEY_ID, URI.create("https://remote.example/users/bob"), SignatureFixtures.publicKey(), ResolvedKey.Use.HTTP_SIGNATURES));
         return new SignatureVerifier(
                 List.of(new CavageSignatureScheme(instance)), keys, instance, mock(DomainBlocks.class), mock(ActorService.class), Clock.fixed(NOW, ZoneOffset.UTC));
     }

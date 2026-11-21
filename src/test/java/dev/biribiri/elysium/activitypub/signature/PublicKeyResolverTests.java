@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.signature;
 
 import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException.Failure;
+import dev.biribiri.elysium.activitypub.vocab.Multikey;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
@@ -12,9 +13,12 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,9 +45,9 @@ class PublicKeyResolverTests {
     private static final InstanceProperties INSTANCE = new InstanceProperties(URI.create("https://example.test"));
     private static final String KEY_ID = "https://remote.example/users/bob#main-key";
     private static final URI OWNER = URI.create("https://remote.example/users/bob");
-    private static final ResolvedKey KEY = new ResolvedKey(KEY_ID, OWNER, SignatureFixtures.publicKey());
+    private static final ResolvedKey KEY = new ResolvedKey(KEY_ID, OWNER, SignatureFixtures.publicKey(), ResolvedKey.Use.HTTP_SIGNATURES);
     private static final ResolvedKey NEW_KEY =
-            new ResolvedKey(KEY_ID, OWNER, PublicKeyPem.parse(SignatureFixtures.newPublicKeyPem(2048)));
+            new ResolvedKey(KEY_ID, OWNER, PublicKeyPem.parse(SignatureFixtures.newPublicKeyPem(2048)), ResolvedKey.Use.HTTP_SIGNATURES);
 
     private final AtomicLong nanos = new AtomicLong();
     private final ActorService actors = mock();
@@ -604,6 +608,24 @@ class PublicKeyResolverTests {
     }
 
     @Test
+    void forgetsAProofKeyThatTheActorsAssertionMethodChanged() throws Exception {
+        var proofKeyId = OWNER + "#ed25519-key";
+        var first = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
+        var cached = new ResolvedKey(proofKeyId, OWNER, first, ResolvedKey.Use.INTEGRITY_PROOFS);
+        when(documents.fetch(any())).thenReturn(cached);
+        resolver.resolve(keyId(proofKeyId), UNLIMITED);
+
+        resolver.forgetChanged(OWNER, assertionMethodDocument(proofKeyId, first));
+        resolver.resolve(keyId(proofKeyId), UNLIMITED);
+        verify(documents, times(1)).fetch(any());
+
+        var second = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
+        resolver.forgetChanged(OWNER, assertionMethodDocument(proofKeyId, second));
+        resolver.resolve(keyId(proofKeyId), UNLIMITED);
+        verify(documents, times(2)).fetch(any());
+    }
+
+    @Test
     void forgetsAKeyThatTheActorsDocumentNoLongerHas() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
         resolver.resolve(keyId(KEY_ID), UNLIMITED);
@@ -629,7 +651,7 @@ class PublicKeyResolverTests {
 
     @Test
     void keepsAKeyThatIsTheActorsOwnId() throws Exception {
-        var ownId = new ResolvedKey(OWNER.toString(), OWNER, SignatureFixtures.publicKey());
+        var ownId = new ResolvedKey(OWNER.toString(), OWNER, SignatureFixtures.publicKey(), ResolvedKey.Use.HTTP_SIGNATURES);
         when(documents.fetch(any())).thenReturn(ownId);
         resolver.resolve(keyId(OWNER.toString()), UNLIMITED);
 
@@ -670,6 +692,12 @@ class PublicKeyResolverTests {
 
         resolver.resolve(keyId(KEY_ID), UNLIMITED);
         verify(documents, times(1)).fetch(any());
+    }
+
+    private JsonNode assertionMethodDocument(String keyId, PublicKey key) {
+        var pem = "-----BEGIN PUBLIC KEY-----\n" + Base64.getEncoder().encodeToString(key.getEncoded())
+                + "\n-----END PUBLIC KEY-----\n";
+        return json.valueToTree(Map.of("assertionMethod", List.of(Multikey.ed25519(keyId, OWNER, pem))));
     }
 
     private JsonNode actorDocument(Map<String, Object> key) {

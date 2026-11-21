@@ -1,14 +1,19 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.activitypub.signature.TestBudgets;
 import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.activitypub.proof.TestProofs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
+import dev.biribiri.elysium.activitypub.signature.DocumentStubs;
+import dev.biribiri.elysium.activitypub.vocab.Multikey;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.activitypub.signature.VerifiedSignature;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
+import dev.biribiri.elysium.actor.signing.SigningKey;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
@@ -28,8 +33,11 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -401,6 +409,98 @@ class ForwardedActivitiesIntegrationTests {
         assertThat(forwardedJobs()).isZero();
     }
 
+    // Integrity proofs
+
+    @Test
+    void storesAnActivityWithAProofFromItsActorAsItWasSent() throws Exception {
+        var key = proofKeyOf(actor);
+
+        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
+        assertThat(storedBody()).contains("forwarded");
+        assertThat(storedActor()).isEqualTo(actor);
+        assertThat(forwardedJobs()).isZero();
+        verify(documents, never()).fetch(URI.create(id));
+    }
+
+    @Test
+    void fetchesAnActivityWhoseProofWasMadeByAnotherActor() throws Exception {
+        var other = "https://" + origin + "/users/b";
+        var key = proofKeyOf(other);
+
+        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
+        assertThat(stored()).isZero();
+        assertThat(forwardedJobs()).isOne();
+    }
+
+    @Test
+    void fetchesAnActivityThatWasChangedAfterItsProofWasMade() throws Exception {
+        var key = proofKeyOf(actor);
+        var signed = TestProofs.sign(activity(id, actor, "forwarded"), key);
+
+        var result = receive(signed.replace("forwarded", "changed"));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
+        assertThat(stored()).isZero();
+    }
+
+    @Test
+    void fetchesAnActivityWhoseActorDoesNotListTheProofsKey() throws Exception {
+        proofKeyOf(actor);
+        var unlisted = new SigningKey(actor + "#other-key", ed25519().getPrivate());
+
+        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), unlisted));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
+    }
+
+    @Test
+    void ignoresAnActivityWithAProofWhoseIdIsOnAnotherServer() throws Exception {
+        var key = proofKeyOf(actor);
+        var elsewhere = "https://elsewhere" + UUID.randomUUID() + ".test/activities/1";
+
+        var result = receive(TestProofs.sign(activity(elsewhere, actor, "forwarded"), key));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
+        assertThat(forwardedJobs(elsewhere)).isZero();
+    }
+
+    @Test
+    void fetchesAnActivityWithAProofFromABlockedServer() throws Exception {
+        var key = proofKeyOf(actor);
+        blocks.create(origin, null);
+
+        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
+        assertThat(stored()).isZero();
+    }
+
+    /**
+     * Serves the actor's document with an Ed25519 key in assertionMethod.
+     */
+    private SigningKey proofKeyOf(String documentOwner) throws Exception {
+        var pair = ed25519();
+        var keyId = documentOwner + "#ed25519-key";
+        var pem = "-----BEGIN PUBLIC KEY-----\n" + Base64.getEncoder().encodeToString(pair.getPublic().getEncoded())
+                + "\n-----END PUBLIC KEY-----\n";
+        var multikey = Multikey.ed25519(keyId, URI.create(documentOwner), pem);
+        var document = json.createObjectNode()
+                .put("id", documentOwner)
+                .put("type", "Person")
+                .put("inbox", documentOwner + "/inbox")
+                .set("assertionMethod", json.createArrayNode().add(json.valueToTree(multikey)));
+        DocumentStubs.actor(documents, URI.create(documentOwner), document);
+        return new SigningKey(keyId, pair.getPrivate());
+    }
+
+    private static KeyPair ed25519() throws Exception {
+        return KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+    }
+
     private static Instant now() {
         return Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
@@ -412,7 +512,7 @@ class ForwardedActivitiesIntegrationTests {
     }
 
     private Inbox.Result receive(String body) {
-        return inbox.receive(forwarder, body.getBytes(StandardCharsets.UTF_8));
+        return inbox.receive(forwarder, body.getBytes(StandardCharsets.UTF_8), TestBudgets.UNLIMITED);
     }
 
     private void serve(String document) throws Exception {

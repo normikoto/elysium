@@ -1,14 +1,20 @@
 package dev.biribiri.elysium.activitypub.proof;
 
+import dev.biribiri.elysium.activitypub.vocab.Multikey;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.security.KeyFactory;
+import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.security.PrivateKey;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -44,6 +50,8 @@ class DataIntegrityProofsTests {
             + "\n-----END PUBLIC KEY-----\n";
 
     private static final Instant CREATED = Instant.parse("2023-02-24T23:36:38Z");
+    private static final Instant NOW = Instant.parse("2026-11-21T12:00:00Z");
+    private static final PublicKey PUBLIC_KEY = Multikey.parseEd25519(PUBLIC_KEY_MULTIBASE);
 
     @Test
     void makesTheSameProofAsTheTestVectors() throws Exception {
@@ -103,6 +111,89 @@ class DataIntegrityProofsTests {
 
         assertThatThrownBy(() -> DataIntegrityProofs.addProof(signed, key(), CREATED))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void verifiesTheTestVectorsProof() throws Exception {
+        var candidates = DataIntegrityProofs.candidates(signed(), CREATED);
+
+        assertThat(candidates).singleElement().satisfies(candidate -> {
+            assertThat(candidate.verificationMethod()).isEqualTo(KEY_ID);
+            assertThat(candidate.signature().test(PUBLIC_KEY)).isTrue();
+        });
+    }
+
+    @Test
+    void verifiesItsOwnProofs() throws Exception {
+        var signed = DataIntegrityProofs.addProof((ObjectNode) JSON.readTree(resource("w3c-unsigned.json")), key(), NOW);
+
+        assertThat(DataIntegrityProofs.candidates(signed, NOW).getFirst().signature().test(PUBLIC_KEY)).isTrue();
+    }
+
+    @Test
+    void anyChangeOrAnotherKeyFailsTheSignature() throws Exception {
+        var changed = signed();
+        changed.put("name", "Another Credential");
+        var other = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
+
+        assertThat(DataIntegrityProofs.candidates(changed, NOW).getFirst().signature().test(PUBLIC_KEY)).isFalse();
+        assertThat(DataIntegrityProofs.candidates(signed(), NOW).getFirst().signature().test(other)).isFalse();
+    }
+
+    @Test
+    void ignoresALinkedDataSignature() throws Exception {
+        var signed = signed();
+        signed.set("signature", JSON.readTree("{\"type\":\"RsaSignature2017\",\"signatureValue\":\"abc\"}"));
+
+        assertThat(DataIntegrityProofs.candidates(signed, NOW).getFirst().signature().test(PUBLIC_KEY)).isTrue();
+    }
+
+    @Test
+    void readsEachProofInAnArrayAndSkipsTheOnesItCannotCheck() throws Exception {
+        var signed = signed();
+        var other = signed.get("proof").deepCopy();
+        ((ObjectNode) other).put("cryptosuite", "eddsa-rdfc-2022");
+        signed.set("proof", JSON.createArrayNode().add(other).add(signed.get("proof")));
+
+        assertThat(DataIntegrityProofs.candidates(signed, NOW)).singleElement()
+                .satisfies(candidate -> assertThat(candidate.signature().test(PUBLIC_KEY)).isTrue());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "type, Ed25519Signature2020",
+            "cryptosuite, eddsa-rdfc-2022",
+            "proofPurpose, authentication",
+            "proofValue, uSignatureInBase64url",
+            "proofValue, z0OIl",
+            "created, yesterday",
+            "created, 2023-02-25T01:00:00Z",
+            "expires, 2023-02-24T22:00:00Z",
+            "expires, soon"
+    })
+    void leavesOutAProofItCannotCheck(String property, String value) throws Exception {
+        var signed = signed();
+        ((ObjectNode) signed.get("proof")).put(property, value);
+
+        // An hour of clock difference is allowed either way.
+        assertThat(DataIntegrityProofs.candidates(signed, CREATED.minus(Duration.ofMinutes(1)))).isEmpty();
+    }
+
+    @Test
+    void leavesOutAProofWhoseContextTheDocumentDoesNotStartWith() throws Exception {
+        var signed = signed();
+        signed.set("@context", JSON.readTree("[\"https://www.w3.org/ns/credentials/v2\"]"));
+
+        assertThat(DataIntegrityProofs.candidates(signed, NOW)).isEmpty();
+    }
+
+    @Test
+    void findsNoProofsInADocumentWithout() throws Exception {
+        assertThat(DataIntegrityProofs.candidates((ObjectNode) JSON.readTree(resource("w3c-unsigned.json")), NOW)).isEmpty();
+    }
+
+    private static ObjectNode signed() throws Exception {
+        return (ObjectNode) JSON.readTree(resource("w3c-signed.json"));
     }
 
     private static SigningKey key() throws Exception {
