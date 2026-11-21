@@ -79,7 +79,7 @@ class ApiDocs {
     private static final List<String> TAG_ORDER = List.of(
             "Apps", "OAuth", "Accounts", "Follow requests", "Blocks", "Mutes", "Domain blocks", "Statuses", "Bookmarks", "Timelines",
             "Filters", "Filters (v1)", "Notifications", "Grouped notifications", "Conversations", "Markers", "Streaming",
-            "Search", "Instance", "Admin: accounts", "Admin: domain blocks", "ActivityPub", "WebFinger", "NodeInfo");
+            "Search", "Instance", "Announcements", "Admin: accounts", "Admin: domain blocks", "ActivityPub", "WebFinger", "NodeInfo");
 
     @Bean
     OpenApiCustomizer clientApiDocs(BuildProperties build) {

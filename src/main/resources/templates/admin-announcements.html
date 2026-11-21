@@ -1,0 +1,66 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Announcements', ~{::content})}">
+<th:block th:fragment="content">
+    <div class="wide">
+        <p>
+            Apps show published announcements to everyone with an account here, who can dismiss them and react with
+            emoji. Drafts aren't shown. Announcements are plain text, and links and hashtags in them work.
+        </p>
+        <p>
+            An announcement about an event can have a start and an end, which apps show with it. It's listed before and
+            after them too, until it's unpublished or removed. Times are in UTC.
+        </p>
+        <p class="notice" role="alert" th:if="${error != null}" th:text="${error}"></p>
+        <form method="post" th:action="@{/admin/announcements}">
+            <label for="text">Announcement</label>
+            <textarea id="text" name="text" th:maxlength="${maxTextLength}" th:text="${form.text()}" required
+                      autofocus></textarea>
+            <label for="startsAt">Starts (optional, UTC)</label>
+            <input type="datetime-local" id="startsAt" name="startsAt" th:value="${form.startsAt()}">
+            <label for="endsAt">Ends (optional, UTC)</label>
+            <input type="datetime-local" id="endsAt" name="endsAt" th:value="${form.endsAt()}">
+            <label><input type="checkbox" name="allDay" value="true" th:checked="${form.allDay()}">
+                All day, so apps show only the dates</label>
+            <label><input type="checkbox" name="publish" value="true" th:checked="${form.publish()}">
+                Publish now, rather than keep it as a draft</label>
+            <button type="submit">Add announcement</button>
+        </form>
+
+        <h2>Announcements</h2>
+        <p th:if="${announcements.isEmpty()}">There are no announcements yet.</p>
+        <div class="status" th:each="announcement, row : ${announcements}">
+            <p class="status-meta">
+                <strong th:text="|Announcement ${row.count}|"></strong>
+                <span th:text="${announcement.published()} ? 'Published' : 'Draft'"></span>
+            </p>
+            <form method="post" th:action="@{/admin/announcements/{id}(id=${announcement.id()})}">
+                <label th:for="|text-${announcement.id()}|">Announcement</label>
+                <textarea th:id="|text-${announcement.id()}|" name="text" th:maxlength="${maxTextLength}"
+                          th:text="${announcement.text()}" required></textarea>
+                <label th:for="|starts-${announcement.id()}|">Starts (UTC)</label>
+                <input type="datetime-local" th:id="|starts-${announcement.id()}|" name="startsAt"
+                       th:value="${announcement.startsAt()}">
+                <label th:for="|ends-${announcement.id()}|">Ends (UTC)</label>
+                <input type="datetime-local" th:id="|ends-${announcement.id()}|" name="endsAt"
+                       th:value="${announcement.endsAt()}">
+                <label><input type="checkbox" name="allDay" value="true" th:checked="${announcement.allDay()}">
+                    All day</label>
+                <button type="submit">Save</button>
+            </form>
+            <form class="actions" method="post" th:unless="${announcement.published()}"
+                  th:action="@{/admin/announcements/{id}/publish(id=${announcement.id()})}">
+                <button type="submit" th:aria-label="|Publish announcement ${row.count}|">Publish</button>
+            </form>
+            <form class="actions" method="post" th:if="${announcement.published()}"
+                  th:action="@{/admin/announcements/{id}/unpublish(id=${announcement.id()})}">
+                <button type="submit" th:aria-label="|Unpublish announcement ${row.count}|">Unpublish</button>
+            </form>
+            <form class="actions" method="post"
+                  th:action="@{/admin/announcements/{id}/delete(id=${announcement.id()})}">
+                <button type="submit" th:aria-label="|Remove announcement ${row.count}|">Remove</button>
+            </form>
+        </div>
+        <p><a href="/admin">Back to admin</a></p>
+    </div>
+</th:block>
+</html>
