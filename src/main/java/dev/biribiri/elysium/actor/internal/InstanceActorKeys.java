@@ -9,15 +9,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.Optional;
 
 /**
- * The instance actor's keypair. It's created the first time it's needed, because SQL migrations can't generate an RSA
- * key. The key never changes once it exists, so it's only read once.
+ * The instance actor's keypairs. They're created the first time they're needed, because SQL migrations can't generate
+ * keys. They never change once they exist, so they're only read once.
  */
 @Component
 public class InstanceActorKeys {
 
     private final JdbcClient jdbc;
     private final TransactionTemplate ownTransaction;
-    private volatile RsaKeys keys;
+    private volatile Keys keys;
 
     InstanceActorKeys(JdbcClient jdbc, PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
@@ -30,9 +30,13 @@ public class InstanceActorKeys {
     }
 
     /**
-     * @return the keypair
+     * @param rsa     signs HTTP requests
+     * @param ed25519 signs integrity proofs
      */
-    public RsaKeys get() {
+    public record Keys(RsaKeys rsa, Ed25519Keys ed25519) {
+    }
+
+    public Keys get() {
         var loaded = keys;
         if (loaded != null) {
             return loaded;
@@ -45,30 +49,39 @@ public class InstanceActorKeys {
         }
     }
 
-    private RsaKeys load() {
+    private Keys load() {
         var existing = ownTransaction.execute(status -> read());
         if (existing.isPresent()) {
             return existing.get();
         }
         // Generating keys is slow, so it happens before the transaction takes a database connection.
-        var generated = RsaKeys.generate();
+        var rsa = RsaKeys.generate();
+        var ed25519 = Ed25519Keys.generate();
         return ownTransaction.execute(status -> {
             jdbc.sql("""
-                            INSERT INTO instance_actor (public_key_pem, private_key_pem)
-                            VALUES (:publicKeyPem, :privateKeyPem)
+                            INSERT INTO instance_actor (public_key_pem, private_key_pem,
+                                                        ed25519_public_key_pem, ed25519_private_key_pem)
+                            VALUES (:publicKeyPem, :privateKeyPem, :ed25519PublicKeyPem, :ed25519PrivateKeyPem)
                             ON CONFLICT DO NOTHING
                             """)
-                    .param("publicKeyPem", generated.publicKeyPem())
-                    .param("privateKeyPem", generated.privateKeyPem())
+                    .param("publicKeyPem", rsa.publicKeyPem())
+                    .param("privateKeyPem", rsa.privateKeyPem())
+                    .param("ed25519PublicKeyPem", ed25519.publicKeyPem())
+                    .param("ed25519PrivateKeyPem", ed25519.privateKeyPem())
                     .update();
             // Not the generated keys, because another instance of this server may have inserted its own first.
             return read().orElseThrow();
         });
     }
 
-    private Optional<RsaKeys> read() {
-        return jdbc.sql("SELECT public_key_pem, private_key_pem FROM instance_actor")
-                .query(RsaKeys.class)
+    private Optional<Keys> read() {
+        return jdbc.sql("""
+                        SELECT public_key_pem, private_key_pem, ed25519_public_key_pem, ed25519_private_key_pem
+                        FROM instance_actor
+                        """)
+                .query((row, n) -> new Keys(
+                        new RsaKeys(row.getString("public_key_pem"), row.getString("private_key_pem")),
+                        new Ed25519Keys(row.getString("ed25519_public_key_pem"), row.getString("ed25519_private_key_pem"))))
                 .optional();
     }
 }

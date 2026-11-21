@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.actor;
 
 import dev.biribiri.elysium.actor.internal.ActorRepository;
+import dev.biribiri.elysium.actor.internal.Ed25519Keys;
 import dev.biribiri.elysium.actor.internal.InstanceActorKeys;
 import dev.biribiri.elysium.actor.internal.RsaKeys;
 import org.springframework.context.ApplicationEventPublisher;
@@ -61,7 +62,7 @@ public class ActorService {
                 instance.domain(),
                 instance.resolve(InstanceActor.PATH + "/inbox"),
                 instance.resolve(InstanceActor.PATH + "/outbox"),
-                instanceActorKeys.get().publicKeyPem());
+                instanceActorKeys.get().rsa().publicKeyPem());
     }
 
     /**
@@ -390,6 +391,7 @@ public class ActorService {
 
         // Generating keys is slow, so it happens before the transaction takes a database connection.
         var keys = RsaKeys.generate();
+        var ed25519 = Ed25519Keys.generate();
         var actorPath = "/users/" + username;
         // PostgreSQL stores microseconds, so this matches what a later read returns.
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
@@ -405,7 +407,7 @@ public class ActorService {
                 now,
                 now);
         var created = transaction.execute(status -> {
-            if (!actors.createLocalIfAbsent(actor, keys.privateKeyPem())) {
+            if (!actors.createLocalIfAbsent(actor, keys.privateKeyPem(), ed25519)) {
                 return false;
             }
             onCreated.accept(actor);

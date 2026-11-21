@@ -44,7 +44,8 @@ class InstanceActorKeysTests {
         var second = newKeys().get();
 
         assertThat(second).isEqualTo(first);
-        assertThat(RsaKeys.parsePrivateKey(first.privateKeyPem())).isNotNull();
+        assertThat(RsaKeys.parsePrivateKey(first.rsa().privateKeyPem())).isNotNull();
+        assertThat(Ed25519Keys.parsePrivateKey(first.ed25519().privateKeyPem())).isNotNull();
     }
 
     @Test
@@ -61,7 +62,7 @@ class InstanceActorKeysTests {
     void instancesStartingTogetherAgreeOnOneKey() throws Exception {
         var count = 4;
         var ready = new CountDownLatch(count);
-        var tasks = new ArrayList<Callable<RsaKeys>>();
+        var tasks = new ArrayList<Callable<InstanceActorKeys.Keys>>();
         for (var i = 0; i < count; i++) {
             var keys = newKeys();
             tasks.add(() -> {
@@ -72,7 +73,7 @@ class InstanceActorKeysTests {
         }
 
         try (var executor = Executors.newFixedThreadPool(count)) {
-            var results = new ArrayList<RsaKeys>();
+            var results = new ArrayList<InstanceActorKeys.Keys>();
             for (var future : executor.invokeAll(tasks)) {
                 results.add(future.get());
             }
@@ -120,11 +121,15 @@ class InstanceActorKeysTests {
         var keys = newKeys().get();
 
         var inserted = jdbc.sql("""
-                        INSERT INTO instance_actor (public_key_pem, private_key_pem) VALUES (:pub, :priv)
+                        INSERT INTO instance_actor (public_key_pem, private_key_pem,
+                                                    ed25519_public_key_pem, ed25519_private_key_pem)
+                        VALUES (:pub, :priv, :edPub, :edPriv)
                         ON CONFLICT DO NOTHING
                         """)
-                .param("pub", keys.publicKeyPem())
-                .param("priv", keys.privateKeyPem())
+                .param("pub", keys.rsa().publicKeyPem())
+                .param("priv", keys.rsa().privateKeyPem())
+                .param("edPub", keys.ed25519().publicKeyPem())
+                .param("edPriv", keys.ed25519().privateKeyPem())
                 .update();
 
         assertThat(inserted).isZero();

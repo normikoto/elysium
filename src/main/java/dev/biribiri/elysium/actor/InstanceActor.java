@@ -33,4 +33,12 @@ public record InstanceActor(
     public String publicKeyId() {
         return uri + "#main-key";
     }
+
+    /**
+     * The ID of the Ed25519 key that checks this actor's integrity proofs. It's separate from {@link #publicKeyId()},
+     * because servers that only know {@code publicKey} expect an RSA key there.
+     */
+    public String proofKeyId() {
+        return uri + "#ed25519-key";
+    }
 }

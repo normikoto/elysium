@@ -444,6 +444,16 @@ public class ActorRepository {
     }
 
     /**
+     * Reads the private key an actor signs integrity proofs with, which actor queries also leave out.
+     */
+    public Optional<String> findEd25519PrivateKeyPem(UUID actorId) {
+        return jdbc.sql("SELECT ed25519_private_key_pem FROM local_account WHERE actor_id = :actorId")
+                .param("actorId", actorId)
+                .query(String.class)
+                .optional();
+    }
+
+    /**
      * Counts the accounts that the public can see.
      */
     public long countLocal() {
@@ -485,7 +495,7 @@ public class ActorRepository {
      * @return whether the actor was created
      */
     @Transactional
-    public boolean createLocalIfAbsent(Actor actor, String privateKeyPem) {
+    public boolean createLocalIfAbsent(Actor actor, String privateKeyPem, Ed25519Keys ed25519) {
         var inserted = jdbc.sql("""
                         INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, shared_inbox_uri,
                                            public_key_pem, created_at, updated_at, is_local)
@@ -508,9 +518,14 @@ public class ActorRepository {
         if (inserted == 0) {
             return false;
         }
-        jdbc.sql("INSERT INTO local_account (actor_id, private_key_pem) VALUES (:actorId, :privateKeyPem)")
+        jdbc.sql("""
+                        INSERT INTO local_account (actor_id, private_key_pem, ed25519_public_key_pem, ed25519_private_key_pem)
+                        VALUES (:actorId, :privateKeyPem, :ed25519PublicKeyPem, :ed25519PrivateKeyPem)
+                        """)
                 .param("actorId", actor.id())
                 .param("privateKeyPem", privateKeyPem)
+                .param("ed25519PublicKeyPem", ed25519.publicKeyPem())
+                .param("ed25519PrivateKeyPem", ed25519.privateKeyPem())
                 .update();
         return true;
     }
