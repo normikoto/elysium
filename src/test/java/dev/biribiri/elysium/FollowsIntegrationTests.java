@@ -162,6 +162,91 @@ class FollowsIntegrationTests {
                 .andExpect(status().isUnauthorized());
     }
 
+    // Removing followers
+
+    @Test
+    void removingAFollowerEndsTheirFollow() throws Exception {
+        var alice = account("alice");
+        var bob = account("bob");
+        follow("alice", bob);
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + alice.id() + "/remove_from_followers"), token("bob")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(alice.id().toString()))
+                .andExpect(jsonPath("$.followed_by").value(false));
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", bob.id().toString()), token("alice")))
+                .andExpect(jsonPath("$[0].following").value(false))
+                .andExpect(jsonPath("$[0].requested").value(false));
+        mockMvc.perform(get("/api/v1/accounts/" + bob.id())).andExpect(jsonPath("$.followers_count").value(0));
+        follow("alice", bob);
+        mockMvc.perform(get("/api/v1/accounts/" + bob.id())).andExpect(jsonPath("$.followers_count").value(1));
+    }
+
+    @Test
+    void removingFromFollowersLeavesARequestWaiting() throws Exception {
+        var alice = account("alice");
+        var bob = account("bob");
+        lock("bob", true);
+        follow("alice", bob);
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + alice.id() + "/remove_from_followers"), token("bob")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requested_by").value(true));
+
+        mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("bob")))
+                .andExpect(jsonPath("$[*].username", contains("alice")));
+    }
+
+    @Test
+    void removingAnAccountThatIsntAFollowerChangesNothing() throws Exception {
+        var alice = account("alice");
+        var bob = account("bob");
+        follow("bob", alice);
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + alice.id() + "/remove_from_followers"), token("bob")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.following").value(true))
+                .andExpect(jsonPath("$.followed_by").value(false));
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/remove_from_followers"), token("bob")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void removingAFollowerNeedsTheScopeAndAnAccount() throws Exception {
+        var alice = account("alice");
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + alice.id() + "/remove_from_followers"), token("bob", "read")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + UUID.randomUUID() + "/remove_from_followers"), token("bob")))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(withToken(post("/api/v1/accounts/nope/remove_from_followers"), token("bob")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void removingARemoteFollowerQueuesARejectAndIgnoresTheFollowAfterwards() throws Exception {
+        var alice = account("alice");
+        var remote = remote();
+        insertFollow(remote, alice);
+        var theirFollow = jdbc.sql("SELECT activity_uri FROM follow WHERE follower_id = :id")
+                .param("id", remote.id())
+                .query(String.class)
+                .single();
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + remote.id() + "/remove_from_followers"), token("alice")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.followed_by").value(false));
+
+        var reject = await().atMost(WAIT)
+                .until(() -> outboundBodies(alice, remote), bodies -> bodies.stream().anyMatch(body -> body.contains("\"Reject\"")))
+                .stream().filter(body -> body.contains("\"Reject\"")).findFirst().orElseThrow();
+        assertThat(JsonPath.<String>read(reject, "$.object.id")).isEqualTo(theirFollow);
+        assertThat(jdbc.sql("SELECT count(*) FROM undone_follow WHERE activity_uri = :uri")
+                .param("uri", theirFollow)
+                .query(Long.class)
+                .single()).isEqualTo(1);
+    }
+
     // Followers-only statuses
 
     @Test

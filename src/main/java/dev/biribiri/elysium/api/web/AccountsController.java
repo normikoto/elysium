@@ -413,6 +413,34 @@ public class AccountsController {
         return relationship(follower.id(), followed.id());
     }
 
+    /**
+     * A follower can be removed whatever its state, as an account can be unfollowed.
+     */
+    @PostMapping("/{id}/remove_from_followers")
+    @PreAuthorize("hasAuthority('SCOPE_write:follows')")
+    @Operation(
+            operationId = "removeAccountFromFollowers",
+            summary = "Remove an account from the user's followers",
+            description = """
+                    Stops the account following the user, without blocking it, so it can follow again. An account on \
+                    another server has its server sent a `Reject` of its `Follow`. A request to follow that's still \
+                    waiting isn't affected, and nor is an account that doesn't follow the user. A follower can be \
+                    removed while it's suspended.\s""" + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#remove_from_followers"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public RelationshipResponse removeFromFollowers(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+        var owner = viewerAccount(token);
+        var follower = RequestParameters.uuid(id).flatMap(actors::findById).orElseThrow(RecordNotFoundException::new);
+        follows.removeFollower(owner, follower);
+        return relationship(owner.id(), follower.id());
+    }
+
     @PostMapping("/{id}/block")
     @PreAuthorize("hasAuthority('SCOPE_write:blocks')")
     @Operation(

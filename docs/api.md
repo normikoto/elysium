@@ -683,8 +683,8 @@ Only these exist:
 
 - `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `:id/statuses`, `:id/followers`, and
   `:id/following`
-- `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/block`, `/unblock`, `/mute`, `/unmute`, `/note`, `/endorse`,
-  `/unendorse`, `/pin`, and `/unpin`
+- `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/remove_from_followers`, `/block`, `/unblock`, `/mute`, `/unmute`,
+  `/note`, `/endorse`, `/unendorse`, `/pin`, and `/unpin`
 - `PATCH /api/v1/accounts/update_credentials`
 - `DELETE /api/v1/profile/avatar` and `/api/v1/profile/header`
 - `GET /api/v1/follow_requests`, and `POST /api/v1/follow_requests/:account_id/authorize` and `/reject`
@@ -759,7 +759,8 @@ Only these exist:
 - `:id/followers` and `:id/following` page by the follow, so a cursor from a follow that's since been removed gives an
   empty page. If the account hides them, anyone else gets an empty list.
 - A suspended account gets a 404 from `GET /api/v1/accounts/:id` and the lists, and is left out of `relationships`,
-  even with `with_suspended`, and of followers and following. An account can still be unfollowed while it's suspended.
+  even with `with_suspended`, and of followers and following. An account can still be unfollowed, or removed from
+  followers, while it's suspended.
 - `GET /api/v1/accounts/:id/statuses?pinned=true` lists the pins the viewer can see, the most recently pinned first,
   with no `Link` header, since they fit in one page. Only `limit` applies, and `max_id`, `since_id`, or `min_id` gets an
   empty list. An account on another server has the pins its server has told this one about, which are only kept for

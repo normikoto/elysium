@@ -145,6 +145,24 @@ public class FollowService {
     }
 
     /**
+     * Stops an account following a local account, as Mastodon's {@code remove_from_followers} does, and publishes
+     * {@link FollowerRemoved}. A request that's still waiting is left for the user to answer, as on Mastodon, since
+     * rejecting one tells the follower's server differently.
+     *
+     * @param followed a local account
+     * @return whether the account was following it
+     */
+    @Transactional
+    public boolean removeFollower(Actor followed, Actor follower) {
+        follows.lock(pairKey(follower.uri().toString(), followed.id()));
+        if (!follows.isFollowing(follower.id(), followed.id())) {
+            return false;
+        }
+        removeFollowerLocked(follower, followed.id());
+        return true;
+    }
+
+    /**
      * Removes a follower of a local account, or its request to follow, for a caller that holds the pair's lock. A repeat of
      * the same {@code Follow} is then ignored, as one that was refused is.
      */
