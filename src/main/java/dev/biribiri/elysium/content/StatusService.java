@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
@@ -13,14 +14,12 @@ import dev.biribiri.elysium.content.internal.QuoteRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
-import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.text.Hashtags;
 import dev.biribiri.elysium.text.Markdown;
 import dev.biribiri.elysium.text.Mentions;
 import dev.biribiri.elysium.text.PlainText;
-import dev.biribiri.elysium.text.RemoteHtml;
 import dev.biribiri.elysium.text.Urls;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -32,8 +31,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -98,6 +95,7 @@ public class StatusService {
     private final PostingDefaults postingDefaults;
     private final PollRepository polls;
     private final CustomEmojis emojis;
+    private final RemoteStatuses remoteStatuses;
 
     StatusService(
             StatusRepository statuses,
@@ -119,7 +117,9 @@ public class StatusService {
             QuoteRules quoteRules,
             PostingDefaults postingDefaults,
             PollRepository polls,
-            CustomEmojis emojis) {
+            CustomEmojis emojis,
+            RemoteStatuses remoteStatuses) {
+        this.remoteStatuses = remoteStatuses;
         this.polls = polls;
         this.emojis = emojis;
         this.followersOnly = followersOnly;
@@ -218,7 +218,7 @@ public class StatusService {
 
             // PostgreSQL stores microseconds, so this matches what a later read returns.
             var publishedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-            var id = nextId(publishedAt);
+            var id = StatusIds.next(statuses, publishedAt);
             var uri = instance.resolve("/users/" + author.username() + "/statuses/" + id);
             var status = new Status(
                     id,
@@ -855,285 +855,10 @@ public class StatusService {
     }
 
     /**
-     * Stores a status from another server. Its HTML is sanitized here, so that nothing unsanitized can be stored. Nothing is
-     * published for outbound delivery, since it isn't this server's to send; StatusStored updates local inboxes.
-     *
-     * <p>Its ID comes from when it arrived, not from its {@code published} date, which the other server chose. Clients ask
-     * for statuses newer than the last ID they saw, so one with an older ID would never reach them.
-     *
-     * @return the stored status's ID, or empty if a status with its URI is already stored
-     * @throws IllegalArgumentException if the author isn't an active remote actor
-     */
-    public Optional<UUID> storeRemote(RemoteStatus remote) {
-        return store(remote, false, true);
-    }
-
-    /**
-     * Like {@link #storeRemote}, for a status that's only stored because a status here quotes it. What it quotes in turn
-     * isn't fetched.
-     */
-    public Optional<UUID> storeQuoted(RemoteStatus remote) {
-        return store(remote, false, false);
-    }
-
-    /**
-     * Like {@link #storeRemote}, for an older status fetched from its author's outbox, or for its thread, or first seen in
-     * an edit of it, rather than sent here when it was posted. It's never direct, since it doesn't join a conversation.
-     *
-     * <p>Its ID comes from its {@code published} date, or now if that's later, so that it sorts among its author's statuses
-     * by when it was posted, rather than putting old ones at the top of every timeline. This is the one exception to IDs
-     * following commits: a client that's already seen later IDs won't be given it as new, which is what's wanted for an old
-     * status. Its {@link StatusStored} says it was backfilled, so the accounts it mentions aren't told about it long after it
-     * was posted.
-     *
-     * @return the stored status's ID, or empty if a status with its URI is already stored
-     * @throws IllegalArgumentException if the author isn't an active remote actor
-     */
-    public Optional<UUID> storeBackfilled(RemoteStatus remote) {
-        return store(remote, true, true);
-    }
-
-    /**
-     * @param fetchQuoted whether what it quotes can be fetched
-     */
-    private Optional<UUID> store(RemoteStatus remote, boolean backfilled, boolean fetchQuoted) {
-        var author = actors.findById(remote.authorId())
-                .filter(found -> found.isActive() && !actors.isLocal(found))
-                .orElseThrow(() -> new IllegalArgumentException("The author isn't an active remote actor"));
-        var html = RemoteText.of(remote.content(), remote.spoilerText(), remote.language());
-        // Repeats are common, and this keeps them from waiting for the lock that every new status takes.
-        if (statuses.existsByUri(remote.uri())) {
-            return Optional.empty();
-        }
-
-        return transaction.execute(tx -> {
-            statuses.lockUri(remote.uri());
-            if (statuses.isRemoteDeleted(remote.uri(), author.uri())) {
-                return Optional.<UUID>empty();
-            }
-            // Inside the lock, so that a reply and its parent arriving together can't miss each other: whichever is stored
-            // second sees the other.
-            var now = Instant.now();
-            var id = backfilled ? backfilledId(remote.publishedAt(), now) : nextId(now);
-            var parent = Optional.ofNullable(remote.inReplyToUri()).flatMap(statuses::findParentByUriAndLock);
-            var status = new Status(
-                    id,
-                    remote.uri(),
-                    author.id(),
-                    html.text(),
-                    html.content(),
-                    html.spoilerText(),
-                    html.language(),
-                    remote.visibility(),
-                    remote.sensitive() || !html.spoilerText().isEmpty(),
-                    remote.inReplyToUri() != null,
-                    parent.map(StatusRepository.Parent::id).orElse(null),
-                    parent.map(StatusRepository.Parent::actorId).orElse(null),
-                    remote.inReplyToUri(),
-                    remote.url(),
-                    remote.publishedAt().truncatedTo(ChronoUnit.MICROS),
-                    remote.editedAt() == null ? null : remote.editedAt().truncatedTo(ChronoUnit.MICROS),
-                    null,
-                    0,
-                    remote.quotePolicy(),
-                    null,
-                    false,
-                    ContentType.PLAIN);
-            if (!statuses.insert(status)) {
-                return Optional.<UUID>empty();
-            }
-            var mentions = new HashMap<>(remote.mentions());
-            mentions.remove(author.id());
-            statuses.insertMentions(id, mentions);
-            statuses.insertTags(id, remoteTags(remote.tags()));
-            emojis.insertForStatus(id, emojis.storeRemote(author.domain(), remote.emojis()).values());
-            attachments.addRemote(id, author.id(), remote.attachments());
-            if (remote.poll() != null) {
-                insertRemotePoll(id, PollService.clean(remote.poll()), now);
-            }
-            if (remote.quote() != null) {
-                insertRemoteQuote(id, remote.quote(), fetchQuoted);
-            }
-            // Jobs have no order, so replies can be stored before their parent, and quotes before what they quote.
-            statuses.linkWaitingReplies(remote.uri(), new StatusRepository.Parent(id, author.id()));
-            quotes.linkWaiting(remote.uri(), id, author.id())
-                    .forEach(quoting -> events.publishEvent(new QuoteVerificationNeeded(quoting, false)));
-            threads.assign(status, remote.inReplyToUri());
-            events.publishEvent(new StatusStored(id, backfilled));
-            return Optional.of(id);
-        });
-    }
-
-    /**
-     * Every remote quote waits to be checked, even one that needs no approval, since only checking it finds what it quotes,
-     * and whether that's its author's own, or this server's.
-     */
-    void insertRemoteQuote(UUID statusId, RemoteQuote quote, boolean fetchQuoted) {
-        var quoted = statuses.findParentByUriAndLock(quote.quotedUri());
-        quotes.insert(statusId, quote.quotedUri(), quoted, QuoteState.PENDING, quote.legacy(), quote.authorizationUri(),
-                null, null, null);
-        events.publishEvent(new QuoteVerificationNeeded(statusId, fetchQuoted));
-    }
-
-    /**
-     * Replaces a remote status with a version its author's server edited. Only what an author can change in an edit on
-     * Mastodon is replaced, so its visibility, its parent and when it was published stay as they were. So do its mentions,
-     * which decide who can see a followers-only or direct status, so that an edit can't show it to anyone it wasn't sent
-     * to. Its hashtags are replaced, since they don't. The version it replaces is kept. Nothing is published for this edit,
-     * since it isn't this server's to send.
-     *
-     * @return what happened to the edit
-     */
-    public RemoteEdit.Outcome updateRemote(RemoteEdit edit) {
-        var html = RemoteText.of(edit.content(), edit.spoilerText(), edit.language());
-        var tags = remoteTags(edit.tags());
-        var poll = edit.poll() == null ? null : PollService.clean(edit.poll());
-        // Servers also send an Update when nothing an edit can change has, such as when a quote is approved, and that
-        // isn't kept as a version, so that the status doesn't show as edited.
-        var stored = statuses.findByUriForAuthor(edit.uri(), edit.authorId());
-        var domain = actors.findById(edit.authorId()).map(Actor::domain).orElse(null);
-        if (stored.isPresent() && isSameVersion(stored.get(), html, edit, tags, poll)) {
-            // Emoji aren't part of a version, since the same text shows the same shortcodes, and statuses from before the
-            // upgrade that added them have none stored. An image can change with nothing else, too.
-            if (domain != null) {
-                transaction.executeWithoutResult(tx -> emojis.replaceForStatus(
-                        stored.get().id(), emojis.storeRemote(domain, edit.emojis()).values()));
-            }
-            return RemoteEdit.Outcome.UNCHANGED;
-        }
-        // One statement, so it needs no lock: a Delete or Create that runs alongside it ends the same in either order. A
-        // caller that stores the status after NOT_STORED has to cope with one stored in between. The tags are replaced in
-        // the same transaction, while the edit's row lock keeps a concurrent edit waiting.
-        var removedMedia = new boolean[1];
-        var edited = transaction.execute(tx -> {
-            var id = statuses.updateRemote(
-                    edit.uri(),
-                    edit.authorId(),
-                    html.text(),
-                    html.content(),
-                    html.spoilerText(),
-                    html.language(),
-                    edit.sensitive() || !html.spoilerText().isEmpty(),
-                    edit.editedAt().truncatedTo(ChronoUnit.MICROS));
-            id.ifPresent(editedId -> {
-                replaceRemotePoll(editedId, poll);
-                statuses.replaceTags(editedId, tags);
-                if (domain != null) {
-                    emojis.replaceForStatus(editedId, emojis.storeRemote(domain, edit.emojis()).values());
-                }
-                removedMedia[0] = attachments.replaceRemote(editedId, edit.authorId(), edit.attachments());
-            });
-            return id.isPresent();
-        });
-        if (removedMedia[0]) {
-            attachments.processDeletions();
-        }
-        if (Boolean.TRUE.equals(edited)) {
-            stored.ifPresent(status -> events.publishEvent(
-                    new RemoteStatusEdited(status.id(), edit.authorId(), edit.editedAt())));
-            return RemoteEdit.Outcome.EDITED;
-        }
-        return statuses.existsByUri(edit.uri()) ? RemoteEdit.Outcome.UNCHANGED : RemoteEdit.Outcome.NOT_STORED;
-    }
-
-    private void insertRemotePoll(UUID statusId, RemotePoll poll, Instant now) {
-        polls.insert(statusId, poll.multiple(), false, poll.expiresAt(), poll.closedAt(), poll.votersCount(),
-                now.truncatedTo(ChronoUnit.MICROS), poll.options(), poll.counts());
-    }
-
-    /**
-     * A poll whose options change is a new one, whose votes from here no longer mean anything, as on Mastodon.
-     */
-    private void replaceRemotePoll(UUID statusId, RemotePoll poll) {
-        var old = polls.findAndLock(statusId);
-        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        if (poll == null) {
-            old.ifPresent(found -> polls.delete(statusId));
-        } else if (old.isPresent() && old.get().hasOptions(poll.options(), poll.multiple())) {
-            polls.refreshRemote(statusId, poll.counts(), poll.votersCount(), poll.expiresAt(), poll.closedAt(), now);
-        } else {
-            old.ifPresent(found -> polls.delete(statusId));
-            insertRemotePoll(statusId, poll, now);
-        }
-    }
-
-    /**
-     * @param poll the edit's poll, as {@link PollService#clean} keeps it
-     */
-    private boolean isSameVersion(
-            Status status, RemoteText html, RemoteEdit edit, Collection<String> tags, RemotePoll poll) {
-        var stored = polls.find(status.id());
-        if (poll == null ? stored.isPresent()
-                : stored.isEmpty() || !stored.get().hasOptions(poll.options(), poll.multiple())) {
-            return false;
-        }
-        if (!html.content().equals(status.content()) || !html.spoilerText().equals(status.spoilerText())
-                || !Objects.equals(html.language(), status.language())
-                || (edit.sensitive() || !html.spoilerText().isEmpty()) != status.sensitive()) {
-            return false;
-        }
-        if (!Set.copyOf(tags).equals(Set.copyOf(statuses.findTags(List.of(status.id())).getOrDefault(status.id(), List.of())))) {
-            return false;
-        }
-        var current = attachments.findByStatuses(List.of(status.id())).getOrDefault(status.id(), List.of());
-        if (current.size() != edit.attachments().size()) {
-            return false;
-        }
-        for (var i = 0; i < current.size(); i++) {
-            var had = current.get(i);
-            var given = edit.attachments().get(i);
-            if (!given.url().equals(had.remoteUrl())
-                    || !Objects.equals(MediaAttachments.remoteDescription(given.description()), had.description())
-                    || !Objects.equals(given.focus(), had.focus())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Another server's text for a status, made safe to store.
-     */
-    private record RemoteText(String text, String content, String spoilerText, String language) {
-
-        static RemoteText of(String content, String spoilerText, String language) {
-            var sanitized = RemoteHtml.sanitize(content);
-            return new RemoteText(
-                    RemoteHtml.plainText(sanitized),
-                    sanitized,
-                    spoilerText == null ? "" : RemoteHtml.inlineText(spoilerText),
-                    isLanguageCode(language) ? language : null);
-        }
-    }
-
-    /**
      * Whether this is a language code that statuses can have, such as {@code en} or {@code pt-BR}.
      */
     public static boolean isLanguageCode(String value) {
         return value != null && LANGUAGE.matcher(value).matches();
-    }
-
-    /**
-     * Clients poll for statuses newer than the last ID they saw, so a status must never become visible after one with a
-     * later ID, or they would miss it. The lock this takes is held until commit, which makes IDs and commits happen in the
-     * same order.
-     */
-    UUID nextId(Instant now) {
-        statuses.lockIdAssignment();
-        return statuses.findNewestId()
-                .map(newest -> StatusIds.after(newest, now))
-                .orElseGet(() -> StatusIds.fromTimestamp(now));
-    }
-
-    /**
-     * Takes the same lock as {@link #nextId}, because one dated close to now could otherwise commit ahead of a status that
-     * was given an earlier ID, which clients would then miss. A date before 1970 doesn't fit in an ID, and would make one
-     * that sorts after every other, so that every later ID would be worked out from it.
-     */
-    private UUID backfilledId(Instant published, Instant now) {
-        statuses.lockIdAssignment();
-        var timestamp = published.isAfter(now) ? now : published.isBefore(Instant.EPOCH) ? Instant.EPOCH : published;
-        return StatusIds.fromTimestamp(timestamp);
     }
 
     /** Batch visibility lookup for notifications and conversation summaries. */
@@ -1428,44 +1153,6 @@ public class StatusService {
     }
 
     /**
-     * Removes a remote status because its author's server deleted it, and remembers that it did, since jobs have no order
-     * and its {@code Create} can still be waiting to run. Nothing is sent: other servers hear about it from its author's.
-     *
-     * @param authorUri the actor whose server said so, which can't remove anyone else's status
-     * @return whether a status was removed
-     */
-    public boolean deleteRemote(URI uri, URI authorUri) {
-        var removed = Boolean.TRUE.equals(transaction.execute(tx -> {
-            statuses.lockUri(uri);
-            statuses.markRemoteDeleted(uri, authorUri);
-            return deleteRemoteLocked(uri, authorUri);
-        }));
-        if (removed) {
-            attachments.processDeletions();
-        }
-        return removed;
-    }
-
-    /**
-     * Deletes a remote status once {@link StatusRepository#lockUri} is held.
-     */
-    private boolean deleteRemoteLocked(URI uri, URI authorUri) {
-        // Locked so that a boost made meanwhile is either found here or fails to find the status.
-        var boosted = statuses.findForDeleteByUri(uri);
-        var localBoosts = boosted.map(status -> boosts.findLocal(status.id())).orElse(List.of());
-        var attached = boosted.map(status -> media.findByStatusAndLock(status.id())).orElse(List.of());
-        var deleted = statuses.deleteRemote(uri, authorUri);
-        if (deleted) {
-            boosted.ifPresent(status -> events.publishEvent(new RemoteStatusDeleted(status.id())));
-            media.removeDetached(attached.stream().map(MediaAttachment::id).toList());
-            // Only once it's known to be the author's, since anyone can name any status.
-            boosted.ifPresent(status -> localBoosts.forEach(boost ->
-                    events.publishEvent(StatusUnreblogged.of(boost, uri, status.actorId()))));
-        }
-        return deleted;
-    }
-
-    /**
      * Finds a status for an admin to remove by its ID, its URI, or the page its server gave. This includes the statuses of
      * suspended authors, which can come back, so check what's shown: it doesn't make a followers-only or direct status
      * visible to anyone who couldn't see it before.
@@ -1518,27 +1205,12 @@ public class StatusService {
             statuses.lockUri(status.uri());
             // Even if its server deleted it meanwhile, since that's only remembered for a while, and it could be sent again.
             statuses.insertRemoval(status.uri(), status.actorId(), author.get().uri(), false, adminId);
-            return deleteRemoteLocked(status.uri(), author.get().uri()) ? Optional.of(status) : Optional.<Status>empty();
+            return remoteStatuses.deleteLocked(status.uri(), author.get().uri()) ? Optional.of(status) : Optional.<Status>empty();
         });
         if (removed.isPresent()) {
             attachments.processDeletions();
         }
         return removed;
-    }
-
-    /**
-     * Whether this actor has a stored remote status with this URI that anyone could see, which its server would show to
-     * anyone who asks.
-     */
-    public boolean isPublicRemote(URI uri, URI authorUri) {
-        return statuses.isPublicRemote(uri, authorUri);
-    }
-
-    /**
-     * @return the author of a stored status, if they're neither suspended nor deleted
-     */
-    public Optional<URI> findAuthorOf(URI statusUri) {
-        return statuses.findAuthorUriByUri(statusUri);
     }
 
     /**
@@ -1570,105 +1242,12 @@ public class StatusService {
     }
 
     /**
-     * Lists public statuses, leaving out replies to other accounts.
-     */
-    public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
-        return findPublic(origin, page, false);
-    }
-
-    /**
-     * @param onlyMedia whether to only list statuses with attachments
-     */
-    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia) {
-        return statuses.findPublic(origin, page, onlyMedia, null);
-    }
-
-    /**
-     * Like {@link #findPublic(StatusOrigin, StatusPage, boolean)}, leaving out what's hidden from a viewer: statuses by
-     * accounts they've blocked, muted, or blocked the server of, or that block them.
-     */
-    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
-        return statuses.findPublic(origin, page, onlyMedia, viewer.orElse(null));
-    }
-
-    /**
-     * Lists public statuses with these hashtags, including replies.
-     */
-    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page) {
-        return findTagged(tags, origin, page, false);
-    }
-
-    /**
-     * @param onlyMedia whether to only list statuses with attachments
-     */
-    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia) {
-        return statuses.findTagged(tags, origin, page, onlyMedia, null);
-    }
-
-    /**
-     * Like {@link #findTagged(TagFilter, StatusOrigin, StatusPage, boolean)}, leaving out what's hidden from a viewer, as
-     * {@link #findPublic(StatusOrigin, StatusPage, boolean, Optional)} does.
-     */
-    public List<Status> findTagged(
-            TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
-        return statuses.findTagged(tags, origin, page, onlyMedia, viewer.orElse(null));
-    }
-
-    /**
      * The names of each status's hashtags, in no particular order.
      *
      * @return an entry for each status that has any
      */
     public Map<UUID, List<String>> findTags(Collection<UUID> statusIds) {
         return statuses.findTags(statusIds);
-    }
-
-    /**
-     * Finds hashtags that public statuses here use, by the start of their name, most used first.
-     *
-     * @param prefix a normalized name
-     */
-    public List<String> searchTags(String prefix, int limit, int offset) {
-        return statuses.searchTags(prefix, limit, offset);
-    }
-
-    /**
-     * Finds statuses by their words, as {@link StatusRepository#search} explains. Only a status's text and content warning
-     * are searched, as whole words in any language.
-     *
-     * @param query     words, in quotes for a phrase, with {@code OR} between alternatives and {@code -} before what
-     *                  mustn't be there
-     * @param accountId only find this account's statuses, if it's given
-     * @param offset    how many matches to skip, after the page's cursors
-     */
-    public List<Status> search(UUID viewer, String query, Optional<UUID> accountId, StatusPage page, int offset) {
-        return statuses.search(viewer, query, accountId.orElse(null), page, offset);
-    }
-
-    /**
-     * How much each hashtag was used on each of the last {@code days} days, today first, counting public statuses stored
-     * here. A day it wasn't used has zeros.
-     */
-    public Map<String, List<TagDay>> findTagHistory(Collection<String> names, int days) {
-        var today = LocalDate.now(ZoneOffset.UTC);
-        var first = today.minusDays(days - 1L);
-        var used = statuses.tagDays(names, first.atStartOfDay(ZoneOffset.UTC).toInstant());
-        var history = new HashMap<String, List<TagDay>>();
-        for (var name : names) {
-            var byDay = used.getOrDefault(name, List.of()).stream()
-                    .collect(Collectors.toMap(TagDay::day, Function.identity()));
-            history.put(name, Stream.iterate(today, day -> !day.isBefore(first), day -> day.minusDays(1))
-                    .map(day -> byDay.getOrDefault(day, new TagDay(day, 0, 0)))
-                    .toList());
-        }
-        return history;
-    }
-
-    /**
-     * Another server's tags are only checked here, so that what counts as a tag is decided in one place.
-     */
-    private static Collection<String> remoteTags(Collection<String> names) {
-        return Hashtags.parseAll(names);
     }
 
     /**
@@ -1683,55 +1262,11 @@ public class StatusService {
     }
 
     /**
-     * Lists the viewer's own statuses and visible statuses from followed accounts, including direct mentions.
-     * As on Mastodon, a followed account's reply is only listed when it's to
-     * its author, to the viewer, or to someone they follow, so that following one person doesn't show their side of every
-     * conversation. A reply to a status that isn't stored here has no known parent author, so it's left out too.
-     *
-     * @param followedIds the accounts the viewer follows
-     */
-    public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
-        return statuses.findHome(viewerId, followedIds, page);
-    }
-
-    /**
-     * Which of these accounts {@link #findHome} would list this status for.
-     */
-    public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
-        return statuses.homeViewers(statusId, candidates);
-    }
-
-    public List<Status> findList(AccountList list, StatusPage page) {
-        return statuses.findList(list, page);
-    }
-
-    /**
-     * Which of these lists {@link #findList} would list this status in.
-     */
-    public List<UUID> listsShowing(UUID statusId, Collection<AccountList> lists) {
-        return statuses.listsShowing(statusId, lists);
-    }
-
-    /**
-     * Whether {@link #findPublic(StatusOrigin, StatusPage, boolean, Optional)} would list this status.
-     */
-    public boolean inPublic(UUID statusId, StatusOrigin origin, boolean onlyMedia, Optional<UUID> viewer) {
-        return statuses.inPublic(statusId, origin, onlyMedia, viewer.orElse(null));
-    }
-
-    /**
-     * Whether {@link #findTagged(TagFilter, StatusOrigin, StatusPage, boolean, Optional)} would list this status.
-     */
-    public boolean inTagged(UUID statusId, TagFilter tags, StatusOrigin origin, boolean onlyMedia, Optional<UUID> viewer) {
-        return statuses.inTagged(statusId, tags, origin, onlyMedia, viewer.orElse(null));
-    }
-
-    /**
      * Lists the statuses of one account that this viewer is allowed to see, which includes those that mention them, and
      * its boosts unless they're excluded.
      */
     public List<Status> findByAccount(
-            UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, StatusPage page) {
+            UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, IdPage page) {
         return findByAccount(actorId, viewer, excludeReplies, excludeReblogs, false, page);
     }
 
@@ -1743,7 +1278,7 @@ public class StatusService {
      */
     public List<Status> findByAccount(
             UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, boolean onlyMedia,
-            StatusPage page) {
+            IdPage page) {
         if (viewer.isPresent() && !blocks.refusing(viewer.get(), List.of(actorId)).isEmpty()) {
             return List.of();
         }
@@ -1754,13 +1289,6 @@ public class StatusService {
                 : Set.of(Visibility.PUBLIC, Visibility.UNLISTED);
         return statuses.findByAccount(
                 actorId, visibilities, viewer.orElse(null), excludeReplies, excludeReblogs, onlyMedia, page);
-    }
-
-    /**
-     * Whether a status with this URI is stored, whoever can see it.
-     */
-    public boolean isStored(URI uri) {
-        return statuses.existsByUri(uri);
     }
 
     /**

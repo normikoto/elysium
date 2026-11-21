@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,6 +69,8 @@ class SearchIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
 
     @MockitoBean
     private ActivityDocuments documents;
@@ -212,7 +215,7 @@ class SearchIntegrationTests {
         var author = remoteAuthor(false);
         var uri = URI.create(author.uri() + "/statuses/" + UUID.randomUUID());
         var page = URI.create("https://" + author.domain() + "/@s/" + UUID.randomUUID());
-        var remoteId = statuses.storeRemote(new RemoteStatus(uri, page, author.id(), "<p>linked</p>", null, null,
+        var remoteId = remoteStatuses.storeRemote(new RemoteStatus(uri, page, author.id(), "<p>linked</p>", null, null,
                 Visibility.UNLISTED, false, null, Instant.now())).orElseThrow().toString();
         var localId = create(closed(), "a local post", "public");
         var local = "https://search.example/users/closedbook/statuses/" + localId;
@@ -236,7 +239,7 @@ class SearchIntegrationTests {
         // Another server can't claim this one's page for its own status.
         var impostor = remoteAuthor(false);
         var claimed = URI.create("https://" + author.domain() + "/@s/" + UUID.randomUUID());
-        statuses.storeRemote(new RemoteStatus(URI.create(impostor.uri() + "/statuses/" + UUID.randomUUID()), claimed,
+        remoteStatuses.storeRemote(new RemoteStatus(URI.create(impostor.uri() + "/statuses/" + UUID.randomUUID()), claimed,
                 impostor.id(), "<p>impostor</p>", null, null, Visibility.PUBLIC, false, null, Instant.now()));
         expectStatuses(byUrl(searcher(), claimed.toString()));
     }
@@ -250,13 +253,13 @@ class SearchIntegrationTests {
         serve(id, note(id, author, List.of(PUBLIC)));
 
         expectStatuses(byUrl(searcher(), page.toString()));
-        assertThat(statuses.isStored(id)).isFalse();
+        assertThat(remoteStatuses.isStored(id)).isFalse();
         mockMvc.perform(byUrl(searcher(), page.toString()).param("resolve", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statuses[0].uri").value(id.toString()))
                 .andExpect(jsonPath("$.statuses[0].content").value("<p>fetched</p>"))
                 .andExpect(jsonPath("$.accounts", empty()));
-        assertThat(statuses.isStored(id)).isTrue();
+        assertThat(remoteStatuses.isStored(id)).isTrue();
     }
 
     @Test
@@ -272,8 +275,8 @@ class SearchIntegrationTests {
 
         expectStatuses(byUrl(searcher(), hidden.toString()).param("resolve", "true"));
         expectStatuses(byUrl(searcher(), page.toString()).param("resolve", "true"));
-        assertThat(statuses.isStored(hidden)).isFalse();
-        assertThat(statuses.isStored(claimed)).isFalse();
+        assertThat(remoteStatuses.isStored(hidden)).isFalse();
+        assertThat(remoteStatuses.isStored(claimed)).isFalse();
     }
 
     private MockHttpServletRequestBuilder byUrl(String token, String url) {
@@ -311,7 +314,7 @@ class SearchIntegrationTests {
         var profile = new RemoteProfile("", "", "", null, null, List.of(), false, indexable, false, false, null, null);
         var author = actors.upsertRemote(new RemoteActorProfile(
                 uri, "s", host, URI.create(uri + "/inbox"), null, null, null, null, null, profile));
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(), html, null,
                 null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), Set.of()))
                 .orElseThrow().toString();

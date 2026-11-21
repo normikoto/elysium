@@ -3,7 +3,6 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlockConflictException;
-import dev.biribiri.elysium.moderation.DomainBlockPage;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.InvalidDomainBlockException;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -69,8 +68,8 @@ public class DomainBlocksController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/#get"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + DomainBlockPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + DomainBlockPage.DEFAULT_LIMIT))
+                            + PageLimits.MAX_DOMAIN_BLOCKS + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.DOMAIN_BLOCKS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The blocks, newest first.")

@@ -2,38 +2,37 @@ package dev.biribiri.elysium.activitypub.web;
 
 import dev.biribiri.elysium.activitypub.http.FederationProperties;
 import dev.biribiri.elysium.activitypub.outbound.Notes;
+import dev.biribiri.elysium.activitypub.outbound.Persons;
+import dev.biribiri.elysium.activitypub.vocab.Announce;
 import dev.biribiri.elysium.activitypub.vocab.Application;
 import dev.biribiri.elysium.activitypub.vocab.Create;
+import dev.biribiri.elysium.activitypub.vocab.Emoji;
+import dev.biribiri.elysium.activitypub.vocab.Like;
 import dev.biribiri.elysium.activitypub.vocab.Note;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollectionPage;
-import dev.biribiri.elysium.activitypub.vocab.Emoji;
 import dev.biribiri.elysium.activitypub.vocab.Person;
+import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.activitypub.vocab.Tombstone;
-import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.actor.InstanceProperties;
-import dev.biribiri.elysium.activitypub.outbound.Persons;
-import dev.biribiri.elysium.activitypub.vocab.Announce;
 import dev.biribiri.elysium.content.BoostService;
-import dev.biribiri.elysium.content.PollService;
-import dev.biribiri.elysium.content.StatusPinService;
-import dev.biribiri.elysium.content.QuoteService;
-import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
-import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusBoost;
-import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.PollService;
+import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusLike;
-import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusQuote;
-import dev.biribiri.elysium.activitypub.vocab.Like;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.FollowService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -278,7 +277,7 @@ public class ActivityPubController {
                 return ResponseEntity.badRequest().build();
             }
         }
-        var selection = new FollowPage(COLLECTION_PAGE_SIZE, cursor.orElse(null), null, null);
+        var selection = new IdPage(COLLECTION_PAGE_SIZE, cursor.orElse(null), null, null);
         var entries = followers ? follows.followers(found.id(), selection) : follows.following(found.id(), selection);
         var next = entries.size() == COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().followId()) : null;
         return ResponseEntity.ok(OrderedCollectionPage.of(
@@ -332,7 +331,7 @@ public class ActivityPubController {
             return ResponseEntity.badRequest().build();
         }
         var entries = statuses.findByAccount(author.id(), ANONYMOUS, false, false,
-                new StatusPage(COLLECTION_PAGE_SIZE, cursor.orElse(null), null, null));
+                new IdPage(COLLECTION_PAGE_SIZE, cursor.orElse(null), null, null));
         // A boost whose status can't be listed is left out, but still moves the cursor, so a page can be short.
         var next = entries.size() == COLLECTION_PAGE_SIZE ? pageUri(uri, entries.getLast().id()) : null;
         return ResponseEntity.ok(OrderedCollectionPage.of(

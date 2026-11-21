@@ -2,11 +2,12 @@ package dev.biribiri.elysium.moderation.internal;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.ModeratedStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.Report;
-import dev.biribiri.elysium.moderation.ReportPage;
+import dev.biribiri.elysium.moderation.ReportFilter;
 import dev.biribiri.elysium.moderation.Reports;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -35,6 +36,7 @@ import java.util.stream.Collectors;
 class ReportPagesController {
 
     private static final String PATH = "/admin/reports";
+    private static final int PAGE_SIZE = 100;
 
     private final Reports reports;
     private final ActorService actors;
@@ -52,9 +54,8 @@ class ReportPagesController {
     String list(@RequestParam(required = false) String resolved, @RequestParam(name = "max_id", required = false) String maxId,
                 Model model) {
         var showResolved = resolved != null;
-        var page = new ReportPage(showResolved, null, null, ReportPage.DEFAULT_LIMIT, Ids.parse(maxId).orElse(null), null,
-                null);
-        var found = reports.list(page);
+        var page = new IdPage(PAGE_SIZE, Ids.parse(maxId).orElse(null), null, null);
+        var found = reports.list(new ReportFilter(showResolved, null, null), page);
         model.addAttribute("resolved", showResolved);
         model.addAttribute("open", reports.countOpen());
         model.addAttribute("reports", summaries(found));

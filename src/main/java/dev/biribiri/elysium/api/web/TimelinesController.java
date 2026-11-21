@@ -3,7 +3,6 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.text.Hashtags;
 import dev.biribiri.elysium.timeline.TimelineService;
@@ -75,8 +74,8 @@ public class TimelinesController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#home"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + StatusPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
+                            + PageLimits.MAX_STATUSES + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
                     @Parameter(name = "local", description = "Has no effect. Mastodon has deprecated it.")
             },
             responses = {
@@ -116,8 +115,8 @@ public class TimelinesController {
             parameters = {
                     @Parameter(name = "listId", description = ApiDocs.ID),
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + StatusPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT))
+                            + PageLimits.MAX_STATUSES + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
@@ -154,8 +153,8 @@ public class TimelinesController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#public"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + StatusPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
+                            + PageLimits.MAX_STATUSES + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
                     @Parameter(name = "local", description = "Only list statuses from this server. " + ApiDocs.FLAG),
                     @Parameter(name = "remote", description = "Only list statuses from other servers. Ignored if "
                             + "`local` is true. " + ApiDocs.FLAG),
@@ -210,8 +209,8 @@ public class TimelinesController {
             parameters = {
                     @Parameter(name = "hashtag", description = "The tag's name, without its `#`."),
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + StatusPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
+                            + PageLimits.MAX_STATUSES + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
                     @Parameter(name = "any[]", description = "Also list statuses with any of these tags. Only the "
                             + "first " + TAGS_PER_MODE + " count."),
                     @Parameter(name = "all[]", description = "Only list statuses that also have every one of these "

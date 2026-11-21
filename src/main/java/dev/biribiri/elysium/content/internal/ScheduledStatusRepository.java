@@ -1,12 +1,13 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.OtherQuotes;
 import dev.biribiri.elysium.content.QuotePolicy;
 import dev.biribiri.elysium.content.ScheduledStatus;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.Visibility;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -107,25 +108,12 @@ public class ScheduledStatusRepository {
     /**
      * @return an account's, newest first by when they were scheduled, not when they're due, as on Mastodon
      */
-    public List<ScheduledStatus> findPage(UUID actorId, StatusPage page) {
+    public List<ScheduledStatus> findPage(UUID actorId, IdPage page) {
         var sql = new StringBuilder("SELECT " + COLUMNS + " FROM scheduled_status WHERE actor_id = :actorId");
         var parameters = new HashMap<String, Object>();
         parameters.put("actorId", actorId);
-        if (page.maxId() != null) {
-            sql.append(" AND id < :maxId");
-            parameters.put("maxId", page.maxId());
-        }
-        // Predicates are only added when needed, because PostgreSQL can't determine the type of a null parameter.
-        var ascending = page.minId() != null;
-        var after = ascending ? page.minId() : page.sinceId();
-        if (after != null) {
-            sql.append(" AND id > :after");
-            parameters.put("after", after);
-        }
-        sql.append(ascending ? " ORDER BY id ASC" : " ORDER BY id DESC").append(" LIMIT :limit");
-        parameters.put("limit", page.limit());
-        var found = jdbc.sql(sql.toString()).params(parameters).query(this::map).list();
-        return ascending ? found.reversed() : found;
+        sql.append(page.cursors("id", parameters)).append(page.orderAndLimit("id", parameters));
+        return page.newestFirst(jdbc.sql(sql.toString()).params(parameters).query(this::map).list());
     }
 
     /**
@@ -135,10 +123,10 @@ public class ScheduledStatusRepository {
     public List<UUID> findDue(int limit) {
         return jdbc.sql("""
                         SELECT s.id FROM scheduled_status s
-                        JOIN actor a ON a.id = s.actor_id AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        JOIN actor a ON a.id = s.actor_id AND %s
                         WHERE s.scheduled_at <= now() AND (s.retry_at IS NULL OR s.retry_at <= now())
                         ORDER BY s.scheduled_at, s.id LIMIT :limit
-                        """)
+                        """.formatted(ActorSql.active("a")))
                 .param("limit", limit)
                 .query(UUID.class)
                 .list();

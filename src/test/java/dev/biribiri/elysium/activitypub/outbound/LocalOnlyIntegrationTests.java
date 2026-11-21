@@ -9,6 +9,7 @@ import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
@@ -44,6 +45,8 @@ class LocalOnlyIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private BoostService boosts;
     @Autowired
@@ -122,7 +125,7 @@ class LocalOnlyIntegrationTests {
     }
 
     private UUID remoteStatus(Actor remote) {
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(remote.uri() + "/notes/" + UUID.randomUUID()), null, remote.id(), "<p>Hi</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
     }

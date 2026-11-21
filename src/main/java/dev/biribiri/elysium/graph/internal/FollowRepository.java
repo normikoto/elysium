@@ -1,8 +1,9 @@
 package dev.biribiri.elysium.graph.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.FollowCounts;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -33,7 +34,7 @@ public class FollowRepository {
     /**
      * Leaves out follows whose other actor, joined as {@code a}, is suspended or deleted.
      */
-    private static final String ACTIVE_OTHER = "a.suspended_at IS NULL AND a.deleted_at IS NULL";
+    private static final String ACTIVE_OTHER = ActorSql.active("a");
 
     private final JdbcClient jdbc;
 
@@ -354,18 +355,18 @@ public class FollowRepository {
      *
      * @param followers true for its followers, and false for the accounts it follows
      */
-    public List<FollowEntry> findPage(UUID actorId, boolean followers, FollowPage page) {
+    public List<FollowEntry> findPage(UUID actorId, boolean followers, IdPage page) {
         return findPage(actorId, followers, "accepted", page);
     }
 
     /**
      * Lists the requests waiting for an account to approve them, leaving out suspended and deleted followers.
      */
-    public List<FollowEntry> findRequestPage(UUID followedId, FollowPage page) {
+    public List<FollowEntry> findRequestPage(UUID followedId, IdPage page) {
         return findPage(followedId, true, "pending", page);
     }
 
-    private List<FollowEntry> findPage(UUID actorId, boolean followers, String state, FollowPage page) {
+    private List<FollowEntry> findPage(UUID actorId, boolean followers, String state, IdPage page) {
         var self = followers ? "f.followed_id" : "f.follower_id";
         var other = followers ? "f.follower_id" : "f.followed_id";
         var sql = new StringBuilder("SELECT f.id, a.id AS other_id, a.uri AS other_uri FROM follow f JOIN actor a ON a.id = ")
@@ -475,9 +476,9 @@ public class FollowRepository {
                             JOIN actor a ON a.id = f.follower_id
                             JOIN actor followed ON followed.id = f.followed_id
                             WHERE followed.uri = :followedUri AND f.state = 'accepted' AND a.is_local
-                              AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                              AND %s
                         )
-                        """)
+                        """.formatted(ActorSql.active("a")))
                 .param("followedUri", followedUri.toString())
                 .query(Boolean.class)
                 .single();
@@ -493,10 +494,10 @@ public class FollowRepository {
                         JOIN actor a ON a.id = f.follower_id
                         JOIN actor followed ON followed.id = f.followed_id
                         WHERE followed.uri = :followedUri AND f.state = 'accepted' AND a.is_local
-                          AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                          AND %s
                         ORDER BY f.created_at, f.follower_id
                         LIMIT 1
-                        """)
+                        """.formatted(ActorSql.active("a")))
                 .param("followedUri", followedUri.toString())
                 .query(UUID.class)
                 .optional();
@@ -512,8 +513,8 @@ public class FollowRepository {
                         JOIN actor a ON a.id = f.follower_id
                         JOIN actor followed ON followed.id = f.followed_id
                         WHERE followed.uri = :followedUri AND f.state = 'accepted' AND a.is_local
-                          AND a.suspended_at IS NULL AND a.deleted_at IS NULL
-                        """)
+                          AND %s
+                        """.formatted(ActorSql.active("a")))
                 .param("followedUri", followedUri.toString())
                 .query(UUID.class)
                 .list();
@@ -597,13 +598,6 @@ public class FollowRepository {
                 .param("arrivedBy", time(arrivedBy))
                 .query(String.class)
                 .optional();
-    }
-
-    /**
-     * @return the domain of every remote actor
-     */
-    public List<String> findRemoteDomains() {
-        return jdbc.sql("SELECT DISTINCT domain FROM actor WHERE NOT is_local").query(String.class).list();
     }
 
     /**

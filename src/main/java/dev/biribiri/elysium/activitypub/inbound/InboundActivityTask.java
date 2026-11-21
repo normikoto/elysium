@@ -2,8 +2,9 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
-import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
+import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;
+import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.springframework.context.annotation.Bean;
@@ -44,7 +45,7 @@ class InboundActivityTask {
     private CompletionHandler<InboundJob> run(InboundJob job) {
         var activity = stored.find(job.activityId());
         if (activity.isEmpty()) {
-            return Jobs.activityGone(job);
+            return ActivityJobs.activityGone(job);
         }
         var handler = handlers.get(activity.get().type());
         if (handler != null) {

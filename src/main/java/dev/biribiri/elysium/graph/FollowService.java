@@ -2,6 +2,7 @@ package dev.biribiri.elysium.graph;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.graph.internal.AccountMemoRepository;
 import dev.biribiri.elysium.graph.internal.BlockRepository;
@@ -297,7 +298,7 @@ public class FollowService {
      * Lists the requests waiting for a local account to approve them, newest first, leaving out suspended and deleted
      * followers.
      */
-    public List<FollowEntry> requests(UUID followedId, FollowPage page) {
+    public List<FollowEntry> requests(UUID followedId, IdPage page) {
         return follows.findRequestPage(followedId, page);
     }
 
@@ -415,7 +416,7 @@ public class FollowService {
     /**
      * Lists an account's accepted followers, newest first, leaving out suspended and deleted ones.
      */
-    public List<FollowEntry> followers(UUID actorId, FollowPage page) {
+    public List<FollowEntry> followers(UUID actorId, IdPage page) {
         return follows.findPage(actorId, true, page);
     }
 
@@ -423,7 +424,7 @@ public class FollowService {
      * Lists the accounts that an account follows and has been accepted by, newest first, leaving out suspended and deleted
      * ones.
      */
-    public List<FollowEntry> following(UUID actorId, FollowPage page) {
+    public List<FollowEntry> following(UUID actorId, IdPage page) {
         return follows.findPage(actorId, false, page);
     }
 
@@ -647,17 +648,10 @@ public class FollowService {
     }
 
     /**
-     * @return the domain of every remote actor, each as {@code actor.domain} has it
-     */
-    public List<String> remoteDomains() {
-        return follows.findRemoteDomains();
-    }
-
-    /**
      * Removes all follows to and from a domain's remote actors. Each batch of actors commits by itself, so that removing a
      * lot of them doesn't hold one long transaction.
      *
-     * @param domain a domain from {@link #remoteDomains}
+     * @param domain a domain from {@link ActorService#remoteDomains}
      */
     public void removeForDomain(String domain) {
         var after = new UUID(0, 0);

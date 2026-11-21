@@ -7,6 +7,7 @@ import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -84,6 +85,8 @@ class ReportsIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private Reports reports;
     @MockitoBean
@@ -404,7 +407,7 @@ class ReportsIntegrationTests {
 
     private Status remoteStatus(Actor author) {
         var id = UUID.randomUUID();
-        var stored = statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + id),
+        var stored = remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + id),
                 URI.create("https://" + author.domain() + "/@r/" + id), author.id(), "<p>From afar</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         return statuses.findForModeration(stored.toString()).orElseThrow();

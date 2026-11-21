@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.content.AttachmentProperties;
 import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.Focus;
@@ -542,7 +543,7 @@ public class MediaAttachmentRepository {
     /**
      * Matches an actor on a domain or its subdomains, ignoring a port, as domain blocks do.
      */
-    private static final String ON_DOMAIN = DomainSql.covers(":domain", "a.domain");
+    private static final String ON_DOMAIN = ActorSql.domainCovers(":domain", "a.domain");
 
     /**
      * Rejects the attachments of a server's actors, and removes the copies of them, in one batch.
@@ -588,7 +589,7 @@ public class MediaAttachmentRepository {
      * Whether an actor is still covered by a block that rejects its server's media. A narrower block and a broader one
      * can both cover it, so lifting one doesn't lift the other.
      */
-    private static final String STILL_REJECTED_BY_A_BLOCK = DomainSql.mediaRejected("a.domain");
+    private static final String STILL_REJECTED_BY_A_BLOCK = ActorSql.mediaRejected("a.domain");
 
     /**
      * Stops rejecting a server's actors' attachments, other than those of actors whose own are rejected, or that another

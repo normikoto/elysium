@@ -2,23 +2,23 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.content.AccountPage;
-import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.BookmarkService;
 import dev.biribiri.elysium.content.BoostService;
+import dev.biribiri.elysium.content.ContentType;
+import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.OtherQuotes;
+import dev.biribiri.elysium.content.Poll;
+import dev.biribiri.elysium.content.PollChange;
+import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.QuoteChange;
 import dev.biribiri.elysium.content.QuotePolicy;
 import dev.biribiri.elysium.content.QuoteService;
-import dev.biribiri.elysium.content.LikeService;
-import dev.biribiri.elysium.content.ContentType;
-import dev.biribiri.elysium.content.MediaAttachments;
-import dev.biribiri.elysium.content.NewPoll;
-import dev.biribiri.elysium.content.Poll;
-import dev.biribiri.elysium.content.PollChange;
 import dev.biribiri.elysium.content.RemoteThreadFetcher;
 import dev.biribiri.elysium.content.ScheduledStatusService;
 import dev.biribiri.elysium.content.Status;
@@ -85,7 +85,7 @@ public class StatusesController {
             on Mastodon.""";
 
     private static final String INTERACTION_LIMIT = "How many to return. Values outside 1 to "
-            + AccountPage.MAX_LIMIT + " are clamped to them.";
+            + PageLimits.MAX_ACCOUNTS + " are clamped to them.";
 
     /**
      * The most a character can take up in JSON, as an escaped surrogate pair like {@code \ud83d\ude00}.
@@ -399,7 +399,7 @@ public class StatusesController {
                     + "accounts are known here.",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#favourited_by"),
             parameters = @Parameter(name = "limit", description = INTERACTION_LIMIT,
-                    schema = @Schema(type = "integer", defaultValue = "" + AccountPage.DEFAULT_LIMIT)),
+                    schema = @Schema(type = "integer", defaultValue = "" + PageLimits.ACCOUNTS)),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent favourite first."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
@@ -428,7 +428,7 @@ public class StatusesController {
                     + "reached this server are known here.",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#reblogged_by"),
             parameters = @Parameter(name = "limit", description = INTERACTION_LIMIT,
-                    schema = @Schema(type = "integer", defaultValue = "" + AccountPage.DEFAULT_LIMIT)),
+                    schema = @Schema(type = "integer", defaultValue = "" + PageLimits.ACCOUNTS)),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent boost first."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND)
@@ -462,7 +462,7 @@ public class StatusesController {
      * @param actorIds their accounts, in the same order. An account removed since the page was read is left out.
      */
     private ResponseEntity<List<AccountResponse>> interactions(
-            String suffix, Status status, AccountPage page, List<UUID> cursors, List<UUID> actorIds) {
+            String suffix, Status status, IdPage page, List<UUID> cursors, List<UUID> actorIds) {
         var found = actors.findByIds(actorIds).stream().collect(Collectors.toMap(Actor::id, Function.identity()));
         var listed = actorIds.stream().map(found::get).filter(Objects::nonNull).toList();
         var response = ResponseEntity.ok();

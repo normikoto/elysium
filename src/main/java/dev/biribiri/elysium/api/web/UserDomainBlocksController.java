@@ -3,7 +3,6 @@ package dev.biribiri.elysium.api.web;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;
-import dev.biribiri.elysium.graph.DomainBlockListPage;
 import dev.biribiri.elysium.moderation.DomainName;
 import dev.biribiri.elysium.moderation.InvalidDomainBlockException;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -76,8 +75,8 @@ public class UserDomainBlocksController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "domain_blocks/#get"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + DomainBlockListPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + DomainBlockListPage.DEFAULT_LIMIT))
+                            + PageLimits.MAX_DOMAIN_BLOCKS + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.DOMAIN_BLOCKS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The domains, most recent block first."),
@@ -90,7 +89,7 @@ public class UserDomainBlocksController {
             @RequestParam(name = "since_id", required = false) String sinceId,
             @RequestParam(name = "min_id", required = false) String minId) {
         var viewer = viewer(token);
-        var page = RequestParameters.domainBlockListPage(limit, maxId, sinceId, minId);
+        var page = RequestParameters.domainBlockPage(limit, maxId, sinceId, minId);
         var found = domainBlocks.page(viewer, page);
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, PATH, Map.of(), page.limit(),

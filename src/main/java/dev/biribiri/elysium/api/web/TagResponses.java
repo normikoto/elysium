@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.InstanceProperties;
-import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.StatusSearch;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -17,10 +17,10 @@ class TagResponses {
      */
     static final int HISTORY_DAYS = 7;
 
-    private final StatusService statuses;
+    private final StatusSearch statuses;
     private final InstanceProperties instance;
 
-    TagResponses(StatusService statuses, InstanceProperties instance) {
+    TagResponses(StatusSearch statuses, InstanceProperties instance) {
         this.statuses = statuses;
         this.instance = instance;
     }

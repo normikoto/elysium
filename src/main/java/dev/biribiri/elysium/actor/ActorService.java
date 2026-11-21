@@ -284,6 +284,13 @@ public class ActorService {
     }
 
     /**
+     * @return the domain of every remote actor, each as {@link Actor#domain} has it
+     */
+    public List<String> remoteDomains() {
+        return actors.findRemoteDomains();
+    }
+
+    /**
      * Removes the keys of actors deleted before this time, once nothing can still need to sign as them.
      */
     public void removeKeysOfDeleted(Instant before) {

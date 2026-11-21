@@ -1,12 +1,12 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteEdit;
-import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.RemoteStatuses;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,7 +49,7 @@ class UpdateHandler implements InboundActivityHandler {
 
     private final ActorService actors;
     private final RemoteActors remoteActors;
-    private final StatusService statuses;
+    private final RemoteStatuses statuses;
     private final ActorNotes notes;
     private final NoteStorage storage;
     private final DomainBlocks blocks;
@@ -62,7 +62,7 @@ class UpdateHandler implements InboundActivityHandler {
     UpdateHandler(
             ActorService actors,
             RemoteActors remoteActors,
-            StatusService statuses,
+            RemoteStatuses statuses,
             ActorNotes notes,
             NoteStorage storage,
             DomainBlocks blocks,

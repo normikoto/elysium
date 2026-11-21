@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.moderation;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.moderation.internal.DomainBlockRepository;
@@ -135,7 +136,7 @@ public class DomainBlocks {
         return blocks.find(id);
     }
 
-    public List<DomainBlock> list(DomainBlockPage page) {
+    public List<DomainBlock> list(IdPage page) {
         return blocks.findPage(page);
     }
 

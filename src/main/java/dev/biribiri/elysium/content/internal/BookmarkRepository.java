@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
-import dev.biribiri.elysium.content.StatusPage;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -46,27 +46,12 @@ public class BookmarkRepository {
     /**
      * @return the actor's bookmarks, the most recent first, paged by the bookmarks' own IDs
      */
-    public List<Row> page(UUID actorId, StatusPage page) {
+    public List<Row> page(UUID actorId, IdPage page) {
         var sql = new StringBuilder("SELECT id, status_id FROM status_bookmark WHERE actor_id = :actor");
         var parameters = new HashMap<String, Object>();
         parameters.put("actor", actorId);
-        if (page.maxId() != null) {
-            sql.append(" AND id < :maxId");
-            parameters.put("maxId", page.maxId());
-        }
-        // Predicates are only added when needed, because PostgreSQL can't determine the type of a null parameter.
-        var ascending = page.minId() != null;
-        if (ascending) {
-            sql.append(" AND id > :minId");
-            parameters.put("minId", page.minId());
-        } else if (page.sinceId() != null) {
-            sql.append(" AND id > :sinceId");
-            parameters.put("sinceId", page.sinceId());
-        }
-        sql.append(ascending ? " ORDER BY id ASC" : " ORDER BY id DESC").append(" LIMIT :limit");
-        parameters.put("limit", page.limit());
-        var rows = jdbc.sql(sql.toString()).params(parameters).query(Row.class).list();
-        return ascending ? rows.reversed() : rows;
+        sql.append(page.cursors("id", parameters)).append(page.orderAndLimit("id", parameters));
+        return page.newestFirst(jdbc.sql(sql.toString()).params(parameters).query(Row.class).list());
     }
 
     public void removeForActor(UUID actorId) {

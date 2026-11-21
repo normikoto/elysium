@@ -10,6 +10,7 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusLiked;
 import dev.biribiri.elysium.content.StatusService;
@@ -64,6 +65,7 @@ class LikeIntegrationTests {
     @Autowired MockMvc mvc;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired LikeService likes;
     @MockitoSpyBean LikeRepository repository;
     @Autowired LikeHandler handler;
@@ -404,7 +406,7 @@ class LikeIntegrationTests {
     }
 
     private Status remotePost(Actor author) {
-        var id = statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/" + UUID.randomUUID()), null,
+        var id = remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/" + UUID.randomUUID()), null,
                 author.id(), "<p>remote</p>", null, null, PUBLIC, false, null, Instant.now())).orElseThrow();
         return statuses.findVisible(id, Optional.empty()).orElseThrow();
     }

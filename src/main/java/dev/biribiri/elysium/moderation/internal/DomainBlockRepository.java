@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.moderation.internal;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.moderation.DomainBlock;
-import dev.biribiri.elysium.moderation.DomainBlockPage;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -122,25 +122,11 @@ public class DomainBlockRepository {
                 .list();
     }
 
-    public List<DomainBlock> findPage(DomainBlockPage page) {
+    public List<DomainBlock> findPage(IdPage page) {
         var sql = new StringBuilder("SELECT " + COLUMNS + " FROM domain_block WHERE TRUE");
         var parameters = new HashMap<String, Object>();
-        if (page.maxId() != null) {
-            sql.append(" AND id < :maxId");
-            parameters.put("maxId", page.maxId());
-        }
-        // Predicates are only added when needed, because PostgreSQL can't determine the type of a null parameter.
-        var ascending = page.minId() != null;
-        var after = ascending ? page.minId() : page.sinceId();
-        if (after != null) {
-            sql.append(" AND id > :after");
-            parameters.put("after", after);
-        }
-        sql.append(ascending ? " ORDER BY id ASC" : " ORDER BY id DESC").append(" LIMIT :limit");
-        parameters.put("limit", page.limit());
-
-        var blocks = jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list();
-        return ascending ? blocks.reversed() : blocks;
+        sql.append(page.cursors("id", parameters)).append(page.orderAndLimit("id", parameters));
+        return page.newestFirst(jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list());
     }
 
     /**

@@ -7,7 +7,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.RemoteAttachment;
 import dev.biribiri.elysium.content.RemoteStatus;
-import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
@@ -53,14 +53,14 @@ class NoteStorage {
 
     private final ActorService actors;
     private final RemoteActors remoteActors;
-    private final StatusService statuses;
+    private final RemoteStatuses statuses;
     private final LocalRecipients recipients;
     private final DomainBlocks blocks;
 
     NoteStorage(
             ActorService actors,
             RemoteActors remoteActors,
-            StatusService statuses,
+            RemoteStatuses statuses,
             LocalRecipients recipients,
             DomainBlocks blocks) {
         this.actors = actors;

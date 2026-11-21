@@ -2,7 +2,7 @@ package dev.biribiri.elysium.activitypub.links;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.ProfileUpdated;
 import dev.biribiri.elysium.actor.RemoteProfileLinksToVerify;
 import org.springframework.context.annotation.Lazy;

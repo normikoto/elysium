@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -59,6 +60,8 @@ class StatusRemovalIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
 
     private Actor admin;
     private Actor user;
@@ -117,7 +120,7 @@ class StatusRemovalIntegrationTests {
         var author = remoteAuthor();
         var impostor = remoteAuthor();
         var page = URI.create("https://" + author.domain() + "/@r/" + UUID.randomUUID());
-        statuses.storeRemote(remote(URI.create(impostor.uri() + "/notes/" + UUID.randomUUID()), page, impostor,
+        remoteStatuses.storeRemote(remote(URI.create(impostor.uri() + "/notes/" + UUID.randomUUID()), page, impostor,
                 Visibility.PUBLIC)).orElseThrow();
 
         assertThat(statuses.findForModeration(page.toString())).isEmpty();
@@ -183,7 +186,7 @@ class StatusRemovalIntegrationTests {
         assertThat(removedBy(status)).isEqualTo(admin.id());
         // What its server's Delete would have left behind is purged with old jobs, unlike the removal.
         jdbc.sql("DELETE FROM deleted_remote_status WHERE uri = :uri").param("uri", status.uri().toString()).update();
-        assertThat(statuses.storeRemote(remote(status.uri(), status.url(), author, Visibility.PUBLIC))).isEmpty();
+        assertThat(remoteStatuses.storeRemote(remote(status.uri(), status.url(), author, Visibility.PUBLIC))).isEmpty();
         assertThat(statuses.findForModeration(status.uri().toString())).isEmpty();
         assertThat(jdbc.sql("SELECT count(*) FROM outbound_activity WHERE activity_id LIKE :uri")
                 .param("uri", status.uri() + "%").query(Long.class).single()).isZero();
@@ -222,7 +225,7 @@ class StatusRemovalIntegrationTests {
         jdbc.sql("DELETE FROM deleted_remote_status WHERE uri = :uri").param("uri", status.uri().toString()).update();
 
         assertThat(removals(status)).isOne();
-        assertThat(statuses.storeRemote(remote(status.uri(), status.url(), author, Visibility.PUBLIC))).isEmpty();
+        assertThat(remoteStatuses.storeRemote(remote(status.uri(), status.url(), author, Visibility.PUBLIC))).isEmpty();
     }
 
     private Status publish(Visibility visibility, String text) {
@@ -238,7 +241,7 @@ class StatusRemovalIntegrationTests {
 
     private Status remoteStatus(Actor author, Visibility visibility) {
         var id = UUID.randomUUID();
-        var stored = statuses.storeRemote(remote(
+        var stored = remoteStatuses.storeRemote(remote(
                 URI.create(author.uri() + "/notes/" + id), URI.create("https://" + author.domain() + "/@r/" + id), author,
                 visibility)).orElseThrow();
         return statuses.findForModeration(stored.toString()).orElseThrow();

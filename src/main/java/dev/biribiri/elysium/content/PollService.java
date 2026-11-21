@@ -171,7 +171,7 @@ public class PollService {
 
     /**
      * Replaces a remote poll's counts and closing time with what its server says now, if it has the same options. One
-     * whose options have changed is changed by an edit, through {@link StatusService#updateRemote}, which resets its votes.
+     * whose options have changed is changed by an edit, through {@link RemoteStatuses#updateRemote}, which resets its votes.
      *
      * @return whether it was stored with these options
      */

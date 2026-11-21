@@ -15,6 +15,7 @@ import dev.biribiri.elysium.content.QuotePolicy;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
@@ -65,6 +66,7 @@ class QuoteIntegrationTests {
     @Autowired QuoteVerifications verifications;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired QuoteService quotes;
     @Autowired JdbcClient jdbc;
     @Autowired JsonMapper json;
@@ -583,7 +585,7 @@ class QuoteIntegrationTests {
     }
 
     private UUID storeRemote(Actor actor, URI uri, String content) {
-        return statuses.storeRemote(new RemoteStatus(uri, null, actor.id(), content, null, null, Visibility.PUBLIC, false,
+        return remoteStatuses.storeRemote(new RemoteStatus(uri, null, actor.id(), content, null, null, Visibility.PUBLIC, false,
                 null, Instant.now())).orElseThrow();
     }
 

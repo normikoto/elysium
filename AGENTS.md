@@ -40,17 +40,18 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `media`       | Uploaded files, kept on disk               | nothing                                        |
 | `mail`        | Sending email over SMTP                    | nothing                                        |
 | `text`        | Rendering plain text as HTML               | nothing                                        |
-| `actor`       | Local and remote actors, profiles, keys    | `media`, `text`                                |
+| `jobs`        | Background jobs, and retrying event listeners | nothing                                     |
+| `actor`       | Local and remote actors, profiles, keys    | `jobs`, `media`, `text`                        |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `moderation`, `ratelimit`     |
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
 | `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
-| `moderation`  | Domain blocks, reports, and server rules   | `actor`, `content`                             |
+| `moderation`  | Domain blocks, reports, and server rules   | `actor`, `content`, `jobs`                     |
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
-| `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text` |
-| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `moderation`, `notification`, `ratelimit`, `text`, `timeline` |
+| `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text`, `timeline` |
+| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `jobs`, `moderation`, `ratelimit`, `text` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
 - `actor.signing` exposes private keys as a named interface, so a module has to ask for it explicitly. Only `activitypub`
@@ -71,13 +72,16 @@ These reach beyond `activitypub`, and a change can break them without a test not
 - **Outbound events:** a module publishes an event inside its transaction, holding only IDs and never a status's text,
   since events are stored. `activitypub.outbound` builds the activity from it.
 - **Remote actors:** other modules find them through `actor.RemoteActorResolver`, never by depending on `activitypub`.
-- **Account state:** `ActorService.findLocal*` and `StatusRepository`'s queries only find active actors. Use `findAnyLocal*`
-  only for what has to keep working for suspended or deleted ones, such as actor documents and signing, and check the state
-  of anything from `findByUri` or `findById`. `auth.AccountActions` decides who can be suspended or deleted.
-- **Cleanup:** new remote data has to be removed by `DomainBlockCleanupTask`, and new remote or account data by
-  `AccountCleanupTask`, including files in the media directory.
-- **Domain blocks:** a block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended, and
-  SQL that reads `domain_block` has to filter on `severity`.
+- **Account state:** `ActorService.findLocal*`, and status queries built on `content.StatusSql.FROM_ACTIVE`, only find
+  active actors. Use `findAnyLocal*` only for what has to keep working for suspended or deleted ones, such as actor
+  documents and signing, and check the state of anything from `findByUri` or `findById`. `auth.AccountActions` decides
+  who can be suspended or deleted.
+- **Cleanup:** each module that stores data by or about actors implements `actor.ActorDataRemoval` once, and a new
+  table's data has to be removed there: remote data when its server is blocked, and remote or account data when its
+  actor is deleted, including files in the media directory. The account and domain block cleanup jobs call every
+  implementation.
+- **Domain blocks:** a block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended. SQL
+  outside `moderation` reads `domain_block` only through `actor.ActorSql`, which says which blocks count.
 
 ### Persistence
 
@@ -85,6 +89,11 @@ There's no ORM. Repositories use `JdbcClient` with hand-written SQL, and the sch
 `src/main/resources/db/migration`. These run at startup, and when CLI commands run.
 
 - IDs are UUIDs, and `actor.Ids.parse` is the strict way to read them from a request.
+- A rule that other modules' SQL has to agree with is exported once as SQL conditions, and used rather than written
+  again: `actor.ActorSql` for active actors and blocked servers, `graph.HiddenAccounts` for blocks and mutes, and
+  `content.StatusSql` for which statuses a viewer can see.
+- A list paged by Mastodon's ID cursors takes an `actor.IdPage`, whose `cursors` and `orderAndLimit` write its SQL.
+  How many a page can hold is up to each API, in `api.web.PageLimits`.
 - Read queries with `.list()` or `.optional()`, not `.stream()`, which holds a connection until it's closed.
   `DatabaseStreamsTests` enforces this.
 

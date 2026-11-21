@@ -7,13 +7,15 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
-import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
+import dev.biribiri.elysium.timeline.TimelineService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,7 +61,9 @@ class OutboxBackfillIntegrationTests {
     @Autowired AcceptHandler accepts;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired FollowService follows;
+    @Autowired TimelineService timelines;
     @Autowired DomainBlocks blocks;
     @Autowired JdbcClient jdbc;
     @Autowired JsonMapper json;
@@ -94,7 +98,7 @@ class OutboxBackfillIntegrationTests {
     @Test
     void storesPublicAndUnlistedNotesFromTheFirstPageInTheOrderTheyWerePosted() throws Exception {
         follow(alice, remote);
-        var arrived = statuses.storeRemote(new RemoteStatus(noteUri(), null, remote.id(), "<p>sent</p>", null, null,
+        var arrived = remoteStatuses.storeRemote(new RemoteStatus(noteUri(), null, remote.id(), "<p>sent</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         var older = noteUri();
         var old = noteUri();
@@ -115,7 +119,7 @@ class OutboxBackfillIntegrationTests {
         assertThat(olderId.compareTo(oldId)).isPositive();
         // Older than what was already here, so clients polling for new statuses aren't given them.
         assertThat(olderId.compareTo(arrived)).isNegative();
-        var home = statuses.findHome(alice.id(), follows.followedIds(alice.id()), new StatusPage(40, null, null, null));
+        var home = timelines.homeTimeline(alice.id(), new IdPage(40, null, null, null));
         assertThat(home).extracting(status -> status.uri()).contains(older, old, unlisted);
     }
 
@@ -177,7 +181,7 @@ class OutboxBackfillIntegrationTests {
         var named = noteUri();
         var stored = noteUri();
         var misattributed = noteUri();
-        statuses.storeRemote(new RemoteStatus(stored, null, remote.id(), "<p>sent</p>", null, null,
+        remoteStatuses.storeRemote(new RemoteStatus(stored, null, remote.id(), "<p>sent</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         serve(remote.outboxUri(), withItems(collection(null), List.of(
                 Map.of("id", named + "#create", "type", "Create", "actor", remote.uri().toString(), "object", named.toString()),

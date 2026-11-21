@@ -22,6 +22,7 @@ import dev.biribiri.elysium.content.RemoteAttachment;
 import dev.biribiri.elysium.content.RemoteEdit;
 import dev.biribiri.elysium.content.RemoteEmoji;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.media.MediaProperties;
@@ -90,6 +91,8 @@ class MediaDownloadIntegrationTests {
     @Autowired
     private StatusService statuses;
     @Autowired
+    private RemoteStatuses remoteStatuses;
+    @Autowired
     private ActorService actors;
     @Autowired
     private MediaProperties media;
@@ -157,7 +160,7 @@ class MediaDownloadIntegrationTests {
         serve("/blob.png", 200, "image/png", TestImages.png(64, 64));
         serve("/blob2.png", 200, "image/png", TestImages.png(32, 32));
         var noteUri = URI.create(author.uri() + "/notes/" + UUID.randomUUID());
-        var statusId = statuses.storeRemote(new RemoteStatus(noteUri, null, author.id(), "<p>:blob:</p>", null, null,
+        var statusId = remoteStatuses.storeRemote(new RemoteStatus(noteUri, null, author.id(), "<p>:blob:</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(), null, null, null,
                 List.of(new RemoteEmoji("blob", null, fileUrl("/blob.png"), null)))).orElseThrow();
         var emoji = emojis.findForStatus(statusId).getFirst();
@@ -172,7 +175,7 @@ class MediaDownloadIntegrationTests {
         assertThat(requests.get("/blob.png")).hasValue(1);
 
         // An edit that names another image for it replaces the copy.
-        statuses.updateRemote(new RemoteEdit(noteUri, author.id(), "<p>:blob:</p>", null, null, false,
+        remoteStatuses.updateRemote(new RemoteEdit(noteUri, author.id(), "<p>:blob:</p>", null, null, false,
                 Instant.now(), List.of(), List.of(), null,
                 List.of(new RemoteEmoji("blob", null, fileUrl("/blob2.png"), null))));
         var changed = emojis.findForStatus(statusId).getFirst();
@@ -268,7 +271,7 @@ class MediaDownloadIntegrationTests {
         serve("/most.mp4", 200, "video/mp4", TestMedia.mp4(50 * 1024 - 1));
         serve("/later.png", 200, "image/png", TestImages.png(200, 200));
         downloads.run(new MediaDownloadJob(attach("/most.mp4", "video/mp4").id(), Instant.now()));
-        var statusId = statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()),
+        var statusId = remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()),
                 null, author.id(), "<p>:later:</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null,
                 Map.of(), List.of(), List.of(), null, null, null,
                 List.of(new RemoteEmoji("later", null, fileUrl("/later.png"), null)))).orElseThrow();
@@ -285,7 +288,7 @@ class MediaDownloadIntegrationTests {
     void lettingAServersMediaThroughAgainLetsItsEmojiBeDownloaded() throws Exception {
         serve("/blocked.png", 200, "image/png", TestImages.png(32, 32));
         var block = blocks.create(host, DomainBlock.Severity.NOOP, true, null);
-        var statusId = statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()),
+        var statusId = remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()),
                 null, author.id(), "<p>:blocked:</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null,
                 Map.of(), List.of(), List.of(), null, null, null,
                 List.of(new RemoteEmoji("blocked", null, fileUrl("/blocked.png"), null)))).orElseThrow();
@@ -305,11 +308,11 @@ class MediaDownloadIntegrationTests {
     void anUpdateThatOnlyAddsEmojiIsntAnEdit() throws Exception {
         serve("/added.png", 200, "image/png", TestImages.png(32, 32));
         var noteUri = URI.create(author.uri() + "/notes/" + UUID.randomUUID());
-        var statusId = statuses.storeRemote(new RemoteStatus(noteUri, null, author.id(), "<p>:added:</p>", null, null,
+        var statusId = remoteStatuses.storeRemote(new RemoteStatus(noteUri, null, author.id(), "<p>:added:</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now().minusSeconds(60))).orElseThrow();
 
         // As for a status stored before emoji were read, which its server then sends unchanged.
-        var outcome = statuses.updateRemote(new RemoteEdit(noteUri, author.id(), "<p>:added:</p>", null, null, false,
+        var outcome = remoteStatuses.updateRemote(new RemoteEdit(noteUri, author.id(), "<p>:added:</p>", null, null, false,
                 Instant.now(), List.of(), List.of(), null,
                 List.of(new RemoteEmoji("added", null, fileUrl("/added.png"), null))));
 
@@ -323,7 +326,7 @@ class MediaDownloadIntegrationTests {
     void anEmojiThatIsntAnImageStaysALink() {
         serve("/bad.png", 200, "image/png", TestMedia.html());
         var noteUri = URI.create(author.uri() + "/notes/" + UUID.randomUUID());
-        var statusId = statuses.storeRemote(new RemoteStatus(noteUri, null, author.id(), "<p>:bad:</p>", null, null,
+        var statusId = remoteStatuses.storeRemote(new RemoteStatus(noteUri, null, author.id(), "<p>:bad:</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(), null, null, null,
                 List.of(new RemoteEmoji("bad", null, fileUrl("/bad.png"), null)))).orElseThrow();
         var emoji = emojis.findForStatus(statusId).getFirst();
@@ -449,7 +452,7 @@ class MediaDownloadIntegrationTests {
         var blockedFile = media.directory().resolve(find(blocked).fileName());
         assertThat(deletedFile).exists();
 
-        statuses.deleteRemote(status, author.uri());
+        remoteStatuses.deleteRemote(status, author.uri());
 
         assertThat(deletedFile).doesNotExist();
         assertThat(blockedFile).exists();
@@ -494,7 +497,7 @@ class MediaDownloadIntegrationTests {
         var other = actors.upsertRemote(new RemoteActorProfile(uri, "t", subdomain, URI.create(uri + "/inbox"), null, null,
                 null, null));
         var status = URI.create(uri + "/notes/" + UUID.randomUUID());
-        var id = statuses.storeRemote(new RemoteStatus(status, null, other.id(), "<p>Hi</p>", null, null,
+        var id = remoteStatuses.storeRemote(new RemoteStatus(status, null, other.id(), "<p>Hi</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
                 List.of(new RemoteAttachment(URI.create(uri + "/a.png"), AttachmentType.IMAGE, "image/png", null, null,
                         null, null, null)))).orElseThrow();
@@ -584,7 +587,7 @@ class MediaDownloadIntegrationTests {
         serve("/late.png", 200, "image/png", new byte[0]);
         var status = URI.create(author.uri() + "/notes/" + UUID.randomUUID());
         var attachment = attach(status, "/late.png", "image/png");
-        statuses.deleteRemote(status, author.uri());
+        remoteStatuses.deleteRemote(status, author.uri());
 
         downloads.run(new MediaDownloadJob(attachment.id(), Instant.now()));
 
@@ -680,7 +683,7 @@ class MediaDownloadIntegrationTests {
         mvc.perform(get(MediaAttachment.PROXY_PATH + "nope/original")).andExpect(status().isNotFound());
         mvc.perform(get(MediaAttachment.PROXY_PATH + UUID.randomUUID() + "/original")).andExpect(status().isNotFound());
 
-        statuses.deleteRemote(status, author.uri());
+        remoteStatuses.deleteRemote(status, author.uri());
         mvc.perform(get(proxy(attachment, "original"))).andExpect(status().isNotFound());
         assertThat(requests).doesNotContainKey("/deleted.png");
     }
@@ -866,7 +869,7 @@ class MediaDownloadIntegrationTests {
 
     private MediaAttachment attach(URI status, String path, String mediaType) {
         var url = URI.create("http://files." + host + ":" + server.getAddress().getPort() + path);
-        var id = statuses.storeRemote(new RemoteStatus(status, null, author.id(), "<p>Hi</p>", null, null,
+        var id = remoteStatuses.storeRemote(new RemoteStatus(status, null, author.id(), "<p>Hi</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
                 List.of(new RemoteAttachment(url, mediaType.startsWith("video/") ? AttachmentType.VIDEO : AttachmentType.IMAGE,
                         mediaType, null, null, null, null, null))))

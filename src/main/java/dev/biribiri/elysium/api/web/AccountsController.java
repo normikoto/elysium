@@ -2,14 +2,14 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.PostFilter;
-import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.PostingDefaults;
+import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.AccountLists;
@@ -17,7 +17,6 @@ import dev.biribiri.elysium.graph.AccountMemos;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowNotAllowedException;
-import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.MuteService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -88,7 +87,7 @@ public class AccountsController {
     private static final long MAX_MEMO_BODY_BYTES = 64 * 1024;
 
     private static final String FOLLOW_LIMIT =
-            "How many to return. Values outside 1 to " + FollowPage.MAX_LIMIT + " are clamped to them.";
+            "How many to return. Values outside 1 to " + PageLimits.MAX_ACCOUNTS + " are clamped to them.";
 
     private final ActorService actors;
     private final StatusService statuses;
@@ -639,7 +638,7 @@ public class AccountsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#followers"),
             parameters = {
                     @Parameter(name = "limit", description = FOLLOW_LIMIT,
-                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT))
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.ACCOUNTS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent follow first."),
@@ -652,7 +651,7 @@ public class AccountsController {
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
             @RequestParam(name = "min_id", required = false) String minId) {
-        return follows(token, id, true, RequestParameters.followPage(limit, maxId, sinceId, minId));
+        return follows(token, id, true, RequestParameters.accountPage(limit, maxId, sinceId, minId));
     }
 
     @GetMapping("/{id}/following")
@@ -664,7 +663,7 @@ public class AccountsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#following"),
             parameters = {
                     @Parameter(name = "limit", description = FOLLOW_LIMIT,
-                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT))
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.ACCOUNTS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent follow first."),
@@ -677,7 +676,7 @@ public class AccountsController {
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
             @RequestParam(name = "min_id", required = false) String minId) {
-        return follows(token, id, false, RequestParameters.followPage(limit, maxId, sinceId, minId));
+        return follows(token, id, false, RequestParameters.accountPage(limit, maxId, sinceId, minId));
     }
 
     /**
@@ -685,7 +684,7 @@ public class AccountsController {
      * lists only have the accounts on this server.
      */
     private ResponseEntity<List<AccountResponse>> follows(
-            TokenPrincipal token, String id, boolean followers, FollowPage page) {
+            TokenPrincipal token, String id, boolean followers, IdPage page) {
         var account = activeAccount(id);
         var viewer = RequestParameters.viewer(token);
         var hidden = actors.isLocal(account) && actors.hidesCollections(account.id())
@@ -734,8 +733,8 @@ public class AccountsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + StatusPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT)),
+                            + PageLimits.MAX_STATUSES + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
                     @Parameter(name = "exclude_replies", description = "Leave out replies. " + ApiDocs.FLAG),
                     @Parameter(name = "exclude_reblogs", description = "Leave out boosts. " + ApiDocs.FLAG),
                     @Parameter(name = "only_media", description = "Only list statuses with media. " + ApiDocs.FLAG),

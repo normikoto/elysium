@@ -1,8 +1,9 @@
 package dev.biribiri.elysium.moderation.internal;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.moderation.Report;
 import dev.biribiri.elysium.moderation.ReportCategory;
-import dev.biribiri.elysium.moderation.ReportPage;
+import dev.biribiri.elysium.moderation.ReportFilter;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -79,34 +80,21 @@ public class ReportRepository {
         return findByIds(List.of(id)).stream().findFirst();
     }
 
-    public List<Report> findPage(ReportPage page) {
+    public List<Report> findPage(ReportFilter filter, IdPage page) {
         var sql = new StringBuilder("SELECT " + COLUMNS + " FROM report WHERE resolved_at IS ")
-                .append(page.resolved() ? "NOT NULL" : "NULL");
+                .append(filter.resolved() ? "NOT NULL" : "NULL");
         var parameters = new HashMap<String, Object>();
         // Predicates are only added when needed, because PostgreSQL can't determine the type of a null parameter.
-        if (page.reporterId() != null) {
+        if (filter.reporterId() != null) {
             sql.append(" AND reporter_id = :reporterId");
-            parameters.put("reporterId", page.reporterId());
+            parameters.put("reporterId", filter.reporterId());
         }
-        if (page.targetId() != null) {
+        if (filter.targetId() != null) {
             sql.append(" AND target_id = :targetId");
-            parameters.put("targetId", page.targetId());
+            parameters.put("targetId", filter.targetId());
         }
-        if (page.maxId() != null) {
-            sql.append(" AND id < :maxId");
-            parameters.put("maxId", page.maxId());
-        }
-        var ascending = page.minId() != null;
-        var after = ascending ? page.minId() : page.sinceId();
-        if (after != null) {
-            sql.append(" AND id > :after");
-            parameters.put("after", after);
-        }
-        sql.append(ascending ? " ORDER BY id ASC" : " ORDER BY id DESC").append(" LIMIT :limit");
-        parameters.put("limit", page.limit());
-
-        var reports = jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list();
-        return withStatuses(ascending ? reports.reversed() : reports);
+        sql.append(page.cursors("id", parameters)).append(page.orderAndLimit("id", parameters));
+        return withStatuses(page.newestFirst(jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list()));
     }
 
     public long countOpen() {

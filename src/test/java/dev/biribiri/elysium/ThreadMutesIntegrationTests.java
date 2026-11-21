@@ -1,6 +1,5 @@
 package dev.biribiri.elysium;
 
-import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
@@ -9,6 +8,7 @@ import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -55,6 +55,8 @@ class ThreadMutesIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private LikeService likes;
     @Autowired
@@ -221,7 +223,7 @@ class ThreadMutesIntegrationTests {
     }
 
     private UUID store(Actor remote, URI uri, URI parent, Map<UUID, Boolean> mentions) {
-        return statuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "<p>message</p>", null, null,
+        return remoteStatuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "<p>message</p>", null, null,
                 PUBLIC, false, parent, Instant.now(), null, mentions)).orElseThrow();
     }
 

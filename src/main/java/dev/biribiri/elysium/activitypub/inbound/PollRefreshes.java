@@ -2,16 +2,19 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.RemotePollRefresher;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -56,6 +59,11 @@ class PollRefreshes implements RemotePollRefresher {
     public void refreshSoon(UUID statusId) {
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         Jobs.schedule(scheduler, TASK, new PollRefreshJob(statusId, now), TASK.getTaskName(), statusId.toString());
+    }
+
+    @Bean
+    static Task<PollRefreshJob> pollRefresh(ObjectProvider<PollRefreshes> pollRefreshes) {
+        return Jobs.task(TASK, job -> pollRefreshes.getObject().run(job));
     }
 
     CompletionHandler<PollRefreshJob> run(PollRefreshJob job) {

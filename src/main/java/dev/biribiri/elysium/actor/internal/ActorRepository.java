@@ -205,6 +205,13 @@ public class ActorRepository {
     }
 
     /**
+     * @return the domain of every remote actor
+     */
+    public List<String> findRemoteDomains() {
+        return jdbc.sql("SELECT DISTINCT domain FROM actor WHERE NOT is_local").query(String.class).list();
+    }
+
+    /**
      * Removes the keys of actors deleted before this time. Nothing is left that could sign as them, and the row only reserves
      * the username and URI from then on.
      */

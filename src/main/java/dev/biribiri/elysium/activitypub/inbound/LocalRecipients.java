@@ -3,7 +3,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
-import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Component;
@@ -35,12 +35,12 @@ class LocalRecipients {
     private final ActorService actors;
     private final FollowService follows;
     private final BlockService blocks;
-    private final StatusService statuses;
+    private final RemoteStatuses statuses;
     private final InstanceProperties instance;
     private final JsonMapper json;
 
     LocalRecipients(
-            ActorService actors, FollowService follows, BlockService blocks, StatusService statuses,
+            ActorService actors, FollowService follows, BlockService blocks, RemoteStatuses statuses,
             InstanceProperties instance, JsonMapper json) {
         this.actors = actors;
         this.follows = follows;

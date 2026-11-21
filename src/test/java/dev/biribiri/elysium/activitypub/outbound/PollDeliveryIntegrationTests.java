@@ -12,6 +12,7 @@ import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.RemotePoll;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -61,6 +62,8 @@ class PollDeliveryIntegrationTests {
 
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private PollService polls;
     @Autowired
@@ -187,7 +190,7 @@ class PollDeliveryIntegrationTests {
     }
 
     private UUID remotePoll(Actor remote) {
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(remote.uri() + "/notes/" + UUID.randomUUID()), null, remote.id(), "<p>Which?</p>", null,
                 null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(), null, null,
                 new RemotePoll(List.of("Yes", "No"), List.of(0, 0), false, Instant.now().plusSeconds(600), null, 0)))

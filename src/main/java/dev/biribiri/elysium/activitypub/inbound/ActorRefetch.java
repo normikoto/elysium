@@ -2,11 +2,14 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
-import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
+import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
@@ -50,6 +53,11 @@ class ActorRefetch {
         var now = Instant.now();
         Jobs.scheduleAt(scheduler, TASK, new ActorRefetchJob(actor.toString(), now), now.plus(DELAY),
                 actor.toString(), activityId);
+    }
+
+    @Bean
+    static Task<ActorRefetchJob> actorDocumentRefetch(ObjectProvider<ActorRefetch> actorRefetch) {
+        return Jobs.task(TASK, job -> actorRefetch.getObject().run(job));
     }
 
     /**

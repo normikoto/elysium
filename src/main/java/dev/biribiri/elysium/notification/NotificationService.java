@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.notification;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.notification.internal.ConversationRepository;
 import dev.biribiri.elysium.notification.internal.NotificationRepository;
 import dev.biribiri.elysium.timeline.Markers;
@@ -31,7 +32,7 @@ public class NotificationService {
         this.transaction = new TransactionTemplate(transactionManager);
     }
 
-    public List<Notification> notifications(UUID viewer, NotificationFilter filter, Page page) {
+    public List<Notification> notifications(UUID viewer, NotificationFilter filter, IdPage page) {
         return notifications.page(viewer, filter, page);
     }
 
@@ -39,7 +40,7 @@ public class NotificationService {
         return notifications.find(viewer, id);
     }
 
-    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, Page page, List<String> groupedTypes) {
+    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, IdPage page, List<String> groupedTypes) {
         return notifications.groups(viewer, filter, page, groupedTypes);
     }
 
@@ -77,7 +78,7 @@ public class NotificationService {
         notifications.dismissGroup(viewer, key);
     }
 
-    public List<Conversation> conversations(UUID viewer, Page page) {
+    public List<Conversation> conversations(UUID viewer, IdPage page) {
         return conversations.page(viewer, page);
     }
 

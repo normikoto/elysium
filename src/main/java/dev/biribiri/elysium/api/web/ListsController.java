@@ -7,7 +7,6 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -193,8 +192,8 @@ public class ListsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "lists/#accounts"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return, or 0 for all of them. Other values "
-                            + "outside 1 to " + FollowPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT))
+                            + "outside 1 to " + PageLimits.MAX_ACCOUNTS + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.ACCOUNTS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recently added first."),
@@ -214,7 +213,7 @@ public class ListsController {
             var entries = lists.allMembers(viewer, listId).orElseThrow(RecordNotFoundException::new);
             return ResponseEntity.ok(build(entries));
         }
-        var page = RequestParameters.followPage(limit, maxId, sinceId, minId);
+        var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
         var entries = lists.members(viewer, listId, page).orElseThrow(RecordNotFoundException::new);
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, PATH + "/" + listId + "/accounts", Map.of(), page.limit(),

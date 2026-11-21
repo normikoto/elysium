@@ -2,10 +2,9 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.http.HostBusyException;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
-import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
@@ -14,9 +13,13 @@ import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowAccepted;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
@@ -112,6 +115,11 @@ class FeaturedFetch {
     void queueNote(UUID actorId, URI note, Instant pinnedAt) {
         Jobs.schedule(scheduler, TASK, FeaturedFetchJob.ofNote(actorId.toString(), now(), note, pinnedAt),
                 TASK_NAME, actorId.toString(), note.toString());
+    }
+
+    @Bean
+    static Task<FeaturedFetchJob> featuredCollectionFetch(ObjectProvider<FeaturedFetch> featuredFetch) {
+        return Jobs.task(TASK, job -> featuredFetch.getObject().run(job));
     }
 
     /**

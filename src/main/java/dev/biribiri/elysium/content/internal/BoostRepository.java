@@ -1,6 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
-import dev.biribiri.elysium.content.AccountPage;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.BoostStats;
 import dev.biribiri.elysium.content.StatusBoost;
 import org.springframework.jdbc.core.RowMapper;
@@ -139,12 +139,12 @@ public class BoostRepository {
      *
      * @param viewer a local account, from whom the actors it has hidden, or that block it, are left out
      */
-    public List<StatusBoost> pagePublic(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+    public List<StatusBoost> pagePublic(UUID statusId, Optional<UUID> viewer, IdPage page) {
         var parameters = new HashMap<String, Object>(Map.of("status", statusId));
         viewer.ifPresent(id -> parameters.put("viewer", id));
         return IdPages.find(jdbc, "SELECT " + COLUMNS + " FROM status b JOIN actor a ON a.id = b.actor_id "
                         + "WHERE b.reblog_of_id = :status AND b.visibility IN ('public', 'unlisted') AND "
                         + LikeRepository.eligible("a") + LikeRepository.hiddenFrom(viewer, "a"), parameters, "b.id",
-                page.maxId(), page.sinceId(), page.minId(), page.limit(), spec -> spec.query(MAPPER).list());
+                page, spec -> spec.query(MAPPER).list());
     }
 }

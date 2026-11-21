@@ -2,22 +2,26 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.http.HostBusyException;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
-import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.RemoteThreadFetcher;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.ThreadRefresh;
+import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -76,6 +80,7 @@ class ThreadFetches implements RemoteThreadFetcher {
     private static final Logger log = LoggerFactory.getLogger(ThreadFetches.class);
 
     private final StatusService statuses;
+    private final RemoteStatuses remoteStatuses;
     private final ActorService actors;
     private final NoteStorage storage;
     private final ActivityDocuments documents;
@@ -90,6 +95,7 @@ class ThreadFetches implements RemoteThreadFetcher {
      */
     ThreadFetches(
             StatusService statuses,
+            RemoteStatuses remoteStatuses,
             ActorService actors,
             NoteStorage storage,
             ActivityDocuments documents,
@@ -99,6 +105,7 @@ class ThreadFetches implements RemoteThreadFetcher {
             JdbcClient jdbc,
             @Lazy SchedulerClient scheduler) {
         this.statuses = statuses;
+        this.remoteStatuses = remoteStatuses;
         this.actors = actors;
         this.storage = storage;
         this.documents = documents;
@@ -195,6 +202,11 @@ class ThreadFetches implements RemoteThreadFetcher {
         return instant.atOffset(ZoneOffset.UTC);
     }
 
+    @Bean
+    static Task<ThreadFetchJob> threadFetch(ObjectProvider<ThreadFetches> threadFetches) {
+        return Jobs.task(TASK, job -> threadFetches.getObject().run(job));
+    }
+
     /**
      * @return what to do with the job, which is to wait if its turn hasn't come yet, or to go on to the next parent or page
      * @throws IllegalStateException if a server couldn't be reached, which is worth trying again
@@ -226,7 +238,7 @@ class ThreadFetches implements RemoteThreadFetcher {
         var parent = earliest.get().inReplyToUri();
         // The same one again means the last fetch didn't store it, so there's nothing more to find above it.
         if (parent == null || parent.toString().equals(job.target()) || !isFetchable(parent)
-                || statuses.isStored(parent)) {
+                || remoteStatuses.isStored(parent)) {
             return Jobs.done();
         }
         var waiting = waitForTurn(parent, job);
@@ -397,7 +409,7 @@ class ThreadFetches implements RemoteThreadFetcher {
                     .flatMap(ActivityObject::parseUri)
                     .filter(found -> !found.equals(parent.uri()) && isFetchable(found));
             // A reply that's stored already is only fetched for its own replies, which wouldn't be shown this deep.
-            if (id.isEmpty() || depth >= StatusService.MAX_DESCENDANT_DEPTH && statuses.isStored(id.get())) {
+            if (id.isEmpty() || depth >= StatusService.MAX_DESCENDANT_DEPTH && remoteStatuses.isStored(id.get())) {
                 continue;
             }
             // Keyed by its parent too, so that a collection listing it under the wrong parent can't keep the right one

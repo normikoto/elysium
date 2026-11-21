@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.auth.internal;
 
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.auth.Admins;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.userdetails.User;
@@ -47,8 +48,8 @@ class LocalAccounts implements UserDetailsService, Admins {
     private static final String ACTIVE_ADMINS = """
             account_credential c
             JOIN actor a ON a.id = c.actor_id
-            WHERE c.role = 'ADMIN' AND a.suspended_at IS NULL AND a.deleted_at IS NULL
-            """;
+            WHERE c.role = 'ADMIN' AND %s
+            """.formatted(ActorSql.active("a"));
 
     private final ActorService actors;
     private final JdbcClient jdbc;

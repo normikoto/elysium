@@ -2,20 +2,22 @@ package dev.biribiri.elysium.activitypub.media;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorMediaAllowed;
 import dev.biribiri.elysium.actor.ActorMediaRejected;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachments;
-import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.DomainMediaAllowed;
 import dev.biribiri.elysium.moderation.DomainMediaRejected;
 import dev.biribiri.elysium.moderation.DomainName;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -50,15 +52,13 @@ public class MediaRejections {
     private final ActorService actors;
     private final CustomEmojis emojis;
     private final ProfileService profiles;
-    private final FollowService follows;
 
     /**
      * @param scheduler lazy like everywhere else it's used, so that this doesn't affect when the scheduler is created
      */
     MediaRejections(@Lazy SchedulerClient scheduler, MediaAttachments attachments, DomainBlocks blocks,
-                    ActorService actors, CustomEmojis emojis, ProfileService profiles, FollowService follows) {
+                    ActorService actors, CustomEmojis emojis, ProfileService profiles) {
         this.profiles = profiles;
-        this.follows = follows;
         this.emojis = emojis;
         this.scheduler = scheduler;
         this.attachments = attachments;
@@ -107,6 +107,11 @@ public class MediaRejections {
         Jobs.scheduleAt(scheduler, TASK, job, job.queuedAt().plus(SECOND_SWEEP_DELAY), kind, id, at, "second");
     }
 
+    @Bean
+    static Task<MediaRejectionJob> mediaRejection(ObjectProvider<MediaRejections> mediaRejections) {
+        return Jobs.task(TASK, job -> mediaRejections.getObject().run(job));
+    }
+
     /**
      * Looks at the filter now, so that one that's been lifted since does nothing.
      */
@@ -134,7 +139,7 @@ public class MediaRejections {
      * @return each domain as actors have it
      */
     private List<String> accountDomainsUnder(String blockDomain) {
-        return follows.remoteDomains().stream()
+        return actors.remoteDomains().stream()
                 .filter(domain -> DomainName.normalizeHost(domain)
                         .filter(host -> DomainName.suffixes(host).contains(blockDomain))
                         .isPresent())

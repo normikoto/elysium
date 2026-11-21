@@ -2,7 +2,6 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.BookmarkService;
-import dev.biribiri.elysium.content.StatusPage;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -52,8 +51,8 @@ public class BookmarksController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "bookmarks/#get"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + StatusPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT))
+                            + PageLimits.MAX_STATUSES + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, most recent bookmark first."),

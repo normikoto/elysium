@@ -3,6 +3,7 @@ package dev.biribiri.elysium;
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.api.streaming.StreamConnection;
 import dev.biribiri.elysium.api.streaming.StreamRegistry;
@@ -13,10 +14,10 @@ import dev.biribiri.elysium.content.PostFilterCache;
 import dev.biribiri.elysium.content.PostFilterChange;
 import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusOrigin;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusEdit;
+import dev.biribiri.elysium.content.StatusOrigin;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.content.Visibility;
@@ -79,6 +80,7 @@ class StreamingIntegrationTests {
     @Autowired MockMvc mockMvc;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired FollowService follows;
     @Autowired BlockService blocks;
     @Autowired LikeService likes;
@@ -250,11 +252,11 @@ class StreamingIntegrationTests {
         var local = webSocket("?stream=public:local", null);
         var remote = remote();
         var uri = URI.create(remote.uri() + "/notes/" + UUID.randomUUID());
-        var id = statuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "<p>from afar</p>", null, null,
+        var id = remoteStatuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "<p>from afar</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of())).orElseThrow();
 
         everything.next(event("update"));
-        statuses.deleteRemote(uri, remote.uri());
+        remoteStatuses.deleteRemote(uri, remote.uri());
         var delete = everything.next(event("delete"));
         assertThat(JsonPath.<String>read(delete, "$.payload")).isEqualTo(id.toString());
         // Every stream that carries statuses hears about a deletion, as on Mastodon.
@@ -402,7 +404,7 @@ class StreamingIntegrationTests {
         var everyone = List.of(alice.id(), bob.id(), carol.id());
         for (var status : List.of(parent, reply, direct, tagged)) {
             var listing = everyone.stream().filter(viewer -> timelines.homeTimeline(viewer,
-                    new StatusPage(StatusPage.MAX_LIMIT, null, null, null)).stream().anyMatch(found -> found.id().equals(status.id()))).toList();
+                    new IdPage(40, null, null, null)).stream().anyMatch(found -> found.id().equals(status.id()))).toList();
             assertThat(timelines.homeViewers(status.id(), everyone)).as(status.text())
                     .containsExactlyInAnyOrderElementsOf(listing);
         }

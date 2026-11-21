@@ -1,11 +1,12 @@
 package dev.biribiri.elysium.notification.internal;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.AdminRole;
+import dev.biribiri.elysium.content.StatusSql;
 import dev.biribiri.elysium.notification.Notification;
 import dev.biribiri.elysium.notification.NotificationFilter;
 import dev.biribiri.elysium.notification.NotificationGroup;
-import dev.biribiri.elysium.notification.Page;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -37,7 +38,7 @@ public class NotificationRepository {
             + " AND (n.target_id IS NULL OR (t.id IS NOT NULL AND " + NotificationSql.active("t") + "))"
             + " AND (n.type <> '" + ADMIN_REPORT + "' OR " + AdminRole.viewerIsAdmin() + ")"
             + " AND (n.type = '" + ADMIN_REPORT + "' OR " + NotificationSql.notHidden("a") + ")"
-            + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + NotificationSql.visible("s") + "))";
+            + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + StatusSql.visibleTo(":viewer") + "))";
     private static final String GROUP = """
             CASE WHEN n.type = ANY(CAST(:groupedTypes AS text[])) AND n.group_key IS NOT NULL
                  THEN n.group_key ELSE 'ungrouped-' || n.id END
@@ -244,14 +245,10 @@ public class NotificationRepository {
         return Optional.of(id);
     }
 
-    public List<Notification> page(UUID viewer, NotificationFilter filter, Page page) {
+    public List<Notification> page(UUID viewer, NotificationFilter filter, IdPage page) {
         var parameters = parameters(viewer, filter);
-        var sql = new StringBuilder("SELECT n.*" + filtered(filter));
-        NotificationSql.cursors(sql, parameters, page, "n.id");
-        sql.append(page.minId() == null ? " ORDER BY n.id DESC" : " ORDER BY n.id ASC").append(" LIMIT :limit");
-        parameters.put("limit", page.limit());
-        var found = jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list();
-        return page.minId() == null ? found : found.reversed();
+        var sql = "SELECT n.*" + filtered(filter) + page.cursors("n.id", parameters) + page.orderAndLimit("n.id", parameters);
+        return page.newestFirst(jdbc.sql(sql).params(parameters).query(MAPPER).list());
     }
 
     public Optional<Notification> find(UUID viewer, UUID id) {
@@ -282,13 +279,12 @@ public class NotificationRepository {
     }
 
     /** Fetch one representative per distinct group, stopping at the requested number instead of scanning all history. */
-    private List<Notification> representatives(UUID viewer, NotificationFilter filter, Page page, List<String> groupedTypes) {
+    private List<Notification> representatives(UUID viewer, NotificationFilter filter, IdPage page, List<String> groupedTypes) {
         var parameters = parameters(viewer, filter);
         parameters.put("groupedTypes", groupedTypes(groupedTypes));
         parameters.put("limit", page.limit());
-        var eligible = new StringBuilder("SELECT n.*, " + GROUP + " AS effective_key" + filtered(filter));
-        NotificationSql.cursors(eligible, parameters, page, "n.id");
-        var ascending = page.minId() != null;
+        var eligible = "SELECT n.*, " + GROUP + " AS effective_key" + filtered(filter) + page.cursors("n.id", parameters);
+        var ascending = page.fromOldest();
         var direction = ascending ? "ASC" : "DESC";
         var comparison = ascending ? ">" : "<";
         var sql = """
@@ -307,11 +303,10 @@ public class NotificationRepository {
                        chosen.effective_key AS group_key
                 FROM chosen JOIN notification n ON n.id = chosen.id ORDER BY n.id %s
                 """.formatted(eligible, direction, comparison, direction, direction);
-        var found = jdbc.sql(sql).params(parameters).query(MAPPER).list();
-        return ascending ? found.reversed() : found;
+        return page.newestFirst(jdbc.sql(sql).params(parameters).query(MAPPER).list());
     }
 
-    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, Page page, List<String> groupedTypes) {
+    public List<NotificationGroup> groups(UUID viewer, NotificationFilter filter, IdPage page, List<String> groupedTypes) {
         var found = representatives(viewer, filter, page, groupedTypes);
         if (found.isEmpty()) {
             return List.of();
@@ -382,7 +377,7 @@ public class NotificationRepository {
     }
 
     public long countGroups(UUID viewer, NotificationFilter filter, int limit, UUID after, List<String> types) {
-        return representatives(viewer, filter, new Page(limit, null, null, after), types).size();
+        return representatives(viewer, filter, new IdPage(limit, null, null, after), types).size();
     }
 
     private static String filtered(NotificationFilter filter) {

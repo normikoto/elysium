@@ -1,7 +1,8 @@
 package dev.biribiri.elysium.graph.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -198,10 +199,10 @@ public class BlockRepository {
                                        ELSE EXISTS (
                                            SELECT 1 FROM follow f JOIN actor o ON o.id = f.follower_id
                                            WHERE f.followed_id = p.id AND f.state = 'accepted' AND o.is_local
-                                             AND o.suspended_at IS NULL AND o.deleted_at IS NULL AND %s)
+                                             AND %s AND %s)
                                   END
                         )
-                        """.formatted(accepts("p.id"), accepts("o.id")))
+                        """.formatted(accepts("p.id"), ActorSql.active("o"), accepts("o.id")))
                 .param("actor", actorUri.toString())
                 .param("sender", senderUri.toString())
                 .query(Boolean.class)
@@ -289,7 +290,7 @@ public class BlockRepository {
     /**
      * Lists the accounts an account blocks, newest first, leaving out suspended and deleted ones. The cursors are block IDs.
      */
-    public List<FollowEntry> findPage(UUID accountId, FollowPage page) {
+    public List<FollowEntry> findPage(UUID accountId, IdPage page) {
         return Pages.find(jdbc, "account_block", "", accountId, page);
     }
 
