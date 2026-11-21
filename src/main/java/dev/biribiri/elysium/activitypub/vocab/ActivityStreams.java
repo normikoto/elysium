@@ -41,10 +41,25 @@ public final class ActivityStreams {
      */
     public static final String W3ID_SECURITY_V1 = "https://w3id.org/security/v1";
 
+    private static final String SECURITY = "https://w3id.org/security#";
+
     /**
-     * The {@code @context} of an actor document, which includes the terms for its {@code publicKey}.
+     * The terms of FEP-521a's {@code assertionMethod}, which mean what the Controlled Identifiers {@code @context}
+     * ({@code https://www.w3.org/ns/cid/v1}) has them mean. They're written out rather than naming that context, because it's
+     * protected, and JSON-LD refuses a document that defines one of its terms again differently, as the terms for Mastodon's
+     * profiles could.
      */
-    static final List<String> ACTOR_CONTEXT = List.of(CONTEXT, W3ID_SECURITY_V1);
+    private static final Map<String, Object> MULTIKEY_TERMS = Map.of(
+            "assertionMethod", Map.of("@id", SECURITY + "assertionMethod", "@type", "@id", "@container", "@set"),
+            "Multikey", SECURITY + "Multikey",
+            "controller", Map.of("@id", SECURITY + "controller", "@type", "@id"),
+            "publicKeyMultibase", SECURITY + "publicKeyMultibase");
+
+    /**
+     * The {@code @context} of an actor document, which includes the terms for its {@code publicKey} and
+     * {@code assertionMethod}.
+     */
+    static final List<Object> ACTOR_CONTEXT = List.of(CONTEXT, W3ID_SECURITY_V1, MULTIKEY_TERMS);
 
     /**
      * The {@code @context} of a local account's actor document, which adds the terms Mastodon uses for profile fields.
@@ -64,7 +79,8 @@ public final class ActivityStreams {
                     Map.entry("movedTo", Map.of("@id", "as:movedTo", "@type", "@id")),
                     Map.entry("toot", "http://joinmastodon.org/ns#"),
                     Map.entry("featured", Map.of("@id", "toot:featured", "@type", "@id")),
-                    Map.entry("indexable", "toot:indexable")));
+                    Map.entry("indexable", "toot:indexable")),
+            MULTIKEY_TERMS);
 
     /**
      * The {@code @context} of an actor document or activity saying that the actor is suspended, which adds Mastodon's term for
@@ -73,7 +89,8 @@ public final class ActivityStreams {
     static final List<Object> SUSPENDED_ACTOR_CONTEXT = List.of(
             CONTEXT,
             W3ID_SECURITY_V1,
-            Map.of("toot", "http://joinmastodon.org/ns#", "suspended", "toot:suspended"));
+            Map.of("toot", "http://joinmastodon.org/ns#", "suspended", "toot:suspended"),
+            MULTIKEY_TERMS);
 
     private ActivityStreams() {
     }
