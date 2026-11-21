@@ -53,6 +53,18 @@ public class ServerActivityLimits {
     }
 
     /**
+     * Whether the signer's server has room for another activity, without counting one, so that work that would only be
+     * thrown away can be skipped. {@link #tryAdmit} still decides.
+     */
+    boolean hasRoom(URI signer) {
+        if (isExempt(signer.getHost())) {
+            return true;
+        }
+        var key = serverKey(signer);
+        return activities.hasRoom(key) && bytes.hasRoom(key);
+    }
+
+    /**
      * Counts an activity against its signer's server, if there's room for it. One that's turned away doesn't count, so a
      * server that tries again isn't kept waiting longer.
      */

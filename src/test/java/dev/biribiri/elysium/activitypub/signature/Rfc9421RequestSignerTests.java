@@ -150,7 +150,7 @@ class Rfc9421RequestSignerTests {
         var instance = new InstanceProperties(URI.create("https://example.test"));
         var keys = mock(PublicKeyResolver.class);
         when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(
-                KEY_ID, URI.create("https://remote.example/users/bob"), SignatureFixtures.publicKey()));
+                KEY_ID, URI.create("https://remote.example/users/bob"), SignatureFixtures.publicKey(), ResolvedKey.Use.HTTP_SIGNATURES));
         var schemes = new ArrayList<SignatureScheme>(
                 List.of(new CavageSignatureScheme(instance), new Rfc9421SignatureScheme(instance)));
         AnnotationAwareOrderComparator.sort(schemes);

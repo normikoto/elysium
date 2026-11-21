@@ -1,6 +1,10 @@
 package dev.biribiri.elysium.activitypub.vocab;
 
 import java.net.URI;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.Base64;
 
@@ -39,5 +43,31 @@ public record Multikey(String id, String type, URI controller, String publicKeyM
         System.arraycopy(ED25519_MULTICODEC, 0, prefixed, 0, ED25519_MULTICODEC.length);
         System.arraycopy(der, ED25519_SPKI_PREFIX.length, prefixed, ED25519_MULTICODEC.length, ED25519_KEY_BYTES);
         return new Multikey(id, "Multikey", controller, "z" + Base58.encode(prefixed));
+    }
+
+    /**
+     * Reads an Ed25519 key from another server's {@code publicKeyMultibase}. Other key types aren't used here, so they're
+     * refused.
+     *
+     * @throws IllegalArgumentException if it isn't an Ed25519 key in base58btc
+     */
+    public static PublicKey parseEd25519(String publicKeyMultibase) {
+        if (!publicKeyMultibase.startsWith("z")) {
+            throw new IllegalArgumentException("Not base58btc");
+        }
+        // An Ed25519 key with its prefix is 34 bytes, which is at most 47 characters.
+        var bytes = Base58.decode(publicKeyMultibase.substring(1), 64);
+        if (bytes.length != ED25519_MULTICODEC.length + ED25519_KEY_BYTES
+                || !Arrays.equals(bytes, 0, ED25519_MULTICODEC.length, ED25519_MULTICODEC, 0, ED25519_MULTICODEC.length)) {
+            throw new IllegalArgumentException("Not an Ed25519 key");
+        }
+        var der = new byte[ED25519_SPKI_PREFIX.length + ED25519_KEY_BYTES];
+        System.arraycopy(ED25519_SPKI_PREFIX, 0, der, 0, ED25519_SPKI_PREFIX.length);
+        System.arraycopy(bytes, ED25519_MULTICODEC.length, der, ED25519_SPKI_PREFIX.length, ED25519_KEY_BYTES);
+        try {
+            return KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(der));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalArgumentException("Not a valid Ed25519 key", e);
+        }
     }
 }

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.web;
 
+import dev.biribiri.elysium.activitypub.signature.TestBudgets;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.inbound.Inbox;
 import dev.biribiri.elysium.activitypub.signature.CavageRequestSigner;
@@ -97,7 +98,7 @@ class InboxLimitIntegrationTests {
         var signature = new VerifiedSignature(actor + "#main-key", URI.create(actor));
         for (var i = 0; i < 5; i++) {
             var elsewhere = "https://other.example/activities/" + UUID.randomUUID();
-            assertThat(inbox.receive(signature, bytes(activity(elsewhere, actor, ""))).outcome())
+            assertThat(inbox.receive(signature, bytes(activity(elsewhere, actor, "")), TestBudgets.UNLIMITED).outcome())
                     .isEqualTo(Inbox.Outcome.FORBIDDEN);
         }
 
@@ -111,7 +112,7 @@ class InboxLimitIntegrationTests {
     private Inbox.Outcome receive(String host, String padding) {
         var actor = "https://" + host + "/users/bob";
         var id = "https://" + host + "/activities/" + UUID.randomUUID();
-        return inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor, padding)))
+        return inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor, padding)), TestBudgets.UNLIMITED)
                 .outcome();
     }
 

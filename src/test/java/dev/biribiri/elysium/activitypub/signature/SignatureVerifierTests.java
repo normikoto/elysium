@@ -43,7 +43,7 @@ class SignatureVerifierTests {
     private final PublicKeyResolver keys = mock();
     private final DomainBlocks blocks = mock();
     private final ActorService actors = mock();
-    private final ResolvedKey key = new ResolvedKey(KEY_ID, OWNER, SignatureFixtures.publicKey());
+    private final ResolvedKey key = new ResolvedKey(KEY_ID, OWNER, SignatureFixtures.publicKey(), ResolvedKey.Use.HTTP_SIGNATURES);
 
     @BeforeEach
     void resolvesTheKey() {
@@ -53,6 +53,16 @@ class SignatureVerifierTests {
     @Test
     void acceptsAValidSignature() {
         assertThat(verifier(scheme(claim(NOW, null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isEqualTo(new VerifiedSignature(KEY_ID, OWNER));
+    }
+
+    @Test
+    void refusesAKeyThatIsOnlyForIntegrityProofs() {
+        when(keys.resolve(any(), any()))
+                .thenReturn(new ResolvedKey(KEY_ID, OWNER, SignatureFixtures.publicKey(), ResolvedKey.Use.INTEGRITY_PROOFS));
+        when(keys.refresh(any(), any(), any()))
+                .thenReturn(Optional.of(new ResolvedKey(KEY_ID, OWNER, SignatureFixtures.publicKey(), ResolvedKey.Use.INTEGRITY_PROOFS)));
+
+        assertFails(verifier(scheme(claim(NOW, null))), Failure.REJECTED);
     }
 
     @Test
@@ -169,7 +179,7 @@ class SignatureVerifierTests {
 
     @Test
     void refreshesTheKeyWhenTheSignatureDoesNotMatch() {
-        var staleKey = new ResolvedKey(KEY_ID, OWNER, otherKey());
+        var staleKey = new ResolvedKey(KEY_ID, OWNER, otherKey(), ResolvedKey.Use.HTTP_SIGNATURES);
         when(keys.resolve(any(), any())).thenReturn(staleKey);
         when(keys.refresh(any(), any(), any())).thenReturn(Optional.of(key));
 
@@ -186,7 +196,7 @@ class SignatureVerifierTests {
 
     @Test
     void rejectsIfThereIsNoDifferentKeyToTry() {
-        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
+        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey(), ResolvedKey.Use.HTTP_SIGNATURES));
         when(keys.refresh(any(), any(), any())).thenReturn(Optional.empty());
 
         assertFails(verifier(scheme(claim(NOW, null))), Failure.REJECTED);
@@ -194,15 +204,15 @@ class SignatureVerifierTests {
 
     @Test
     void rejectsIfTheRefreshedKeyDoesNotMatchEither() {
-        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
-        when(keys.refresh(any(), any(), any())).thenReturn(Optional.of(new ResolvedKey(KEY_ID, OWNER, otherKey())));
+        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey(), ResolvedKey.Use.HTTP_SIGNATURES));
+        when(keys.refresh(any(), any(), any())).thenReturn(Optional.of(new ResolvedKey(KEY_ID, OWNER, otherKey(), ResolvedKey.Use.HTTP_SIGNATURES)));
 
         assertFails(verifier(scheme(invalidClaim(NOW))), Failure.REJECTED);
     }
 
     @Test
     void passesOnAFailureFromARefresh() {
-        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey()));
+        when(keys.resolve(any(), any())).thenReturn(new ResolvedKey(KEY_ID, OWNER, otherKey(), ResolvedKey.Use.HTTP_SIGNATURES));
         when(keys.refresh(any(), any(), any())).thenThrow(new SignatureVerificationException(Failure.KEY_UNAVAILABLE, "down"));
 
         assertFails(verifier(scheme(claim(NOW, null))), Failure.KEY_UNAVAILABLE);

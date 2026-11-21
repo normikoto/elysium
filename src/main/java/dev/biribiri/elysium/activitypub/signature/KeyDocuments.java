@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.signature;
 
+import dev.biribiri.elysium.activitypub.vocab.Multikey;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
@@ -16,8 +17,9 @@ import java.util.List;
  * <p>A key ID can point to one of three things:
  *
  * <ul>
- * <li>An actor document that has the key in {@code publicKey}, usually as {@code {actor}#main-key}. Nothing further is
- * needed, because the actor is speaking for itself.
+ * <li>An actor document that has the key in {@code publicKey}, usually as {@code {actor}#main-key}, or a {@code Multikey}
+ * in {@code assertionMethod}, as FEP-521a describes. Nothing further is needed, because the actor is speaking for itself.
+ * A key in {@code assertionMethod} is only for integrity proofs, so it's marked as such.
  * <li>A separate key document with an {@code owner}. Anyone could claim to own a key, so the owner's actor document also
  * has to list it.
  * <li>A stub of an actor, whose {@code id} is the actor's own URL rather than the one it was fetched from. GoToSocial
@@ -48,7 +50,7 @@ class KeyDocuments {
         if (!hasId(document, keyId.document())) {
             return fromStub(keyId, document);
         }
-        if (!document.path("publicKey").isMissingNode()) {
+        if (!document.path("publicKey").isMissingNode() || !document.path("assertionMethod").isMissingNode()) {
             return fromActor(keyId, document);
         }
         if (document.path("publicKeyPem").isString()) {
@@ -79,13 +81,40 @@ class KeyDocuments {
                 .orElse(!keyId.hasFragment() && keyId.value().equals(id) && entries.size() == 1
                         ? entries.getFirst()
                         : null);
-        if (entry == null || !entry.isObject() || !entry.path("publicKeyPem").isString()) {
+        if (entry == null) {
+            return fromAssertionMethod(keyId, actor);
+        }
+        if (!entry.isObject() || !entry.path("publicKeyPem").isString()) {
             throw permanent("Actor doesn't have the key " + keyId.value());
         }
         if (!entry.path("owner").isMissingNode() && !id.equals(ownerId(entry))) {
             throw permanent("Key " + keyId.value() + " in an actor document has a different owner");
         }
-        return new ResolvedKey(keyId.value(), URI.create(id), parseKey(entry));
+        return new ResolvedKey(keyId.value(), URI.create(id), parseKey(entry), ResolvedKey.Use.HTTP_SIGNATURES);
+    }
+
+    /**
+     * FEP-521a requires each key's {@code controller} to be the actor. Only Ed25519 keys are read, since they're the only
+     * kind that {@code eddsa-jcs-2022} proofs use. A key in {@code assertionMethod} that's only an ID would need another
+     * fetch, so it isn't followed.
+     */
+    private static ResolvedKey fromAssertionMethod(KeyId keyId, JsonNode actor) throws DocumentFetchException {
+        var id = actor.path("id").asString();
+        var entry = assertionEntries(actor).stream()
+                .filter(candidate -> keyId.value().equals(entryId(candidate)))
+                .findFirst()
+                .orElseThrow(() -> permanent("Actor doesn't have the key " + keyId.value()));
+        if (!entry.isObject() || !"Multikey".equals(entry.path("type").stringValue(null))) {
+            throw permanent("Key " + keyId.value() + " in assertionMethod isn't a Multikey");
+        }
+        if (!id.equals(controllerId(entry))) {
+            throw permanent("Key " + keyId.value() + " in assertionMethod has a different controller");
+        }
+        var key = multikey(entry);
+        if (key == null) {
+            throw permanent("Key " + keyId.value() + " in assertionMethod isn't an Ed25519 key");
+        }
+        return new ResolvedKey(keyId.value(), URI.create(id), key, ResolvedKey.Use.INTEGRITY_PROOFS);
     }
 
     private ResolvedKey fromKeyDocument(KeyId keyId, JsonNode keyDocument) throws DocumentFetchException {
@@ -107,7 +136,7 @@ class KeyDocuments {
                 if (entry.path("publicKeyPem").isString() && !parseKey(entry).equals(key)) {
                     throw permanent("Actor has a different key for " + keyId.value());
                 }
-                return new ResolvedKey(keyId.value(), owner, key);
+                return new ResolvedKey(keyId.value(), owner, key, ResolvedKey.Use.HTTP_SIGNATURES);
             }
         }
         throw permanent("Owner of " + keyId.value() + " doesn't list the key");
@@ -144,6 +173,40 @@ class KeyDocuments {
             entries.add(publicKey);
         }
         return entries;
+    }
+
+    /**
+     * @return the keys in the actor's {@code assertionMethod}, which can be one key or several
+     */
+    static List<JsonNode> assertionEntries(JsonNode actor) {
+        var assertionMethod = actor.path("assertionMethod");
+        var entries = new ArrayList<JsonNode>();
+        if (assertionMethod.isArray()) {
+            assertionMethod.forEach(entries::add);
+        } else if (assertionMethod.isObject() || assertionMethod.isString()) {
+            entries.add(assertionMethod);
+        }
+        return entries;
+    }
+
+    /**
+     * @return the Ed25519 key in a {@code Multikey}, or null if it doesn't have one that can be read
+     */
+    static PublicKey multikey(JsonNode entry) {
+        var multibase = entry.path("publicKeyMultibase").stringValue(null);
+        if (multibase == null) {
+            return null;
+        }
+        try {
+            return Multikey.parseEd25519(multibase);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static String controllerId(JsonNode key) {
+        var controller = key.path("controller");
+        return controller.isObject() ? controller.path("id").stringValue(null) : controller.stringValue(null);
     }
 
     static String entryId(JsonNode entry) {

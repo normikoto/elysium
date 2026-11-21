@@ -4,6 +4,7 @@ import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
 import dev.biribiri.elysium.activitypub.http.HostRequests;
+import dev.biribiri.elysium.activitypub.vocab.Multikey;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -14,6 +15,10 @@ import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,6 +39,11 @@ class KeyDocumentsTests {
     private static final String KEY_DOCUMENT = "https://remote.example/keys/1";
     private static final String STUB = ACTOR + "/main-key";
     private static final String PEM = jsonString(SignatureFixtures.PUBLIC_KEY_PEM);
+    private static final String PROOF_KEY_ID = ACTOR + "#ed25519-key";
+    private static final KeyPair PROOF_KEY = ed25519();
+    private static final String PROOF_KEY_MULTIBASE = Multikey.ed25519(PROOF_KEY_ID, URI.create(ACTOR),
+            "-----BEGIN PUBLIC KEY-----\n" + Base64.getEncoder().encodeToString(PROOF_KEY.getPublic().getEncoded())
+                    + "\n-----END PUBLIC KEY-----\n").publicKeyMultibase();
 
     private final SignedFetcher http = mock();
     private final HostRequests hostRequests = new HostRequests();
@@ -45,7 +55,7 @@ class KeyDocumentsTests {
         serve(ACTOR, actorWith(keyObject(KEY_ID, ACTOR)));
 
         assertThat(documents.fetch(keyId(KEY_ID)))
-                .isEqualTo(new ResolvedKey(KEY_ID, URI.create(ACTOR), SignatureFixtures.publicKey()));
+                .isEqualTo(new ResolvedKey(KEY_ID, URI.create(ACTOR), SignatureFixtures.publicKey(), ResolvedKey.Use.HTTP_SIGNATURES));
     }
 
     @Test
@@ -161,7 +171,7 @@ class KeyDocumentsTests {
         serve(ACTOR, actorWith(keyObject(STUB, ACTOR)));
 
         assertThat(documents.fetch(keyId(STUB)))
-                .isEqualTo(new ResolvedKey(STUB, URI.create(ACTOR), SignatureFixtures.publicKey()));
+                .isEqualTo(new ResolvedKey(STUB, URI.create(ACTOR), SignatureFixtures.publicKey(), ResolvedKey.Use.HTTP_SIGNATURES));
     }
 
     @Test
@@ -277,7 +287,7 @@ class KeyDocumentsTests {
         serve(ACTOR, actorWith("\"" + KEY_DOCUMENT + "\""));
 
         assertThat(documents.fetch(keyId(KEY_DOCUMENT)))
-                .isEqualTo(new ResolvedKey(KEY_DOCUMENT, URI.create(ACTOR), SignatureFixtures.publicKey()));
+                .isEqualTo(new ResolvedKey(KEY_DOCUMENT, URI.create(ACTOR), SignatureFixtures.publicKey(), ResolvedKey.Use.HTTP_SIGNATURES));
     }
 
     @Test
@@ -432,6 +442,52 @@ class KeyDocumentsTests {
         assertPermanent(KEY_ID);
     }
 
+    @Test
+    void readsAnEd25519KeyFromAssertionMethodAsOnlyForProofs() throws Exception {
+        serve(ACTOR, actorWithBoth(keyObject(KEY_ID, ACTOR), multikey(PROOF_KEY_ID, ACTOR, PROOF_KEY_MULTIBASE)));
+
+        assertThat(documents.fetch(keyId(PROOF_KEY_ID)))
+                .isEqualTo(new ResolvedKey(PROOF_KEY_ID, URI.create(ACTOR), PROOF_KEY.getPublic(),
+                        ResolvedKey.Use.INTEGRITY_PROOFS));
+        assertThat(documents.fetch(keyId(KEY_ID)).use()).isEqualTo(ResolvedKey.Use.HTTP_SIGNATURES);
+    }
+
+    @Test
+    void readsAssertionMethodFromAnActorWithoutPublicKey() throws Exception {
+        serve(ACTOR, "{\"id\":\"%s\",\"type\":\"Person\",\"assertionMethod\":%s}"
+                .formatted(ACTOR, multikey(PROOF_KEY_ID, ACTOR, PROOF_KEY_MULTIBASE)));
+
+        assertThat(documents.fetch(keyId(PROOF_KEY_ID)).use()).isEqualTo(ResolvedKey.Use.INTEGRITY_PROOFS);
+    }
+
+    @Test
+    void refusesAKeyInAssertionMethodWithAnotherController() throws Exception {
+        serve(ACTOR, actorWithBoth(keyObject(KEY_ID, ACTOR),
+                multikey(PROOF_KEY_ID, "https://remote.example/users/mallory", PROOF_KEY_MULTIBASE)));
+
+        assertPermanent(PROOF_KEY_ID);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "\"%s\"",
+            "{\"id\":\"%s\",\"type\":\"JsonWebKey\",\"controller\":\"" + ACTOR + "\",\"publicKeyMultibase\":\"z6Mk\"}",
+            "{\"id\":\"%s\",\"type\":\"Multikey\",\"controller\":\"" + ACTOR + "\",\"publicKeyMultibase\":\"z6Mk\"}",
+            "{\"id\":\"%s\",\"type\":\"Multikey\",\"controller\":\"" + ACTOR + "\"}"
+    })
+    void refusesAKeyInAssertionMethodThatIsNotAnEd25519Multikey(String entry) throws Exception {
+        serve(ACTOR, actorWithBoth(keyObject(KEY_ID, ACTOR), entry.formatted(PROOF_KEY_ID)));
+
+        assertPermanent(PROOF_KEY_ID);
+    }
+
+    @Test
+    void doesNotLookForAPublicKeyIdInAssertionMethod() throws Exception {
+        serve(ACTOR, actorWithBoth(keyObject(KEY_ID, ACTOR), multikey(PROOF_KEY_ID, ACTOR, PROOF_KEY_MULTIBASE)));
+
+        assertPermanent(ACTOR + "#other-key");
+    }
+
     private void assertPermanent(String id) {
         assertThatThrownBy(() -> documents.fetch(keyId(id)))
                 .isInstanceOfSatisfying(DocumentFetchException.class, e -> {
@@ -458,6 +514,16 @@ class KeyDocumentsTests {
         return KeyId.parse(value, INSTANCE);
     }
 
+    private static String actorWithBoth(String publicKey, String assertionMethod) {
+        return "{\"id\":\"%s\",\"type\":\"Person\",\"publicKey\":%s,\"assertionMethod\":[%s]}"
+                .formatted(ACTOR, publicKey, assertionMethod);
+    }
+
+    private static String multikey(String id, String controller, String multibase) {
+        return "{\"id\":\"%s\",\"type\":\"Multikey\",\"controller\":\"%s\",\"publicKeyMultibase\":\"%s\"}"
+                .formatted(id, controller, multibase);
+    }
+
     private static String actorWith(String publicKey) {
         return "{\"id\":\"%s\",\"type\":\"Person\",\"publicKey\":%s}".formatted(ACTOR, publicKey);
     }
@@ -472,6 +538,14 @@ class KeyDocumentsTests {
 
     private static String keyDocument(String owner) {
         return "{\"id\":\"%s\",\"owner\":\"%s\",\"publicKeyPem\":\"%s\"}".formatted(KEY_DOCUMENT, owner, PEM);
+    }
+
+    private static KeyPair ed25519() {
+        try {
+            return KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static String jsonString(String text) {

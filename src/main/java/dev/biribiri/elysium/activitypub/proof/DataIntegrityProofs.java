@@ -2,24 +2,45 @@ package dev.biribiri.elysium.activitypub.proof;
 
 import dev.biribiri.elysium.activitypub.vocab.Base58;
 import dev.biribiri.elysium.actor.signing.SigningKey;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.security.PublicKey;
 import java.security.Signature;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
- * Adds integrity proofs with the {@code eddsa-jcs-2022} cryptosuite, from W3C's Data Integrity EdDSA Cryptosuites,
- * which FEP-8b32 recommends.
+ * Adds and checks integrity proofs with the {@code eddsa-jcs-2022} cryptosuite, from W3C's Data Integrity EdDSA
+ * Cryptosuites, which FEP-8b32 recommends.
  */
 final class DataIntegrityProofs {
 
     static final String CRYPTOSUITE = "eddsa-jcs-2022";
+
+    /**
+     * How far ahead of this server's clock a proof's {@code created} can be, as for HTTP signatures.
+     */
+    private static final Duration CLOCK_SKEW = Duration.ofHours(1);
+
+    /**
+     * An Ed25519 signature is 64 bytes, which is at most 88 characters of base58btc.
+     */
+    private static final int MAX_PROOF_VALUE_LENGTH = 100;
 
     private DataIntegrityProofs() {
     }
@@ -43,13 +64,156 @@ final class DataIntegrityProofs {
         if (unsecured.has("@context")) {
             proof.set("@context", unsecured.get("@context").deepCopy());
         }
-        var hashData = new byte[64];
-        System.arraycopy(sha256(Jcs.canonicalize(proof)), 0, hashData, 0, 32);
-        System.arraycopy(sha256(Jcs.canonicalize(unsecured)), 0, hashData, 32, 32);
-        proof.put("proofValue", "z" + Base58.encode(sign(hashData, key)));
+        proof.put("proofValue", "z" + Base58.encode(sign(hashData(proof, unsecured), key)));
         var secured = unsecured.deepCopy();
         secured.set("proof", proof);
         return secured;
+    }
+
+    /**
+     * A proof whose key still has to be found.
+     *
+     * @param verificationMethod the ID of the key that made it
+     * @param created            when it says it was made, or null if it doesn't say
+     * @param signature          whether a key made it
+     */
+    record Candidate(String verificationMethod, Instant created, Predicate<PublicKey> signature) {
+    }
+
+    /**
+     * Reads the document's proofs by the spec's Verify Proof steps, as far as they go without the key. Any that can't be
+     * checked, such as one made with another cryptosuite, or one that's expired, is left out, as FEP-8b32 says to ignore
+     * them.
+     */
+    static List<Candidate> candidates(ObjectNode secured, Instant now) {
+        var proofs = secured.path("proof");
+        var unsecured = secured.deepCopy();
+        unsecured.remove("proof");
+        // FEP-8b32 has a Linked Data Signature made after the proof, so the proof doesn't cover it.
+        unsecured.remove("signature");
+        var candidates = new ArrayList<Candidate>();
+        for (var proof : proofs.isArray() ? proofs.valueStream().toList() : List.of(proofs)) {
+            if (proof instanceof ObjectNode object) {
+                candidate(object, secured, unsecured, now).ifPresent(candidates::add);
+            }
+        }
+        return candidates;
+    }
+
+    private static Optional<Candidate> candidate(ObjectNode proof, ObjectNode secured, ObjectNode unsecured, Instant now) {
+        if (!"DataIntegrityProof".equals(proof.path("type").stringValue(null))
+                || !CRYPTOSUITE.equals(proof.path("cryptosuite").stringValue(null))
+                || !"assertionMethod".equals(proof.path("proofPurpose").stringValue(null))
+                || !proof.path("verificationMethod").isString()
+                || !proof.path("proofValue").isString()) {
+            return Optional.empty();
+        }
+        if (!isCurrent(proof, now)) {
+            return Optional.empty();
+        }
+        var options = proof.deepCopy();
+        var proofValue = options.remove("proofValue").stringValue();
+        if (options.has("@context") && !startsWith(secured.get("@context"), options.get("@context"))) {
+            return Optional.empty();
+        }
+        byte[] signature;
+        try {
+            if (!proofValue.startsWith("z")) {
+                return Optional.empty();
+            }
+            signature = Base58.decode(proofValue.substring(1), MAX_PROOF_VALUE_LENGTH);
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+        var verificationMethod = options.get("verificationMethod").stringValue();
+        var hashData = lazyHashData(options, unsecured);
+        return Optional.of(new Candidate(
+                verificationMethod,
+                created(proof),
+                key -> hashData.get().filter(data -> verifies(data, signature, key)).isPresent()));
+    }
+
+    /**
+     * Each hash covers the whole document, and a document can list any number of proofs, so it's only worked out for one
+     * whose key has been found, and only once.
+     *
+     * @return the hash, or empty for JSON that RFC 8785 can't canonicalize, which the signer couldn't have signed either
+     */
+    private static Supplier<Optional<byte[]>> lazyHashData(ObjectNode options, ObjectNode unsecured) {
+        var result = new AtomicReference<Optional<byte[]>>();
+        return () -> {
+            if (result.get() == null) {
+                var document = unsecured;
+                if (options.has("@context")) {
+                    document = unsecured.deepCopy();
+                    document.set("@context", options.get("@context"));
+                }
+                try {
+                    result.set(Optional.of(hashData(options, document)));
+                } catch (IllegalArgumentException e) {
+                    result.set(Optional.empty());
+                }
+            }
+            return result.get();
+        };
+    }
+
+    /**
+     * @return the proof's {@code created}, which {@link #isCurrent} has already found to be valid if it's there
+     */
+    private static Instant created(ObjectNode proof) {
+        return proof.has("created") ? OffsetDateTime.parse(proof.get("created").asString()).toInstant() : null;
+    }
+
+    /**
+     * The spec requires {@code created} to be a valid date and time when it's there. {@code expires} is from Data
+     * Integrity, and FEP-8b32 says to ignore a proof that's past it.
+     */
+    private static boolean isCurrent(ObjectNode proof, Instant now) {
+        try {
+            if (proof.has("created")
+                    && OffsetDateTime.parse(proof.get("created").asString()).toInstant().isAfter(now.plus(CLOCK_SKEW))) {
+                return false;
+            }
+            return !proof.has("expires")
+                    || !OffsetDateTime.parse(proof.get("expires").asString()).toInstant().isBefore(now.minus(CLOCK_SKEW));
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    /**
+     * The spec has a verifier check this, so that the proof's {@code @context} can't change what the document means.
+     */
+    private static boolean startsWith(JsonNode documentContext, JsonNode proofContext) {
+        var document = documentContext == null ? List.<JsonNode>of() : asList(documentContext);
+        var proof = asList(proofContext);
+        return document.size() >= proof.size() && document.subList(0, proof.size()).equals(proof);
+    }
+
+    private static List<JsonNode> asList(JsonNode context) {
+        return context.isArray() ? context.valueStream().toList() : List.of(context);
+    }
+
+    private static byte[] hashData(ObjectNode options, ObjectNode document) {
+        var hashData = new byte[64];
+        System.arraycopy(sha256(Jcs.canonicalize(options)), 0, hashData, 0, 32);
+        System.arraycopy(sha256(Jcs.canonicalize(document)), 0, hashData, 32, 32);
+        return hashData;
+    }
+
+    private static boolean verifies(byte[] data, byte[] signature, PublicKey key) {
+        if (!"Ed25519".equals(key.getAlgorithm()) && !"EdDSA".equals(key.getAlgorithm())) {
+            return false;
+        }
+        try {
+            var verifier = Signature.getInstance("Ed25519");
+            verifier.initVerify(key);
+            verifier.update(data);
+            return verifier.verify(signature);
+        } catch (GeneralSecurityException e) {
+            return false;
+        }
     }
 
     private static byte[] sha256(String text) {

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import dev.biribiri.elysium.activitypub.signature.TestBudgets;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
@@ -155,7 +156,7 @@ class DeleteIntegrationTests {
         var signer = new VerifiedSignature(author.uri() + "#main-key", author.uri());
         var later = "{\"id\":\"%s/follows/1\",\"type\":\"Follow\",\"actor\":\"%s\",\"object\":\"%s\"}"
                 .formatted(author.uri(), author.uri(), follower.uri());
-        assertThat(inbox.receive(signer, later.getBytes(StandardCharsets.UTF_8)).outcome())
+        assertThat(inbox.receive(signer, later.getBytes(StandardCharsets.UTF_8), TestBudgets.UNLIMITED).outcome())
                 .isEqualTo(Inbox.Outcome.FORBIDDEN);
     }
 
@@ -232,7 +233,7 @@ class DeleteIntegrationTests {
         var forwarder = URI.create("https://f" + UUID.randomUUID() + ".test/users/f");
         var signer = new VerifiedSignature(forwarder + "#main-key", forwarder);
 
-        var result = inbox.receive(signer, bytes(delete(author, "\"" + status + "\"", id)));
+        var result = inbox.receive(signer, bytes(delete(author, "\"" + status + "\"", id)), TestBudgets.UNLIMITED);
 
         assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
         var job = jdbc.sql("SELECT convert_from(task_data, 'UTF8') FROM scheduled_tasks WHERE task_name = 'forwarded-activity' "

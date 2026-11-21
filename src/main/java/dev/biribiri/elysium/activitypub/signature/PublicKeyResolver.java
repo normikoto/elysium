@@ -192,6 +192,12 @@ class PublicKeyResolver {
         if (entries.size() == 1) {
             listed.putIfAbsent(actor.toString(), keyIn(entries.getFirst()));
         }
+        for (var entry : KeyDocuments.assertionEntries(document)) {
+            var id = KeyDocuments.entryId(entry);
+            if (id != null) {
+                listed.putIfAbsent(id, KeyDocuments.multikey(entry));
+            }
+        }
         var keys = cache.synchronous().asMap();
         // Only finished lookups are visited, and one that's still running fetches the current document anyway.
         var changed = new HashMap<String, Lookup>();
@@ -256,7 +262,8 @@ class PublicKeyResolver {
     private ResolvedKey resolveLocal(KeyId keyId) {
         return actors.findLocalByUri(keyId.document())
                 .filter(actor -> actor.publicKeyId().equals(keyId.document() + fragment(keyId)))
-                .map(actor -> new ResolvedKey(keyId.value(), actor.uri(), PublicKeyPem.parse(actor.publicKeyPem())))
+                .map(actor -> new ResolvedKey(
+                        keyId.value(), actor.uri(), PublicKeyPem.parse(actor.publicKeyPem()), ResolvedKey.Use.HTTP_SIGNATURES))
                 .orElseThrow(() -> new SignatureVerificationException(
                         Failure.REJECTED, "No local actor has the key " + keyId.value()));
     }
