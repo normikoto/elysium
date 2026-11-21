@@ -209,6 +209,13 @@ public class ActorRepository {
      * the username and URI from then on.
      */
     @Transactional
+    /**
+     * @return the domain of every remote actor
+     */
+    public List<String> findRemoteDomains() {
+        return jdbc.sql("SELECT DISTINCT domain FROM actor WHERE NOT is_local").query(String.class).list();
+    }
+
     public void removeKeysOfDeleted(Instant before) {
         var time = before.atOffset(ZoneOffset.UTC);
         jdbc.sql("""

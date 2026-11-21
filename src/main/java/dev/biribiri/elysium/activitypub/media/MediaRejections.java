@@ -10,7 +10,6 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachments;
-import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.DomainMediaAllowed;
@@ -50,15 +49,13 @@ public class MediaRejections {
     private final ActorService actors;
     private final CustomEmojis emojis;
     private final ProfileService profiles;
-    private final FollowService follows;
 
     /**
      * @param scheduler lazy like everywhere else it's used, so that this doesn't affect when the scheduler is created
      */
     MediaRejections(@Lazy SchedulerClient scheduler, MediaAttachments attachments, DomainBlocks blocks,
-                    ActorService actors, CustomEmojis emojis, ProfileService profiles, FollowService follows) {
+                    ActorService actors, CustomEmojis emojis, ProfileService profiles) {
         this.profiles = profiles;
-        this.follows = follows;
         this.emojis = emojis;
         this.scheduler = scheduler;
         this.attachments = attachments;
@@ -134,7 +131,7 @@ public class MediaRejections {
      * @return each domain as actors have it
      */
     private List<String> accountDomainsUnder(String blockDomain) {
-        return follows.remoteDomains().stream()
+        return actors.remoteDomains().stream()
                 .filter(domain -> DomainName.normalizeHost(domain)
                         .filter(host -> DomainName.suffixes(host).contains(blockDomain))
                         .isPresent())

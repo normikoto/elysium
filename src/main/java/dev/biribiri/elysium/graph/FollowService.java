@@ -647,17 +647,10 @@ public class FollowService {
     }
 
     /**
-     * @return the domain of every remote actor, each as {@code actor.domain} has it
-     */
-    public List<String> remoteDomains() {
-        return follows.findRemoteDomains();
-    }
-
-    /**
      * Removes all follows to and from a domain's remote actors. Each batch of actors commits by itself, so that removing a
      * lot of them doesn't hold one long transaction.
      *
-     * @param domain a domain from {@link #remoteDomains}
+     * @param domain a domain from {@link ActorService#remoteDomains}
      */
     public void removeForDomain(String domain) {
         var after = new UUID(0, 0);

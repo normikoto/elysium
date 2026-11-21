@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.outbound;
+package dev.biribiri.elysium.moderation;
 
 import dev.biribiri.elysium.jobs.QueuedJob;
 

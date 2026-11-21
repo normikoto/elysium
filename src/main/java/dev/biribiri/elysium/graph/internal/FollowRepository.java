@@ -600,13 +600,6 @@ public class FollowRepository {
     }
 
     /**
-     * @return the domain of every remote actor
-     */
-    public List<String> findRemoteDomains() {
-        return jdbc.sql("SELECT DISTINCT domain FROM actor WHERE NOT is_local").query(String.class).list();
-    }
-
-    /**
      * @param after only return IDs that sort after this one, in PostgreSQL's order
      * @return the IDs of remote actors on a domain, in order
      */

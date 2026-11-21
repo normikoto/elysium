@@ -250,7 +250,7 @@ public class BlockService {
      * Removes the blocks that a domain's remote actors made of local accounts, in batches that commit by themselves. Local
      * accounts' blocks of those actors are kept, since a domain block can be lifted.
      *
-     * @param domain a domain from {@link FollowService#remoteDomains}
+     * @param domain a domain from {@link ActorService#remoteDomains}
      */
     public void removeForDomain(String domain) {
         var after = new UUID(0, 0);

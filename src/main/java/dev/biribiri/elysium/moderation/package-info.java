@@ -3,7 +3,7 @@
  * decides what's blocked, and the {@code activitypub} module enforces it, because this module knows nothing about
  * federation.
  */
-@ApplicationModule(allowedDependencies = {"actor", "content"})
+@ApplicationModule(allowedDependencies = {"actor", "content", "jobs"})
 package dev.biribiri.elysium.moderation;
 
 import org.springframework.modulith.ApplicationModule;

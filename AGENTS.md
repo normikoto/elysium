@@ -41,17 +41,17 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `mail`        | Sending email over SMTP                    | nothing                                        |
 | `text`        | Rendering plain text as HTML               | nothing                                        |
 | `jobs`        | Background jobs, and how they retry        | nothing                                        |
-| `actor`       | Local and remote actors, profiles, keys    | `media`, `text`                                |
+| `actor`       | Local and remote actors, profiles, keys    | `jobs`, `media`, `text`                        |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `moderation`, `ratelimit`     |
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
 | `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
-| `moderation`  | Domain blocks, reports, and server rules   | `actor`, `content`                             |
+| `moderation`  | Domain blocks, reports, and server rules   | `actor`, `content`, `jobs`                     |
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text` |
-| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `jobs`, `moderation`, `notification`, `ratelimit`, `text`, `timeline` |
+| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `jobs`, `moderation`, `ratelimit`, `text` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
 - `actor.signing` exposes private keys as a named interface, so a module has to ask for it explicitly. Only `activitypub`
@@ -75,8 +75,10 @@ These reach beyond `activitypub`, and a change can break them without a test not
 - **Account state:** `ActorService.findLocal*` and `StatusRepository`'s queries only find active actors. Use `findAnyLocal*`
   only for what has to keep working for suspended or deleted ones, such as actor documents and signing, and check the state
   of anything from `findByUri` or `findById`. `auth.AccountActions` decides who can be suspended or deleted.
-- **Cleanup:** new remote data has to be removed by `DomainBlockCleanupTask`, and new remote or account data by
-  `AccountCleanupTask`, including files in the media directory.
+- **Cleanup:** each module that stores data by or about actors implements `actor.ActorDataRemoval` once, and a new
+  table's data has to be removed there: remote data when its server is blocked, and remote or account data when its actor
+  is deleted, including files in the media directory. The account and domain block cleanup jobs call every
+  implementation.
 - **Domain blocks:** a block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended, and
   SQL that reads `domain_block` has to filter on `severity`.
 
