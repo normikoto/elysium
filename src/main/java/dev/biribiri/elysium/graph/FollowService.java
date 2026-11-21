@@ -3,6 +3,7 @@ package dev.biribiri.elysium.graph;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.graph.internal.AccountNoteRepository;
 import dev.biribiri.elysium.graph.internal.BlockRepository;
 import dev.biribiri.elysium.graph.internal.FollowRepository;
 import dev.biribiri.elysium.graph.internal.MuteRepository;
@@ -44,12 +45,14 @@ public class FollowService {
     private final FollowRepository follows;
     private final BlockRepository blocks;
     private final MuteRepository mutes;
+    private final AccountNoteRepository notes;
     private final ActorService actors;
     private final ProfileService profiles;
     private final ApplicationEventPublisher events;
 
-    FollowService(FollowRepository follows, BlockRepository blocks, MuteRepository mutes, ActorService actors,
-                  ProfileService profiles, ApplicationEventPublisher events) {
+    FollowService(FollowRepository follows, BlockRepository blocks, MuteRepository mutes, AccountNoteRepository notes,
+                  ActorService actors, ProfileService profiles, ApplicationEventPublisher events) {
+        this.notes = notes;
         this.follows = follows;
         this.blocks = blocks;
         this.mutes = mutes;
@@ -271,6 +274,7 @@ public class FollowService {
         }
         var muted = mutes.findCurrent(viewerId, otherIds);
         var domainBlocked = blocks.domainBlockedAmong(viewerId, otherIds);
+        var noted = notes.find(viewerId, otherIds);
         return otherIds.stream().map(other -> {
             var mute = muted.get(other);
             return new Relationship(
@@ -284,7 +288,8 @@ public class FollowService {
                     mute != null,
                     mute != null && mute.notifications(),
                     mute == null ? null : mute.expiresAt(),
-                    domainBlocked.contains(other));
+                    domainBlocked.contains(other),
+                    noted.getOrDefault(other, ""));
         }).toList();
     }
 

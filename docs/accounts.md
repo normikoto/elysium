@@ -206,8 +206,8 @@ Nobody can suspend or delete the server's last admin, so [choose another](#admin
 themselves from the admin page or the API.
 
 ## Blocks and mutes
-People can block or mute other accounts, and block whole servers, from an app. These are their own choices, separate from
-an admin's [domain blocks](#domain-blocks), and other people can't see them.
+People can block, mute, or write notes about other accounts, and block whole servers, from an app. These are their own
+choices, separate from an admin's [domain blocks](#domain-blocks), and other people can't see them.
 
 - **Blocking** someone ends the follows between them both ways, removes the notifications between them, and stops either
   from following the other or seeing the other's posts here. Someone on another server is told about the block, so that
@@ -216,6 +216,8 @@ an admin's [domain blocks](#domain-blocks), and other people can't see them.
   and can keep showing them public posts. Either way, anyone can still read public posts without signing in.
 - **Muting** someone hides their posts and, unless the person chooses otherwise, their notifications, but leaves follows as
   they are, and the muted person isn't told. A mute can be set to end after a while.
+- **Notes** are private notes people write about an account, which only they see. Nobody else is told, including the
+  account's server.
 - **Blocking a server** hides its accounts and removes followers there, as blocking each of them would, but isn't sent to
   that server. Subdomains are blocked too.
 

@@ -20,6 +20,7 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.graph.AccountDomainBlockService;
 import dev.biribiri.elysium.graph.AccountLists;
+import dev.biribiri.elysium.graph.AccountNotes;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.MuteService;
@@ -30,7 +31,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Removes a deleted account's statuses, scheduled statuses, attachments, follows, blocks, mutes, filters, lists, profile, moves, and the reports
+ * Removes a deleted account's statuses, scheduled statuses, attachments, follows, blocks, mutes, notes, filters, lists, profile, moves, and the reports
  * by and about it, and who its followers-only statuses were sent to, and a suspended remote actor's follows, which would otherwise
  * give it a way to keep receiving statuses. A suspended remote actor's statuses are kept, hidden by every query, so that
  * they come back if the suspension is undone. A suspended local account keeps everything, for the same reason. This looks
@@ -62,6 +63,7 @@ class AccountCleanupTask {
     private final Markers markers;
     private final BookmarkService bookmarks;
     private final ThreadMuteService threadMutes;
+    private final AccountNotes notes;
 
     AccountCleanupTask(ActorService actors, StatusService statuses, FollowService follows, BlockService blocks,
                        MuteService mutes, AccountDomainBlockService domainBlocks, ProfileService profiles,
@@ -70,7 +72,8 @@ class AccountCleanupTask {
                        PostingDefaults postingDefaults, Reports reports, PollService polls, StatusPinService pins,
                        PostFilters filters, AccountLists lists, AccountMigrations migrations,
                        ScheduledStatusService scheduled, Markers markers, BookmarkService bookmarks,
-                       ThreadMuteService threadMutes) {
+                       ThreadMuteService threadMutes, AccountNotes notes) {
+        this.notes = notes;
         this.bookmarks = bookmarks;
         this.threadMutes = threadMutes;
         this.markers = markers;
@@ -119,6 +122,7 @@ class AccountCleanupTask {
                 followersOnly.removeForActor(actor.id());
                 blocks.removeForActor(actor.id());
                 mutes.removeForActor(actor.id());
+                notes.removeForActor(actor.id());
                 domainBlocks.removeForAccount(actor.id());
                 profiles.removeAll(actor.id());
                 postingDefaults.removeFor(actor.id());

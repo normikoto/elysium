@@ -221,7 +221,7 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
-    void deletingAnAccountRemovesItsBlocksAndMutesAndThoseOfIt() {
+    void deletingAnAccountRemovesItsBlocksMutesAndNotesAndThoseOfIt() {
         var other = newLocal();
         var remote = remote();
         insert("account_block", local, other);
@@ -229,6 +229,8 @@ class AccountCleanupIntegrationTests {
         insert("account_block", remote, local);
         insert("account_mute", local, other);
         insert("account_mute", other, local);
+        insertNote(local, other);
+        insertNote(other, local);
         jdbc.sql("INSERT INTO account_domain_block (id, account_id, domain) VALUES (gen_random_uuid(), :id, 'example.com')")
                 .param("id", local.id()).update();
 
@@ -237,6 +239,7 @@ class AccountCleanupIntegrationTests {
         await().atMost(WAIT).until(() -> count("""
                 SELECT (SELECT count(*) FROM account_block WHERE account_id = :id OR target_id = :id)
                      + (SELECT count(*) FROM account_mute WHERE account_id = :id OR target_id = :id)
+                     + (SELECT count(*) FROM account_note WHERE account_id = :id OR target_id = :id)
                      + (SELECT count(*) FROM account_domain_block WHERE account_id = :id)""", local.id()) == 0);
     }
 
@@ -270,6 +273,13 @@ class AccountCleanupIntegrationTests {
         await().atMost(WAIT).until(() -> follows(suspended) == 0);
         assertThat(count("SELECT count(*) FROM account_block WHERE account_id = :id OR target_id = :id", suspended.id()))
                 .isEqualTo(2);
+    }
+
+    private void insertNote(Actor account, Actor target) {
+        jdbc.sql("INSERT INTO account_note (account_id, target_id, note) VALUES (:account, :target, 'a note')")
+                .param("account", account.id())
+                .param("target", target.id())
+                .update();
     }
 
     private void insert(String table, Actor account, Actor target) {

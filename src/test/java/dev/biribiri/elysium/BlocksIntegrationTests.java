@@ -15,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.net.URI;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Blocks, mutes, and the user's server blocks, through the client API. No job worker runs, so activities are only queued.
+ * Blocks, mutes, notes, and the user's server blocks, through the client API. No job worker runs, so activities are only queued.
  * Blocks from other servers are tested in {@code BlockIntegrationTests}.
  */
 @Import(TestcontainersConfiguration.class)
@@ -71,6 +72,7 @@ class BlocksIntegrationTests {
         jdbc.sql("DELETE FROM follow").update();
         jdbc.sql("DELETE FROM account_block").update();
         jdbc.sql("DELETE FROM account_mute").update();
+        jdbc.sql("DELETE FROM account_note").update();
         jdbc.sql("DELETE FROM account_domain_block").update();
         jdbc.sql("DELETE FROM notification").update();
     }
@@ -386,6 +388,78 @@ class BlocksIntegrationTests {
 
     // Helpers
 
+    // Notes
+
+    @Test
+    void aNoteIsOnlyShownToItsWriter() throws Exception {
+        var bob = account("bob");
+        var alice = account("alice");
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice"))
+                        .param("comment", "Met at the conference"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(bob.id().toString()))
+                .andExpect(jsonPath("$.note").value("Met at the conference"));
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", bob.id().toString()), token("alice")))
+                .andExpect(jsonPath("$[0].note").value("Met at the conference"));
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", alice.id().toString()), token("bob")))
+                .andExpect(jsonPath("$[0].note").value(""));
+        assertThat(jdbc.sql("SELECT count(*) FROM outbound_activity WHERE body LIKE '%conference%'")
+                .query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void aNoteCanBeReplacedAndRemoved() throws Exception {
+        var bob = account("bob");
+        note("alice", bob, "{\"comment\":\"first\"}");
+        note("alice", bob, "{\"comment\":\"second\"}").andExpect(jsonPath("$.note").value("second"));
+        assertThat(jdbc.sql("SELECT count(*) FROM account_note").query(Long.class).single()).isEqualTo(1);
+
+        note("alice", bob, "{\"comment\":\"  \"}").andExpect(jsonPath("$.note").value(""));
+        assertThat(jdbc.sql("SELECT count(*) FROM account_note").query(Long.class).single()).isZero();
+
+        note("alice", bob, "{\"comment\":\"again\"}");
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.note").value(""));
+        assertThat(jdbc.sql("SELECT count(*) FROM account_note").query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void aNoteCanBeAboutYourself() throws Exception {
+        var alice = account("alice");
+        note("alice", alice, "{\"comment\":\"me\"}").andExpect(jsonPath("$.note").value("me"));
+    }
+
+    @Test
+    void aNoteIsLimitedTo2000Characters() throws Exception {
+        var bob = account("bob");
+        // Characters outside the Basic Multilingual Plane count once each, as they do on Mastodon.
+        var longest = "\uD83D\uDE00".repeat(2000);
+        note("alice", bob, "{\"comment\":\"" + longest + "\"}").andExpect(jsonPath("$.note").value(longest));
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice"))
+                        .param("comment", "a".repeat(2001)))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":5}"))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", bob.id().toString()), token("alice")))
+                .andExpect(jsonPath("$[0].note").value(longest));
+    }
+
+    @Test
+    void aSuspendedAccountCantBeNoted() throws Exception {
+        var suspended = remote();
+        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", suspended.id()).update();
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + suspended.id() + "/note"), token("alice"))
+                        .param("comment", "x"))
+                .andExpect(status().isNotFound());
+    }
+
     private void follow(String username, Actor followed) throws Exception {
         mockMvc.perform(withToken(post("/api/v1/accounts/" + followed.id() + "/follow"), token(username)))
                 .andExpect(status().isOk());
@@ -406,6 +480,14 @@ class BlocksIntegrationTests {
             request.param("duration", duration);
         }
         mockMvc.perform(request).andExpect(status().isOk()).andExpect(jsonPath("$.muting").value(true));
+    }
+
+    private ResultActions note(String username, Actor target, String json)
+            throws Exception {
+        return mockMvc.perform(withToken(post("/api/v1/accounts/" + target.id() + "/note"), token(username))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isOk());
     }
 
     private void insertFollow(Actor follower, Actor followed, String activityUri) {
