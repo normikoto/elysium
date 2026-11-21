@@ -21,6 +21,9 @@ public class AccountEndorsementRepository {
     }
 
     /**
+     * The follow is locked so that an unfollow committed while this runs leaves nothing to insert, rather than failing
+     * the foreign key check.
+     *
      * @return whether the account now endorses the target, which it can only do while it follows it
      */
     public boolean save(UUID accountId, UUID targetId) {
@@ -28,6 +31,7 @@ public class AccountEndorsementRepository {
                         INSERT INTO account_endorsement (id, account_id, target_id)
                         SELECT :id, follower_id, followed_id FROM follow
                         WHERE follower_id = :account AND followed_id = :target AND state = 'accepted'
+                        FOR KEY SHARE
                         ON CONFLICT (account_id, target_id) DO NOTHING
                         """)
                 .param("id", UUID.randomUUID())
