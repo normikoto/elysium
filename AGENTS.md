@@ -47,9 +47,10 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
 | `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
 | `moderation`  | Domain blocks, reports, and server rules   | `actor`, `content`, `jobs`                     |
+| `announcement` | Admins' announcements, and their dismissals and reactions | `actor`, `content`, `text`      |
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
-| `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
+| `api`         | Mastodon-compatible REST API               | `actor`, `announcement`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text`, `timeline` |
 | `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `jobs`, `moderation`, `ratelimit`, `text` |
 

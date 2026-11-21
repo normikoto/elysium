@@ -352,6 +352,19 @@ Quotes that need approval are reviewed with GoToSocial's `/api/v1/interaction_re
 - A user is notified with a `pending.quote` notification when a quote waits for them, and again when it's asked for
   again. It's removed once the quote is decided, and an approved quote gets a `quote` notification.
 
+## Announcements
+
+- Admins write announcements on the `/admin/announcements` page. `GET /api/v1/announcements` lists the published ones,
+  dismissed ones included, and needs a user's token with any scope, as on Mastodon.
+- Their IDs are UUIDs rather than numbers.
+- `content` is HTML made from plain text, with links and hashtags linked, and mentions left as text. `mentions` and
+  `statuses` are always empty.
+- There's no scheduled publishing, so `published_at` is when an admin last published it.
+- Reactions take one Unicode emoji or the shortcode of one of this server's custom emoji, as on Mastodon, and anything
+  else gets a 422. An announcement can have up to 8 different emoji, and a 9th gets a 422.
+- `DELETE /api/v1/announcements/:id/reactions/:name` for an emoji the user hasn't reacted with returns `{}`, rather than
+  Mastodon's 404.
+
 ## Emoji reactions
 
 Follow [Pleroma's API](https://docs.akkoma.dev/stable/development/API/pleroma_api/#emoji-reactions), since Mastodon has

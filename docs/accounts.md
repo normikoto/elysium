@@ -236,6 +236,19 @@ can't be undone.
 The page only shows the content of public and unlisted posts, so admins don't get to read followers-only and direct posts
 by looking them up.
 
+## Announcements
+Admins write announcements at `/admin/announcements`. Apps that support them, such as Mastodon's web interface, show
+published ones to everyone with an account here, who can dismiss them and react to them with emoji. They're never sent to
+other servers.
+
+- An announcement is plain text, and links and hashtags in it work. Custom emoji show when written as `:blobcat:`.
+- It can be kept as a draft, which nobody else sees, and published later. Unpublishing it hides it again, and keeps its
+  reactions for when it's published again.
+- An announcement about an event, such as maintenance, can have a start and an end, entered in UTC, which apps show with
+  it. It's still listed before and after them, until you unpublish or remove it.
+- People can react with Unicode emoji and this server's custom emoji, up to 8 different ones on each announcement.
+- Removing an announcement can't be undone, and removes its reactions.
+
 ## Custom emoji
 Admins add the server's custom emoji at `/admin/custom-emojis`. Each has a shortcode, such as `blobcat`, which people write
 between colons, as `:blobcat:`, in a post, a display name, a bio, or a profile field, and an image, which is kept as WebP,
