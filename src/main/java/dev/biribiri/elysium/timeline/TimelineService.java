@@ -9,6 +9,8 @@ import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.timeline.internal.TimelineRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.Comparator;
@@ -20,8 +22,12 @@ import java.util.UUID;
 
 /**
  * Chooses which statuses each timeline lists, and loads them from {@link StatusService}, which decides what a status is.
+ *
+ * <p>A page's IDs and its statuses are read in one snapshot, so a status removed in between can't leave the page short,
+ * which would make it look like the last page and stop a client paging.
  */
 @Service
+@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class TimelineService {
 
     private final TimelineRepository timelines;
@@ -109,7 +115,7 @@ public class TimelineService {
     }
 
     /**
-     * Loads a page in its order. A status removed since its ID was chosen is left out, leaving the page short.
+     * Loads a page in its order.
      */
     private List<Status> load(List<UUID> ids) {
         var order = new HashMap<UUID, Integer>();
