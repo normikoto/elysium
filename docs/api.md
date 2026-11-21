@@ -681,8 +681,8 @@ Follow [Mastodon's accounts API](https://docs.joinmastodon.org/methods/accounts/
 
 Only these exist:
 
-- `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `:id/statuses`, `:id/followers`, and
-  `:id/following`
+- `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `familiar_followers`, `:id/statuses`,
+  `:id/followers`, and `:id/following`
 - `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/remove_from_followers`, `/block`, `/unblock`, `/mute`, `/unmute`,
   `/note`, `/endorse`, `/unendorse`, `/pin`, and `/unpin`
 - `PATCH /api/v1/accounts/update_credentials`
@@ -758,6 +758,9 @@ Only these exist:
   accounts. `authorize` and `reject` get a 404 when that account has no request waiting.
 - `:id/followers` and `:id/following` page by the follow, so a cursor from a follow that's since been removed gives an
   empty page. If the account hides them, anyone else gets an empty list.
+- `GET /api/v1/accounts/familiar_followers` lists the most recent follow first, and gives an empty list for an account
+  that hides its followers, unless it's the user's own. For an account on another server, it only knows of followers on
+  this server.
 - A suspended account gets a 404 from `GET /api/v1/accounts/:id` and the lists, and is left out of `relationships`,
   even with `with_suspended`, and of followers and following. An account can still be unfollowed, or removed from
   followers, while it's suspended.

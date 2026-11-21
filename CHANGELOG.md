@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Apps can show which of the people someone follows also follow an account, through the Mastodon API's
+  `GET /api/v1/accounts/familiar_followers`. An account that hides its followers doesn't have them shown.
 - Each account and the server's own actor now have an Ed25519 key, which other servers can read from their actor
   documents, as FEP-521a describes. Every activity the server sends is signed with it, as an integrity proof (FEP-8b32),
   so that a server it's passed on to can tell who sent it. The upgrade creates a key for every existing account, so its

@@ -452,6 +452,17 @@ public class FollowService {
     }
 
     /**
+     * Finds who among the accounts a viewer follows also follows each of these accounts, as clients show on a profile.
+     * Both follows have to be accepted, and suspended and deleted followers are left out. Whether an account's followers
+     * may be shown is up to the caller.
+     *
+     * @return the followers of each account that has any, the most recent follow of it first
+     */
+    public Map<UUID, List<UUID>> followersFollowedBy(UUID viewerId, Collection<UUID> actorIds) {
+        return follows.findFollowersFollowedBy(viewerId, actorIds);
+    }
+
+    /**
      * Counts accepted follows to and from each of these accounts, leaving out suspended and deleted actors.
      *
      * @return an entry for each account
