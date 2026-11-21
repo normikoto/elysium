@@ -2,6 +2,7 @@ package dev.biribiri.elysium.notification.internal;
 
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.AdminRole;
+import dev.biribiri.elysium.content.StatusSql;
 import dev.biribiri.elysium.notification.Notification;
 import dev.biribiri.elysium.notification.NotificationFilter;
 import dev.biribiri.elysium.notification.NotificationGroup;
@@ -37,7 +38,7 @@ public class NotificationRepository {
             + " AND (n.target_id IS NULL OR (t.id IS NOT NULL AND " + NotificationSql.active("t") + "))"
             + " AND (n.type <> '" + ADMIN_REPORT + "' OR " + AdminRole.viewerIsAdmin() + ")"
             + " AND (n.type = '" + ADMIN_REPORT + "' OR " + NotificationSql.notHidden("a") + ")"
-            + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + NotificationSql.visible("s") + "))";
+            + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + StatusSql.visibleTo(":viewer") + "))";
     private static final String GROUP = """
             CASE WHEN n.type = ANY(CAST(:groupedTypes AS text[])) AND n.group_key IS NOT NULL
                  THEN n.group_key ELSE 'ungrouped-' || n.id END

@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.graph.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.graph.FollowCounts;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
@@ -33,7 +34,7 @@ public class FollowRepository {
     /**
      * Leaves out follows whose other actor, joined as {@code a}, is suspended or deleted.
      */
-    private static final String ACTIVE_OTHER = "a.suspended_at IS NULL AND a.deleted_at IS NULL";
+    private static final String ACTIVE_OTHER = ActorSql.active("a");
 
     private final JdbcClient jdbc;
 

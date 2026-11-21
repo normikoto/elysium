@@ -9,7 +9,6 @@ import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.content.Visibility;
-import dev.biribiri.elysium.graph.Following;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -40,6 +39,7 @@ import static dev.biribiri.elysium.content.StatusSql.NOT_A_REPLY_TO_OTHERS;
 import static dev.biribiri.elysium.content.StatusSql.NOT_LOCAL_ONLY;
 import static dev.biribiri.elysium.content.StatusSql.mentions;
 import static dev.biribiri.elysium.content.StatusSql.notHidden;
+import static dev.biribiri.elysium.content.StatusSql.visibleTo;
 
 @Repository
 public class StatusRepository {
@@ -925,8 +925,7 @@ public class StatusRepository {
                 .append(" OR EXISTS (SELECT 1 FROM status_like l WHERE l.status_id = s.id AND l.actor_id = :viewer)")
                 .append(" OR EXISTS (SELECT 1 FROM status_bookmark b WHERE b.status_id = s.id AND b.actor_id = :viewer)")
                 .append(" OR (s.visibility = 'public' AND ").append(Indexable.account("s.actor_id")).append("))")
-                .append(" AND (s.visibility IN ('public', 'unlisted') OR s.actor_id = :viewer OR").append(MENTIONS_VIEWER)
-                .append(" OR (s.visibility = 'private' AND ").append(Following.accepted(":viewer", "s.actor_id")).append("))")
+                .append(" AND ").append(visibleTo(":viewer"))
                 .append(NOT_HIDDEN);
         if (accountId != null) {
             filter.append(" AND s.actor_id = :accountId");

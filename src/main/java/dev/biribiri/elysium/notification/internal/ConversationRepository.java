@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.notification.internal;
 
+import dev.biribiri.elysium.content.StatusSql;
 import dev.biribiri.elysium.notification.Conversation;
 import dev.biribiri.elysium.notification.Page;
 import org.springframework.jdbc.core.RowMapper;
@@ -23,7 +24,7 @@ public class ConversationRepository {
                 SELECT s.id, s.actor_id FROM conversation_status cs
                 JOIN status s ON s.id = cs.status_id JOIN actor a ON a.id = s.actor_id
                 WHERE cs.conversation_id = c.id AND
-            """ + NotificationSql.active("a") + " AND " + NotificationSql.notHidden("a") + " AND " + NotificationSql.visible("s") + """
+            """ + NotificationSql.active("a") + " AND " + NotificationSql.notHidden("a") + " AND " + StatusSql.visibleTo(":viewer") + """
                  ORDER BY s.id DESC LIMIT 1
             ) latest
             WHERE c.owner_id = :viewer AND (c.hidden_through_id IS NULL OR latest.id > c.hidden_through_id)

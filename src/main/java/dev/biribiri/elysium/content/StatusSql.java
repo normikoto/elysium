@@ -1,5 +1,7 @@
 package dev.biribiri.elysium.content;
 
+import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.graph.Following;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 
 import java.util.Map;
@@ -19,9 +21,9 @@ public final class StatusSql {
      * of their statuses. Counts use this too, so that they agree with what's listed.
      */
     public static final String FROM_ACTIVE = "FROM status s "
-            + "JOIN actor author ON author.id = s.actor_id AND author.suspended_at IS NULL AND author.deleted_at IS NULL "
+            + "JOIN actor author ON author.id = s.actor_id AND " + ActorSql.active("author") + " "
             + "AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status o JOIN actor oa ON oa.id = o.actor_id "
-            + "WHERE o.id = s.reblog_of_id AND oa.suspended_at IS NULL AND oa.deleted_at IS NULL)) ";
+            + "WHERE o.id = s.reblog_of_id AND " + ActorSql.active("oa") + ")) ";
 
     /**
      * For a query with no viewer, which serves people who aren't logged in and other servers. A viewer is always an account
@@ -46,6 +48,18 @@ public final class StatusSql {
      */
     public static String mentions(String viewer) {
         return " EXISTS (SELECT 1 FROM status_mention m WHERE m.status_id = s.id AND m.actor_id = " + viewer + ")";
+    }
+
+    /**
+     * Whether the viewer may see the status, by its visibility: it's public or unlisted, it's the viewer's, it mentions the
+     * viewer, or it's followers-only and the viewer follows its author. Whoever is hidden from the viewer is left to
+     * {@link #notHidden}.
+     *
+     * @param viewer the viewer's ID, as SQL
+     */
+    public static String visibleTo(String viewer) {
+        return "(s.visibility IN ('public', 'unlisted') OR s.actor_id = " + viewer + " OR" + mentions(viewer)
+                + " OR (s.visibility = 'private' AND " + Following.accepted(viewer, "s.actor_id") + "))";
     }
 
     /**

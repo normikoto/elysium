@@ -80,8 +80,8 @@ These reach beyond `activitypub`, and a change can break them without a test not
   table's data has to be removed there: remote data when its server is blocked, and remote or account data when its actor
   is deleted, including files in the media directory. The account and domain block cleanup jobs call every
   implementation.
-- **Domain blocks:** a block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended, and
-  SQL that reads `domain_block` has to filter on `severity`.
+- **Domain blocks:** a block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended. SQL
+  outside `moderation` reads `domain_block` only through `actor.ActorSql`, which says which blocks count.
 
 ### Persistence
 
@@ -89,6 +89,9 @@ There's no ORM. Repositories use `JdbcClient` with hand-written SQL, and the sch
 `src/main/resources/db/migration`. These run at startup, and when CLI commands run.
 
 - IDs are UUIDs, and `actor.Ids.parse` is the strict way to read them from a request.
+- A rule that other modules' SQL has to agree with is exported once as SQL conditions, and used rather than written
+  again: `actor.ActorSql` for active actors and blocked servers, `graph.HiddenAccounts` for blocks and mutes, and
+  `content.StatusSql` for which statuses a viewer can see.
 - Read queries with `.list()` or `.optional()`, not `.stream()`, which holds a connection until it's closed.
   `DatabaseStreamsTests` enforces this.
 

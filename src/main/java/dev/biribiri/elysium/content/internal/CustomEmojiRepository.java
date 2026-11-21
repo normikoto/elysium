@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.RemoteEmojiSource;
 import org.springframework.jdbc.core.RowMapper;
@@ -40,7 +41,7 @@ public class CustomEmojiRepository {
             WHERE name IS NOT NULL
             ON CONFLICT DO NOTHING""";
 
-    private static final String ON_DOMAIN = DomainSql.covers(":domain", "e.domain");
+    private static final String ON_DOMAIN = ActorSql.domainCovers(":domain", "e.domain");
 
     private static final int BATCH_SIZE = 1000;
 
@@ -389,7 +390,7 @@ public class CustomEmojiRepository {
                             WHERE e.domain IS NOT NULL AND e.cache_given_up AND e.image_name IS NULL AND %s AND NOT %s
                             LIMIT :limit
                         )
-                        """.formatted(ON_DOMAIN, DomainSql.mediaRejected("e.domain")))
+                        """.formatted(ON_DOMAIN, ActorSql.mediaRejected("e.domain")))
                 .param("domain", domain)
                 .param("limit", BATCH_SIZE)
                 .update();

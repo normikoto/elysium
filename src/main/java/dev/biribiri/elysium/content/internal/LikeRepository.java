@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.AccountPage;
 import dev.biribiri.elysium.content.StatusPage;
@@ -29,9 +30,7 @@ public class LikeRepository {
      * that only limits a server, such as by rejecting its media, doesn't hide it.
      */
     static String eligible(String actor) {
-        return actor + ".suspended_at IS NULL AND " + actor + ".deleted_at IS NULL AND (" + actor
-                + ".is_local OR NOT EXISTS (SELECT 1 FROM domain_block b WHERE b.severity = 'suspend' AND "
-                + DomainSql.covers("b.domain", actor + ".domain") + "))";
+        return ActorSql.active(actor) + " AND " + ActorSql.serverNotSuspended(actor);
     }
 
     private final JdbcClient jdbc;
