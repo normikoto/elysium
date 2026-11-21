@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- People can remove someone from their followers without blocking them, from apps that support it, through the
+  Mastodon API's `POST /api/v1/accounts/:id/remove_from_followers`. A follower on another server is told, and can follow
+  again later.
 - Announcements, as on Mastodon. Admins write them at `/admin/announcements`, and apps show them through the Mastodon
   API's `GET /api/v1/announcements`, where people can dismiss them and react to them with emoji. See `docs/accounts.md`
   and `docs/api.md`.

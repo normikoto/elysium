@@ -425,7 +425,8 @@ served to it. If the user refuses it, the follower gets a `Reject`, with the `id
 }
 ```
 
-A repeat of a refused `Follow`'s `id` is ignored for about 34 days, as for one that's been undone, and a `Follow` with a
+A user can also remove an accepted follower, which gets a `Reject` of the same form. A repeat of a refused or removed
+`Follow`'s `id` is ignored for about 34 days, as for one that's been undone, and a `Follow` with a
 new `id` is a new request. When the user stops approving followers by hand, every request that's waiting is approved,
 and when they choose to accept actors they follow straight away, those actors' requests that are waiting are approved.
 Turning it on doesn't change who's already following.
