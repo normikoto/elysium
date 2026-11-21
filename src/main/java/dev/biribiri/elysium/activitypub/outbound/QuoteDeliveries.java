@@ -6,7 +6,7 @@ import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.activitypub.vocab.QuoteRequest;
 import dev.biribiri.elysium.activitypub.vocab.Update;

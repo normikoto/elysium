@@ -1,10 +1,9 @@
-package dev.biribiri.elysium.activitypub.jobs;
+package dev.biribiri.elysium.jobs;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.TestcontainersConfiguration;
-import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -61,7 +60,7 @@ class HostBusyWaitIntegrationTests {
                 runs.add(Instant.now());
                 onJobThread.add(Jobs.isJobThread());
                 if (runs.size() == 1) {
-                    throw new HostBusyException("remote.example");
+                    throw new BusyException("Too many fetches running for remote.example");
                 }
                 return Jobs.done();
             });

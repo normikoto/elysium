@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.jobs;
+package dev.biribiri.elysium.jobs;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
@@ -6,13 +6,15 @@ import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import com.github.kagkarlsson.scheduler.task.helper.CustomTask;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
-import dev.biribiri.elysium.activitypub.http.HostBusyException;
-import dev.biribiri.elysium.activitypub.signature.Digests;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ThreadFactory;
@@ -25,9 +27,10 @@ import java.util.function.Function;
 public final class Jobs {
 
     /**
-     * A little longer than a job can last, so that they're still there if it's retried at the last moment.
+     * How long a job can last without an admin retrying it, which is failing until it's given up on and then being parked.
+     * What a job needs has to be kept at least this long.
      */
-    static final Duration ACTIVITIES_KEPT = RetryPolicy.LONGEST_LIFE.plusDays(1);
+    public static final Duration LONGEST_LIFE = RetryPolicy.LONGEST_LIFE;
 
     /**
      * How long a job that keeps failing is retried for, before it's parked.
@@ -42,13 +45,13 @@ public final class Jobs {
     private static final Set<ExecutionComplete> WAITS = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
 
     /**
-     * The shortest wait after {@link HostBusyException}. Fetches end within the HTTP client's deadline, and most within a
+     * The shortest wait after a {@link BusyException}. Fetches end within the HTTP client's deadline, and most within a
      * second or two.
      */
     static final Duration MIN_HOST_WAIT = Duration.ofSeconds(5);
 
     /**
-     * The longest wait after {@link HostBusyException}, which a job reaches once it's 10 minutes old.
+     * The longest wait after a {@link BusyException}, which a job reaches once it's 10 minutes old.
      */
     static final Duration MAX_HOST_WAIT = Duration.ofMinutes(1);
 
@@ -77,8 +80,8 @@ public final class Jobs {
      * Creates a task. The handler is given the job's data. It runs with no database transaction open, and it can be run again even after it succeeds,
      * so it has to be safe to repeat. A job abandoned by a node that died is picked up again by another one.
      *
-     * <p>A handler that finds a host busy waits for it, through {@link #waitForHost}, and then runs again from the start.
-     * Failing instead would put the job a minute or more behind, and the failures would bring it closer to being given up
+     * <p>A handler that finds a host busy throws {@link BusyException}, or returns {@link #waitForHost}, and the job waits
+     * and then runs again from the start. Failing instead would put the job a minute or more behind, and the failures would bring it closer to being given up
      * on, though its server did nothing wrong.
      */
     public static <T extends QueuedJob> CustomTask<T> task(TaskDescriptor<T> descriptor, Function<T, CompletionHandler<T>> handler) {
@@ -91,7 +94,7 @@ public final class Jobs {
                     var job = instance.getData();
                     try {
                         return handler.apply(job);
-                    } catch (HostBusyException e) {
+                    } catch (BusyException e) {
                         return waitUntil(hostWaitEnds(job, Instant.now()));
                     }
                 });
@@ -176,29 +179,6 @@ public final class Jobs {
     }
 
     /**
-     * What to do with a job whose activity isn't stored. An outbound one can have been cancelled, and then the job just
-     * finishes. But an admin can retry a job for longer than activities are kept, so one that's old enough to have lost its
-     * activity fails, which shows them why there's nothing to do. Failing parks it, and it's removed when that runs out.
-     *
-     * @throws PermanentJobFailure if the job is old enough that its activity could have been cleaned up
-     */
-    public static <T extends QueuedJob> CompletionHandler<T> activityGone(T job) {
-        if (hasOutlivedItsActivity(job)) {
-            throw new PermanentJobFailure("Its activity is gone, so there's nothing to do. Activities are kept for "
-                    + ACTIVITIES_KEPT.toDays() + " days, and one being sent can also have been cancelled");
-        }
-        return done();
-    }
-
-    /**
-     * Whether a job has been waiting for so long that its activity could have been cleaned up, for one that's waiting on purpose
-     * and should give up rather than fail in {@link #activityGone}.
-     */
-    public static boolean hasOutlivedItsActivity(QueuedJob job) {
-        return Duration.between(job.queuedAt(), Instant.now()).compareTo(RetryPolicy.LONGEST_LIFE) > 0;
-    }
-
-    /**
      * Queues a job to run now, unless one with the same ID is already queued.
      *
      * @param idParts what identifies the job, so that a repeat can't queue a second one
@@ -258,6 +238,11 @@ public final class Jobs {
      * ones.
      */
     static String instanceId(String... parts) {
-        return Digests.sha256Hex(String.join("\n", parts));
+        try {
+            var digest = MessageDigest.getInstance("SHA-256").digest(String.join("\n", parts).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
     }
 }

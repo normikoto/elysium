@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.jobs;
+package dev.biribiri.elysium.jobs;
 
 import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import no.bekk.dbscheduler.ui.log.LogRepository;

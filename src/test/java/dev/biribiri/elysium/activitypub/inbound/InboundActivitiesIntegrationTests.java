@@ -2,7 +2,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.serializer.Jackson3Serializer;
 import dev.biribiri.elysium.TestcontainersConfiguration;
-import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

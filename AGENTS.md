@@ -40,6 +40,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `media`       | Uploaded files, kept on disk               | nothing                                        |
 | `mail`        | Sending email over SMTP                    | nothing                                        |
 | `text`        | Rendering plain text as HTML               | nothing                                        |
+| `jobs`        | Background jobs, and how they retry        | nothing                                        |
 | `actor`       | Local and remote actors, profiles, keys    | `media`, `text`                                |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `moderation`, `ratelimit`     |
@@ -50,7 +51,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text` |
-| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `moderation`, `notification`, `ratelimit`, `text`, `timeline` |
+| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `jobs`, `moderation`, `notification`, `ratelimit`, `text`, `timeline` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
 - `actor.signing` exposes private keys as a named interface, so a module has to ask for it explicitly. Only `activitypub`

@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.jobs;
+package dev.biribiri.elysium.jobs;
 
 /**
  * A job can never succeed, so it shouldn't be tried again. Anything else a job throws counts as temporary. The message is

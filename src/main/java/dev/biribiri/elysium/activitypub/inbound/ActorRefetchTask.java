@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.task.Task;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;

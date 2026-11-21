@@ -4,8 +4,9 @@ import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.http.HostBusyException;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
-import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
+import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;
+import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.Visibility;
@@ -116,7 +117,7 @@ class Boosts {
     CompletionHandler<BoostedNoteJob> run(BoostedNoteJob job) {
         var activity = stored.find(job.announceId()).filter(found -> found.type().equals("Announce"));
         if (activity.isEmpty()) {
-            return Jobs.activityGone(job);
+            return ActivityJobs.activityGone(job);
         }
         var document = json.readTree(activity.get().body());
         var noteUri = boosted(document);

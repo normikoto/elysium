@@ -3,7 +3,7 @@ package dev.biribiri.elysium.activitypub.outbound;
 import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;

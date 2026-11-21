@@ -16,7 +16,7 @@ public interface InboundActivityHandler {
      * Processes an activity. No database transaction is open during this. It has to be safe to repeat, because a job can
      * run more than once.
      *
-     * @throws dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure if the activity can never be processed. Anything
+     * @throws dev.biribiri.elysium.jobs.PermanentJobFailure if the activity can never be processed. Anything
      *                                                                   else that's thrown means it's tried again later.
      */
     void handle(InboundActivity activity);

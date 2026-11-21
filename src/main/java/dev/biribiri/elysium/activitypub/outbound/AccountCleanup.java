@@ -5,7 +5,7 @@ import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.vocab.Delete;
 import dev.biribiri.elysium.activitypub.vocab.Follow;
 import dev.biribiri.elysium.activitypub.vocab.Person;

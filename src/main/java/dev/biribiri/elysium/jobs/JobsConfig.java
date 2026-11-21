@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.jobs;
+package dev.biribiri.elysium.jobs;
 
 import com.github.kagkarlsson.scheduler.serializer.Jackson3Serializer;
 import com.github.kagkarlsson.scheduler.boot.config.DbSchedulerCustomizer;

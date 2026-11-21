@@ -1,6 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
-import dev.biribiri.elysium.activitypub.jobs.QueuedJob;
+import dev.biribiri.elysium.jobs.QueuedJob;
 
 import java.net.URI;
 import java.time.Instant;

@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.jobs;
+package dev.biribiri.elysium.jobs;
 
 import no.bekk.dbscheduler.ui.controller.IndexHtmlController;
 import org.springframework.http.MediaType;

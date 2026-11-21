@@ -1,6 +1,6 @@
 package dev.biribiri.elysium.activitypub.links;
 
-import dev.biribiri.elysium.activitypub.jobs.QueuedJob;
+import dev.biribiri.elysium.jobs.QueuedJob;
 
 import java.time.Instant;
 import java.util.UUID;

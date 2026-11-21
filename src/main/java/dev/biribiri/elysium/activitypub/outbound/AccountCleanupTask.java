@@ -2,7 +2,7 @@ package dev.biribiri.elysium.activitypub.outbound;
 
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.AccountMigrations;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;

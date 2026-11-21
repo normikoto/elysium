@@ -11,7 +11,7 @@ import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
 import dev.biribiri.elysium.activitypub.inbound.ServerActivityLimits;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileImage;

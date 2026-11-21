@@ -2,7 +2,7 @@ package dev.biribiri.elysium.activitypub.outbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlocked;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;

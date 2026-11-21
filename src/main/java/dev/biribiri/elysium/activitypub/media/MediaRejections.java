@@ -3,7 +3,7 @@ package dev.biribiri.elysium.activitypub.media;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorMediaAllowed;
 import dev.biribiri.elysium.actor.ActorMediaRejected;
 import dev.biribiri.elysium.actor.ActorService;

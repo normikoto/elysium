@@ -5,8 +5,9 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
-import dev.biribiri.elysium.activitypub.jobs.Jobs;
-import dev.biribiri.elysium.activitypub.jobs.PermanentJobFailure;
+import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;
+import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.SignedSender;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.actor.Actor;
@@ -77,7 +78,7 @@ class DeliveryTask {
         var inbox = URI.create(job.inbox());
         if (inbox.getHost() == null) {
             if (find(job).isEmpty()) {
-                return Jobs.activityGone(job);
+                return ActivityJobs.activityGone(job);
             }
             throw new PermanentJobFailure("The inbox URL doesn't have a host");
         }
@@ -130,7 +131,7 @@ class DeliveryTask {
     private Checked check(DeliveryJob job, URI inbox, String host, Instant now) {
         var activity = find(job);
         if (activity.isEmpty()) {
-            return new Checked.Finished(Jobs.activityGone(job));
+            return new Checked.Finished(ActivityJobs.activityGone(job));
         }
         if (blocks.isBlocked(host)) {
             // It was queued before the block. This comes before backing off, which could end with it failing.
@@ -142,7 +143,7 @@ class DeliveryTask {
         var whileSuspended = activity.get().whileSuspended();
         if (whileSuspended != WhileSuspended.SEND && signer.filter(found -> !found.isActive()).isPresent()) {
             // It was queued before a suspension or deletion.
-            if (signer.get().isDeleted() || whileSuspended == WhileSuspended.DROP || Jobs.hasOutlivedItsActivity(job)) {
+            if (signer.get().isDeleted() || whileSuspended == WhileSuspended.DROP || ActivityJobs.hasOutlivedItsActivity(job)) {
                 return new Checked.Finished(Jobs.done());
             }
             return new Checked.Finished(Jobs.waitUntil(now.plus(SUSPENDED_DELAY), job));
