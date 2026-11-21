@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.graph;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -8,6 +9,9 @@ import java.util.UUID;
  *
  * @param following           whether the first account follows the other
  * @param requested           whether the first account has asked to follow the other, which hasn't answered yet
+ * @param showingReblogs      whether that follow or request lets the other's boosts into the first's feeds
+ * @param notifying           whether that follow or request notifies the first of the other's new statuses
+ * @param languages           the languages that follow or request limits the other's statuses to, or empty for every one
  * @param followedBy          whether the other account follows the first
  * @param requestedBy         whether the other account has asked to follow the first, which hasn't answered yet
  * @param blocking            whether the first account blocks the other
@@ -23,6 +27,9 @@ public record Relationship(
         UUID otherId,
         boolean following,
         boolean requested,
+        boolean showingReblogs,
+        boolean notifying,
+        List<String> languages,
         boolean followedBy,
         boolean requestedBy,
         boolean blocking,

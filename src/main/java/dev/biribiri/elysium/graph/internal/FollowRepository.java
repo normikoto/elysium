@@ -4,12 +4,15 @@ import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.FollowCounts;
 import dev.biribiri.elysium.graph.FollowEntry;
+import dev.biribiri.elysium.graph.FollowOptions;
 import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.net.URI;
+import java.sql.Array;
+import java.sql.SQLException;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -193,10 +196,12 @@ public class FollowRepository {
      * @param accepted    false if it waits for an answer
      * @return whether it was inserted
      */
-    public boolean insertOutgoing(UUID id, UUID followerId, UUID followedId, String activityUri, boolean accepted) {
+    public boolean insertOutgoing(
+            UUID id, UUID followerId, UUID followedId, String activityUri, boolean accepted, FollowOptions options) {
         return jdbc.sql("""
-                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
-                        VALUES (:id, :followerId, :followedId, :state, :activityUri)
+                        INSERT INTO follow (id, follower_id, followed_id, state, activity_uri, show_reblogs, notify, languages)
+                        VALUES (:id, :followerId, :followedId, :state, :activityUri, :reblogs, :notify,
+                                NULLIF(CAST(:languages AS text[]), '{}'))
                         ON CONFLICT (follower_id, followed_id) DO NOTHING
                         """)
                 .param("id", id)
@@ -204,7 +209,66 @@ public class FollowRepository {
                 .param("followedId", followedId)
                 .param("state", accepted ? "accepted" : "pending")
                 .param("activityUri", activityUri, Types.VARCHAR)
+                .param("reblogs", options.reblogs().orElse(true))
+                .param("notify", options.notifies().orElse(false))
+                .param("languages", options.languages().orElse(List.of()).toArray(String[]::new))
                 .update() > 0;
+    }
+
+    /**
+     * Changes the options of a follow, or of a request that's waiting, leaving those that aren't given as they are.
+     */
+    public void updateOptions(UUID followerId, UUID followedId, FollowOptions options) {
+        jdbc.sql("""
+                        UPDATE follow SET
+                            show_reblogs = COALESCE(:reblogs, show_reblogs),
+                            notify = COALESCE(:notify, notify),
+                            languages = CASE WHEN :setLanguages THEN NULLIF(CAST(:languages AS text[]), '{}')
+                                ELSE languages END
+                        WHERE follower_id = :followerId AND followed_id = :followedId
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .param("reblogs", options.reblogs().orElse(null), Types.BOOLEAN)
+                .param("notify", options.notifies().orElse(null), Types.BOOLEAN)
+                .param("setLanguages", options.languages().isPresent())
+                .param("languages", options.languages().orElse(List.of()).toArray(String[]::new))
+                .update();
+    }
+
+    /**
+     * @return the options a follow or a waiting request has, all given, if there is one
+     */
+    public Optional<FollowOptions> findOptions(UUID followerId, UUID followedId) {
+        return jdbc.sql("""
+                        SELECT show_reblogs, notify, languages FROM follow
+                        WHERE follower_id = :followerId AND followed_id = :followedId
+                        """)
+                .param("followerId", followerId)
+                .param("followedId", followedId)
+                .query((rs, row) -> FollowOptions.of(
+                        rs.getBoolean("show_reblogs"), rs.getBoolean("notify"), languages(rs.getArray("languages"))))
+                .optional();
+    }
+
+    /**
+     * @return the active local accounts that follow this one, have been accepted, and want to be told of its statuses
+     */
+    public List<UUID> findNotifiedFollowerIds(UUID followedId) {
+        return jdbc.sql("""
+                        SELECT f.follower_id
+                        FROM follow f
+                        JOIN actor a ON a.id = f.follower_id
+                        WHERE f.followed_id = :followedId AND f.state = 'accepted' AND f.notify AND a.is_local
+                          AND %s
+                        """.formatted(ActorSql.active("a")))
+                .param("followedId", followedId)
+                .query(UUID.class)
+                .list();
+    }
+
+    private static List<String> languages(Array array) throws SQLException {
+        return array == null ? List.of() : List.of((String[]) array.getArray());
     }
 
     /**
@@ -286,7 +350,7 @@ public class FollowRepository {
             return List.of();
         }
         return jdbc.sql("""
-                        SELECT follower_id, followed_id, state FROM follow
+                        SELECT follower_id, followed_id, state, show_reblogs, notify, languages FROM follow
                         WHERE (follower_id = :viewerId AND followed_id IN (:otherIds))
                            OR (followed_id = :viewerId AND follower_id IN (:otherIds))
                         """)
@@ -295,7 +359,10 @@ public class FollowRepository {
                 .query((rs, row) -> new Pair(
                         rs.getObject("follower_id", UUID.class),
                         rs.getObject("followed_id", UUID.class),
-                        "accepted".equals(rs.getString("state"))))
+                        "accepted".equals(rs.getString("state")),
+                        rs.getBoolean("show_reblogs"),
+                        rs.getBoolean("notify"),
+                        languages(rs.getArray("languages"))))
                 .list();
     }
 
@@ -721,8 +788,10 @@ public class FollowRepository {
     }
 
     /**
-     * @param accepted whether the follow is accepted, rather than waiting for an answer
+     * @param accepted  whether the follow is accepted, rather than waiting for an answer
+     * @param languages the languages the follower limits the followed account's statuses to, or empty for every one
      */
-    public record Pair(UUID followerId, UUID followedId, boolean accepted) {
+    public record Pair(
+            UUID followerId, UUID followedId, boolean accepted, boolean showReblogs, boolean notifies, List<String> languages) {
     }
 }

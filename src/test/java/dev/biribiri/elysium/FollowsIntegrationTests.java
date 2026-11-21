@@ -129,6 +129,139 @@ class FollowsIntegrationTests {
         assertThat(jdbc.sql("SELECT count(*) FROM follow").query(Long.class).single()).isEqualTo(1);
     }
 
+    // Follow options
+
+    @Test
+    void aFollowStartsWithMastodonsDefaultOptions() throws Exception {
+        var dave = account("dave");
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice")))
+                .andExpect(jsonPath("$.showing_reblogs").value(true))
+                .andExpect(jsonPath("$.notifying").value(false))
+                .andExpect(jsonPath("$.languages").isEmpty());
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", dave.id().toString()), token("erin")))
+                .andExpect(jsonPath("$[0].showing_reblogs").value(false))
+                .andExpect(jsonPath("$[0].notifying").value(false));
+    }
+
+    @Test
+    void followingAgainChangesOnlyTheOptionsGiven() throws Exception {
+        var dave = account("dave");
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reblogs": false, "languages": ["en", "pt-BR"]}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.showing_reblogs").value(false))
+                .andExpect(jsonPath("$.notifying").value(false))
+                .andExpect(jsonPath("$.languages", contains("en", "pt-BR")));
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("notify", "true"))
+                .andExpect(jsonPath("$.showing_reblogs").value(false))
+                .andExpect(jsonPath("$.notifying").value(true))
+                .andExpect(jsonPath("$.languages", contains("en", "pt-BR")));
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", dave.id().toString()), token("alice")))
+                .andExpect(jsonPath("$[0].showing_reblogs").value(false))
+                .andExpect(jsonPath("$[0].notifying").value(true))
+                .andExpect(jsonPath("$[0].languages", contains("en", "pt-BR")));
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("languages[]", "")
+                        .param("reblogs", "true"))
+                .andExpect(jsonPath("$.showing_reblogs").value(true))
+                .andExpect(jsonPath("$.notifying").value(true))
+                .andExpect(jsonPath("$.languages").isEmpty());
+        assertThat(jdbc.sql("SELECT count(*) FROM follow").query(Long.class).single()).isEqualTo(1);
+    }
+
+    @Test
+    void refusesALanguageThatIsntACode() throws Exception {
+        var dave = account("dave");
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"languages": ["en", "not a language"]}"""))
+                .andExpect(status().isUnprocessableContent());
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"languages": [1]}"""))
+                .andExpect(status().isUnprocessableContent());
+        assertThat(jdbc.sql("SELECT count(*) FROM follow").query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void aRequestKeepsItsOptionsOnceApproved() throws Exception {
+        var alice = account("alice");
+        var erin = account("erin");
+        lock("erin", true);
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + erin.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reblogs": false, "notify": true, "languages": ["de"]}"""))
+                .andExpect(jsonPath("$.requested").value(true))
+                .andExpect(jsonPath("$.showing_reblogs").value(false))
+                .andExpect(jsonPath("$.notifying").value(true));
+
+        mockMvc.perform(withToken(post("/api/v1/follow_requests/" + alice.id() + "/authorize"), token("erin")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", erin.id().toString()), token("alice")))
+                .andExpect(jsonPath("$[0].following").value(true))
+                .andExpect(jsonPath("$[0].showing_reblogs").value(false))
+                .andExpect(jsonPath("$[0].notifying").value(true))
+                .andExpect(jsonPath("$[0].languages", contains("de")));
+    }
+
+    @Test
+    void hidingBoostsKeepsThemOutOfHomeAndLists() throws Exception {
+        var dave = account("dave");
+        var erin = account("erin");
+        follow("alice", erin);
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("reblogs", "false"))
+                .andExpect(status().isOk());
+        var erins = createStatus(token("erin"), "by erin", "public");
+        var daves = createStatus(token("dave"), "by dave", "public");
+        var davesBoost = reblog(token("dave"), erins);
+        var erinsBoost = reblog(token("erin"), daves);
+        var alicesBoost = reblog(token("alice"), daves);
+        var list = createList(token("alice"), dave);
+
+        assertThat(statusIds(withToken(get("/api/v1/timelines/home"), token("alice"))))
+                .contains(erins, daves, erinsBoost, alicesBoost)
+                .doesNotContain(davesBoost);
+        assertThat(statusIds(withToken(get("/api/v1/timelines/list/" + list), token("alice"))))
+                .contains(daves)
+                .doesNotContain(davesBoost);
+    }
+
+    @Test
+    void languagesKeepOtherLanguagesOutOfHome() throws Exception {
+        var dave = account("dave");
+        var erin = account("erin");
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("languages[]", "en"))
+                .andExpect(status().isOk());
+        var english = createStatus(token("dave"), "hello", "public", "en");
+        var german = createStatus(token("dave"), "hallo", "public", "de");
+        var unknown = createStatus(token("dave"), "...", "public", null);
+        var erinsGerman = createStatus(token("erin"), "guten Tag", "public", "de");
+        var erinsEnglish = createStatus(token("erin"), "good day", "public", "en");
+        var boostOfGerman = reblog(token("dave"), erinsGerman);
+        var boostOfEnglish = reblog(token("dave"), erinsEnglish);
+
+        assertThat(statusIds(withToken(get("/api/v1/timelines/home"), token("alice"))))
+                .contains(english, unknown, boostOfEnglish)
+                .doesNotContain(german, boostOfGerman);
+    }
+
     @Test
     void unfollowingALocalAccount() throws Exception {
         var bob = account("bob");
@@ -956,13 +1089,49 @@ class FollowsIntegrationTests {
     }
 
     private String createStatus(String token, String text, String visibility) throws Exception {
-        var body = mockMvc.perform(withToken(post("/api/v1/statuses"), token)
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("status", text)
-                        .param("visibility", visibility))
+        return createStatus(token, text, visibility, null);
+    }
+
+    private String createStatus(String token, String text, String visibility, String language) throws Exception {
+        var request = withToken(post("/api/v1/statuses"), token)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("status", text)
+                .param("visibility", visibility);
+        if (language != null) {
+            request.param("language", language);
+        }
+        var body = mockMvc.perform(request).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.id");
+    }
+
+    /**
+     * @return the boost's ID
+     */
+    private String reblog(String token, String statusId) throws Exception {
+        var body = mockMvc.perform(withToken(post("/api/v1/statuses/" + statusId + "/reblog"), token))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.id");
+    }
+
+    private String createList(String token, Actor member) throws Exception {
+        var body = mockMvc.perform(withToken(post("/api/v1/lists"), token)
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("title", "Some"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String id = JsonPath.read(body, "$.id");
+        mockMvc.perform(withToken(post("/api/v1/lists/" + id + "/accounts"), token)
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("account_ids[]", member.id().toString()))
+                .andExpect(status().isOk());
+        return id;
+    }
+
+    private List<String> statusIds(MockHttpServletRequestBuilder request) throws Exception {
+        var body = mockMvc.perform(request.param("limit", "40")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$[*].id");
     }
 
     private void expectStatusIds(MockHttpServletRequestBuilder request, String... ids) throws Exception {

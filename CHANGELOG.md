@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   API's `GET /api/v1/announcements`, where people can dismiss them and react to them with emoji. See `docs/accounts.md`
   and `docs/api.md`.
 - People get an `update` notification when a post they boosted is edited, as on Mastodon. See `docs/api.md`.
+- When following someone from an app, people can choose to hide that account's boosts, to see only its posts in some
+  languages, and to be notified of its new posts, as on Mastodon. Following again changes these choices. Apps could
+  send them before, but they were ignored, so existing follows show boosts and every language, and don't notify.
 - Apps can list a user's favourites, and who favourited or boosted a post, through the Mastodon API's
   `GET /api/v1/favourites`, `GET /api/v1/statuses/:id/favourited_by`, and `GET /api/v1/statuses/:id/reblogged_by`.
 - Admins can write the server's rules on the admin page. The sign-up page lists them, and apps show them through the

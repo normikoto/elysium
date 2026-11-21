@@ -58,7 +58,7 @@ public class FollowMoves {
 
     /**
      * Makes a local account follow {@code to} instead of {@code from}, keeping {@code to} in the lists that had
-     * {@code from}. Following an account on another server, or one that approves its followers by hand, waits for it to
+     * {@code from}, and the follow's options. Following an account on another server, or one that approves its followers by hand, waits for it to
      * accept, while the old follow is undone straight away, as on Mastodon.
      *
      * @param follower a local account that follows {@code from}, or has asked to
@@ -69,7 +69,7 @@ public class FollowMoves {
         }
         try {
             transaction.executeWithoutResult(status -> {
-                follows.follow(follower, to);
+                follows.follow(follower, to, follows.options(follower.id(), from.id()).orElse(FollowOptions.NONE));
                 // Before the old follow is removed, which takes its list memberships with it.
                 lists.copyMembers(follower.id(), from.id(), to.id());
                 if (follows.unfollow(follower, from.id())) {

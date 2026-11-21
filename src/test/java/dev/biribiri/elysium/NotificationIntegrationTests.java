@@ -16,6 +16,7 @@ import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusStored;
+import dev.biribiri.elysium.graph.FollowOptions;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.notification.NotificationService;
 import dev.biribiri.elysium.notification.Notifier;
@@ -173,6 +174,48 @@ class NotificationIntegrationTests {
 
         boosts.unreblog(status.id(), bob.id());
         mvc.perform(get(updates).with(user(bob))).andExpect(jsonPath("$", empty()));
+    }
+
+    @Test
+    void newStatusesNotifyFollowersWhoAskedForThem() throws Exception {
+        follows.follow(bob, alice, new FollowOptions(Optional.empty(), Optional.of(true), Optional.of(List.of("en"))));
+        follows.follow(carol, alice);
+        var status = createStatus(alice, "hi", PUBLIC, null);
+        var reply = createStatus(alice, "more", PUBLIC, status.id());
+        createStatus(carol, "unrelated", PUBLIC, null);
+        var other = createStatus(carol, "and you?", PUBLIC, null);
+        createStatus(alice, "@inboxcarol you?", PUBLIC, other.id());
+        statuses.create(alice.id(), new NewStatus("hallo", null, "de", PUBLIC, false, null));
+        createStatus(alice, "psst", DIRECT, null);
+        var english = statuses.create(alice.id(), new NewStatus("hello", null, "en", PUBLIC, false, null));
+        assertThat(boosts.reblog(other.id(), alice.id(), PUBLIC)).isPresent();
+        settled();
+
+        var subscribed = NOTIFICATIONS + "?types[]=status";
+        mvc.perform(get(subscribed).with(user(bob)))
+                .andExpect(jsonPath("$[*].status.id", contains(
+                        english.id().toString(), reply.id().toString(), status.id().toString())))
+                .andExpect(jsonPath("$[0].type").value("status"))
+                .andExpect(jsonPath("$[0].account.id").value(alice.id().toString()));
+        mvc.perform(get(subscribed).with(user(carol))).andExpect(jsonPath("$", empty()));
+
+        new TransactionTemplate(transactions).executeWithoutResult(tx -> notifier.on(new StatusStored(status.id())));
+        mvc.perform(get(subscribed).with(user(bob))).andExpect(jsonPath("$", hasSize(3)));
+    }
+
+    @Test
+    void remoteStatusesNotifyButBackfilledOnesDont() throws Exception {
+        var remote = remote("subscribed.example");
+        follows.follow(bob, remote, new FollowOptions(Optional.empty(), Optional.of(true), Optional.empty()));
+        jdbc.sql("UPDATE follow SET state = 'accepted' WHERE follower_id = :bob").param("bob", bob.id()).update();
+        var sent = store(remote, note(remote), null, Map.of(), PUBLIC);
+        var backfilled = store(remote, note(remote), null, Map.of(), PUBLIC);
+        settled();
+        jdbc.sql("DELETE FROM notification WHERE status_id = :id").param("id", backfilled).update();
+        new TransactionTemplate(transactions).executeWithoutResult(tx -> notifier.on(new StatusStored(backfilled, true)));
+
+        mvc.perform(get(NOTIFICATIONS + "?types[]=status").with(user(bob)))
+                .andExpect(jsonPath("$[*].status.id", contains(sent.toString())));
     }
 
     @Test

@@ -6,19 +6,16 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
-/**
- * Mastodon's Relationship entity. Notifications of new statuses don't exist, so those fields hold the values they'd have
- * for an account with none.
- */
-@Schema(name = "Relationship", description = """
-        Mastodon's Relationship entity. Notifications of new statuses don't exist, so `notifying` and `languages` are \
-        always false and null.""")
+@Schema(name = "Relationship", description = "Mastodon's Relationship entity.")
 record RelationshipResponse(
         String id,
         boolean following,
-        @Schema(description = "True whenever `following` or `requested` is.")
+        @Schema(description = "Whether the user's follow or request lets the account's boosts into the user's feeds.")
         @JsonProperty("showing_reblogs") boolean showingReblogs,
+        @Schema(description = "Whether the user's follow or request notifies the user of the account's new statuses.")
         boolean notifying,
+        @Schema(description = """
+                The only languages whose statuses by the account reach the user's feeds, or null for every language.""")
         List<String> languages,
         @JsonProperty("followed_by") boolean followedBy,
         boolean blocking,
@@ -34,13 +31,12 @@ record RelationshipResponse(
 ) {
 
     static RelationshipResponse from(Relationship relationship) {
-        var followingOrRequested = relationship.following() || relationship.requested();
         return new RelationshipResponse(
                 relationship.otherId().toString(),
                 relationship.following(),
-                followingOrRequested,
-                false,
-                null,
+                relationship.showingReblogs(),
+                relationship.notifying(),
+                relationship.languages().isEmpty() ? null : relationship.languages(),
                 relationship.followedBy(),
                 relationship.blocking(),
                 relationship.blockedBy(),
