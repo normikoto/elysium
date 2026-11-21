@@ -2,19 +2,22 @@ package dev.biribiri.elysium.activitypub.media;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
-import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorMediaAllowed;
 import dev.biribiri.elysium.actor.ActorMediaRejected;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.DomainMediaAllowed;
 import dev.biribiri.elysium.moderation.DomainMediaRejected;
 import dev.biribiri.elysium.moderation.DomainName;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -102,6 +105,11 @@ public class MediaRejections {
         var at = job.queuedAt().toString();
         Jobs.schedule(scheduler, TASK, job, kind, id, at, "first");
         Jobs.scheduleAt(scheduler, TASK, job, job.queuedAt().plus(SECOND_SWEEP_DELAY), kind, id, at, "second");
+    }
+
+    @Bean
+    static Task<MediaRejectionJob> mediaRejection(ObjectProvider<MediaRejections> mediaRejections) {
+        return Jobs.task(TASK, job -> mediaRejections.getObject().run(job));
     }
 
     /**

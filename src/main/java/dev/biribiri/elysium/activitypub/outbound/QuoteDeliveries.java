@@ -2,11 +2,11 @@ package dev.biribiri.elysium.activitypub.outbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
-import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
-import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
 import dev.biribiri.elysium.activitypub.vocab.QuoteRequest;
 import dev.biribiri.elysium.activitypub.vocab.Update;
@@ -19,6 +19,9 @@ import dev.biribiri.elysium.content.StatusNoteChanged;
 import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.jobs.Jobs;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -101,6 +104,11 @@ public class QuoteDeliveries {
                     new QuoteRequestResendJob(event.statusId(), event.authorId(), now, false, requestUri),
                     now.plus(RESEND_AFTER), RESEND_TASK.getTaskName(), event.statusId().toString(), requestUri);
         }
+    }
+
+    @Bean
+    static Task<QuoteRequestResendJob> quoteRequestResend(ObjectProvider<QuoteDeliveries> quoteDeliveries) {
+        return Jobs.task(RESEND_TASK, job -> quoteDeliveries.getObject().resend(job));
     }
 
     /**

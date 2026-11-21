@@ -2,11 +2,11 @@ package dev.biribiri.elysium.activitypub.outbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.delivery.ActivityDeliveries;
-import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
-import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.activitypub.vocab.Vote;
 import dev.biribiri.elysium.actor.ActorService;
@@ -15,6 +15,9 @@ import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.PollVoted;
 import dev.biribiri.elysium.content.RemotePollRefresher;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.jobs.Jobs;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -126,6 +129,11 @@ public class PollDeliveries {
         } else {
             refresher.refreshSoon(event.statusId());
         }
+    }
+
+    @Bean
+    static Task<PollResultsJob> pollResults(ObjectProvider<PollDeliveries> pollDeliveries) {
+        return Jobs.task(RESULTS_TASK, job -> pollDeliveries.getObject().sendResults(job));
     }
 
     CompletionHandler<PollResultsJob> sendResults(PollResultsJob job) {

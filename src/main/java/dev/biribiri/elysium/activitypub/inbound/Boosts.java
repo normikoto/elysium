@@ -2,17 +2,20 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;
-import dev.biribiri.elysium.jobs.Jobs;
-import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -106,6 +109,11 @@ class Boosts {
         Jobs.schedule(scheduler, TASK,
                 new BoostedNoteJob(activity.id(), Instant.now().truncatedTo(ChronoUnit.MICROS), null),
                 "boosted-note-fetch", activity.id());
+    }
+
+    @Bean
+    static Task<BoostedNoteJob> boostedNoteFetch(ObjectProvider<Boosts> boosts) {
+        return Jobs.task(TASK, job -> boosts.getObject().run(job));
     }
 
     /**

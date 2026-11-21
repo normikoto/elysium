@@ -5,13 +5,13 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
 import dev.biribiri.elysium.activitypub.inbound.ServerActivityLimits;
-import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileImage;
@@ -25,10 +25,13 @@ import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.ReceivedMedia;
 import dev.biribiri.elysium.content.RemoteEmojiAdded;
 import dev.biribiri.elysium.content.RemoteMediaAdded;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.ratelimit.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -181,6 +184,21 @@ public class MediaDownloads {
         profiles.findImageToDownload(actorId, header).ifPresent(url -> Jobs.schedule(scheduler, PROFILE_IMAGE_TASK,
                 new ProfileImageDownloadJob(actorId, header, Instant.now()),
                 actorId.toString(), header ? "header" : "avatar", url.toString()));
+    }
+
+    @Bean
+    static Task<MediaDownloadJob> mediaDownload(ObjectProvider<MediaDownloads> mediaDownloads) {
+        return Jobs.task(TASK, job -> mediaDownloads.getObject().run(job));
+    }
+
+    @Bean
+    static Task<ProfileImageDownloadJob> profileImageDownload(ObjectProvider<MediaDownloads> mediaDownloads) {
+        return Jobs.task(PROFILE_IMAGE_TASK, job -> mediaDownloads.getObject().run(job));
+    }
+
+    @Bean
+    static Task<EmojiDownloadJob> emojiDownload(ObjectProvider<MediaDownloads> mediaDownloads) {
+        return Jobs.task(EMOJI_TASK, job -> mediaDownloads.getObject().run(job));
     }
 
     CompletionHandler<MediaDownloadJob> run(MediaDownloadJob job) {

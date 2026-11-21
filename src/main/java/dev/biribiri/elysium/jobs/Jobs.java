@@ -83,6 +83,10 @@ public final class Jobs {
      * <p>A handler that finds a host busy throws {@link BusyException}, or returns {@link #waitForHost}, and the job waits
      * and then runs again from the start. Failing instead would put the job a minute or more behind, and the failures would bring it closer to being given up
      * on, though its server did nothing wrong.
+     *
+     * <p>A class that queues its own jobs declares the task as a static {@code @Bean} method that's given the class as an
+     * {@code ObjectProvider}, since the class needs the scheduler, which needs the task. The provider gives a proxy, so the
+     * handler can't be private, or it would run on the proxy, which has none of the fields.
      */
     public static <T extends QueuedJob> CustomTask<T> task(TaskDescriptor<T> descriptor, Function<T, CompletionHandler<T>> handler) {
         return Tasks.custom(descriptor)

@@ -51,10 +51,6 @@ class DomainBlockCleanup {
         this.scheduler = scheduler;
     }
 
-    /**
-     * Static, and given this class lazily, because this class needs the scheduler, which needs the task. What it's given
-     * is a proxy, so the method it calls can't be private, or it would run on the proxy, which has none of the fields.
-     */
     @Bean
     static Task<DomainBlockCleanupJob> cleanUpAfterDomainBlock(ObjectProvider<DomainBlockCleanup> cleanup) {
         return Jobs.task(TASK, job -> cleanup.getObject().run(job));

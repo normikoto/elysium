@@ -2,10 +2,9 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.http.HostBusyException;
-import dev.biribiri.elysium.jobs.Jobs;
-import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
@@ -13,9 +12,13 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.FollowAccepted;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.jobs.Jobs;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
@@ -95,6 +98,11 @@ class OutboxBackfill {
         var actorId = event.followedId().toString();
         Jobs.schedule(scheduler, TASK,
                 OutboxBackfillJob.of(actorId, Instant.now().truncatedTo(ChronoUnit.MICROS)), TASK_NAME, actorId);
+    }
+
+    @Bean
+    static Task<OutboxBackfillJob> outboxBackfillFetch(ObjectProvider<OutboxBackfill> outboxBackfill) {
+        return Jobs.task(TASK, job -> outboxBackfill.getObject().run(job));
     }
 
     /**

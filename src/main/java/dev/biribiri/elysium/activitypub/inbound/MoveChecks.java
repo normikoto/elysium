@@ -2,17 +2,20 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.http.HostBusyException;
-import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.AccountMigrations;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -78,6 +81,11 @@ class MoveChecks {
                 new MoveCheckJob(activityId, actor.toString(), target.toString(),
                         Instant.now().truncatedTo(ChronoUnit.MICROS), null),
                 "move-check", activityId);
+    }
+
+    @Bean
+    static Task<MoveCheckJob> moveCheck(ObjectProvider<MoveChecks> moveChecks) {
+        return Jobs.task(TASK, job -> moveChecks.getObject().run(job));
     }
 
     /**

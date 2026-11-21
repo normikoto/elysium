@@ -2,16 +2,19 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
+import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import dev.biribiri.elysium.activitypub.http.HostBusyException;
-import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -72,6 +75,11 @@ class DeletionChecks {
     void queue(URI object, URI actor, Instant queuedAt) {
         Jobs.schedule(scheduler, TASK, new DeletionCheckJob(object.toString(), actor.toString(), queuedAt, null),
                 "deletion-check", object.toString(), actor.toString());
+    }
+
+    @Bean
+    static Task<DeletionCheckJob> deletionCheck(ObjectProvider<DeletionChecks> deletionChecks) {
+        return Jobs.task(TASK, job -> deletionChecks.getObject().run(job));
     }
 
     /**
