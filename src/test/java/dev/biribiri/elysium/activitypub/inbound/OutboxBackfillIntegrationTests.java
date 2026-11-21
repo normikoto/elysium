@@ -10,6 +10,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
@@ -60,6 +61,7 @@ class OutboxBackfillIntegrationTests {
     @Autowired AcceptHandler accepts;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired FollowService follows;
     @Autowired TimelineService timelines;
     @Autowired DomainBlocks blocks;
@@ -96,7 +98,7 @@ class OutboxBackfillIntegrationTests {
     @Test
     void storesPublicAndUnlistedNotesFromTheFirstPageInTheOrderTheyWerePosted() throws Exception {
         follow(alice, remote);
-        var arrived = statuses.storeRemote(new RemoteStatus(noteUri(), null, remote.id(), "<p>sent</p>", null, null,
+        var arrived = remoteStatuses.storeRemote(new RemoteStatus(noteUri(), null, remote.id(), "<p>sent</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         var older = noteUri();
         var old = noteUri();
@@ -179,7 +181,7 @@ class OutboxBackfillIntegrationTests {
         var named = noteUri();
         var stored = noteUri();
         var misattributed = noteUri();
-        statuses.storeRemote(new RemoteStatus(stored, null, remote.id(), "<p>sent</p>", null, null,
+        remoteStatuses.storeRemote(new RemoteStatus(stored, null, remote.id(), "<p>sent</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         serve(remote.outboxUri(), withItems(collection(null), List.of(
                 Map.of("id", named + "#create", "type", "Create", "actor", remote.uri().toString(), "object", named.toString()),

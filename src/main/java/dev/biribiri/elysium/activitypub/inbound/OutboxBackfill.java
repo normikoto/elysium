@@ -9,7 +9,7 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.graph.FollowAccepted;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.jobs.Jobs;
@@ -57,7 +57,7 @@ class OutboxBackfill {
     private static final Logger log = LoggerFactory.getLogger(OutboxBackfill.class);
 
     private final ActorService actors;
-    private final StatusService statuses;
+    private final RemoteStatuses statuses;
     private final RemoteActors remoteActors;
     private final FollowService follows;
     private final NoteStorage storage;
@@ -71,7 +71,7 @@ class OutboxBackfill {
      */
     OutboxBackfill(
             ActorService actors,
-            StatusService statuses,
+            RemoteStatuses statuses,
             RemoteActors remoteActors,
             FollowService follows,
             NoteStorage storage,

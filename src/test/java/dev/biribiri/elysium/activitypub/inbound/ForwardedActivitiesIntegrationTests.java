@@ -10,6 +10,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -77,6 +78,8 @@ class ForwardedActivitiesIntegrationTests {
     private CreateHandler createHandler;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @MockitoBean
     private ActivityDocuments documents;
     @MockitoSpyBean
@@ -182,7 +185,7 @@ class ForwardedActivitiesIntegrationTests {
                 .param("activity", follower.uri() + "#follows/" + UUID.randomUUID())
                 .update();
         var parent = followedUri + "/statuses/1";
-        statuses.storeRemote(new RemoteStatus(URI.create(parent), null, followed.id(), "<p>Hi</p>", null, null,
+        remoteStatuses.storeRemote(new RemoteStatus(URI.create(parent), null, followed.id(), "<p>Hi</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now()));
         actors.upsertRemote(new RemoteActorProfile(URI.create(actor), "a", origin, URI.create(actor + "/inbox"),
                 null, null, null, URI.create(actor + "/followers")));

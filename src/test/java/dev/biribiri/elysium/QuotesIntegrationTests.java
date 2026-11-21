@@ -11,6 +11,7 @@ import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
 import dev.biribiri.elysium.content.RemoteQuote;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.BlockService;
@@ -74,6 +75,8 @@ class QuotesIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private QuoteService quotes;
     @Autowired
@@ -517,7 +520,7 @@ class QuotesIntegrationTests {
         var remote = remote();
         var quoted = createStatus("qbob", Map.of("status", "original"));
         var quoteUri = URI.create(remote.uri() + "/statuses/" + UUID.randomUUID());
-        var quote = statuses.storeRemote(new RemoteStatus(quoteUri, null, remote.id(), "<p>quote</p>", null, null,
+        var quote = remoteStatuses.storeRemote(new RemoteStatus(quoteUri, null, remote.id(), "<p>quote</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(),
                 new RemoteQuote(URI.create("https://quotes.example/users/qbob/statuses/" + quoted), false, null), null))
                 .orElseThrow();
@@ -913,7 +916,7 @@ class QuotesIntegrationTests {
     }
 
     private UUID remoteQuote(Actor author, String quoted) {
-        return statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/statuses/" + UUID.randomUUID()), null,
+        return remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/statuses/" + UUID.randomUUID()), null,
                 author.id(), "<p>quote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(),
                 List.of(), List.of(),
                 new RemoteQuote(URI.create("https://quotes.example/users/qbob/statuses/" + quoted), false, null), null))
@@ -931,7 +934,7 @@ class QuotesIntegrationTests {
 
     private UUID storeRemote(Actor author, QuoteApproval policy) {
         jdbc.sql("DELETE FROM status WHERE uri = :uri").param("uri", author.uri() + "/statuses/1").update();
-        return statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/statuses/1"), null, author.id(),
+        return remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/statuses/1"), null, author.id(),
                 "<p>remote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
                 List.of(), null, policy)).orElseThrow();
     }

@@ -10,6 +10,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -58,6 +59,7 @@ class BoostedNotesIntegrationTests {
     @Autowired InboundActivities inbound;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired TimelineService timelines;
     @Autowired DomainBlocks blocks;
     @Autowired JdbcClient jdbc;
@@ -149,7 +151,7 @@ class BoostedNotesIntegrationTests {
     void storesABoostOfAStoredStatusWithoutFetching() throws Exception {
         follow(alice, booster);
         var note = noteUri(author);
-        var statusId = statuses.storeRemote(new RemoteStatus(note, null, author.id(), "<p>stored</p>", null, null,
+        var statusId = remoteStatuses.storeRemote(new RemoteStatus(note, null, author.id(), "<p>stored</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
 
         handler.handle(accepted(announce(booster, note, "stored")));

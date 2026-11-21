@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteEdit;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,6 +64,8 @@ class HashtagsIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
 
     @BeforeEach
     void setUp() {
@@ -171,13 +174,13 @@ class HashtagsIntegrationTests {
     void aRemoteEditReplacesTheHashtags() throws Exception {
         var author = remoteAuthor();
         var uri = URI.create(author.uri() + "/notes/" + UUID.randomUUID());
-        statuses.storeRemote(new RemoteStatus(uri, null, author.id(), "<p>Hi</p>", null, null, Visibility.PUBLIC, false,
+        remoteStatuses.storeRemote(new RemoteStatus(uri, null, author.id(), "<p>Hi</p>", null, null, Visibility.PUBLIC, false,
                 null, Instant.parse("2026-01-01T00:00:00Z"), null, Map.of(), Set.of("Old", "kept", "not valid")));
         var id = jdbc.sql("SELECT id FROM status WHERE uri = :uri").param("uri", uri.toString())
                 .query(String.class).single();
         expectIds(get(TAG + "old"), id);
 
-        statuses.updateRemote(new RemoteEdit(uri, author.id(), "<p>Edited</p>", null, null, false,
+        remoteStatuses.updateRemote(new RemoteEdit(uri, author.id(), "<p>Edited</p>", null, null, false,
                 Instant.parse("2026-02-01T00:00:00Z"), Set.of("kept", "new")));
 
         expectIds(get(TAG + "old"));
@@ -315,7 +318,7 @@ class HashtagsIntegrationTests {
      */
     private String remote(String tag) {
         var author = remoteAuthor();
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(), "<p>From afar</p>", null,
                 null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), Set.of(tag)))
                 .orElseThrow().toString();

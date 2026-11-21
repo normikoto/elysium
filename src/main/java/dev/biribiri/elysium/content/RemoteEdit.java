@@ -76,7 +76,7 @@ public record RemoteEdit(
     }
 
     /**
-     * What {@link StatusService#updateRemote} did with an edit.
+     * What {@link RemoteStatuses#updateRemote} did with an edit.
      */
     public enum Outcome {
         /** The stored status was replaced. */

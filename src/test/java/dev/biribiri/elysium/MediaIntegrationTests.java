@@ -11,6 +11,7 @@ import java.time.Instant;
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.media.MediaProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,8 @@ class MediaIntegrationTests {
     private MediaProperties media;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
 
     @BeforeEach
     void setUp() {
@@ -485,7 +488,7 @@ class MediaIntegrationTests {
                 null, null));
         var image = URI.create("https://files." + host + "/a.jpg");
         var video = URI.create("https://files." + host + "/b.mp4");
-        var id = statuses.storeRemote(new RemoteStatus(URI.create(uri + "/notes/1"), null, author.id(), "<p>Far</p>",
+        var id = remoteStatuses.storeRemote(new RemoteStatus(URI.create(uri + "/notes/1"), null, author.id(), "<p>Far</p>",
                 null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of("faraway"), List.of(
                 new RemoteAttachment(image, AttachmentType.IMAGE, "image/jpeg", "Far away", 1200, 800, null,
                         new Focus(0, 0)),

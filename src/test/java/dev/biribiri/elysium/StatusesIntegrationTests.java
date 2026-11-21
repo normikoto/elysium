@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteEdit;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusEdited;
 import dev.biribiri.elysium.content.StatusService;
@@ -106,6 +107,8 @@ class StatusesIntegrationTests {
 
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private TimelineRepository timelines;
 
@@ -384,7 +387,7 @@ class StatusesIntegrationTests {
     void linksARemoteStatusThatGaveNoPageToItsUri() throws Exception {
         var authorId = remoteAuthor();
         var uri = URI.create(actors.findById(authorId).orElseThrow().uri() + "/notes/" + UUID.randomUUID());
-        var id = statuses.storeRemote(new RemoteStatus(
+        var id = remoteStatuses.storeRemote(new RemoteStatus(
                 uri, null, authorId, "<p>Hi</p>", null, null, Visibility.DIRECT, false, null, Instant.now(), null,
                 Map.of(UUID.fromString(bobId()), true))).orElseThrow();
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob()))
@@ -482,7 +485,7 @@ class StatusesIntegrationTests {
     void showsARemoteStatusToAnAccountItWasSentToWithoutListingItAsMentioned() throws Exception {
         var authorId = remoteAuthor();
         var author = actors.findById(authorId).orElseThrow();
-        var id = statuses.storeRemote(new RemoteStatus(
+        var id = remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, authorId, "<p>Hi</p>", null, null,
                 Visibility.DIRECT, false, null, Instant.now(), null,
                 Map.of(UUID.fromString(bobId()), true))).orElseThrow();
@@ -691,9 +694,9 @@ class StatusesIntegrationTests {
         var id = remoteStatus(authorId, Visibility.PUBLIC, null);
         var uri = statuses.findVisible(id, Optional.empty()).orElseThrow().uri();
         var edit = Instant.now().plusSeconds(1);
-        statuses.updateRemote(new RemoteEdit(uri, authorId, "<p>Edited</p>", null, null, false, edit));
+        remoteStatuses.updateRemote(new RemoteEdit(uri, authorId, "<p>Edited</p>", null, null, false, edit));
         // Older, so it's ignored and keeps nothing.
-        statuses.updateRemote(new RemoteEdit(uri, authorId, "<p>Old</p>", null, null, false, edit.minusMillis(500)));
+        remoteStatuses.updateRemote(new RemoteEdit(uri, authorId, "<p>Old</p>", null, null, false, edit.minusMillis(500)));
         mockMvc.perform(get("/api/v1/statuses/" + id + "/history"))
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].content").value("<p>Hi</p>"))
@@ -707,7 +710,7 @@ class StatusesIntegrationTests {
         var uri = statuses.findVisible(id, Optional.empty()).orElseThrow().uri();
         var start = Instant.now();
         for (var edit = 1; edit <= 55; edit++) {
-            statuses.updateRemote(new RemoteEdit(
+            remoteStatuses.updateRemote(new RemoteEdit(
                     uri, authorId, "<p>Edit " + edit + "</p>", null, null, false, start.plusSeconds(edit)));
         }
         mockMvc.perform(get("/api/v1/statuses/" + id + "/history"))
@@ -1362,7 +1365,7 @@ class StatusesIntegrationTests {
 
     private UUID remoteStatus(UUID authorId, Visibility visibility, URI inReplyTo) {
         var author = actors.findById(authorId).orElseThrow();
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, authorId, "<p>Hi</p>", null, null,
                 visibility, false, inReplyTo, Instant.now())).orElseThrow();
     }
@@ -1388,7 +1391,7 @@ class StatusesIntegrationTests {
         var uri = URI.create("https://" + host + "/users/s");
         var author = actors.upsertRemote(
                 new RemoteActorProfile(uri, "s", host, URI.create(uri + "/inbox"), null, null, null, null));
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create("https://" + host + "/notes/" + UUID.randomUUID()),
                 URI.create("https://" + host + "/@s/1"),
                 author.id(),

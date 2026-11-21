@@ -2,7 +2,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.QuoteService;
-import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -15,10 +15,10 @@ import java.net.URI;
 class Deletions {
 
     private final ActorService actors;
-    private final StatusService statuses;
+    private final RemoteStatuses statuses;
     private final QuoteService quotes;
 
-    Deletions(ActorService actors, StatusService statuses, QuoteService quotes) {
+    Deletions(ActorService actors, RemoteStatuses statuses, QuoteService quotes) {
         this.actors = actors;
         this.statuses = statuses;
         this.quotes = quotes;

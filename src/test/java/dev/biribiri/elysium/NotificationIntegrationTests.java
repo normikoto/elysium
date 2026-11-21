@@ -12,6 +12,7 @@ import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusStored;
@@ -70,6 +71,7 @@ class NotificationIntegrationTests {
     @Autowired MockMvc mvc;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired BoostService boosts;
     @Autowired FollowService follows;
     @Autowired ProfileService profiles;
@@ -207,7 +209,7 @@ class NotificationIntegrationTests {
         settled();
         String id = values(get(NOTIFICATIONS).with(user(bob)), "$[0].id");
         mvc.perform(post(NOTIFICATIONS + "/" + id + "/dismiss").with(user(bob))).andExpect(content().json("{}"));
-        assertThat(statuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "new text", null, null,
+        assertThat(remoteStatuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "new text", null, null,
                 PUBLIC, false, null, Instant.now(), null, Map.of(bob.id(), false)))).isEmpty();
         new TransactionTemplate(transactions).executeWithoutResult(tx -> notifier.on(new StatusStored(first)));
         settled();
@@ -420,7 +422,7 @@ class NotificationIntegrationTests {
         settled();
         mvc.perform(get(CONVERSATIONS).with(user(bob))).andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].last_status.id").value(middle.toString()));
-        statuses.deleteRemote(rootUri, remote.uri());
+        remoteStatuses.deleteRemote(rootUri, remote.uri());
         settled();
         var another = store(remote, note(remote), rootUri, Map.of(bob.id(), false), DIRECT);
         settled();
@@ -624,7 +626,7 @@ class NotificationIntegrationTests {
 
     private UUID store(Actor remote, URI uri, URI parent, Map<UUID, Boolean> mentions,
                        dev.biribiri.elysium.content.Visibility visibility) {
-        return statuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "<p>message</p>", null, null,
+        return remoteStatuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "<p>message</p>", null, null,
                 visibility, false, parent, Instant.now(), null, mentions)).orElseThrow();
     }
 

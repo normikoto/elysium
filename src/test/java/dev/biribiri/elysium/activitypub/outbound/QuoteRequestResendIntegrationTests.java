@@ -3,7 +3,6 @@ package dev.biribiri.elysium.activitypub.outbound;
 import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
-import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
@@ -12,8 +11,10 @@ import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.jobs.Jobs;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -58,6 +59,8 @@ class QuoteRequestResendIntegrationTests {
     @Autowired
     private StatusService statuses;
     @Autowired
+    private RemoteStatuses remoteStatuses;
+    @Autowired
     private QuoteService quotes;
     @Autowired
     private ActorService actors;
@@ -81,7 +84,7 @@ class QuoteRequestResendIntegrationTests {
         var uri = URI.create("https://" + domain + "/users/dave");
         remote = actors.upsertRemote(new RemoteActorProfile(uri, "dave", domain, URI.create(uri + "/inbox"), null,
                 URI.create("https://" + domain + "/inbox"), null, URI.create(uri + "/followers")));
-        var quoted = statuses.storeRemote(new RemoteStatus(URI.create(uri + "/statuses/1"), null, remote.id(),
+        var quoted = remoteStatuses.storeRemote(new RemoteStatus(URI.create(uri + "/statuses/1"), null, remote.id(),
                 "<p>remote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
                 List.of(), null, new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of()))).orElseThrow();
         var status = statuses.create(author.id(),

@@ -10,6 +10,7 @@ import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusReblogged;
 import dev.biribiri.elysium.content.StatusService;
@@ -60,6 +61,7 @@ class BoostIntegrationTests {
     @Autowired MockMvc mvc;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired BoostService boosts;
     @Autowired AnnounceHandler handler;
     @Autowired UndoHandler undos;
@@ -360,11 +362,11 @@ class BoostIntegrationTests {
         settled();
 
         // Only the author can delete it, and nothing is withdrawn until it's gone.
-        statuses.deleteRemote(post.uri(), remote().uri());
+        remoteStatuses.deleteRemote(post.uri(), remote().uri());
         settled();
         assertThat(outboundCount(boost.uri() + "/undo")).isZero();
 
-        statuses.deleteRemote(post.uri(), author.uri());
+        remoteStatuses.deleteRemote(post.uri(), author.uri());
         settled();
         assertThat(outboundCount(boost.uri() + "/undo")).isEqualTo(1);
         assertThat(deliveryInboxes(boost.uri() + "/undo")).contains(follower.inboxUri().toString());
@@ -455,7 +457,7 @@ class BoostIntegrationTests {
     }
 
     private Status remotePost(Actor author) {
-        var id = statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/" + UUID.randomUUID()), null,
+        var id = remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/" + UUID.randomUUID()), null,
                 author.id(), "<p>remote</p>", null, null, PUBLIC, false, null, Instant.now())).orElseThrow();
         return statuses.findVisible(id, Optional.empty()).orElseThrow();
     }

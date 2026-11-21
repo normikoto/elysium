@@ -12,6 +12,7 @@ import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.RemoteEmoji;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +70,8 @@ class ReactionIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private ReactionService reactions;
     @Autowired
@@ -359,7 +362,7 @@ class ReactionIntegrationTests {
     }
 
     private Status remotePost(Actor author) {
-        var id = statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/" + UUID.randomUUID()), null,
+        var id = remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/" + UUID.randomUUID()), null,
                 author.id(), "<p>remote</p>", null, null, PUBLIC, false, null, Instant.now())).orElseThrow();
         return statuses.findVisible(id, Optional.empty()).orElseThrow();
     }

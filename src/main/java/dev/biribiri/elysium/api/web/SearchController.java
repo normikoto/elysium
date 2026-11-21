@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.RemoteUrlResolver;
+import dev.biribiri.elysium.content.StatusSearch;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.text.Hashtags;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -63,16 +64,18 @@ public class SearchController {
     private final AccountLookup lookup;
     private final AccountResponses accounts;
     private final StatusService statuses;
+    private final StatusSearch statusSearch;
     private final StatusResponses statusResponses;
     private final TagResponses tags;
 
     SearchController(
             ActorService actors, AccountLookup lookup, AccountResponses accounts, StatusService statuses,
-            StatusResponses statusResponses, TagResponses tags) {
+            StatusSearch statusSearch, StatusResponses statusResponses, TagResponses tags) {
         this.actors = actors;
         this.lookup = lookup;
         this.accounts = accounts;
         this.statuses = statuses;
+        this.statusSearch = statusSearch;
         this.statusResponses = statusResponses;
         this.tags = tags;
     }
@@ -233,7 +236,7 @@ public class SearchController {
                 return List.of();
             }
         }
-        var found = statuses.search(viewer, query, account, page, skipped);
+        var found = statusSearch.search(viewer, query, account, page, skipped);
         return statusResponses.list(found, Optional.of(viewer), Optional.empty());
     }
 
@@ -246,7 +249,7 @@ public class SearchController {
         if (exact.isEmpty() || skipped >= MAX_TAG_OFFSET) {
             return List.of();
         }
-        var names = new ArrayList<>(statuses.searchTags(exact.get(), Math.min(pageSize, MAX_TAG_OFFSET - skipped), skipped));
+        var names = new ArrayList<>(statusSearch.searchTags(exact.get(), Math.min(pageSize, MAX_TAG_OFFSET - skipped), skipped));
         if (skipped == 0 && !names.contains(exact.get())) {
             names.addFirst(exact.get());
             if (names.size() > pageSize) {

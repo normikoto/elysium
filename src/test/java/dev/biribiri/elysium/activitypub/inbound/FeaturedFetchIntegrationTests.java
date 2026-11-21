@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
@@ -59,6 +60,7 @@ class FeaturedFetchIntegrationTests {
     @Autowired AcceptHandler accepts;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired StatusPinService pins;
     @Autowired FollowService follows;
     @Autowired JdbcClient jdbc;
@@ -229,7 +231,7 @@ class FeaturedFetchIntegrationTests {
     }
 
     private Status remotePost() {
-        var id = statuses.storeRemote(new RemoteStatus(noteUri(), null, remote.id(), "<p>sent</p>", null, null,
+        var id = remoteStatuses.storeRemote(new RemoteStatus(noteUri(), null, remote.id(), "<p>sent</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         return statuses.findVisible(id, Optional.empty()).orElseThrow();
     }

@@ -1,25 +1,26 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
-import dev.biribiri.elysium.moderation.DomainBlock;
-import dev.biribiri.elysium.content.AttachmentType;
-import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.TestImages;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.TestImages;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteProfile;
-import dev.biribiri.elysium.media.MediaProperties;
-import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.AttachmentType;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewPoll;
-import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.NewStatus;
+import dev.biribiri.elysium.content.PollService;
+import dev.biribiri.elysium.content.RemoteAttachment;
+import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.media.MediaProperties;
+import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,8 @@ class DomainBlockCleanupIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private LikeService likes;
     @Autowired
@@ -109,7 +112,7 @@ class DomainBlockCleanupIntegrationTests {
         var status = statuses.create(local.id(), new NewStatus("post", null, null, Visibility.PUBLIC, false, null));
         boosts.receive(booster.id(), status.id(), URI.create(booster.uri() + "/announce"), Visibility.PUBLIC, Instant.now(),
                 Instant.now());
-        var remoteStatus = statuses.storeRemote(new RemoteStatus(URI.create(booster.uri() + "/posts/1"), null,
+        var remoteStatus = remoteStatuses.storeRemote(new RemoteStatus(URI.create(booster.uri() + "/posts/1"), null,
                 booster.id(), "<p>remote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         boosts.reblog(remoteStatus, local.id(), Visibility.PUBLIC).orElseThrow();
         assertThat(jdbc.sql("SELECT count(*) FROM status WHERE reblog_of_id IS NOT NULL AND (reblog_of_id = :status "
@@ -211,7 +214,7 @@ class DomainBlockCleanupIntegrationTests {
     void forgetsWhoALocalFollowersOnlyBoostOfItsActorsStatusWasSentTo() {
         var author = remote(domain);
         var recipient = remote("not" + domain);
-        var remoteStatus = statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/1"), null,
+        var remoteStatus = remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/posts/1"), null,
                 author.id(), "<p>remote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         var boost = boosts.reblog(remoteStatus, local.id(), Visibility.PRIVATE).orElseThrow();
         jdbc.sql("""
@@ -330,7 +333,7 @@ class DomainBlockCleanupIntegrationTests {
     void removesTheAttachmentsOfItsStatuses() {
         var author = remote(domain);
         follow(local, author);
-        statuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(),
+        remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(),
                 "<p>Hi</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
                 List.of(new RemoteAttachment(URI.create(author.uri() + "/a.png"), AttachmentType.IMAGE, "image/png",
                         null, null, null, null, null)))).orElseThrow();
@@ -349,7 +352,7 @@ class DomainBlockCleanupIntegrationTests {
     @Test
     void cleansInboxDataForADomainWithNoFollows() {
         var blocked = remote("social." + domain + ":8443");
-        var id = statuses.storeRemote(new RemoteStatus(URI.create(blocked.uri() + "/notes/1"), null, blocked.id(),
+        var id = remoteStatuses.storeRemote(new RemoteStatus(URI.create(blocked.uri() + "/notes/1"), null, blocked.id(),
                 "<p>direct</p>", null, null, Visibility.DIRECT, false, null, Instant.now(), null,
                 Map.of(local.id(), false))).orElseThrow();
         await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM notification WHERE status_id = :id")
@@ -365,7 +368,7 @@ class DomainBlockCleanupIntegrationTests {
     }
 
     private UUID post(Actor author) {
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(), "<p>Hi</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
     }

@@ -25,6 +25,7 @@ import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.PollService;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.ScheduledStatusService;
 import dev.biribiri.elysium.content.StatusService;
@@ -63,6 +64,8 @@ class AccountCleanupIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private LikeService likes;
     @Autowired
@@ -419,7 +422,7 @@ class AccountCleanupIntegrationTests {
         var booster = newLocal();
         var recipient = remote();
         var remoteAuthor = remote();
-        var remoteStatus = statuses.storeRemote(new RemoteStatus(URI.create(remoteAuthor.uri() + "/statuses/1"), null,
+        var remoteStatus = remoteStatuses.storeRemote(new RemoteStatus(URI.create(remoteAuthor.uri() + "/statuses/1"), null,
                 remoteAuthor.id(), "<p>Hi</p>", null, null, Visibility.PUBLIC, false, null, Instant.now())).orElseThrow();
         var ofRemote = boosts.reblog(remoteStatus, booster.id(), Visibility.PRIVATE).orElseThrow();
         var localStatus = statuses.create(local.id(), draft());
@@ -448,7 +451,7 @@ class AccountCleanupIntegrationTests {
                 .param("uri", deleted.uri() + "/statuses/1")
                 .param("actorId", deleted.id())
                 .update();
-        statuses.storeRemote(new RemoteStatus(URI.create(deleted.uri() + "/statuses/2"), null, deleted.id(), "<p>Hi</p>",
+        remoteStatuses.storeRemote(new RemoteStatus(URI.create(deleted.uri() + "/statuses/2"), null, deleted.id(), "<p>Hi</p>",
                 null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
                 List.of(new RemoteAttachment(URI.create(deleted.uri() + "/a.png"), AttachmentType.IMAGE, "image/png",
                         null, null, null, null, null)))).orElseThrow();

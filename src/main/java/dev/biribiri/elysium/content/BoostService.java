@@ -4,6 +4,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.LikeRepository;
+import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -67,7 +68,7 @@ public class BoostService {
                         return repository.findById(existing.get().id());
                     }
                     var publishedAt = now();
-                    var id = statuses.nextId(publishedAt);
+                    var id = StatusIds.next(repository, publishedAt);
                     var boost = boost(id, URI.create(actor.uri() + "/statuses/" + id + "/activity"), actorId, status,
                             status.visibility() == Visibility.PRIVATE ? Visibility.PRIVATE : visibility, publishedAt);
                     repository.insert(boost);
@@ -162,7 +163,7 @@ public class BoostService {
                 }
                 return;
             }
-            var id = statuses.nextId(Instant.now());
+            var id = StatusIds.next(repository, Instant.now());
             var boost = boost(id, announceUri, boosterId, status,
                     status.visibility() == Visibility.PRIVATE ? Visibility.PRIVATE : visibility,
                     publishedAt.truncatedTo(ChronoUnit.MICROS));

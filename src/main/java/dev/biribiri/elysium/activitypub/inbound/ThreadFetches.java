@@ -10,6 +10,7 @@ import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.RemoteThreadFetcher;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -79,6 +80,7 @@ class ThreadFetches implements RemoteThreadFetcher {
     private static final Logger log = LoggerFactory.getLogger(ThreadFetches.class);
 
     private final StatusService statuses;
+    private final RemoteStatuses remoteStatuses;
     private final ActorService actors;
     private final NoteStorage storage;
     private final ActivityDocuments documents;
@@ -93,6 +95,7 @@ class ThreadFetches implements RemoteThreadFetcher {
      */
     ThreadFetches(
             StatusService statuses,
+            RemoteStatuses remoteStatuses,
             ActorService actors,
             NoteStorage storage,
             ActivityDocuments documents,
@@ -102,6 +105,7 @@ class ThreadFetches implements RemoteThreadFetcher {
             JdbcClient jdbc,
             @Lazy SchedulerClient scheduler) {
         this.statuses = statuses;
+        this.remoteStatuses = remoteStatuses;
         this.actors = actors;
         this.storage = storage;
         this.documents = documents;
@@ -234,7 +238,7 @@ class ThreadFetches implements RemoteThreadFetcher {
         var parent = earliest.get().inReplyToUri();
         // The same one again means the last fetch didn't store it, so there's nothing more to find above it.
         if (parent == null || parent.toString().equals(job.target()) || !isFetchable(parent)
-                || statuses.isStored(parent)) {
+                || remoteStatuses.isStored(parent)) {
             return Jobs.done();
         }
         var waiting = waitForTurn(parent, job);
@@ -405,7 +409,7 @@ class ThreadFetches implements RemoteThreadFetcher {
                     .flatMap(ActivityObject::parseUri)
                     .filter(found -> !found.equals(parent.uri()) && isFetchable(found));
             // A reply that's stored already is only fetched for its own replies, which wouldn't be shown this deep.
-            if (id.isEmpty() || depth >= StatusService.MAX_DESCENDANT_DEPTH && statuses.isStored(id.get())) {
+            if (id.isEmpty() || depth >= StatusService.MAX_DESCENDANT_DEPTH && remoteStatuses.isStored(id.get())) {
                 continue;
             }
             // Keyed by its parent too, so that a collection listing it under the wrong parent can't keep the right one

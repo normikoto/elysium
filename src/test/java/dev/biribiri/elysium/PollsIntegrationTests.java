@@ -6,6 +6,7 @@ import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.RemotePoll;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +65,8 @@ class PollsIntegrationTests {
 
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
 
     @Autowired
     private PollService polls;
@@ -323,7 +326,7 @@ class PollsIntegrationTests {
         var uri = URI.create("https://" + host + "/users/s");
         var author = actors.upsertRemote(
                 new RemoteActorProfile(uri, "s", host, URI.create(uri + "/inbox"), null, null, null, null));
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create("https://" + host + "/notes/" + UUID.randomUUID()), null, author.id(), "<p>Which?</p>", null,
                 null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(), null, null,
                 poll)).orElseThrow();

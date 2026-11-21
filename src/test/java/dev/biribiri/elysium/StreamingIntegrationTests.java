@@ -14,6 +14,7 @@ import dev.biribiri.elysium.content.PostFilterCache;
 import dev.biribiri.elysium.content.PostFilterChange;
 import dev.biribiri.elysium.content.PostFilters;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusOrigin;
@@ -79,6 +80,7 @@ class StreamingIntegrationTests {
     @Autowired MockMvc mockMvc;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired FollowService follows;
     @Autowired BlockService blocks;
     @Autowired LikeService likes;
@@ -250,11 +252,11 @@ class StreamingIntegrationTests {
         var local = webSocket("?stream=public:local", null);
         var remote = remote();
         var uri = URI.create(remote.uri() + "/notes/" + UUID.randomUUID());
-        var id = statuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "<p>from afar</p>", null, null,
+        var id = remoteStatuses.storeRemote(new RemoteStatus(uri, null, remote.id(), "<p>from afar</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of())).orElseThrow();
 
         everything.next(event("update"));
-        statuses.deleteRemote(uri, remote.uri());
+        remoteStatuses.deleteRemote(uri, remote.uri());
         var delete = everything.next(event("delete"));
         assertThat(JsonPath.<String>read(delete, "$.payload")).isEqualTo(id.toString());
         // Every stream that carries statuses hears about a deletion, as on Mastodon.

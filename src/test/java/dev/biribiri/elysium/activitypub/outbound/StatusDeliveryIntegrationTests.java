@@ -2,7 +2,6 @@ package dev.biribiri.elysium.activitypub.outbound;
 
 import com.sun.net.httpserver.HttpServer;
 import dev.biribiri.elysium.TestcontainersConfiguration;
-import dev.biribiri.elysium.jobs.EventRetries;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.LoopbackClients;
 import dev.biribiri.elysium.actor.Actor;
@@ -10,14 +9,16 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.content.BoostService;
-import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.LikeService;
+import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusEdit;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.jobs.EventRetries;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,6 +80,8 @@ class StatusDeliveryIntegrationTests {
 
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private LikeService likes;
     @Autowired
@@ -625,7 +628,7 @@ class StatusDeliveryIntegrationTests {
     void aDirectReplyLinksToADirectParentWhoseAuthorItMentions() {
         var host = newHost();
         var carol = mentionable(host, "carol");
-        var parentId = statuses.storeRemote(new RemoteStatus(
+        var parentId = remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(carol.uri() + "/notes/" + UUID.randomUUID()), null, carol.id(), "<p>Psst</p>", null, null,
                 Visibility.DIRECT, false, null, Instant.now(), null, Map.of(author.id(), false))).orElseThrow();
         var parent = statuses.findVisible(parentId, Optional.of(author.id())).orElseThrow();
@@ -643,7 +646,7 @@ class StatusDeliveryIntegrationTests {
         var host = newHost();
         var carol = mentionable(host, "carol");
         var dave = mentionable(host, "dave");
-        var parentId = statuses.storeRemote(new RemoteStatus(
+        var parentId = remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(carol.uri() + "/notes/" + UUID.randomUUID()), null, carol.id(), "<p>Psst</p>", null, null,
                 Visibility.DIRECT, false, null, Instant.now(), null, Map.of(author.id(), false))).orElseThrow();
 
@@ -1198,7 +1201,7 @@ class StatusDeliveryIntegrationTests {
     }
 
     private UUID remoteStatus(Actor remote, Visibility visibility) {
-        return statuses.storeRemote(new RemoteStatus(
+        return remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(remote.uri() + "/notes/" + UUID.randomUUID()), null, remote.id(), "<p>Hi</p>", null, null,
                 visibility, false, null, Instant.now())).orElseThrow();
     }

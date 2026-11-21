@@ -12,6 +12,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -65,6 +66,7 @@ class ThreadFetchIntegrationTests {
 
     @Autowired ThreadFetches fetches;
     @Autowired StatusService statuses;
+    @Autowired RemoteStatuses remoteStatuses;
     @Autowired ActorService actors;
     @Autowired DomainBlocks blocks;
     @Autowired SchedulerClient scheduler;
@@ -108,7 +110,7 @@ class ThreadFetchIntegrationTests {
         fetches.fetchSoon(reply);
         drain();
 
-        assertThat(statuses.isStored(hidden)).isFalse();
+        assertThat(remoteStatuses.isStored(hidden)).isFalse();
         verify(documents, times(1)).fetch(hidden);
         verify(documents, never()).fetch(top);
     }
@@ -152,7 +154,7 @@ class ThreadFetchIntegrationTests {
         assertThat(context.descendants()).extracting(Status::uri).containsExactlyInAnyOrder(own, elsewhere, nested);
         assertThat(context.descendants()).filteredOn(found -> found.uri().equals(own))
                 .extracting(Status::text).containsExactly("fetched");
-        assertThat(statuses.isStored(unrelated)).isFalse();
+        assertThat(remoteStatuses.isStored(unrelated)).isFalse();
     }
 
     @Test
@@ -336,7 +338,7 @@ class ThreadFetchIntegrationTests {
     }
 
     private UUID store(Actor author, URI uri, URI inReplyTo) {
-        return statuses.storeRemote(new RemoteStatus(uri, null, author.id(), "<p>stored</p>", null, null,
+        return remoteStatuses.storeRemote(new RemoteStatus(uri, null, author.id(), "<p>stored</p>", null, null,
                 Visibility.PUBLIC, false, inReplyTo, Instant.now())).orElseThrow();
     }
 

@@ -41,6 +41,7 @@ public class QuoteService {
     private final QuoteRepository quotes;
     private final StatusRepository statuses;
     private final StatusService statusService;
+    private final RemoteStatuses remoteStatuses;
     private final ActorService actors;
     private final QuoteRules rules;
     private final FollowService follows;
@@ -53,6 +54,7 @@ public class QuoteService {
             QuoteRepository quotes,
             StatusRepository statuses,
             StatusService statusService,
+            RemoteStatuses remoteStatuses,
             ActorService actors,
             QuoteRules rules,
             FollowService follows,
@@ -63,6 +65,7 @@ public class QuoteService {
         this.quotes = quotes;
         this.statuses = statuses;
         this.statusService = statusService;
+        this.remoteStatuses = remoteStatuses;
         this.actors = actors;
         this.rules = rules;
         this.follows = follows;
@@ -697,7 +700,7 @@ public class QuoteService {
                 return;
             }
             if (current.isEmpty()) {
-                statusService.insertRemoteQuote(id, quote, true);
+                remoteStatuses.insertRemoteQuote(id, quote, true);
                 return;
             }
             var found = current.get();

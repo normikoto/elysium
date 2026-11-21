@@ -11,7 +11,7 @@ public interface RemoteThreadFetcher {
 
     /**
      * Fetches the parents that a status's thread is missing, and the replies to it that its server lists, in the
-     * background, storing them as {@link StatusService#storeBackfilled} does. However often it's asked for, a status is
+     * background, storing them as {@link RemoteStatuses#storeBackfilled} does. However often it's asked for, a status is
      * only fetched once in a while. This makes no request itself, so it's safe in a transaction.
      *
      * @return the fetch, if one is running, whether this started it or not

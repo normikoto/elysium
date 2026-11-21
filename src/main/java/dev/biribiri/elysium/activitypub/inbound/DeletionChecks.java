@@ -8,7 +8,7 @@ import dev.biribiri.elysium.activitypub.http.HostBusyException;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.content.QuoteService;
-import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.slf4j.Logger;
@@ -38,7 +38,7 @@ class DeletionChecks {
     private final ActivityDocuments documents;
     private final DomainBlocks blocks;
     private final Deletions deletions;
-    private final StatusService statuses;
+    private final RemoteStatuses statuses;
     private final TargetFetchTurns turns;
     private final QuoteService quotes;
 
@@ -47,7 +47,7 @@ class DeletionChecks {
             ActivityDocuments documents,
             DomainBlocks blocks,
             Deletions deletions,
-            StatusService statuses,
+            RemoteStatuses statuses,
             TargetFetchTurns turns,
             QuoteService quotes) {
         this.quotes = quotes;

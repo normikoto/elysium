@@ -1,8 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
-import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.TestcontainersConfiguration;
-import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
@@ -11,7 +9,10 @@ import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.CustomEmojis;
+import dev.biribiri.elysium.content.MediaAttachments;
+import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,6 +70,8 @@ class UpdateIntegrationTests {
     private DomainBlocks blocks;
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private RemoteStatuses remoteStatuses;
     @Autowired
     private MediaAttachments attachments;
     @Autowired
@@ -179,7 +182,7 @@ class UpdateIntegrationTests {
         creates.handle(create(note));
         var authorId = author.id();
 
-        statuses.deleteRemote(URI.create(noteId), author.uri());
+        remoteStatuses.deleteRemote(URI.create(noteId), author.uri());
 
         assertThat(jdbc.sql("SELECT count(*) FROM media_attachment WHERE account_id = :id").param("id", authorId)
                 .query(Long.class).single()).isZero();
@@ -378,7 +381,7 @@ class UpdateIntegrationTests {
     @Test
     void aDeletedNoteIsntStoredByALateUpdate() {
         var noteId = noteId();
-        statuses.deleteRemote(URI.create(noteId), author.uri());
+        remoteStatuses.deleteRemote(URI.create(noteId), author.uri());
 
         handler.handle(update(recent(noteId)));
 
