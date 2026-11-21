@@ -20,8 +20,10 @@ The extent of this support and its limitations are what's described in the rest 
   [Quotes](#quotes) describes
 - [FEP-2677: Identifying the Application Actor](https://codeberg.org/fediverse/fep/src/branch/main/fep/2677/fep-2677.md)
 - [FEP-521a: Representing actor's public keys](https://codeberg.org/fediverse/fep/src/branch/main/fep/521a/fep-521a.md),
-  for an Ed25519 key that nothing is signed with yet, as [Actors](#actors) describes
+  for the Ed25519 key that checks integrity proofs, as [Actors](#actors) describes
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
+- [FEP-8b32: Object Integrity Proofs](https://codeberg.org/fediverse/fep/src/branch/main/fep/8b32/fep-8b32.md), on
+  activities that are sent but not yet checked on those that arrive, as [Integrity proofs](#integrity-proofs) describes
 - [FEP-7628: Move actor](https://codeberg.org/fediverse/fep/src/branch/main/fep/7628/fep-7628.md), with Mastodon's terms
   and only `movedTo`, as [Moving accounts](#moving-accounts) describes
 - [FEP-c0e0: Emoji reactions](https://codeberg.org/fediverse/fep/src/branch/main/fep/c0e0/fep-c0e0.md), as
@@ -43,9 +45,8 @@ Each actor document includes `publicKey` with an RSA 2048 key, identified as `{a
 `endpoints.sharedInbox`, which is the [shared inbox](#inboxes) at `/inbox`. If [signed fetches are required](#authorized-fetch), an unsigned request gets a
 shorter document without the profile.
 
-Each actor document, including the shorter one, also has an Ed25519 key in `assertionMethod`, as FEP-521a describes. It's
-for integrity proofs ([FEP-8b32](https://codeberg.org/fediverse/fep/src/branch/main/fep/8b32/fep-8b32.md)), which
-this server doesn't send yet. HTTP signatures still use only the RSA key.
+Each actor document, including the shorter one, also has an Ed25519 key in `assertionMethod`, as FEP-521a describes. It
+checks the actor's [integrity proofs](#integrity-proofs). HTTP signatures still use only the RSA key.
 
 ```json
 "assertionMethod": [{
@@ -1622,10 +1623,40 @@ and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Ac
     allowed.
 - **Fetching keys:** Fetches are signed as the [instance actor](#instance-actor), and so are deliveries of `Flag`.
 
+### Integrity proofs
+
+Every activity this server sends has an integrity proof, as [FEP-8b32](https://codeberg.org/fediverse/fep/src/branch/main/fep/8b32/fep-8b32.md)
+describes, made with the `eddsa-jcs-2022` cryptosuite and the sender's Ed25519 key from [`assertionMethod`](#actors).
+Activities with no user behind them, such as forwarded reports, are signed by the [instance actor](#instance-actor). A
+server that's sent an activity by someone else can check it with the proof, without fetching it.
+
+- `https://w3id.org/security/data-integrity/v2` is added at the end of the activity's `@context`. It's protected, so it
+  comes after the terms the activity defines.
+- The proof's `@context` is the same as the activity's, `proofPurpose` is `assertionMethod`, `verificationMethod` is
+  `{actor-uri}#ed25519-key`, and `created` is in whole seconds.
+- Most activity IDs are fragments of the object's URI, such as `{status-uri}#create`, and FEP-8b32 says objects with
+  fragment IDs shouldn't have proofs. These get one anyway, because each is sent as a document of its own. Fedify (and
+  so Hollo), tootik, and Streams also sign activities with fragment IDs, such as `#create`, `#delete`, and `#update`.
+- Objects that are fetched, such as `Note`s and actor documents, don't have proofs, and neither do the objects embedded in
+  an activity, which the activity's proof covers.
+- Proofs on activities that arrive aren't checked yet, and an activity is accepted or refused on its HTTP signature alone.
+
+```json
+"proof": {
+  "type": "DataIntegrityProof",
+  "cryptosuite": "eddsa-jcs-2022",
+  "created": "2026-11-21T17:31:01Z",
+  "verificationMethod": "https://elysium.example/users/alice#ed25519-key",
+  "proofPurpose": "assertionMethod",
+  "@context": ["https://www.w3.org/ns/activitystreams", "https://w3id.org/security/data-integrity/v2"],
+  "proofValue": "z63Fp59nkR9M2PdEpNKz..."
+}
+```
+
 ### Linked Data Signatures
 
-Linked Data Signatures aren't supported, and there are no plans to support them. They aren't verified on activities that
-arrive, and aren't added to activities that are sent, so another server can't use one to have this server accept an
+Linked Data Signatures aren't supported, and there are no plans to support them, since [integrity proofs](#integrity-proofs)
+do the same job. They aren't verified on activities that arrive, and aren't added to activities that are sent, so another server can't use one to have this server accept an
 activity it relays. A [forwarded activity](#forwarded-activities) is fetched from its origin instead.
 
 ### Authorized fetch

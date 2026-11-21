@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
+import dev.biribiri.elysium.activitypub.proof.ActivityProofs;
 import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -16,6 +17,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -33,12 +35,15 @@ public class ActivityDeliveries {
     private final SchedulerClient scheduler;
     private final DomainBlocks blocks;
     private final ActorService actors;
+    private final ActivityProofs proofs;
 
     /**
      * @param scheduler lazy because the scheduler needs every task, and tasks need handlers, which queue activities here
      */
-    ActivityDeliveries(JdbcClient jdbc, @Lazy SchedulerClient scheduler, DomainBlocks blocks, ActorService actors) {
+    ActivityDeliveries(
+            JdbcClient jdbc, @Lazy SchedulerClient scheduler, DomainBlocks blocks, ActorService actors, ActivityProofs proofs) {
         this.actors = actors;
+        this.proofs = proofs;
         this.jdbc = jdbc;
         this.scheduler = scheduler;
         this.blocks = blocks;
@@ -125,6 +130,10 @@ public class ActivityDeliveries {
         return allowed;
     }
 
+    /**
+     * The proof is added here, so that every activity gets one, and it's stored with the body it covers. A repeat keeps
+     * the body that was stored first.
+     */
     private void store(OutboundActivity activity) {
         jdbc.sql("""
                         INSERT INTO outbound_activity (activity_id, actor_id, body, while_suspended)
@@ -133,7 +142,7 @@ public class ActivityDeliveries {
                         """)
                 .param("id", activity.id())
                 .param("actorId", activity.actorId(), Types.OTHER)
-                .param("body", activity.body())
+                .param("body", proofs.sign(activity.body(), activity.actorId()))
                 .param("whileSuspended", activity.whileSuspended().name())
                 .update();
     }
@@ -177,12 +186,20 @@ public class ActivityDeliveries {
     /**
      * Changes what an activity says, for the deliveries that haven't been sent yet, which read it when they send. A
      * status's {@code Create} then carries its latest edit, since a server that doesn't have the status yet can ignore the
-     * {@code Update}, as Mastodon does. Does nothing if the activity isn't queued any more.
+     * {@code Update}, as Mastodon does. Does nothing if the activity isn't queued any more. The new body gets a proof of
+     * its own, from the same actor.
      */
     public void replaceBody(String activityId, String body) {
+        var stored = jdbc.sql("SELECT actor_id FROM outbound_activity WHERE activity_id = :id")
+                .param("id", activityId)
+                .query((row, n) -> Optional.ofNullable(row.getObject("actor_id", UUID.class)))
+                .optional();
+        if (stored.isEmpty()) {
+            return;
+        }
         jdbc.sql("UPDATE outbound_activity SET body = :body WHERE activity_id = :id")
                 .param("id", activityId)
-                .param("body", body)
+                .param("body", proofs.sign(body, stored.get().orElse(null)))
                 .update();
     }
 

@@ -463,7 +463,8 @@ class StatusDeliveryIntegrationTests {
         assertThat(delete.request().path()).isEqualTo("/users/bob/inbox");
         assertThat(delete.request().signature()).contains("keyId=\"" + author.uri() + "#main-key\"");
         var body = delete.body();
-        assertThat(body.path("@context").stringValue()).isEqualTo("https://www.w3.org/ns/activitystreams");
+        assertThat(body.path("@context").path(0).stringValue()).isEqualTo("https://www.w3.org/ns/activitystreams");
+        assertThat(body.path("@context").path(1).stringValue()).isEqualTo("https://w3id.org/security/data-integrity/v2");
         assertThat(body.path("id").stringValue()).isEqualTo(status.uri() + "#delete");
         assertThat(body.path("type").stringValue()).isEqualTo("Delete");
         assertThat(body.path("actor").stringValue()).isEqualTo(author.uri().toString());

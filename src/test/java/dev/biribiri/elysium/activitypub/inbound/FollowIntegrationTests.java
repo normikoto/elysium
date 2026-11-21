@@ -107,7 +107,9 @@ class FollowIntegrationTests {
         assertThat(accept.path("type").stringValue()).isEqualTo("Accept");
         assertThat(accept.path("actor").stringValue()).isEqualTo(followed.uri().toString());
         assertThat(accept.path("id").stringValue()).startsWith(followed.uri() + "#accepts/follows/").doesNotContain(followId);
-        assertThat(accept.path("@context").stringValue()).isEqualTo("https://www.w3.org/ns/activitystreams");
+        assertThat(accept.path("@context").path(0).stringValue()).isEqualTo("https://www.w3.org/ns/activitystreams");
+        assertThat(accept.path("@context").path(1).stringValue()).isEqualTo("https://w3id.org/security/data-integrity/v2");
+        assertThat(accept.path("proof").path("proofValue").isString()).isTrue();
         var inner = accept.path("object");
         assertThat(inner.path("id").stringValue()).isEqualTo(followId);
         assertThat(inner.path("type").stringValue()).isEqualTo("Follow");

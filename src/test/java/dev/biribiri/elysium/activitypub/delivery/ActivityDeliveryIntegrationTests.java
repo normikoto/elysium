@@ -27,6 +27,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import javax.sql.DataSource;
 import java.io.IOException;
@@ -66,6 +68,7 @@ class ActivityDeliveryIntegrationTests {
 
     private static final Duration WAIT = Duration.ofSeconds(30);
     private static final AtomicInteger nextHost = new AtomicInteger();
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Autowired
     private ActivityDeliveries deliveries;
@@ -245,7 +248,7 @@ class ActivityDeliveryIntegrationTests {
         await().atMost(WAIT).until(() -> receivedBy(other).size() == 1 && jobs(queuedAfter) == 0);
         await().atMost(WAIT).until(() -> jobs(queuedBefore) == 0);
         // The first can have started before the suspension. The second can't.
-        assertThat(receivedBy(host).stream().filter(request -> request.body().equals(queuedAfter.body()))).isEmpty();
+        assertThat(receivedBy(host).stream().filter(request -> request.body().contains(queuedAfter.id()))).isEmpty();
     }
 
     @Test
@@ -286,11 +289,43 @@ class ActivityDeliveryIntegrationTests {
 
         await().atMost(WAIT).until(() -> receivedBy(host).size() == 1 && jobs(activity) == 0);
         var request = receivedBy(host).getFirst();
-        assertThat(request.body()).isEqualTo(activity.body());
+        var sent = (ObjectNode) JSON.readTree(request.body());
+        assertThat(sent.get("proof").get("verificationMethod").stringValue()).endsWith("/users/deliverer#ed25519-key");
+        sent.remove("proof");
+        sent.remove("@context");
+        assertThat(sent).isEqualTo(JSON.readTree(activity.body()));
         assertThat(request.header("Content-Type")).isEqualTo("application/activity+json");
         assertThat(request.header("Signature")).contains("keyId=\"", "/users/deliverer#main-key\"");
-        var digest = MessageDigest.getInstance("SHA-256").digest(activity.body().getBytes(StandardCharsets.UTF_8));
+        var digest = MessageDigest.getInstance("SHA-256").digest(request.body().getBytes(StandardCharsets.UTF_8));
         assertThat(request.header("Digest")).isEqualTo("SHA-256=" + Base64.getEncoder().encodeToString(digest));
+    }
+
+    @Test
+    void aReplacedBodyGetsAProofOfItsOwn() {
+        var activity = activity();
+        var replacement = "{\"id\":\"" + activity.id() + "\",\"text\":\"edited\"}";
+
+        var bodies = transactions.execute(status -> {
+            deliveries.enqueue(activity, List.of(inboxOn(newHost())));
+            var before = storedBody(activity);
+            deliveries.replaceBody(activity.id(), replacement);
+            // So that nothing is sent.
+            status.setRollbackOnly();
+            return List.of(before, storedBody(activity));
+        });
+
+        var before = (ObjectNode) JSON.readTree(bodies.get(0));
+        var after = (ObjectNode) JSON.readTree(bodies.get(1));
+        assertThat(after.get("text").stringValue()).isEqualTo("edited");
+        assertThat(after.get("proof").get("verificationMethod")).isEqualTo(before.get("proof").get("verificationMethod"));
+        assertThat(after.get("proof").get("proofValue")).isNotEqualTo(before.get("proof").get("proofValue"));
+    }
+
+    private String storedBody(OutboundActivity activity) {
+        return jdbc.sql("SELECT body FROM outbound_activity WHERE activity_id = :id")
+                .param("id", activity.id())
+                .query(String.class)
+                .single();
     }
 
     @Test
