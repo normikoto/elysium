@@ -13,6 +13,7 @@ import dev.biribiri.elysium.content.PostingDefaults;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.graph.AccountLists;
+import dev.biribiri.elysium.graph.AccountMemos;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowNotAllowedException;
@@ -80,6 +81,12 @@ public class AccountsController {
      */
     private static final long MAX_MUTE_BODY_BYTES = 4 * 1024;
 
+    /**
+     * Room for the longest memo in JSON, where each character can be written as two six-byte Unicode escapes. Only JSON
+     * bodies are counted against it, and Tomcat's own limit covers forms.
+     */
+    private static final long MAX_MEMO_BODY_BYTES = 64 * 1024;
+
     private static final String FOLLOW_LIMIT =
             "How many to return. Values outside 1 to " + FollowPage.MAX_LIMIT + " are clamped to them.";
 
@@ -98,6 +105,7 @@ public class AccountsController {
     private final PostingDefaults postingDefaults;
     private final StatusPinService pins;
     private final AccountLists lists;
+    private final AccountMemos memos;
 
     AccountsController(
             ActorService actors,
@@ -114,7 +122,9 @@ public class AccountsController {
             ProfileService profiles,
             PostingDefaults postingDefaults,
             StatusPinService pins,
-            AccountLists lists) {
+            AccountLists lists,
+            AccountMemos memos) {
+        this.memos = memos;
         this.lists = lists;
         this.pins = pins;
         this.profiles = profiles;
@@ -547,6 +557,55 @@ public class AccountsController {
         return relationship(owner.id(), target.id());
     }
 
+    /**
+     * Read from a form, the query, or a JSON body, as a mute is.
+     */
+    @PostMapping("/{id}/note")
+    @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
+    @Operation(
+            operationId = "noteAccount",
+            summary = "Set a private note on an account",
+            description = """
+                    Replaces the user's note about the account, which only the user sees, in `note` on the \
+                    relationship. An empty or missing `comment` removes it. Nothing is sent to other servers. The user \
+                    can write one about their own account, as on Mastodon.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#note"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The relationship with the account."),
+                    @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
+                    @ApiResponse(responseCode = "413", description = "The body is too large."),
+                    @ApiResponse(responseCode = "422", description = """
+                            The note is too long, isn't text, or has a NUL character or an unpaired surrogate, or the \
+                            token has no user.""")
+            })
+    @RequestBody(content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = MemoBody.class)))
+    public RelationshipResponse note(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            HttpServletRequest request) throws IOException {
+        var owner = viewerAccount(token);
+        var target = activeAccount(id);
+        var comment = switch (json.readAny(request, MAX_MEMO_BODY_BYTES).get("comment")) {
+            case null -> "";
+            case String text -> text;
+            default -> throw new InvalidRequestException("Validation failed: comment must be text");
+        };
+        // A blank one removes the memo whatever its length, as on Mastodon.
+        if (!comment.isBlank() && !AccountMemos.isStorable(comment)) {
+            throw new InvalidRequestException(
+                    "Validation failed: comment can't contain NUL characters or unpaired surrogates");
+        }
+        if (!comment.isBlank() && AccountMemos.isTooLong(comment)) {
+            throw new InvalidRequestException("Validation failed: comment is too long (maximum is "
+                    + AccountMemos.MAX_LENGTH + " characters)");
+        }
+        memos.set(owner.id(), target.id(), comment);
+        return relationship(owner.id(), target.id());
+    }
+
     @ExceptionHandler
     ResponseEntity<Map<String, String>> notAllowed(FollowNotAllowedException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This action is not allowed"));
@@ -798,6 +857,15 @@ public class AccountsController {
             Boolean notifications,
             @Schema(description = "How many seconds the mute lasts. 0 or none is until it's lifted.", defaultValue = "0")
             Long duration) {
+    }
+
+    /**
+     * The schema keeps Mastodon's name for the entity.
+     */
+    @Schema(name = "AccountNote")
+    private record MemoBody(
+            @Schema(description = "The note, as plain text. Empty or none removes it.", maxLength = AccountMemos.MAX_LENGTH)
+            String comment) {
     }
 
     @Schema(name = "AccountCredentialsField")

@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quote policy can be changed so far. See `docs/api.md`.
 - People can mute a thread from apps that support it, through the Mastodon API's `POST /api/v1/statuses/:id/mute` and
   `/unmute`, to stop getting notifications about its posts. See `docs/api.md`.
+- Private notes on accounts, as on Mastodon, for apps that support them. Only the person who writes a note sees it, and
+  it's never sent to other servers. See `docs/api.md`.
 
 ## [0.3.0] - 2026-11-20
 

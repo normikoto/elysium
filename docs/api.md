@@ -670,7 +670,7 @@ Only these exist:
 
 - `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `:id/statuses`, `:id/followers`, and
   `:id/following`
-- `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/block`, `/unblock`, `/mute`, and `/unmute`
+- `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/block`, `/unblock`, `/mute`, `/unmute`, and `/note`
 - `PATCH /api/v1/accounts/update_credentials`
 - `DELETE /api/v1/profile/avatar` and `/api/v1/profile/header`
 - `GET /api/v1/follow_requests`, and `POST /api/v1/follow_requests/:account_id/authorize` and `/reject`
@@ -732,8 +732,9 @@ Only these exist:
   blocks the other, or on a server the user has blocked, gets a 403, as on Mastodon.
 - `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true
   whenever `following` or `requested` is.
-- Notes, endorsements, and notifications of new statuses don't exist, so `note`, `endorsed`, and `notifying` are always
-  empty or false.
+- Endorsements and notifications of new statuses don't exist, so `endorsed` and `notifying` are always false.
+- `POST /api/v1/accounts/:id/note` reads `comment` from the query, a form, or JSON, and gets a 422 if it isn't text, is
+  longer than 2,000 characters, or has a NUL character or an unpaired surrogate.
 - `GET /api/v1/follow_requests` pages by the request, like `:id/followers`, and leaves out suspended and deleted
   accounts. `authorize` and `reject` get a 404 when that account has no request waiting.
 - `:id/followers` and `:id/following` page by the follow, so a cursor from a follow that's since been removed gives an
