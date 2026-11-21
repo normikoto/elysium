@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.outbound;
+package dev.biribiri.elysium.jobs;
 
 import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
@@ -13,14 +13,15 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 
 /**
- * Tries again for events whose listener failed, or whose node stopped before it finished, since otherwise those statuses
- * would never be sent. This is a recurring job, rather than Spring Modulith's option to do this at startup, because that
- * would also run in commands, and on every node that starts. This only runs on one node at a time, and never in a command.
+ * Tries again for events whose listener failed, or whose node stopped before it finished, in any module, since otherwise
+ * what the listener does, such as sending a status to other servers, would never happen. This is a recurring job, rather
+ * than Spring Modulith's option to do this at startup, because that would also run in commands, and on every node that
+ * starts. This only runs on one node at a time, and never in a command.
  *
  * <p>A listener can end up running twice for an event that's only slow, so listeners have to be safe to repeat.
  */
 @Configuration(proxyBeanMethods = false)
-class EventRetries {
+public class EventRetries {
 
     private static final Duration EVERY = Duration.ofMinutes(5);
     private static final Duration RETRY_AFTER = Duration.ofMinutes(5);
@@ -43,7 +44,10 @@ class EventRetries {
         return Tasks.recurring("event-retry", FixedDelay.of(EVERY)).execute((instance, context) -> retry());
     }
 
-    void retry() {
+    /**
+     * Tries again now, as the recurring job does.
+     */
+    public void retry() {
         // Retrying skips what's marked as being retried, so these would otherwise stay stuck.
         jdbc.sql("UPDATE event_publication SET status = 'FAILED' WHERE status = 'RESUBMITTED' AND last_resubmission_date < :before")
                 .param("before", Instant.now().minus(ABANDONED_AFTER).atOffset(ZoneOffset.UTC))

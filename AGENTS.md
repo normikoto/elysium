@@ -40,7 +40,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `media`       | Uploaded files, kept on disk               | nothing                                        |
 | `mail`        | Sending email over SMTP                    | nothing                                        |
 | `text`        | Rendering plain text as HTML               | nothing                                        |
-| `jobs`        | Background jobs, and how they retry        | nothing                                        |
+| `jobs`        | Background jobs, and retrying event listeners | nothing                                     |
 | `actor`       | Local and remote actors, profiles, keys    | `jobs`, `media`, `text`                        |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `moderation`, `ratelimit`     |

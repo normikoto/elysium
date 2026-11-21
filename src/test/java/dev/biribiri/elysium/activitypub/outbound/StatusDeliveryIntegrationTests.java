@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.outbound;
 
 import com.sun.net.httpserver.HttpServer;
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.jobs.EventRetries;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.LoopbackClients;
 import dev.biribiri.elysium.actor.Actor;
