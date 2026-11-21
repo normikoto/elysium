@@ -109,7 +109,10 @@ public class Inbox {
         URI speaker = signer.owner();
         if (!signer.owner().toString().equals(envelope.actor())) {
             var actor = ActivityObject.parseUri(envelope.actor());
-            if (actor.isEmpty() || !proofs.isSignedBy((ObjectNode) json.readTree(envelope.body()), actor.get(), budget)) {
+            // A server that's over its limit is refused either way, so its proofs aren't worth checking.
+            if (actor.isEmpty()
+                    || !limits.hasRoom(signer.owner())
+                    || !proofs.isSignedBy((ObjectNode) json.readTree(envelope.body()), actor.get(), budget)) {
                 // Before the ID is read, because a forwarder isn't to blame for what's in the activity it passes on.
                 return forwarded(signer, envelope, body.length);
             }

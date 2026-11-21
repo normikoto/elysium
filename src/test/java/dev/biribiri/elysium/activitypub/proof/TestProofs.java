@@ -20,7 +20,14 @@ public final class TestProofs {
      * @param key an Ed25519 key, whose ID becomes the proof's {@code verificationMethod}
      */
     public static String sign(String activity, SigningKey key) {
-        var signed = DataIntegrityProofs.addProof((ObjectNode) JSON.readTree(activity), key, Instant.now());
+        return sign(activity, key, Instant.now());
+    }
+
+    /**
+     * @param created when the proof says it was made
+     */
+    public static String sign(String activity, SigningKey key, Instant created) {
+        var signed = DataIntegrityProofs.addProof((ObjectNode) JSON.readTree(activity), key, created);
         return JSON.writeValueAsString(signed);
     }
 }

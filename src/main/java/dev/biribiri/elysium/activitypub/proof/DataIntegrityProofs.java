@@ -20,7 +20,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * Adds and checks integrity proofs with the {@code eddsa-jcs-2022} cryptosuite, from W3C's Data Integrity EdDSA
@@ -72,9 +74,10 @@ final class DataIntegrityProofs {
      * A proof whose key still has to be found.
      *
      * @param verificationMethod the ID of the key that made it
+     * @param created            when it says it was made, or null if it doesn't say
      * @param signature          whether a key made it
      */
-    record Candidate(String verificationMethod, Predicate<PublicKey> signature) {
+    record Candidate(String verificationMethod, Instant created, Predicate<PublicKey> signature) {
     }
 
     /**
@@ -108,14 +111,10 @@ final class DataIntegrityProofs {
         if (!isCurrent(proof, now)) {
             return Optional.empty();
         }
-        var document = unsecured.deepCopy();
         var options = proof.deepCopy();
         var proofValue = options.remove("proofValue").stringValue();
-        if (options.has("@context")) {
-            if (!startsWith(secured.get("@context"), options.get("@context"))) {
-                return Optional.empty();
-            }
-            document.set("@context", options.get("@context"));
+        if (options.has("@context") && !startsWith(secured.get("@context"), options.get("@context"))) {
+            return Optional.empty();
         }
         byte[] signature;
         try {
@@ -126,15 +125,44 @@ final class DataIntegrityProofs {
         } catch (IllegalArgumentException e) {
             return Optional.empty();
         }
-        byte[] hashData;
-        try {
-            hashData = hashData(options, document);
-        } catch (IllegalArgumentException e) {
-            // JSON that RFC 8785 can't canonicalize, which the signer couldn't have signed either.
-            return Optional.empty();
-        }
         var verificationMethod = options.get("verificationMethod").stringValue();
-        return Optional.of(new Candidate(verificationMethod, key -> verifies(hashData, signature, key)));
+        var hashData = lazyHashData(options, unsecured);
+        return Optional.of(new Candidate(
+                verificationMethod,
+                created(proof),
+                key -> hashData.get().filter(data -> verifies(data, signature, key)).isPresent()));
+    }
+
+    /**
+     * Each hash covers the whole document, and a document can list any number of proofs, so it's only worked out for one
+     * whose key has been found, and only once.
+     *
+     * @return the hash, or empty for JSON that RFC 8785 can't canonicalize, which the signer couldn't have signed either
+     */
+    private static Supplier<Optional<byte[]>> lazyHashData(ObjectNode options, ObjectNode unsecured) {
+        var result = new AtomicReference<Optional<byte[]>>();
+        return () -> {
+            if (result.get() == null) {
+                var document = unsecured;
+                if (options.has("@context")) {
+                    document = unsecured.deepCopy();
+                    document.set("@context", options.get("@context"));
+                }
+                try {
+                    result.set(Optional.of(hashData(options, document)));
+                } catch (IllegalArgumentException e) {
+                    result.set(Optional.empty());
+                }
+            }
+            return result.get();
+        };
+    }
+
+    /**
+     * @return the proof's {@code created}, which {@link #isCurrent} has already found to be valid if it's there
+     */
+    private static Instant created(ObjectNode proof) {
+        return proof.has("created") ? OffsetDateTime.parse(proof.get("created").asString()).toInstant() : null;
     }
 
     /**

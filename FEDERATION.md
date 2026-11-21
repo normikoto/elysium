@@ -1668,8 +1668,9 @@ these are true, and otherwise the activity is fetched from its origin, as if it 
   with the `actor` as its `controller`. It's looked up as an HTTP signature's key is, so it has to be on the `actor`'s
   host, and the key has to be in the document, rather than only its ID. A key that's only in `assertionMethod` isn't
   accepted for HTTP signatures, and a key in `publicKey` isn't accepted for proofs.
-- `created`, if it's there, is no more than an hour ahead of this server's clock, and `expires`, if it's there, is no more
-  than an hour behind it.
+- `created` is there, no more than an hour ahead of this server's clock, and less than about 34 days old, since a repeat
+  of an older activity, such as a deleted post's `Create`, might no longer be recognized. `expires`, if it's there, is no
+  more than an hour behind the clock.
 - If the proof has a `@context`, the activity's `@context` starts with the same entries.
 - The signature matches the activity, without its `proof`, and without any `signature`, which FEP-8b32 has made after the
   proof.

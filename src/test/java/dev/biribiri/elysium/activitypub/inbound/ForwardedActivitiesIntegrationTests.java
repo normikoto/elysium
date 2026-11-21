@@ -4,6 +4,7 @@ import dev.biribiri.elysium.activitypub.signature.TestBudgets;
 import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;
 import dev.biribiri.elysium.activitypub.proof.TestProofs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentStubs;
@@ -35,6 +36,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
@@ -44,6 +46,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -436,6 +439,30 @@ class ForwardedActivitiesIntegrationTests {
         assertThat(forwardedJobs()).isOne();
     }
 
+    /**
+     * By then, a repeat of it might no longer be recognized, so an activity that's since been undone could come back.
+     */
+    @Test
+    void fetchesAnActivityWhoseProofIsOlderThanActivitiesAreKept() throws Exception {
+        var key = proofKeyOf(actor);
+        var old = Instant.now().minus(ActivityJobs.ACTIVITIES_KEPT);
+
+        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key, old));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
+        assertThat(stored()).isZero();
+    }
+
+    @Test
+    void storesAnActivityWhoseProofIsNearlyAsOldAsActivitiesAreKept() throws Exception {
+        var key = proofKeyOf(actor);
+        var old = Instant.now().minus(ActivityJobs.ACTIVITIES_KEPT).plus(Duration.ofHours(2));
+
+        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key, old));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
+    }
+
     @Test
     void fetchesAnActivityThatWasChangedAfterItsProofWasMade() throws Exception {
         var key = proofKeyOf(actor);
@@ -477,6 +504,20 @@ class ForwardedActivitiesIntegrationTests {
 
         assertThat(result.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
         assertThat(stored()).isZero();
+    }
+
+    @Test
+    void doesNotCheckAProofFromAServerThatIsOverItsLimit() throws Exception {
+        var key = proofKeyOf(actor);
+        for (var i = 0; i < 3; i++) {
+            receive(activity("https://" + origin + "/activities/" + UUID.randomUUID(), actor, "filler"));
+        }
+        clearInvocations(documents);
+
+        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key));
+
+        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.RATE_LIMITED);
+        DocumentStubs.assertNoKeyLookups(documents);
     }
 
     /**

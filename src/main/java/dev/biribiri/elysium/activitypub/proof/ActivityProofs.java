@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.proof;
 
 import dev.biribiri.elysium.activitypub.http.HostHeader;
+import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;
 import dev.biribiri.elysium.activitypub.signature.KeyFetchBudget;
 import dev.biribiri.elysium.activitypub.signature.ProofKeys;
 import dev.biribiri.elysium.actor.ActorService;
@@ -16,6 +17,7 @@ import tools.jackson.databind.node.ObjectNode;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -41,6 +43,13 @@ public class ActivityProofs {
      * FEP-8b32 says an object shouldn't have more than one proof, and each one can cost a key fetch.
      */
     private static final int MAX_PROOFS_CHECKED = 2;
+
+    /**
+     * Anyone who's been sent an activity can pass it on again, and a repeat is only recognized while the first one's ID is
+     * still stored, so an older proof could bring back an activity whose effect has since been undone, such as a deleted
+     * post. The original arrived no earlier than an hour before its {@code created}, as far as this server's clock goes.
+     */
+    private static final Duration MAX_PROOF_AGE = ActivityJobs.ACTIVITIES_KEPT.minusHours(1);
 
     private final ActorService actors;
     private final ActorSigningKeys signingKeys;
@@ -79,7 +88,8 @@ public class ActivityProofs {
 
     /**
      * Whether the activity has a valid proof made with one of its actor's keys. An activity with no proof, or only proofs
-     * that can't be checked, isn't, and the caller has to fall back on something else. This blocks while fetching the
+     * that can't be checked or don't say when they were made within {@link #MAX_PROOF_AGE}, isn't, and the caller has to
+     * fall back on something else. This blocks while fetching the
      * actor's key, so it mustn't be called inside a database transaction.
      *
      * @param actor  the activity's {@code actor}
@@ -89,7 +99,10 @@ public class ActivityProofs {
         if (!activity.has("proof")) {
             return false;
         }
-        return DataIntegrityProofs.candidates(activity, clock.instant()).stream()
+        var now = clock.instant();
+        return DataIntegrityProofs.candidates(activity, now).stream()
+                .filter(candidate -> candidate.created() != null
+                        && candidate.created().isAfter(now.minus(MAX_PROOF_AGE)))
                 // A key on another server can't be the actor's, so it isn't worth a fetch.
                 .filter(candidate -> isOnServerOf(candidate.verificationMethod(), actor))
                 .limit(MAX_PROOFS_CHECKED)

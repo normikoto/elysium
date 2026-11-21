@@ -5,7 +5,10 @@ import tools.jackson.databind.JsonNode;
 import java.net.URI;
 
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * Stubs for tests outside this package, which can't reach the uncounted fetches that key lookups make.
@@ -28,5 +31,12 @@ public final class DocumentStubs {
      */
     public static void actor(ActivityDocuments documents, URI id, JsonNode document) throws DocumentFetchException {
         doReturn(document).when(documents).fetchUncounted(id);
+    }
+
+    /**
+     * Checks that a spy or mock wasn't asked for any document to look up a key.
+     */
+    public static void assertNoKeyLookups(ActivityDocuments documents) throws DocumentFetchException {
+        verify(documents, never()).fetchUncounted(any());
     }
 }

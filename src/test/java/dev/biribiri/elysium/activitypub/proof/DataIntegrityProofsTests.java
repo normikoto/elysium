@@ -188,6 +188,15 @@ class DataIntegrityProofsTests {
     }
 
     @Test
+    void saysWhenAProofWasMadeIfItSays() throws Exception {
+        var undated = signed();
+        ((ObjectNode) undated.get("proof")).remove("created");
+
+        assertThat(DataIntegrityProofs.candidates(signed(), NOW).getFirst().created()).isEqualTo(CREATED);
+        assertThat(DataIntegrityProofs.candidates(undated, NOW).getFirst().created()).isNull();
+    }
+
+    @Test
     void findsNoProofsInADocumentWithout() throws Exception {
         assertThat(DataIntegrityProofs.candidates((ObjectNode) JSON.readTree(resource("w3c-unsigned.json")), NOW)).isEmpty();
     }
