@@ -4,6 +4,7 @@ import com.networknt.schema.InputFormat;
 import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
+import dev.biribiri.elysium.activitypub.vocab.Multikey;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceActor;
@@ -23,6 +24,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
@@ -128,6 +130,14 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.endpoints.sharedInbox").value("https://elysium.example/inbox"))
                 .andExpect(jsonPath("$.publicKey.id").value(ACTOR_URI + "#main-key"))
                 .andExpect(jsonPath("$.publicKey.owner").value(ACTOR_URI))
+                .andExpect(jsonPath("$.assertionMethod.length()").value(1))
+                .andExpect(jsonPath("$.assertionMethod[0].id").value(ACTOR_URI + "#ed25519-key"))
+                .andExpect(jsonPath("$.assertionMethod[0].type").value("Multikey"))
+                .andExpect(jsonPath("$.assertionMethod[0].controller").value(ACTOR_URI))
+                .andExpect(jsonPath("$.assertionMethod[0].publicKeyMultibase").value(multibase(
+                        actors.findProofPublicKeyPem(actors.findLocalByUsername("admin").orElseThrow()).orElseThrow())))
+                .andExpect(jsonPath("$['@context'][3].assertionMethod['@id']")
+                        .value("https://w3id.org/security#assertionMethod"))
                 .andReturn().getResponse().getContentAsString();
 
         var pem = com.jayway.jsonpath.JsonPath.<String>read(body, "$.publicKey.publicKeyPem");
@@ -156,6 +166,12 @@ class DiscoveryIntegrationTests {
                 .andExpect(jsonPath("$.publicKey.id").value(INSTANCE_ACTOR_URI + "#main-key"))
                 .andExpect(jsonPath("$.publicKey.owner").value(INSTANCE_ACTOR_URI))
                 .andExpect(jsonPath("$.publicKey.publicKeyPem").value(actors.instanceActor().publicKeyPem()))
+                .andExpect(jsonPath("$.assertionMethod[0].id").value(INSTANCE_ACTOR_URI + "#ed25519-key"))
+                .andExpect(jsonPath("$.assertionMethod[0].type").value("Multikey"))
+                .andExpect(jsonPath("$.assertionMethod[0].controller").value(INSTANCE_ACTOR_URI))
+                .andExpect(jsonPath("$.assertionMethod[0].publicKeyMultibase")
+                        .value(multibase(actors.instanceActor().proofPublicKeyPem())))
+                .andExpect(jsonPath("$['@context'][2].Multikey").value("https://w3id.org/security#Multikey"))
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).doesNotContain("PRIVATE KEY");
@@ -404,6 +420,13 @@ class DiscoveryIntegrationTests {
         var schema = new ClassPathResource("nodeinfo/schema-" + version + ".json");
         return SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_4)
                 .getSchema(schema.getContentAsString(StandardCharsets.UTF_8), InputFormat.JSON);
+    }
+
+    /**
+     * {@code MultikeyTests} checks the encoding itself.
+     */
+    private static String multibase(String publicKeyPem) {
+        return Multikey.ed25519("unused", URI.create("https://elysium.example/unused"), publicKeyPem).publicKeyMultibase();
     }
 
     private String publicKey() {

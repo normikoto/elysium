@@ -23,6 +23,8 @@ import java.util.List;
  * @param attachment the profile's fields, as Mastodon sends them
  * @param tag        the hashtags in the bio, and the custom emoji in the profile, as Mastodon sends them, left out if there
  *                   are none
+ * @param assertionMethod the Ed25519 key that checks the actor's integrity proofs, as FEP-521a has it, or left out if the
+ *                   actor has none
  * @param featured   the collection of pinned statuses, left out while the actor is suspended, since it can't be read then
  * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them, left out of a
  *                   {@linkplain #minimal minimal} document, since a false one would say the actor isn't locked
@@ -50,6 +52,7 @@ public record Person(
         URI featured,
         Endpoints endpoints,
         PublicKey publicKey,
+        List<Multikey> assertionMethod,
         Image icon,
         Image image,
         List<PropertyValue> attachment,
@@ -101,9 +104,11 @@ public record Person(
     }
 
     /**
-     * @param emojis this server's custom emoji that the profile names
+     * @param emojis       this server's custom emoji that the profile names
+     * @param proofKeyPem  the actor's Ed25519 public key, or null if it has none
      */
-    public static Person from(Actor actor, Profile profile, Collection<CustomEmoji> emojis, InstanceProperties instance) {
+    public static Person from(
+            Actor actor, Profile profile, Collection<CustomEmoji> emojis, String proofKeyPem, InstanceProperties instance) {
         var tags = new ArrayList<Tag>(Hashtag.of(profile.hashtags(), instance));
         tags.addAll(Emoji.of(emojis, instance));
         return new Person(
@@ -122,6 +127,7 @@ public record Person(
                 featuredOf(actor),
                 new Endpoints(instance.sharedInboxUri()),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
+                assertionMethod(actor, proofKeyPem),
                 Image.of(profile.avatar(), instance),
                 Image.of(profile.header(), instance),
                 profile.fields().isEmpty()
@@ -143,16 +149,17 @@ public record Person(
      * What's served for a suspended actor. It keeps its key, so that other servers can check its signature on the activity
      * saying this, and so that the actor is still there to come back. Its profile isn't shown, as Mastodon does.
      */
-    public static Person suspended(Actor actor, InstanceProperties instance) {
-        return from(actor, Profile.EMPTY, List.of(), instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, true);
+    public static Person suspended(Actor actor, String proofKeyPem, InstanceProperties instance) {
+        return from(actor, Profile.EMPTY, List.of(), proofKeyPem, instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, true);
     }
 
     /**
      * What's served to an unsigned request when signed fetches are required. It keeps the key, because some servers fetch
-     * a key without signing, and this server's deliveries are only accepted once the key can be read. It's what Mastodon
-     * serves then, with the collections' URIs, which say nothing that the actor's URI doesn't.
+     * a key without signing, and this server's deliveries are only accepted once the key can be read. That goes for the
+     * Ed25519 key too, which a server needs to check an activity's integrity proof. Otherwise it's what Mastodon serves
+     * then, with the collections' URIs, which say nothing that the actor's URI doesn't.
      */
-    public static Person minimal(Actor actor, InstanceProperties instance) {
+    public static Person minimal(Actor actor, String proofKeyPem, InstanceProperties instance) {
         return new Person(
                 actor.isSuspended() ? ActivityStreams.SUSPENDED_ACTOR_CONTEXT : ActivityStreams.ACTOR_CONTEXT,
                 actor.uri(),
@@ -168,6 +175,7 @@ public record Person(
                 null,
                 new Endpoints(instance.sharedInboxUri()),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
+                assertionMethod(actor, proofKeyPem),
                 null,
                 null,
                 null,
@@ -181,6 +189,10 @@ public record Person(
                 actor.isSuspended() ? true : null);
     }
 
+    private static List<Multikey> assertionMethod(Actor actor, String proofKeyPem) {
+        return proofKeyPem == null ? null : List.of(Multikey.ed25519(actor.proofKeyId(), actor.uri(), proofKeyPem));
+    }
+
     /**
      * This document as part of an activity, which has the {@code @context} for both.
      */
@@ -192,7 +204,7 @@ public record Person(
         return new Person(
                 context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, featured,
                 endpoints,
-                publicKey, icon, image, attachment, tag, manuallyApprovesFollowers, indexable, published, updated,
+                publicKey, assertionMethod, icon, image, attachment, tag, manuallyApprovesFollowers, indexable, published, updated,
                 alsoKnownAs, movedTo, suspended);
     }
 }

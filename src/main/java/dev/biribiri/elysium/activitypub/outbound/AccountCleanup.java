@@ -5,7 +5,6 @@ import dev.biribiri.elysium.activitypub.delivery.OutboundActivity;
 import dev.biribiri.elysium.activitypub.delivery.OutboundActivity.WhileSuspended;
 import dev.biribiri.elysium.activitypub.vocab.Delete;
 import dev.biribiri.elysium.activitypub.vocab.Follow;
-import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.activitypub.vocab.Undo;
 import dev.biribiri.elysium.activitypub.vocab.Update;
 import dev.biribiri.elysium.actor.AccountCleanups;
@@ -14,7 +13,6 @@ import dev.biribiri.elysium.actor.AccountSuspended;
 import dev.biribiri.elysium.actor.AccountUnsuspended;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -42,7 +40,6 @@ public class AccountCleanup {
     private final ActivityDeliveries deliveries;
     private final AccountCleanups cleanups;
     private final JsonMapper json;
-    private final InstanceProperties instance;
     private final Persons persons;
 
     AccountCleanup(
@@ -51,9 +48,7 @@ public class AccountCleanup {
             ActivityDeliveries deliveries,
             AccountCleanups cleanups,
             JsonMapper json,
-            InstanceProperties instance,
             Persons persons) {
-        this.instance = instance;
         this.persons = persons;
         this.actors = actors;
         this.follows = follows;
@@ -73,7 +68,7 @@ public class AccountCleanup {
             return;
         }
         if (actors.isLocal(actor.get())) {
-            announce(actor.get(), Update.of(Person.suspended(actor.get(), instance), "suspended", event.at()));
+            announce(actor.get(), Update.of(persons.suspended(actor.get()), "suspended", event.at()));
         } else {
             cleanups.queue(event.actorId(), event.at().toString());
         }
