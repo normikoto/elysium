@@ -1,12 +1,12 @@
 package dev.biribiri.elysium.content.internal;
 
 import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Indexable;
 import dev.biribiri.elysium.content.AccountStats;
 import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.DeletedStatus;
 import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.content.Visibility;
@@ -728,7 +728,7 @@ public class StatusRepository {
      */
     public List<Status> findByAccount(
             UUID actorId, Collection<Visibility> visibilities, UUID viewer, boolean excludeReplies,
-            boolean excludeReblogs, boolean onlyMedia, StatusPage page) {
+            boolean excludeReblogs, boolean onlyMedia, IdPage page) {
         var parameters = new HashMap<String, Object>();
         parameters.put("actorId", actorId);
         parameters.put("visibilities", visibilities.stream().map(Visibility::value).toList());
@@ -916,7 +916,7 @@ public class StatusRepository {
      *                  nothing rather than failing
      * @param accountId only find this account's statuses, or null for anyone's
      */
-    public List<Status> search(UUID viewer, String query, UUID accountId, StatusPage page, int offset) {
+    public List<Status> search(UUID viewer, String query, UUID accountId, IdPage page, int offset) {
         var parameters = new HashMap<String, Object>();
         parameters.put("viewer", viewer);
         parameters.put("query", query);
@@ -1026,34 +1026,18 @@ public class StatusRepository {
                 .single();
     }
 
-    private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page) {
+    private List<Status> findPage(String filter, Map<String, ?> parameters, IdPage page) {
         return findPage(filter, parameters, page, 0);
     }
 
-    private List<Status> findPage(String filter, Map<String, ?> parameters, StatusPage page, int offset) {
-        var sql = new StringBuilder(SELECT).append("WHERE ").append(filter);
-        var cursors = new HashMap<String, Object>(parameters);
-        if (page.maxId() != null) {
-            sql.append(" AND s.id < :maxId");
-            cursors.put("maxId", page.maxId());
-        }
-        // Predicates are only added when needed, because PostgreSQL can't determine the type of a null parameter.
-        var ascending = page.minId() != null;
-        if (ascending) {
-            sql.append(" AND s.id > :minId");
-            cursors.put("minId", page.minId());
-        } else if (page.sinceId() != null) {
-            sql.append(" AND s.id > :sinceId");
-            cursors.put("sinceId", page.sinceId());
-        }
-        sql.append(ascending ? " ORDER BY s.id ASC" : " ORDER BY s.id DESC").append(" LIMIT :limit");
-        cursors.put("limit", page.limit());
+    private List<Status> findPage(String filter, Map<String, ?> parameters, IdPage page, int offset) {
+        var bound = new HashMap<String, Object>(parameters);
+        var sql = new StringBuilder(SELECT).append("WHERE ").append(filter)
+                .append(page.cursors("s.id", bound)).append(page.orderAndLimit("s.id", bound));
         if (offset > 0) {
             sql.append(" OFFSET :offset");
-            cursors.put("offset", offset);
+            bound.put("offset", offset);
         }
-
-        var statuses = jdbc.sql(sql.toString()).params(cursors).query(STATUS_MAPPER).list();
-        return ascending ? statuses.reversed() : statuses;
+        return page.newestFirst(jdbc.sql(sql.toString()).params(bound).query(STATUS_MAPPER).list());
     }
 }

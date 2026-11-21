@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.internal.BoostRepository;
 import dev.biribiri.elysium.content.internal.LikeRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
@@ -221,7 +222,7 @@ public class BoostService {
      * Accounts are left out for a viewer as in {@link LikeService#likers}. Whether the status can be seen is the
      * caller's to check.
      */
-    public List<StatusBoost> boosters(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+    public List<StatusBoost> boosters(UUID statusId, Optional<UUID> viewer, IdPage page) {
         return boosts.pagePublic(statusId, viewer, page);
     }
 

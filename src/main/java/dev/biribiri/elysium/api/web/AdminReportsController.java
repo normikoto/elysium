@@ -1,12 +1,10 @@
 package dev.biribiri.elysium.api.web;
 
-import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.Report;
-import dev.biribiri.elysium.moderation.ReportPage;
 import dev.biribiri.elysium.moderation.Reports;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -85,8 +83,8 @@ public class AdminReportsController {
                     @Parameter(name = "account_id", description = "Only reports filed by this account."),
                     @Parameter(name = "target_account_id", description = "Only reports about this account."),
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + ReportPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + ReportPage.DEFAULT_LIMIT))
+                            + PageLimits.MAX_REPORTS + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.REPORTS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The reports."),
@@ -100,18 +98,18 @@ public class AdminReportsController {
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "since_id", required = false) String sinceId,
             @RequestParam(name = "min_id", required = false) String minId) {
-        var page = RequestParameters.reportPage(
-                RequestParameters.flag(resolved), accountId, targetAccountId, limit, maxId, sinceId, minId);
-        var found = reports.list(page);
+        var filter = RequestParameters.reportFilter(RequestParameters.flag(resolved), accountId, targetAccountId);
+        var page = RequestParameters.page(limit, maxId, sinceId, minId, PageLimits.REPORTS, PageLimits.MAX_REPORTS);
+        var found = reports.list(filter, page);
         var filters = new LinkedHashMap<String, String>();
-        if (page.resolved()) {
+        if (filter.resolved()) {
             filters.put("resolved", "true");
         }
-        if (page.reporterId() != null) {
-            filters.put("account_id", page.reporterId().toString());
+        if (filter.reporterId() != null) {
+            filters.put("account_id", filter.reporterId().toString());
         }
-        if (page.targetId() != null) {
-            filters.put("target_account_id", page.targetId().toString());
+        if (filter.targetId() != null) {
+            filters.put("target_account_id", filter.targetId().toString());
         }
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, PATH, filters, page.limit(), found.stream().map(Report::id).toList());

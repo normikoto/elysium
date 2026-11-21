@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
@@ -1595,7 +1596,7 @@ public class StatusService {
      * @param accountId only find this account's statuses, if it's given
      * @param offset    how many matches to skip, after the page's cursors
      */
-    public List<Status> search(UUID viewer, String query, Optional<UUID> accountId, StatusPage page, int offset) {
+    public List<Status> search(UUID viewer, String query, Optional<UUID> accountId, IdPage page, int offset) {
         return statuses.search(viewer, query, accountId.orElse(null), page, offset);
     }
 
@@ -1641,7 +1642,7 @@ public class StatusService {
      * its boosts unless they're excluded.
      */
     public List<Status> findByAccount(
-            UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, StatusPage page) {
+            UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, IdPage page) {
         return findByAccount(actorId, viewer, excludeReplies, excludeReblogs, false, page);
     }
 
@@ -1653,7 +1654,7 @@ public class StatusService {
      */
     public List<Status> findByAccount(
             UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, boolean onlyMedia,
-            StatusPage page) {
+            IdPage page) {
         if (viewer.isPresent() && !blocks.refusing(viewer.get(), List.of(actorId)).isEmpty()) {
             return List.of();
         }

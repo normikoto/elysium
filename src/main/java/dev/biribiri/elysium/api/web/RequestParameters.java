@@ -1,15 +1,11 @@
 package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.AccountFilter;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.auth.TokenPrincipal;
-import dev.biribiri.elysium.content.AccountPage;
 import dev.biribiri.elysium.content.StatusOrigin;
-import dev.biribiri.elysium.content.StatusPage;
-import dev.biribiri.elysium.graph.DomainBlockListPage;
-import dev.biribiri.elysium.graph.FollowPage;
-import dev.biribiri.elysium.moderation.DomainBlockPage;
-import dev.biribiri.elysium.moderation.ReportPage;
+import dev.biribiri.elysium.moderation.ReportFilter;
 
 import java.util.Locale;
 import java.util.Map;
@@ -86,56 +82,35 @@ final class RequestParameters {
         }
     }
 
-    static StatusPage page(String limit, String maxId, String sinceId, String minId) {
-        return new StatusPage(
-                limit(limit, StatusPage.DEFAULT_LIMIT),
+    static IdPage page(String limit, String maxId, String sinceId, String minId) {
+        return page(limit, maxId, sinceId, minId, PageLimits.STATUSES, PageLimits.MAX_STATUSES);
+    }
+
+    /**
+     * For a list of accounts, even one paged by the IDs of something else, such as follows.
+     */
+    static IdPage accountPage(String limit, String maxId, String sinceId, String minId) {
+        return page(limit, maxId, sinceId, minId, PageLimits.ACCOUNTS, PageLimits.MAX_ACCOUNTS);
+    }
+
+    static IdPage domainBlockPage(String limit, String maxId, String sinceId, String minId) {
+        return page(limit, maxId, sinceId, minId, PageLimits.DOMAIN_BLOCKS, PageLimits.MAX_DOMAIN_BLOCKS);
+    }
+
+    /**
+     * @param byDefault the limit when none is given
+     * @param max       what a larger limit is clamped to, as a smaller one is to 1
+     */
+    static IdPage page(String limit, String maxId, String sinceId, String minId, int byDefault, int max) {
+        return new IdPage(
+                Math.clamp(limit(limit, byDefault), 1, max),
                 cursor("max_id", maxId),
                 cursor("since_id", sinceId),
                 cursor("min_id", minId));
     }
 
-    static FollowPage followPage(String limit, String maxId, String sinceId, String minId) {
-        return new FollowPage(
-                limit(limit, FollowPage.DEFAULT_LIMIT),
-                cursor("max_id", maxId),
-                cursor("since_id", sinceId),
-                cursor("min_id", minId));
-    }
-
-    static AccountPage accountPage(String limit, String maxId, String sinceId, String minId) {
-        return new AccountPage(
-                limit(limit, AccountPage.DEFAULT_LIMIT),
-                cursor("max_id", maxId),
-                cursor("since_id", sinceId),
-                cursor("min_id", minId));
-    }
-
-    static DomainBlockListPage domainBlockListPage(String limit, String maxId, String sinceId, String minId) {
-        return new DomainBlockListPage(
-                limit(limit, DomainBlockListPage.DEFAULT_LIMIT),
-                cursor("max_id", maxId),
-                cursor("since_id", sinceId),
-                cursor("min_id", minId));
-    }
-
-    static DomainBlockPage domainBlockPage(String limit, String maxId, String sinceId, String minId) {
-        return new DomainBlockPage(
-                limit(limit, DomainBlockPage.DEFAULT_LIMIT),
-                cursor("max_id", maxId),
-                cursor("since_id", sinceId),
-                cursor("min_id", minId));
-    }
-
-    static ReportPage reportPage(boolean resolved, String accountId, String targetAccountId, String limit, String maxId,
-                                 String sinceId, String minId) {
-        return new ReportPage(
-                resolved,
-                cursor("account_id", accountId),
-                cursor("target_account_id", targetAccountId),
-                limit(limit, ReportPage.DEFAULT_LIMIT),
-                cursor("max_id", maxId),
-                cursor("since_id", sinceId),
-                cursor("min_id", minId));
+    static ReportFilter reportFilter(boolean resolved, String accountId, String targetAccountId) {
+        return new ReportFilter(resolved, cursor("account_id", accountId), cursor("target_account_id", targetAccountId));
     }
 
     /**

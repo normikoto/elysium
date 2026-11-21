@@ -1,9 +1,9 @@
 package dev.biribiri.elysium.graph.internal;
 
 import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -110,7 +110,7 @@ public class AccountListRepository {
     /**
      * A page of a list's members, newest first, with the member rows' IDs as cursors.
      */
-    public List<FollowEntry> findMembers(UUID ownerId, UUID listId, FollowPage page) {
+    public List<FollowEntry> findMembers(UUID ownerId, UUID listId, IdPage page) {
         return Pages.find(jdbc, "account_list_member", " AND r.list_id = :list", Map.of("list", listId), ownerId, page);
     }
 

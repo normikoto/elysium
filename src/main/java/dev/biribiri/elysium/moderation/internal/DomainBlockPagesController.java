@@ -1,9 +1,9 @@
 package dev.biribiri.elysium.moderation.internal;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.moderation.DomainBlock;
 import dev.biribiri.elysium.moderation.DomainBlockConflictException;
-import dev.biribiri.elysium.moderation.DomainBlockPage;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.InvalidDomainBlockException;
 import jakarta.servlet.http.HttpServletResponse;
@@ -26,6 +26,7 @@ import java.util.UUID;
 class DomainBlockPagesController {
 
     private static final String PATH = "/admin/domain-blocks";
+    private static final int PAGE_SIZE = 200;
 
     private final DomainBlocks blocks;
 
@@ -91,7 +92,7 @@ class DomainBlockPagesController {
     }
 
     private String page(UUID maxId, Model model) {
-        var page = new DomainBlockPage(DomainBlockPage.MAX_LIMIT, maxId, null, null);
+        var page = new IdPage(PAGE_SIZE, maxId, null, null);
         var found = blocks.list(page);
         model.addAttribute("blocks", found.stream().map(Row::from).toList());
         model.addAttribute("older", found.size() == page.limit() ? found.getLast().id() : null);

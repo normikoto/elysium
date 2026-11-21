@@ -4,10 +4,10 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.RemoteUrlResolver;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.text.Hashtags;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -222,7 +222,7 @@ public class SearchController {
      * An address names one account, and its words would find statuses that mention it by chance. The viewer's
      * filters only mark what they match, since hiding what someone searched for would leave them wondering where it went.
      */
-    private List<StatusResponse> statuses(UUID viewer, String query, String accountId, StatusPage page, int skipped) {
+    private List<StatusResponse> statuses(UUID viewer, String query, String accountId, IdPage page, int skipped) {
         if (ACCT.matcher(query).matches() || skipped >= MAX_STATUS_OFFSET) {
             return List.of();
         }

@@ -7,7 +7,6 @@ import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -333,7 +332,8 @@ class WebPagesIntegrationTests {
 
     @Test
     void profilePagesThroughOlderStatuses() throws Exception {
-        for (var i = 0; i < StatusPage.DEFAULT_LIMIT + 1; i++) {
+        // One more than a profile page shows.
+        for (var i = 0; i < 21; i++) {
             post(wanda, "post number " + i + ".", Visibility.PUBLIC);
         }
         var oldest = "post number 0.";

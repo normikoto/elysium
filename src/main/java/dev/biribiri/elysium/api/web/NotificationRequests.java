@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.notification.NotificationFilter;
-import dev.biribiri.elysium.notification.Page;
 import org.springframework.util.MultiValueMap;
 
 import java.util.LinkedHashMap;
@@ -28,14 +28,14 @@ final class NotificationRequests {
                 .orElseThrow(() -> new InvalidRequestException("Validation failed: " + name + " is not valid"));
     }
 
-    static Page page(MultiValueMap<String, String> values) {
-        return Page.notifications(RequestParameters.number("limit", values.getFirst("limit"), 40),
-                cursor(values, "max_id"), cursor(values, "since_id"), cursor(values, "min_id"));
+    static IdPage page(MultiValueMap<String, String> values) {
+        return RequestParameters.page(values.getFirst("limit"), values.getFirst("max_id"), values.getFirst("since_id"),
+                values.getFirst("min_id"), PageLimits.NOTIFICATIONS, PageLimits.MAX_NOTIFICATIONS);
     }
 
-    static Page conversationPage(MultiValueMap<String, String> values) {
-        return Page.conversations(RequestParameters.number("limit", values.getFirst("limit"), 20),
-                cursor(values, "max_id"), cursor(values, "since_id"), cursor(values, "min_id"));
+    static IdPage conversationPage(MultiValueMap<String, String> values) {
+        return RequestParameters.page(values.getFirst("limit"), values.getFirst("max_id"), values.getFirst("since_id"),
+                values.getFirst("min_id"), PageLimits.CONVERSATIONS, PageLimits.MAX_CONVERSATIONS);
     }
 
     static int countLimit(MultiValueMap<String, String> values) {

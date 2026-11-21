@@ -2,15 +2,14 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.content.BookmarkService;
 import dev.biribiri.elysium.content.BoostService;
 import dev.biribiri.elysium.content.BoostStats;
-import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.LikeService;
-import dev.biribiri.elysium.content.ReactionService;
 import dev.biribiri.elysium.content.LikeStats;
 import dev.biribiri.elysium.content.MediaAttachment;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -19,16 +18,17 @@ import dev.biribiri.elysium.content.PostFilter;
 import dev.biribiri.elysium.content.PostFilterMatch;
 import dev.biribiri.elysium.content.PostFilterMatcher;
 import dev.biribiri.elysium.content.PostFilters;
-import dev.biribiri.elysium.content.StatusPage;
-import dev.biribiri.elysium.content.StatusPinService;
-import dev.biribiri.elysium.content.StatusService;
-import dev.biribiri.elysium.content.ThreadMuteService;
-import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.QuoteApproval;
 import dev.biribiri.elysium.content.QuoteDecision;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.QuoteState;
+import dev.biribiri.elysium.content.ReactionService;
+import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusQuote;
+import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.content.StatusVersion;
+import dev.biribiri.elysium.content.ThreadMuteService;
 import dev.biribiri.elysium.graph.BlockService;
 import java.util.Objects;
 import java.util.Set;
@@ -188,7 +188,7 @@ class StatusResponses {
      * @param context    as for {@link #list}
      */
     ResponseEntity<List<StatusResponse>> page(
-            String path, Map<String, ?> parameters, StatusPage page, List<Status> found, Optional<UUID> viewer,
+            String path, Map<String, ?> parameters, IdPage page, List<Status> found, Optional<UUID> viewer,
             Optional<PostFilter.Context> context) {
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, path, parameters, page.limit(), found.stream().map(Status::id).toList());
@@ -201,7 +201,7 @@ class StatusResponses {
      * @param cursors the IDs that the page's links are made from, newest first, including any whose statuses were left out
      */
     ResponseEntity<List<StatusResponse>> page(
-            String path, StatusPage page, List<UUID> cursors, List<Status> found, Optional<UUID> viewer) {
+            String path, IdPage page, List<UUID> cursors, List<Status> found, Optional<UUID> viewer) {
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, path, Map.of(), page.limit(), cursors);
         return response.body(shown(build(found, false, viewer, Map.of()), Optional.empty()));

@@ -5,7 +5,6 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.MuteService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -61,8 +60,8 @@ public class MutesController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "mutes/#get"),
             parameters = {
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + FollowPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + FollowPage.DEFAULT_LIMIT))
+                            + PageLimits.MAX_ACCOUNTS + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.ACCOUNTS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent mute first."),
@@ -75,7 +74,7 @@ public class MutesController {
             @RequestParam(name = "since_id", required = false) String sinceId,
             @RequestParam(name = "min_id", required = false) String minId) {
         var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
-        var page = RequestParameters.followPage(limit, maxId, sinceId, minId);
+        var page = RequestParameters.accountPage(limit, maxId, sinceId, minId);
         var entries = mutes.muted(viewer, page);
         var found = actors.findByIds(entries.stream().map(FollowEntry::actorId).toList()).stream()
                 .collect(Collectors.toMap(Actor::id, Function.identity()));

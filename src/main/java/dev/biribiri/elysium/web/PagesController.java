@@ -18,7 +18,7 @@ import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
-import dev.biribiri.elysium.content.StatusPage;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
@@ -64,6 +64,11 @@ import java.util.stream.Stream;
 class PagesController {
 
     private static final Optional<UUID> ANONYMOUS = Optional.empty();
+
+    /**
+     * As many statuses as a client gets by default.
+     */
+    private static final int PAGE_SIZE = 20;
 
     private static final DateTimeFormatter JOINED = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
 
@@ -377,8 +382,8 @@ class PagesController {
         return Optional.ofNullable(principal).map(Principal::getName).flatMap(Ids::parse);
     }
 
-    private static StatusPage firstPage(UUID maxId) {
-        return new StatusPage(StatusPage.DEFAULT_LIMIT, maxId, null, null);
+    private static IdPage firstPage(UUID maxId) {
+        return new IdPage(PAGE_SIZE, maxId, null, null);
     }
 
     private static ResponseStatusException notFound() {

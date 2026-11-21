@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.graph.internal;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -75,7 +75,7 @@ public class MuteRepository {
      * Lists the accounts an account has muted, newest first, leaving out expired mutes and suspended and deleted accounts.
      * The cursors are mute IDs.
      */
-    public List<FollowEntry> findPage(UUID accountId, FollowPage page) {
+    public List<FollowEntry> findPage(UUID accountId, IdPage page) {
         return Pages.find(jdbc, "account_mute", " AND (r.expires_at IS NULL OR r.expires_at > now())", accountId, page);
     }
 

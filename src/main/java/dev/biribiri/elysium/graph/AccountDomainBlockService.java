@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.graph;
 
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.internal.AccountDomainBlockRepository;
 import dev.biribiri.elysium.graph.internal.FollowRepository;
 import org.springframework.stereotype.Service;
@@ -60,7 +61,7 @@ public class AccountDomainBlockService {
     /**
      * Lists the servers an account has blocked, newest first.
      */
-    public List<Entry> page(UUID accountId, DomainBlockListPage page) {
+    public List<Entry> page(UUID accountId, IdPage page) {
         return domainBlocks.findPage(accountId, page.maxId(), page.sinceId(), page.minId(), page.limit()).stream()
                 .map(entry -> new Entry(entry.id(), entry.domain()))
                 .toList();
@@ -74,7 +75,7 @@ public class AccountDomainBlockService {
     }
 
     /**
-     * @param id what to page from, with {@link DomainBlockListPage}
+     * @param id what to page from, with {@link IdPage}
      */
     public record Entry(UUID id, String domain) {
     }

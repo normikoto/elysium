@@ -2,6 +2,7 @@ package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.internal.QuoteRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
@@ -137,7 +138,7 @@ public class QuoteService {
     /**
      * Lists the accepted quotes of a status that this viewer can see, newest first.
      */
-    public List<Status> findAccepted(UUID quotedStatusId, UUID viewer, StatusPage page) {
+    public List<Status> findAccepted(UUID quotedStatusId, UUID viewer, IdPage page) {
         var ids = quotes.pageAccepted(quotedStatusId, page.maxId(), page.minId() != null ? page.minId() : page.sinceId(),
                 page.limit());
         return statusService.findVisible(ids, viewer).stream().sorted(Comparator.comparing(Status::id).reversed()).toList();
@@ -453,7 +454,7 @@ public class QuoteService {
      * @param quotedStatusId only quotes of this status, or null for any
      * @return the quotes, which are each of a stored status
      */
-    public List<StatusQuote> findReviews(UUID ownerId, UUID quotedStatusId, StatusPage page) {
+    public List<StatusQuote> findReviews(UUID ownerId, UUID quotedStatusId, IdPage page) {
         var ids = quotes.pageReviews(ownerId, quotedStatusId, page.maxId(), page.sinceId(), page.minId(), page.limit());
         var found = quotes.findAll(ids);
         return ids.stream().map(found::get).filter(Objects::nonNull).toList();

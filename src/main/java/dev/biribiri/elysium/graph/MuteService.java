@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.graph;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.internal.MuteRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,7 +51,7 @@ public class MuteService {
     /**
      * Lists the accounts an account has muted, newest first, leaving out expired mutes and suspended and deleted accounts.
      */
-    public List<FollowEntry> muted(UUID accountId, FollowPage page) {
+    public List<FollowEntry> muted(UUID accountId, IdPage page) {
         return mutes.findPage(accountId, page);
     }
 

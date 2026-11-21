@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.internal.MediaAttachmentRepository;
 import dev.biribiri.elysium.content.internal.ScheduledStatusRepository;
@@ -124,7 +125,7 @@ public class ScheduledStatusService {
     /**
      * @return an account's, newest first by when they were scheduled
      */
-    public List<ScheduledStatus> page(UUID authorId, StatusPage page) {
+    public List<ScheduledStatus> page(UUID authorId, IdPage page) {
         var found = scheduled.findPage(authorId, page);
         var held = media.findHeld(found.stream().map(ScheduledStatus::id).toList());
         return found.stream().map(each -> withMedia(each, held.getOrDefault(each.id(), List.of()))).toList();

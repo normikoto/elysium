@@ -2,6 +2,7 @@ package dev.biribiri.elysium.moderation;
 
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.moderation.internal.ReportRepository;
@@ -102,8 +103,11 @@ public class Reports {
         return reports.findByIds(ids);
     }
 
-    public List<Report> list(ReportPage page) {
-        return reports.findPage(page);
+    /**
+     * Newest first.
+     */
+    public List<Report> list(ReportFilter filter, IdPage page) {
+        return reports.findPage(filter, page);
     }
 
     public long countOpen() {

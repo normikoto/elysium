@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.internal.LikeRepository;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import org.springframework.context.ApplicationEventPublisher;
@@ -169,14 +170,14 @@ public class LikeService {
      * viewer has blocked, muted, or blocked the server of, and those that block the viewer, as Mastodon does. Whether
      * the status can be seen is the caller's to check.
      */
-    public List<StatusLike> likers(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+    public List<StatusLike> likers(UUID statusId, Optional<UUID> viewer, IdPage page) {
         return likes.pageForStatus(statusId, viewer, page);
     }
 
     /**
      * A local account's favourites, the most recent first, leaving out statuses it can no longer see.
      */
-    public FavouritePage favourites(UUID actorId, StatusPage page) {
+    public FavouritePage favourites(UUID actorId, IdPage page) {
         var rows = likes.pageByActor(actorId, page);
         var visible = statuses.findVisible(rows.stream().map(LikeRepository.ActorLike::statusId).toList(), actorId)
                 .stream().collect(Collectors.toMap(Status::id, Function.identity()));

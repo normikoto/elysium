@@ -77,8 +77,8 @@ These reach beyond `activitypub`, and a change can break them without a test not
   documents and signing, and check the state of anything from `findByUri` or `findById`. `auth.AccountActions` decides
   who can be suspended or deleted.
 - **Cleanup:** each module that stores data by or about actors implements `actor.ActorDataRemoval` once, and a new
-  table's data has to be removed there: remote data when its server is blocked, and remote or account data when its actor
-  is deleted, including files in the media directory. The account and domain block cleanup jobs call every
+  table's data has to be removed there: remote data when its server is blocked, and remote or account data when its
+  actor is deleted, including files in the media directory. The account and domain block cleanup jobs call every
   implementation.
 - **Domain blocks:** a block is a suspension or only limits a server, so `DomainBlocks.isBlocked` means suspended. SQL
   outside `moderation` reads `domain_block` only through `actor.ActorSql`, which says which blocks count.
@@ -92,6 +92,8 @@ There's no ORM. Repositories use `JdbcClient` with hand-written SQL, and the sch
 - A rule that other modules' SQL has to agree with is exported once as SQL conditions, and used rather than written
   again: `actor.ActorSql` for active actors and blocked servers, `graph.HiddenAccounts` for blocks and mutes, and
   `content.StatusSql` for which statuses a viewer can see.
+- A list paged by Mastodon's ID cursors takes an `actor.IdPage`, whose `cursors` and `orderAndLimit` write its SQL.
+  How many a page can hold is up to each API, in `api.web.PageLimits`.
 - Read queries with `.list()` or `.optional()`, not `.stream()`, which holds a connection until it's closed.
   `DatabaseStreamsTests` enforces this.
 

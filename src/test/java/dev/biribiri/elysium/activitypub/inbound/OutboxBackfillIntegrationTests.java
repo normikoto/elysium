@@ -7,9 +7,9 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
@@ -117,7 +117,7 @@ class OutboxBackfillIntegrationTests {
         assertThat(olderId.compareTo(oldId)).isPositive();
         // Older than what was already here, so clients polling for new statuses aren't given them.
         assertThat(olderId.compareTo(arrived)).isNegative();
-        var home = timelines.homeTimeline(alice.id(), new StatusPage(40, null, null, null));
+        var home = timelines.homeTimeline(alice.id(), new IdPage(40, null, null, null));
         assertThat(home).extracting(status -> status.uri()).contains(older, old, unlisted);
     }
 

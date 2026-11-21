@@ -4,15 +4,15 @@ import com.jayway.jsonpath.JsonPath;
 import org.hamcrest.Matcher;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteEdit;
 import dev.biribiri.elysium.content.RemoteStatus;
-import dev.biribiri.elysium.content.StatusEdited;
-import dev.biribiri.elysium.content.StatusPage;
-import dev.biribiri.elysium.content.StatusService;
-import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.StatusDeleted;
+import dev.biribiri.elysium.content.StatusEdited;
+import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
+import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.timeline.internal.TimelineRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -1119,7 +1119,7 @@ class StatusesIntegrationTests {
         var followed = new ArrayList<UUID>(Stream.generate(UUID::randomUUID).limit(40_000).toList());
         followed.add(bob);
 
-        assertThat(timelines.findHome(UUID.fromString(aliceId()), followed, new StatusPage(20, null, null, null)))
+        assertThat(timelines.findHome(UUID.fromString(aliceId()), followed, new IdPage(20, null, null, null)))
                 .containsExactly(UUID.fromString(bobStatus));
     }
 

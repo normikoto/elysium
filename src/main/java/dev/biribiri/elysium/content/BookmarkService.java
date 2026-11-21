@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.internal.BookmarkRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,7 +58,7 @@ public class BookmarkService {
         return viewer.map(id -> bookmarks.bookmarkedAmong(id, statusIds)).orElse(Set.of());
     }
 
-    public BookmarkPage page(UUID actorId, StatusPage page) {
+    public BookmarkPage page(UUID actorId, IdPage page) {
         var rows = bookmarks.page(actorId, page);
         var visible = statuses.findVisible(rows.stream().map(BookmarkRepository.Row::statusId).toList(), actorId).stream()
                 .collect(Collectors.toMap(Status::id, Function.identity()));

@@ -2,9 +2,7 @@ package dev.biribiri.elysium.notification.internal;
 
 import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.graph.HiddenAccounts;
-import dev.biribiri.elysium.notification.Page;
 
-import java.util.Map;
 
 /** Apply eligibility before paging or counting, including the viewer's blocks and mutes. */
 final class NotificationSql {
@@ -27,16 +25,5 @@ final class NotificationSql {
     static String notHidden(String alias) {
         return HiddenAccounts.visibleInNotifications(alias);
     }
-
-    static void cursors(StringBuilder sql, Map<String, Object> parameters, Page page, String column) {
-        if (page.maxId() != null) {
-            sql.append(" AND ").append(column).append(" < :maxId");
-            parameters.put("maxId", page.maxId());
-        }
-        var after = page.minId() == null ? page.sinceId() : page.minId();
-        if (after != null) {
-            sql.append(" AND ").append(column).append(" > :after");
-            parameters.put("after", after);
-        }
-    }
 }
+

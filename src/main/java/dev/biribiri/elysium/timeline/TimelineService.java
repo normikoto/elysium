@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.timeline;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusOrigin;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.graph.AccountLists;
@@ -51,14 +51,14 @@ public class TimelineService {
      * <p>Read from the statuses stored here each time, rather than from a feed kept for each account, so following or
      * unfollowing someone changes it straight away, with nothing to fill or clean up.
      */
-    public List<Status> homeTimeline(UUID viewerId, StatusPage page) {
+    public List<Status> homeTimeline(UUID viewerId, IdPage page) {
         return load(timelines.findHome(viewerId, follows.followedIds(viewerId), page));
     }
 
     /**
      * @return empty if the owner has no such list
      */
-    public Optional<List<Status>> listTimeline(UUID ownerId, UUID listId, StatusPage page) {
+    public Optional<List<Status>> listTimeline(UUID ownerId, UUID listId, IdPage page) {
         return lists.find(ownerId, listId).map(list -> load(timelines.findList(list, page)));
     }
 
@@ -77,7 +77,7 @@ public class TimelineService {
      * @param onlyMedia whether to only list statuses with attachments
      * @param viewer    who's looking, from whom what they've blocked or muted is left out
      */
-    public List<Status> publicTimeline(StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
+    public List<Status> publicTimeline(StatusOrigin origin, IdPage page, boolean onlyMedia, Optional<UUID> viewer) {
         return load(timelines.findPublic(origin, page, onlyMedia, viewer.orElse(null)));
     }
 
@@ -88,7 +88,7 @@ public class TimelineService {
      * @param viewer    who's looking, from whom what they've blocked or muted is left out
      */
     public List<Status> tagTimeline(
-            TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
+            TagFilter tags, StatusOrigin origin, IdPage page, boolean onlyMedia, Optional<UUID> viewer) {
         return load(timelines.findTagged(tags, origin, page, onlyMedia, viewer.orElse(null)));
     }
 

@@ -5,7 +5,6 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.QuoteService;
 import dev.biribiri.elysium.content.Status;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -97,8 +96,8 @@ public class InteractionRequestsController {
                     @Parameter(name = "reblogs", description = "Ignored, since boosts aren't approved by hand.",
                             schema = @Schema(type = "boolean")),
                     @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
-                            + StatusPage.MAX_LIMIT + " are clamped to them.",
-                            schema = @Schema(type = "integer", defaultValue = "" + StatusPage.DEFAULT_LIMIT))
+                            + PageLimits.MAX_STATUSES + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The quotes, newest first."),

@@ -1,17 +1,18 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.TestcontainersConfiguration;
-import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
+import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import dev.biribiri.elysium.moderation.Report;
-import dev.biribiri.elysium.moderation.ReportPage;
+import dev.biribiri.elysium.moderation.ReportFilter;
 import dev.biribiri.elysium.moderation.Reports;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -152,7 +153,7 @@ class FlagIntegrationTests {
     }
 
     private List<Report> reportsAbout(Actor target) {
-        return reports.list(new ReportPage(false, null, target.id(), ReportPage.MAX_LIMIT, null, null, null));
+        return reports.list(new ReportFilter(false, null, target.id()), new IdPage(200, null, null, null));
     }
 
     private static Report only(List<Report> found) {

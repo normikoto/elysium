@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.notification.internal;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.StatusSql;
 import dev.biribiri.elysium.notification.Conversation;
-import dev.biribiri.elysium.notification.Page;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -146,15 +146,11 @@ public class ConversationRepository {
         return inserted ? Optional.of(id) : Optional.empty();
     }
 
-    public List<Conversation> page(UUID viewer, Page page) {
+    public List<Conversation> page(UUID viewer, IdPage page) {
         var parameters = new HashMap<String, Object>();
         parameters.put("viewer", viewer);
-        parameters.put("limit", page.limit());
-        var sql = new StringBuilder(SELECT);
-        NotificationSql.cursors(sql, parameters, page, "latest.id");
-        sql.append(page.minId() == null ? " ORDER BY latest.id DESC" : " ORDER BY latest.id ASC").append(" LIMIT :limit");
-        var found = jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list();
-        return page.minId() == null ? found : found.reversed();
+        var sql = SELECT + page.cursors("latest.id", parameters) + page.orderAndLimit("latest.id", parameters);
+        return page.newestFirst(jdbc.sql(sql).params(parameters).query(MAPPER).list());
     }
 
     public Optional<Conversation> find(UUID viewer, UUID id) {

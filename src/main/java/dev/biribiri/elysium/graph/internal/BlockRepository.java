@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.graph.internal;
 
 import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -290,7 +290,7 @@ public class BlockRepository {
     /**
      * Lists the accounts an account blocks, newest first, leaving out suspended and deleted ones. The cursors are block IDs.
      */
-    public List<FollowEntry> findPage(UUID accountId, FollowPage page) {
+    public List<FollowEntry> findPage(UUID accountId, IdPage page) {
         return Pages.find(jdbc, "account_block", "", accountId, page);
     }
 

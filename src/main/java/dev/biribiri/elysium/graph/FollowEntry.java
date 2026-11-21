@@ -1,12 +1,13 @@
 package dev.biribiri.elysium.graph;
 
+import dev.biribiri.elysium.actor.IdPage;
 import java.net.URI;
 import java.util.UUID;
 
 /**
  * One accepted follow in a list of followers or of accounts followed.
  *
- * @param followId what to page from, with {@link FollowPage}
+ * @param followId what to page from, with {@link IdPage}
  * @param actorId  the other account: the follower in a list of followers, and the account followed in a list of following
  * @param actorUri the other account's URI
  */

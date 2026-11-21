@@ -1,9 +1,9 @@
 package dev.biribiri.elysium.graph.internal;
 
 import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.FollowCounts;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import dev.biribiri.elysium.graph.SentFollow;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -355,18 +355,18 @@ public class FollowRepository {
      *
      * @param followers true for its followers, and false for the accounts it follows
      */
-    public List<FollowEntry> findPage(UUID actorId, boolean followers, FollowPage page) {
+    public List<FollowEntry> findPage(UUID actorId, boolean followers, IdPage page) {
         return findPage(actorId, followers, "accepted", page);
     }
 
     /**
      * Lists the requests waiting for an account to approve them, leaving out suspended and deleted followers.
      */
-    public List<FollowEntry> findRequestPage(UUID followedId, FollowPage page) {
+    public List<FollowEntry> findRequestPage(UUID followedId, IdPage page) {
         return findPage(followedId, true, "pending", page);
     }
 
-    private List<FollowEntry> findPage(UUID actorId, boolean followers, String state, FollowPage page) {
+    private List<FollowEntry> findPage(UUID actorId, boolean followers, String state, IdPage page) {
         var self = followers ? "f.followed_id" : "f.follower_id";
         var other = followers ? "f.follower_id" : "f.followed_id";
         var sql = new StringBuilder("SELECT f.id, a.id AS other_id, a.uri AS other_uri FROM follow f JOIN actor a ON a.id = ")

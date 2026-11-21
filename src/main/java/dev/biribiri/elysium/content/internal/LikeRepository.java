@@ -1,12 +1,11 @@
 package dev.biribiri.elysium.content.internal;
 
 import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.Ids;
-import dev.biribiri.elysium.content.AccountPage;
-import dev.biribiri.elysium.content.StatusPage;
-import dev.biribiri.elysium.graph.HiddenAccounts;
-import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.LikeStats;
+import dev.biribiri.elysium.content.StatusLike;
+import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -171,13 +170,12 @@ public class LikeRepository {
      *
      * @param viewer a local account, from whom the actors it has hidden, or that block it, are left out
      */
-    public List<StatusLike> pageForStatus(UUID statusId, Optional<UUID> viewer, AccountPage page) {
+    public List<StatusLike> pageForStatus(UUID statusId, Optional<UUID> viewer, IdPage page) {
         var parameters = new HashMap<String, Object>(Map.of("status", statusId));
         viewer.ifPresent(id -> parameters.put("viewer", id));
         return IdPages.find(jdbc, "SELECT l.* FROM status_like l JOIN actor a ON a.id = l.actor_id "
                         + "WHERE l.status_id = :status AND " + eligible("a") + hiddenFrom(viewer, "a"), parameters,
-                "l.id", page.maxId(), page.sinceId(), page.minId(), page.limit(),
-                spec -> spec.query(StatusLike.class).list());
+                "l.id", page, spec -> spec.query(StatusLike.class).list());
     }
 
     /**
@@ -193,10 +191,9 @@ public class LikeRepository {
     /**
      * An actor's likes, paged by their IDs, whatever has happened to the statuses since.
      */
-    public List<ActorLike> pageByActor(UUID actorId, StatusPage page) {
+    public List<ActorLike> pageByActor(UUID actorId, IdPage page) {
         return IdPages.find(jdbc, "SELECT id, status_id FROM status_like WHERE actor_id = :actor",
-                Map.of("actor", actorId), "id", page.maxId(), page.sinceId(), page.minId(), page.limit(),
-                spec -> spec.query(ActorLike.class).list());
+                Map.of("actor", actorId), "id", page, spec -> spec.query(ActorLike.class).list());
     }
 
     public void removeForActor(UUID actor) {

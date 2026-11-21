@@ -1,7 +1,7 @@
 package dev.biribiri.elysium.timeline.internal;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.content.StatusOrigin;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.TagFilter;
 import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.Following;
@@ -44,7 +44,7 @@ public class TimelineRepository {
     /**
      * @param viewer who's looking, from whom what they've hidden is left out, or null
      */
-    public List<UUID> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia, UUID viewer) {
+    public List<UUID> findPublic(StatusOrigin origin, IdPage page, boolean onlyMedia, UUID viewer) {
         return findPage(publicFilter(origin, onlyMedia, viewer), page);
     }
 
@@ -64,7 +64,7 @@ public class TimelineRepository {
     /**
      * Replies are listed too, as on Mastodon, since someone following a tag wants every status that uses it.
      */
-    public List<UUID> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, UUID viewer) {
+    public List<UUID> findTagged(TagFilter tags, StatusOrigin origin, IdPage page, boolean onlyMedia, UUID viewer) {
         return findPage(taggedFilter(tags, origin, onlyMedia, viewer), page);
     }
 
@@ -106,7 +106,7 @@ public class TimelineRepository {
      *
      * @param followedIds the accounts the viewer follows, which can be empty
      */
-    public List<UUID> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
+    public List<UUID> findHome(UUID viewerId, Collection<UUID> followedIds, IdPage page) {
         return findPage(homeFilter(viewerId, followedIds), page);
     }
 
@@ -153,7 +153,7 @@ public class TimelineRepository {
      * Mastodon doesn't add to lists, and with replies chosen by the list's policy. Members whose follow request hasn't
      * been accepted are left out, since the owner couldn't see their followers-only statuses.
      */
-    public List<UUID> findList(AccountList list, StatusPage page) {
+    public List<UUID> findList(AccountList list, IdPage page) {
         return findPage(new Filter(list(":viewer", ":list", ":policy"), Map.of("viewer", list.ownerId(), "list",
                 list.id(), "policy", list.repliesPolicy().value())), page);
     }
@@ -218,25 +218,10 @@ public class TimelineRepository {
                 .single());
     }
 
-    private List<UUID> findPage(Filter filter, StatusPage page) {
-        var sql = new StringBuilder("SELECT s.id ").append(FROM_ACTIVE).append("WHERE ").append(filter.sql());
+    private List<UUID> findPage(Filter filter, IdPage page) {
         var parameters = new HashMap<String, Object>(filter.parameters());
-        // Predicates are only added when needed, because PostgreSQL can't determine the type of a null parameter.
-        if (page.maxId() != null) {
-            sql.append(" AND s.id < :maxId");
-            parameters.put("maxId", page.maxId());
-        }
-        var ascending = page.minId() != null;
-        if (ascending) {
-            sql.append(" AND s.id > :minId");
-            parameters.put("minId", page.minId());
-        } else if (page.sinceId() != null) {
-            sql.append(" AND s.id > :sinceId");
-            parameters.put("sinceId", page.sinceId());
-        }
-        sql.append(ascending ? " ORDER BY s.id ASC" : " ORDER BY s.id DESC").append(" LIMIT :limit");
-        parameters.put("limit", page.limit());
-        var ids = jdbc.sql(sql.toString()).params(parameters).query(UUID.class).list();
-        return ascending ? ids.reversed() : ids;
+        var sql = "SELECT s.id " + FROM_ACTIVE + "WHERE " + filter.sql() + page.cursors("s.id", parameters)
+                + page.orderAndLimit("s.id", parameters);
+        return page.newestFirst(jdbc.sql(sql).params(parameters).query(UUID.class).list());
     }
 }

@@ -7,9 +7,9 @@ import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.content.RemoteStatus;
-import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -126,7 +126,7 @@ class BoostedNotesIntegrationTests {
         assertThat(jdbc.sql("SELECT actor_id FROM status WHERE id = :id").param("id", statusId)
                 .query(UUID.class).single()).isEqualTo(author.id());
         assertThat(boostOf(statusId)).isOne();
-        var home = timelines.homeTimeline(alice.id(), new StatusPage(20, null, null, null));
+        var home = timelines.homeTimeline(alice.id(), new IdPage(20, null, null, null));
         assertThat(home).anyMatch(status -> statusId.equals(status.reblogOfId()));
         verify(documents).fetch(note);
     }

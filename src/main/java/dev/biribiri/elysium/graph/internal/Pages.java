@@ -1,8 +1,8 @@
 package dev.biribiri.elysium.graph.internal;
 
 import dev.biribiri.elysium.actor.ActorSql;
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.FollowEntry;
-import dev.biribiri.elysium.graph.FollowPage;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
@@ -30,7 +30,7 @@ final class Pages {
      * @param table a table with {@code id}, {@code account_id}, {@code created_at}, and a column naming the other account
      * @param extra more conditions on the row, joined as {@code r}, or an empty string
      */
-    static List<FollowEntry> find(JdbcClient jdbc, String table, String extra, UUID accountId, FollowPage page) {
+    static List<FollowEntry> find(JdbcClient jdbc, String table, String extra, UUID accountId, IdPage page) {
         return find(jdbc, table, extra, Map.of(), accountId, page);
     }
 
@@ -38,7 +38,7 @@ final class Pages {
      * @param extraParameters what {@code extra} binds
      */
     static List<FollowEntry> find(JdbcClient jdbc, String table, String extra, Map<String, ?> extraParameters,
-                                  UUID accountId, FollowPage page) {
+                                  UUID accountId, IdPage page) {
         var sql = new StringBuilder(select(table, extra));
         var parameters = new HashMap<String, Object>();
         parameters.putAll(extraParameters);

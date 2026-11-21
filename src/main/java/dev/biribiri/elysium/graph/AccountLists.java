@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.graph;
 
+import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.graph.internal.AccountListRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -112,7 +113,7 @@ public class AccountLists {
      *
      * @return empty if the owner has no such list
      */
-    public Optional<List<FollowEntry>> members(UUID ownerId, UUID listId, FollowPage page) {
+    public Optional<List<FollowEntry>> members(UUID ownerId, UUID listId, IdPage page) {
         return lists.find(ownerId, listId).map(list -> lists.findMembers(ownerId, listId, page));
     }
 
