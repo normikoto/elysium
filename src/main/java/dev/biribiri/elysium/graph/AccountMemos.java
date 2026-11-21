@@ -27,7 +27,7 @@ public class AccountMemos {
     /**
      * Replaces the account's memo about the target. An empty or blank one removes it, as on Mastodon.
      *
-     * @throws IllegalArgumentException if the memo is longer than {@link #MAX_LENGTH}, or isn't {@link #isStorable}
+     * @throws IllegalArgumentException if the memo {@link #isTooLong}, or isn't {@link #isStorable}
      */
     @Transactional
     public void set(UUID accountId, UUID targetId, String memo) {
@@ -38,10 +38,18 @@ public class AccountMemos {
         if (!isStorable(memo)) {
             throw new IllegalArgumentException("A memo can't contain NUL characters or unpaired surrogates");
         }
-        if (memo.codePointCount(0, memo.length()) > MAX_LENGTH) {
+        if (isTooLong(memo)) {
             throw new IllegalArgumentException("A memo can be at most " + MAX_LENGTH + " characters");
         }
         memos.save(accountId, targetId, memo);
+    }
+
+    /**
+     * @return whether the memo has more than {@link #MAX_LENGTH} characters, counting each code point once, as Mastodon
+     * does
+     */
+    public static boolean isTooLong(String memo) {
+        return memo.codePointCount(0, memo.length()) > MAX_LENGTH;
     }
 
     /**

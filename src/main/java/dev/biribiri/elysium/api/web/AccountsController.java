@@ -82,9 +82,10 @@ public class AccountsController {
     private static final long MAX_MUTE_BODY_BYTES = 4 * 1024;
 
     /**
-     * Room for a note of the longest length, in characters of up to four bytes, encoded in a form.
+     * Room for the longest memo in JSON, where each character can be written as two six-byte Unicode escapes. Only JSON
+     * bodies are counted against it, and Tomcat's own limit covers forms.
      */
-    private static final long MAX_NOTE_BODY_BYTES = 64 * 1024;
+    private static final long MAX_MEMO_BODY_BYTES = 64 * 1024;
 
     private static final String FOLLOW_LIMIT =
             "How many to return. Values outside 1 to " + FollowPage.MAX_LIMIT + " are clamped to them.";
@@ -576,31 +577,32 @@ public class AccountsController {
                     @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
-                            The note is too long, isn't text, or has a NUL character, or the token has no user.""")
+                            The note is too long, isn't text, or has a NUL character or an unpaired surrogate, or the \
+                            token has no user.""")
             })
     @RequestBody(content = @Content(
-            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = NoteBody.class)))
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = MemoBody.class)))
     public RelationshipResponse note(
             @AuthenticationPrincipal TokenPrincipal token,
             @Parameter(description = ApiDocs.ID) @PathVariable String id,
             HttpServletRequest request) throws IOException {
         var owner = viewerAccount(token);
         var target = activeAccount(id);
-        var comment = switch (json.readAny(request, MAX_NOTE_BODY_BYTES).get("comment")) {
+        var comment = switch (json.readAny(request, MAX_MEMO_BODY_BYTES).get("comment")) {
             case null -> "";
             case String text -> text;
             default -> throw new InvalidRequestException("Validation failed: comment must be text");
         };
-        if (!AccountMemos.isStorable(comment)) {
+        // A blank one removes the memo whatever its length, as on Mastodon.
+        if (!comment.isBlank() && !AccountMemos.isStorable(comment)) {
             throw new InvalidRequestException(
                     "Validation failed: comment can't contain NUL characters or unpaired surrogates");
         }
-        try {
-            memos.set(owner.id(), target.id(), comment);
-        } catch (IllegalArgumentException e) {
+        if (!comment.isBlank() && AccountMemos.isTooLong(comment)) {
             throw new InvalidRequestException("Validation failed: comment is too long (maximum is "
                     + AccountMemos.MAX_LENGTH + " characters)");
         }
+        memos.set(owner.id(), target.id(), comment);
         return relationship(owner.id(), target.id());
     }
 
@@ -857,8 +859,11 @@ public class AccountsController {
             Long duration) {
     }
 
+    /**
+     * The schema keeps Mastodon's name for the entity.
+     */
     @Schema(name = "AccountNote")
-    private record NoteBody(
+    private record MemoBody(
             @Schema(description = "The note, as plain text. Empty or none removes it.", maxLength = AccountMemos.MAX_LENGTH)
             String comment) {
     }

@@ -414,7 +414,7 @@ class BlocksIntegrationTests {
         note("alice", bob, "{\"comment\":\"second\"}").andExpect(jsonPath("$.note").value("second"));
         assertThat(jdbc.sql("SELECT count(*) FROM account_memo").query(Long.class).single()).isEqualTo(1);
 
-        note("alice", bob, "{\"comment\":\"  \"}").andExpect(jsonPath("$.note").value(""));
+        note("alice", bob, "{\"comment\":\"" + " ".repeat(2001) + "\"}").andExpect(jsonPath("$.note").value(""));
         assertThat(jdbc.sql("SELECT count(*) FROM account_memo").query(Long.class).single()).isZero();
 
         note("alice", bob, "{\"comment\":\"again\"}");
