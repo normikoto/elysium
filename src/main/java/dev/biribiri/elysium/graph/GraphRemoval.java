@@ -5,6 +5,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
+/**
+ * List members and endorsements reference the follows they depend on, so removing a follow removes them too.
+ */
 @Component
 class GraphRemoval implements ActorDataRemoval {
 

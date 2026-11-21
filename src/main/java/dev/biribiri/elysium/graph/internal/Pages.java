@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Pages through a local account's blocks, mutes, or list members, newest first, in the same way as follows: by when each
- * was made, since their IDs are random.
+ * Pages through a local account's blocks, mutes, list members, or endorsements, newest first, in the same way as
+ * follows: by when each was made, since their IDs are random.
  */
 final class Pages {
 
