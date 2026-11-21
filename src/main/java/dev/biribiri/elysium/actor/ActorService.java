@@ -55,6 +55,7 @@ public class ActorService {
      * stored straight away, whatever happens to any transaction the caller is in.
      */
     public InstanceActor instanceActor() {
+        var keys = instanceActorKeys.get();
         return new InstanceActor(
                 instance.resolve(InstanceActor.PATH),
                 instance.resolve("/"),
@@ -62,7 +63,17 @@ public class ActorService {
                 instance.domain(),
                 instance.resolve(InstanceActor.PATH + "/inbox"),
                 instance.resolve(InstanceActor.PATH + "/outbox"),
-                instanceActorKeys.get().rsa().publicKeyPem());
+                keys.rsa().publicKeyPem(),
+                keys.ed25519().publicKeyPem());
+    }
+
+    /**
+     * Finds the Ed25519 key that checks a local actor's integrity proofs.
+     *
+     * @return the key in PEM form, or empty if the actor isn't local, or was deleted long enough ago that its keys are gone
+     */
+    public Optional<String> findProofPublicKeyPem(Actor actor) {
+        return actors.findEd25519PublicKeyPem(actor.id());
     }
 
     /**

@@ -19,6 +19,8 @@ The extent of this support and its limitations are what's described in the rest 
 - [FEP-044f: Consent-respecting quote posts](https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md), as
   [Quotes](#quotes) describes
 - [FEP-2677: Identifying the Application Actor](https://codeberg.org/fediverse/fep/src/branch/main/fep/2677/fep-2677.md)
+- [FEP-521a: Representing actor's public keys](https://codeberg.org/fediverse/fep/src/branch/main/fep/521a/fep-521a.md),
+  for an Ed25519 key that nothing is signed with yet, as [Actors](#actors) describes
 - [FEP-67ff: FEDERATION.md](https://codeberg.org/fediverse/fep/src/branch/main/fep/67ff/fep-67ff.md)
 - [FEP-7628: Move actor](https://codeberg.org/fediverse/fep/src/branch/main/fep/7628/fep-7628.md), with Mastodon's terms
   and only `movedTo`, as [Moving accounts](#moving-accounts) describes
@@ -40,6 +42,23 @@ document's `url` links to that page, which is at the same URL.
 Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`, and
 `endpoints.sharedInbox`, which is the [shared inbox](#inboxes) at `/inbox`. If [signed fetches are required](#authorized-fetch), an unsigned request gets a
 shorter document without the profile.
+
+Each actor document, including the shorter one, also has an Ed25519 key in `assertionMethod`, as FEP-521a describes. It's
+for integrity proofs ([FEP-8b32](https://codeberg.org/fediverse/fep/src/branch/main/fep/8b32/fep-8b32.md)), which
+this server doesn't send yet. HTTP signatures still use only the RSA key.
+
+```json
+"assertionMethod": [{
+  "id": "https://elysium.example/users/alice#ed25519-key",
+  "type": "Multikey",
+  "controller": "https://elysium.example/users/alice",
+  "publicKeyMultibase": "z6Mk..."
+}]
+```
+
+The `@context` defines `assertionMethod`, `Multikey`, `controller`, and `publicKeyMultibase` inline, with the IRIs that
+`https://www.w3.org/ns/cid/v1` gives them, rather than naming that context. It's protected, and its definitions could
+clash with the ones for Mastodon's profile terms.
 
 An actor document also has the user's profile, as Mastodon sends it, and leaves out each part that's empty:
 
@@ -108,7 +127,7 @@ The server itself is an `Application` actor at `/actor`, with the `preferredUser
 requests that no user is behind, which so far means fetching keys and actor documents, and sending [reports](#reports). Its document is served as
 `application/activity+json` or `application/ld+json` with any profile, and any origin can read it through CORS. It never
 requires a signature. There's no web page at this URL, so its `url` links to the front page. Its key is identified as
-`{actor-uri}#main-key`, its `endpoints.sharedInbox` is `/inbox`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is ignored, with no
+`{actor-uri}#main-key`, it has an Ed25519 key in `assertionMethod` as [a user does](#actors), its `endpoints.sharedInbox` is `/inbox`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is ignored, with no
 `Reject`.
 
 The instance actor is linked from the NodeInfo well-known URL at `/.well-known/nodeinfo` for servers that look for such
@@ -1619,8 +1638,8 @@ off by default. When it's on, a `GET` or `HEAD` of these needs a signature, in e
 
 An unsigned request for a user's actor document isn't refused, so that a server which fetches keys without signing can
 still check this server's deliveries. It gets a shorter document, as from Mastodon, with only `@context`, `id`, `type`,
-`preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, and `publicKey`, and `suspended` for a
-suspended user. So does a request whose signature can't be accepted, such as one whose key can't be fetched right now,
+`preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, `publicKey`, and `assertionMethod`, and
+`suspended` for a suspended user. So does a request whose signature can't be accepted, such as one whose key can't be fetched right now,
 unless the key is on a blocked domain or the signer is suspended or deleted, which gets a `403`, as Mastodon does. A
 deleted user's `Tombstone` is served to anyone apart from those.
 

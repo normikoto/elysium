@@ -443,6 +443,13 @@ public class ActorRepository {
                 .optional();
     }
 
+    public Optional<String> findEd25519PublicKeyPem(UUID actorId) {
+        return jdbc.sql("SELECT ed25519_public_key_pem FROM local_account WHERE actor_id = :actorId")
+                .param("actorId", actorId)
+                .query(String.class)
+                .optional();
+    }
+
     /**
      * Reads the private key an actor signs integrity proofs with, which actor queries also leave out.
      */

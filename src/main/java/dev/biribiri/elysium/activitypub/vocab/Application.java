@@ -12,7 +12,7 @@ import java.util.List;
  */
 @Schema(name = "ApplicationActor", description = "The ActivityPub actor document for the server itself.")
 public record Application(
-        @JsonProperty("@context") List<String> context,
+        @JsonProperty("@context") List<?> context,
         URI id,
         String type,
         String preferredUsername,
@@ -21,7 +21,8 @@ public record Application(
         URI outbox,
         boolean manuallyApprovesFollowers,
         Endpoints endpoints,
-        PublicKey publicKey
+        PublicKey publicKey,
+        List<Multikey> assertionMethod
 ) {
 
     /**
@@ -39,6 +40,7 @@ public record Application(
                 // Nobody should be following the server itself.
                 true,
                 new Endpoints(sharedInbox),
-                new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()));
+                new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
+                List.of(Multikey.ed25519(actor.proofKeyId(), actor.uri(), actor.proofPublicKeyPem())));
     }
 }

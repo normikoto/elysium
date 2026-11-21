@@ -8,6 +8,8 @@ import java.net.URI;
  *
  * @param uri the actor's URL. Other servers store this, so it can't change.
  * @param url the page for people to look at, which is the server's front page
+ * @param publicKeyPem the RSA key that checks its HTTP signatures
+ * @param proofPublicKeyPem the Ed25519 key that checks its integrity proofs
  */
 public record InstanceActor(
         URI uri,
@@ -16,7 +18,8 @@ public record InstanceActor(
         String domain,
         URI inboxUri,
         URI outboxUri,
-        String publicKeyPem
+        String publicKeyPem,
+        String proofPublicKeyPem
 ) {
 
     public static final String PATH = "/actor";

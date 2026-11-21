@@ -137,14 +137,15 @@ public class ActivityPubController {
             operationId = "getActor",
             summary = "Fetch a user's actor document",
             description = """
-                    A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, and the shared inbox \
-                    at `/inbox` as `endpoints.sharedInbox`. The profile is in `name`, `summary` (HTML), `icon` and \
+                    A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, an Ed25519 \
+                    `Multikey` in `assertionMethod` identified as `{actor-uri}#ed25519-key` (FEP-521a), and the shared \
+                    inbox at `/inbox` as `endpoints.sharedInbox`. The profile is in `name`, `summary` (HTML), `icon` and \
                     `image` (WebP `Image`s), and `attachment` (`PropertyValue`s), each left out if it's empty. \
                     `alsoKnownAs` lists the accounts that can move to this one, and `movedTo` is the account this one \
                     moved to, which it keeps working after. A suspended user's document has `suspended: true`, the same key, and no profile. When the server \
                     requires signed fetches, an unsigned request gets a minimal document with only the `id`, `type`, \
-                    `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, and `publicKey`, \
-                    so that the key can always be read. So does one whose signature can't be accepted, unless it's \
+                    `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, `publicKey`, and \
+                    `assertionMethod`, so that the keys can always be read. So does one whose signature can't be accepted, unless it's \
                     from a blocked server or a suspended actor.\s"""
                     + FederationDocs.CONTENT_NEGOTIATION + " " + FederationDocs.VARIES_BY_SIGNATURE,
             parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
@@ -173,11 +174,11 @@ public class ActivityPubController {
         }
         // Blocked and suspended signers have already been refused, so anything else that isn't signed is answered as unsigned.
         if (federation.authorizedFetch() && !(signers.check(request) instanceof FetchSigners.FetchSignature.Signed)) {
-            return ResponseEntity.ok(Person.minimal(actor.get(), instance));
+            return ResponseEntity.ok(persons.minimal(actor.get()));
         }
         // Not an error, because other servers take any answer that isn't this document as the actor being gone or broken.
         return ResponseEntity.ok(actor.get().isSuspended()
-                ? Person.suspended(actor.get(), instance)
+                ? persons.suspended(actor.get())
                 : persons.of(actor.get()));
     }
 
@@ -570,7 +571,8 @@ public class ActivityPubController {
             description = """
                     An `Application` with the `preferredUsername` `""" + InstanceActor.USERNAME + """
                     `, for signing requests that no user is behind, such as fetches of keys and actor documents. Its \
-                    key is identified as `{actor-uri}#main-key`, and its `url` is the front page. It can't be followed, \
+                    key is identified as `{actor-uri}#main-key`, its Ed25519 `Multikey` in `assertionMethod` as \
+                    `{actor-uri}#ed25519-key`, and its `url` is the front page. It can't be followed, \
                     so a `Follow` of it is ignored. It never needs a signature.\s""" + FederationDocs.DOCUMENT,
             responses = @ApiResponse(responseCode = "200", description = "The actor.", content = {
                     @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Application.class)),

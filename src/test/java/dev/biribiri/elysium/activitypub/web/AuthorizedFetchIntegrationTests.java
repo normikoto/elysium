@@ -101,6 +101,8 @@ class AuthorizedFetchIntegrationTests {
                 .andExpect(jsonPath("$.endpoints.sharedInbox").value(BASE + "/inbox"))
                 .andExpect(jsonPath("$.publicKey.id").value(BASE + "/users/bob#main-key"))
                 .andExpect(jsonPath("$.publicKey.publicKeyPem").exists())
+                .andExpect(jsonPath("$.assertionMethod[0].id").value(BASE + "/users/bob#ed25519-key"))
+                .andExpect(jsonPath("$.assertionMethod[0].publicKeyMultibase").exists())
                 .andExpect(jsonPath("$.url").doesNotExist())
                 .andExpect(jsonPath("$.featured").doesNotExist())
                 .andExpect(jsonPath("$.manuallyApprovesFollowers").doesNotExist())
@@ -123,7 +125,8 @@ class AuthorizedFetchIntegrationTests {
         send(get("/users/suspended").accept(ACTIVITY_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.suspended").value(true))
-                .andExpect(jsonPath("$.publicKey.publicKeyPem").exists());
+                .andExpect(jsonPath("$.publicKey.publicKeyPem").exists())
+                .andExpect(jsonPath("$.assertionMethod[0].publicKeyMultibase").exists());
         send(get("/users/deleted").accept(ACTIVITY_JSON))
                 .andExpect(status().isGone())
                 .andExpect(jsonPath("$.type").value("Tombstone"));
