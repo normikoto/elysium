@@ -64,16 +64,9 @@ public class AnnouncementRepository {
                 .list();
     }
 
-    public Optional<Announcement> findPublished(UUID id) {
-        return jdbc.sql("SELECT %s FROM announcement WHERE id = :id AND published_at IS NOT NULL".formatted(COLUMNS))
-                .param("id", id)
-                .query(MAPPER)
-                .optional();
-    }
-
     /**
      * Holds it until the transaction ends, so that reactions added at once are counted one after the other, and it
-     * can't be unpublished or deleted meanwhile.
+     * can't be unpublished or deleted meanwhile, which would break a dismissal's or reaction's foreign key.
      */
     public Optional<Announcement> lockPublished(UUID id) {
         return jdbc.sql("""
@@ -202,20 +195,6 @@ public class AnnouncementRepository {
                 .param("emojiId", emojiId, Types.OTHER)
                 .param("now", offset(now))
                 .update();
-    }
-
-    public boolean hasReacted(UUID announcementId, UUID actorId, String name, UUID emojiId) {
-        return jdbc.sql("""
-                        SELECT EXISTS (SELECT 1 FROM announcement_reaction
-                                       WHERE announcement_id = :announcementId AND actor_id = :actorId AND name = :name
-                                         AND emoji_id IS NOT DISTINCT FROM :emojiId)
-                        """)
-                .param("announcementId", announcementId)
-                .param("actorId", actorId)
-                .param("name", name)
-                .param("emojiId", emojiId, Types.OTHER)
-                .query(Boolean.class)
-                .single();
     }
 
     public void deleteReaction(UUID announcementId, UUID actorId, String name, UUID emojiId) {

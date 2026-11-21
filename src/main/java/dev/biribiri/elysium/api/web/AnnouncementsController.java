@@ -4,10 +4,12 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.announcement.Announcement;
 import dev.biribiri.elysium.announcement.Announcements;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.CustomEmoji;
 import dev.biribiri.elysium.content.CustomEmojis;
 import dev.biribiri.elysium.content.InvalidReactionException;
 import dev.biribiri.elysium.text.Hashtags;
 import dev.biribiri.elysium.text.PlainText;
+import dev.biribiri.elysium.text.Shortcodes;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @RestController
@@ -76,9 +79,11 @@ public class AnnouncementsController {
         var ids = published.stream().map(Announcement::id).toList();
         var dismissed = announcements.dismissedBy(actorId, ids);
         var reactions = announcements.reactions(ids, actorId);
+        var emojiByShortcode = emojis.findLocalIn(published.stream().map(Announcement::text).toList());
         return published.stream().map(announcement -> response(announcement, dismissed.contains(announcement.id()),
                 reactions.getOrDefault(announcement.id(), List.of()).stream()
-                        .map(reaction -> AnnouncementReactionResponse.of(reaction, instance)).toList())).toList();
+                        .map(reaction -> AnnouncementReactionResponse.of(reaction, instance)).toList(),
+                emojiByShortcode)).toList();
     }
 
     @PostMapping("/{id}/dismiss")
@@ -166,7 +171,8 @@ public class AnnouncementsController {
     }
 
     private AnnouncementResponse response(Announcement announcement, boolean read,
-                                          List<AnnouncementReactionResponse> reactions) {
+                                          List<AnnouncementReactionResponse> reactions,
+                                          Map<String, CustomEmoji> emojiByShortcode) {
         var text = announcement.text();
         return new AnnouncementResponse(
                 announcement.id().toString(),
@@ -181,7 +187,8 @@ public class AnnouncementsController {
                 List.of(),
                 List.of(),
                 Hashtags.names(text).stream().map(tag -> StatusTagResponse.of(tag, instance)).toList(),
-                CustomEmojiResponse.of(emojis.findLocalIn(List.of(text)).values(), instance),
+                CustomEmojiResponse.of(Shortcodes.names(List.of(text)).stream()
+                        .map(emojiByShortcode::get).filter(Objects::nonNull).toList(), instance),
                 reactions);
     }
 

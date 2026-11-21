@@ -207,14 +207,30 @@ class AnnouncementsIntegrationTests {
     }
 
     @Test
-    void namesTheCustomEmojiAnAnnouncementUses() throws Exception {
+    void namesTheCustomEmojiEachAnnouncementUses() throws Exception {
         var shortcode = shortcode();
+        var otherShortcode = shortcode();
         emojis.addLocal(shortcode, TestImages.png(64, 64), null);
+        emojis.addLocal(otherShortcode, TestImages.png(64, 64), null);
         announcements.create("Hello :" + shortcode + ":", null, null, false, true);
+        announcements.create("Goodbye :" + otherShortcode + ":", null, null, false, true);
 
         mockMvc.perform(get(API).header("Authorization", "Bearer " + token(USER, "read")))
                 .andExpect(jsonPath("$[0].emojis", hasSize(1)))
-                .andExpect(jsonPath("$[0].emojis[0].shortcode").value(shortcode));
+                .andExpect(jsonPath("$[0].emojis[0].shortcode").value(shortcode))
+                .andExpect(jsonPath("$[1].emojis", hasSize(1)))
+                .andExpect(jsonPath("$[1].emojis[0].shortcode").value(otherShortcode));
+    }
+
+    @Test
+    void readsLineBreaksFromTheBrowserAsParagraphs() throws Exception {
+        var announcement = announcements.create("Maintenance tonight\r\n\r\nDetails below\r\n", null, null, false,
+                true);
+        assertThat(announcement.text()).isEqualTo("Maintenance tonight\n\nDetails below");
+        announcements.create("a\r\n".repeat(Announcements.MAX_TEXT_LENGTH / 2 - 1) + "a", null, null, false, false);
+
+        mockMvc.perform(get(API).header("Authorization", "Bearer " + token(USER, "read")))
+                .andExpect(jsonPath("$[0].content").value("<p>Maintenance tonight</p><p>Details below</p>"));
     }
 
     @Test

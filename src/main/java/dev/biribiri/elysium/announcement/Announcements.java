@@ -124,7 +124,7 @@ public class Announcements {
      */
     @Transactional
     public boolean dismiss(UUID announcementId, UUID actorId) {
-        if (announcements.findPublished(announcementId).isEmpty()) {
+        if (announcements.lockPublished(announcementId).isEmpty()) {
             return false;
         }
         announcements.dismiss(announcementId, actorId);
@@ -209,7 +209,9 @@ public class Announcements {
     }
 
     private static String cleanText(String text) {
-        var cleaned = text == null ? "" : text.strip();
+        // Browsers send a textarea's line breaks as CRLF, which PlainText wouldn't split paragraphs on, and which the
+        // textarea's maxlength counts as one character.
+        var cleaned = text == null ? "" : text.replace("\r\n", "\n").replace('\r', '\n').strip();
         if (cleaned.isEmpty()) {
             throw new InvalidAnnouncementException("An announcement needs some text.");
         }

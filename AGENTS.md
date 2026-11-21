@@ -47,7 +47,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
 | `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
 | `moderation`  | Domain blocks, reports, and server rules   | `actor`, `content`, `jobs`                     |
-| `announcement` | Admins' announcements, and their dismissals and reactions | `actor`, `content`, `text`      |
+| `announcement` | Admins' announcements, and their dismissals and reactions | `actor`, `content`              |
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
 | `api`         | Mastodon-compatible REST API               | `actor`, `announcement`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
@@ -62,7 +62,8 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 - A new module also has to be added to the list in `ModularityTests.detectsEveryModule`.
 - Outside `activitypub`, don't name a module, class, or table with a word that ActivityPub uses for something else, such
   as inbox, outbox, activity, or collection. `activitypub` uses both vocabularies, so a clash there reads as federation.
-  `actor` is the exception, since it means the same thing in both.
+  `actor` is the exception, since it means the same thing in both. So is `announcement`, Mastodon's name for admins'
+  announcements, which never federate and so can't be mistaken for an `Announce`.
 - Name a class for what it does with its records or events, as `FollowDeliveries` and `Notifier` are, not for a pattern
   such as a projection or a manager.
 
