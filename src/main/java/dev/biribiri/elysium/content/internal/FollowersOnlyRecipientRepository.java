@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -38,8 +39,8 @@ public class FollowersOnlyRecipientRepository {
                 FROM actor a
                 WHERE (a.id IN (SELECT actor_id FROM followers_only_recipient WHERE status_id = :statusId)
                        OR a.id = ANY (CAST(:others AS uuid[])))
-                  AND NOT a.is_local AND a.suspended_at IS NULL AND a.deleted_at IS NULL
-                """;
+                  AND NOT a.is_local AND %s
+                """.formatted(ActorSql.active("a"));
         if (onlyThese == null) {
             return jdbc.sql(sql)
                     .param("statusId", statusId)

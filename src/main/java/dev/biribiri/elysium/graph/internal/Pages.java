@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.graph.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
 import org.springframework.jdbc.core.RowMapper;
@@ -78,6 +79,6 @@ final class Pages {
     private static String select(String table, String extra) {
         return "SELECT r.id, a.id AS other_id, a.uri AS other_uri FROM " + table
                 + " r JOIN actor a ON a.id = r.target_id WHERE r.account_id = :account"
-                + " AND a.suspended_at IS NULL AND a.deleted_at IS NULL" + extra;
+                + " AND " + ActorSql.active("a") + extra;
     }
 }

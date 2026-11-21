@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.NewPoll;
 import dev.biribiri.elysium.content.NewStatus;
@@ -135,10 +136,10 @@ public class ScheduledStatusRepository {
     public List<UUID> findDue(int limit) {
         return jdbc.sql("""
                         SELECT s.id FROM scheduled_status s
-                        JOIN actor a ON a.id = s.actor_id AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        JOIN actor a ON a.id = s.actor_id AND %s
                         WHERE s.scheduled_at <= now() AND (s.retry_at IS NULL OR s.retry_at <= now())
                         ORDER BY s.scheduled_at, s.id LIMIT :limit
-                        """)
+                        """.formatted(ActorSql.active("a")))
                 .param("limit", limit)
                 .query(UUID.class)
                 .list();

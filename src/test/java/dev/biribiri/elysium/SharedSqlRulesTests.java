@@ -32,6 +32,11 @@ class SharedSqlRulesTests {
      */
     private static final Pattern MATCHES_DOMAINS = Pattern.compile(Pattern.quote("':[0-9]+$'"));
 
+    /**
+     * Half of {@code actor.ActorSql.active}, which is enough to find a copy of it.
+     */
+    private static final Pattern CHECKS_ACTIVE = Pattern.compile("\\bsuspended_at IS NULL");
+
     @Test
     void onlyModerationAndActorSqlReadDomainBlocks() throws IOException {
         var moderation = SOURCES.resolve("moderation");
@@ -44,6 +49,14 @@ class SharedSqlRulesTests {
     void onlyActorSqlMatchesDomains() throws IOException {
         assertThat(sourcesMatching(MATCHES_DOMAINS, path -> !path.equals(ACTOR_SQL)))
                 .as("match a block's domain with actor.ActorSql.domainCovers")
+                .isEmpty();
+    }
+
+    @Test
+    void onlyActorChecksWhetherAnActorIsActive() throws IOException {
+        var actor = SOURCES.resolve("actor");
+        assertThat(sourcesMatching(CHECKS_ACTIVE, path -> !path.startsWith(actor)))
+                .as("SQL outside actor should check that an actor is active with actor.ActorSql.active")
                 .isEmpty();
     }
 

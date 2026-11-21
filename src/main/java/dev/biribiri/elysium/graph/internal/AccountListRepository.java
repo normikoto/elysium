@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.graph.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowPage;
@@ -143,7 +144,7 @@ public class AccountListRepository {
                         SELECT v.id, :list, f.follower_id, f.followed_id, now()
                         FROM unnest(CAST(:ids AS uuid[]), CAST(:accounts AS uuid[])) AS v (id, account_id)
                         JOIN follow f ON f.follower_id = :owner AND f.followed_id = v.account_id
-                        JOIN actor a ON a.id = f.followed_id AND a.suspended_at IS NULL AND a.deleted_at IS NULL""")
+                        JOIN actor a ON a.id = f.followed_id AND %s""".formatted(ActorSql.active("a")))
                 .param("ids", accountIds.stream().map(id -> UUID.randomUUID()).toArray(UUID[]::new))
                 .param("accounts", accountIds.toArray(UUID[]::new))
                 .param("list", listId)

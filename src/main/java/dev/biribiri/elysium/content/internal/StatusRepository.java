@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.content.internal;
 
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.actor.Indexable;
 import dev.biribiri.elysium.content.AccountStats;
 import dev.biribiri.elysium.content.ContentType;
@@ -51,8 +52,8 @@ public class StatusRepository {
 
     private static final String COUNT_REPLIES = """
             SELECT count(*) FROM status r
-            JOIN actor replier ON replier.id = r.actor_id AND replier.suspended_at IS NULL AND replier.deleted_at IS NULL
-            WHERE r.in_reply_to_id = %s AND r.visibility IN ('public', 'unlisted')""";
+            JOIN actor replier ON replier.id = r.actor_id AND %s
+            WHERE r.in_reply_to_id = %%s AND r.visibility IN ('public', 'unlisted')""".formatted(ActorSql.active("replier"));
 
     private static final String SELECT = "SELECT " + COLUMNS + ", (" + COUNT_REPLIES.formatted("s.id")
             + ") AS replies_count " + FROM_ACTIVE;
@@ -426,8 +427,8 @@ public class StatusRepository {
     public Optional<URI> findAuthorUriByUri(URI uri) {
         return jdbc.sql("""
                         SELECT a.uri FROM status s JOIN actor a ON a.id = s.actor_id
-                        WHERE s.uri = :uri AND s.reblog_of_id IS NULL AND a.suspended_at IS NULL AND a.deleted_at IS NULL
-                        """)
+                        WHERE s.uri = :uri AND s.reblog_of_id IS NULL AND %s
+                        """.formatted(ActorSql.active("a")))
                 .param("uri", uri.toString())
                 .query(URI.class)
                 .optional();
@@ -826,10 +827,10 @@ public class StatusRepository {
         var mentions = new HashMap<UUID, List<UUID>>();
         jdbc.sql("""
                         SELECT m.status_id, m.actor_id FROM status_mention m
-                        JOIN actor a ON a.id = m.actor_id AND a.suspended_at IS NULL AND a.deleted_at IS NULL
+                        JOIN actor a ON a.id = m.actor_id AND %s
                         WHERE m.status_id IN (:statusIds) AND NOT m.silent
                         ORDER BY m.status_id, a.username, a.domain
-                        """)
+                        """.formatted(ActorSql.active("a")))
                 .param("statusIds", statusIds)
                 .query(rs -> {
                     mentions.computeIfAbsent(rs.getObject("status_id", UUID.class), id -> new ArrayList<>())
@@ -1019,8 +1020,8 @@ public class StatusRepository {
         return jdbc.sql("""
                         SELECT coalesce(sum(c.statuses_count), 0)::bigint FROM actor_status_count c
                         JOIN actor ON actor.id = c.actor_id
-                        WHERE actor.is_local AND actor.suspended_at IS NULL AND actor.deleted_at IS NULL
-                        """)
+                        WHERE actor.is_local AND %s
+                        """.formatted(ActorSql.active("actor")))
                 .query(Long.class)
                 .single();
     }
