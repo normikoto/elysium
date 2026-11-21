@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   followers, is accepted straight away if its author's server signed it with an integrity proof (FEP-8b32), as Mitra,
   Fedify-based servers, and Elysium do. Before, it was always fetched again from its author's server, so it was lost if
   that server was down or refused the fetch. See `FEDERATION.md`.
-
 - People can remove someone from their followers without blocking them, from apps that support it, through the
   Mastodon API's `POST /api/v1/accounts/:id/remove_from_followers`. A follower on another server is told, and can follow
   again later.
