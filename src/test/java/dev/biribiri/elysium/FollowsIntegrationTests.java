@@ -489,7 +489,8 @@ class FollowsIntegrationTests {
         assertThat(JsonPath.<String>read(follow, "$.id")).startsWith(alice.uri() + "#follows/");
         assertThat(JsonPath.<String>read(follow, "$.actor")).isEqualTo(alice.uri().toString());
         assertThat(JsonPath.<String>read(follow, "$.object")).isEqualTo(remote.uri().toString());
-        assertThat(JsonPath.<String>read(follow, "$['@context']")).isEqualTo("https://www.w3.org/ns/activitystreams");
+        assertThat(JsonPath.<List<String>>read(follow, "$['@context']"))
+                .containsExactly("https://www.w3.org/ns/activitystreams", "https://w3id.org/security/data-integrity/v2");
         assertThat(deliveryInboxes(alice, remote)).containsExactly(remote.inboxUri().toString());
         mockMvc.perform(get("/api/v1/accounts/" + remote.id()))
                 .andExpect(jsonPath("$.acct").value("bob@" + remote.domain()))
