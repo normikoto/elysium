@@ -316,14 +316,64 @@ public class AccountsController {
             @RequestParam(name = "id[]", required = false) List<String> ids,
             @RequestParam(name = "id", required = false) List<String> plainIds) {
         var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
+        return follows.relationships(viewer, activeAmong(ids, plainIds)).stream().map(RelationshipResponse::from).toList();
+    }
+
+    /**
+     * @return the active accounts among those asked about by {@code id[]} and {@code id}, in the order asked, leaving out
+     * unknown and malformed IDs as Mastodon does
+     */
+    private List<UUID> activeAmong(List<String> ids, List<String> plainIds) {
         var requested = new ArrayList<String>();
         Optional.ofNullable(ids).ifPresent(requested::addAll);
         Optional.ofNullable(plainIds).ifPresent(requested::addAll);
-        // Unknown and malformed IDs are left out, as Mastodon does.
         var parsed = requested.stream().distinct().flatMap(id -> RequestParameters.uuid(id).stream()).toList();
         var active = actors.findByIds(parsed).stream().filter(Actor::isActive).map(Actor::id).collect(Collectors.toSet());
-        var found = parsed.stream().filter(active::contains).toList();
-        return follows.relationships(viewer, found).stream().map(RelationshipResponse::from).toList();
+        return parsed.stream().filter(active::contains).toList();
+    }
+
+    @GetMapping("/familiar_followers")
+    @PreAuthorize("hasAuthority('SCOPE_read:follows')")
+    @Operation(
+            operationId = "getFamiliarFollowers",
+            summary = "Find which accounts the user follows also follow accounts",
+            description = """
+                    Differences from Mastodon: for an account on another server, only accounts on this server are \
+                    listed. Each list has the most recent follow first.
+
+                    Suspended and deleted followers are left out. If the account hides who's in its collections, its list \
+                    is empty, unless it's the user's own. Unknown, malformed, and suspended accounts are left out, as on \
+                    Mastodon.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#familiar_followers"),
+            parameters = {
+                    @Parameter(name = "id[]", description = "The accounts' IDs, one value each."),
+                    @Parameter(name = "id", description = "The same as `id[]`, for clients that leave out the brackets.")
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "An entry for each account found, in the order asked."),
+                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+            })
+    public List<FamiliarFollowersResponse> familiarFollowers(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @RequestParam(name = "id[]", required = false) List<String> ids,
+            @RequestParam(name = "id", required = false) List<String> plainIds) {
+        var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
+        var found = activeAmong(ids, plainIds);
+        // As on the followers list, an account that hides it doesn't have it shown to anyone else.
+        var hiding = actors.hidingCollections(found);
+        var shown = found.stream().filter(id -> id.equals(viewer) || !hiding.contains(id)).toList();
+        var followerIds = follows.followersFollowedBy(viewer, shown);
+        var followers = accounts.byId(actors.findByIds(
+                followerIds.values().stream().flatMap(List::stream).distinct().toList()));
+        return found.stream()
+                .map(id -> new FamiliarFollowersResponse(id.toString(),
+                        followerIds.getOrDefault(id, List.of()).stream()
+                                .filter(followers::containsKey)
+                                .map(followers::get)
+                                .toList()))
+                .toList();
     }
 
     @GetMapping("/{id}")

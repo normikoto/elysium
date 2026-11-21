@@ -14,6 +14,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -399,6 +400,33 @@ public class FollowRepository {
                         URI.create(rs.getString("other_uri"))))
                 .list();
         return ascending ? found.reversed() : found;
+    }
+
+    /**
+     * Finds the accounts that a viewer follows which also follow each of these accounts, both follows accepted, leaving
+     * out suspended and deleted ones.
+     *
+     * @return the followers of each account that has any, the most recent follow of it first
+     */
+    public Map<UUID, List<UUID>> findFollowersFollowedBy(UUID viewerId, Collection<UUID> actorIds) {
+        if (actorIds.isEmpty()) {
+            return Map.of();
+        }
+        var found = new HashMap<UUID, List<UUID>>();
+        jdbc.sql("""
+                        SELECT f.followed_id, f.follower_id FROM follow f
+                        JOIN follow v ON v.followed_id = f.follower_id AND v.follower_id = :viewerId AND v.state = 'accepted'
+                        JOIN actor a ON a.id = f.follower_id
+                        WHERE f.followed_id IN (:ids) AND f.state = 'accepted' AND %s
+                        ORDER BY f.created_at DESC, f.id DESC
+                        """.formatted(ACTIVE_OTHER))
+                .param("viewerId", viewerId)
+                .param("ids", actorIds)
+                .query(rs -> {
+                    found.computeIfAbsent(rs.getObject("followed_id", UUID.class), id -> new ArrayList<>())
+                            .add(rs.getObject("follower_id", UUID.class));
+                });
+        return found;
     }
 
     /**

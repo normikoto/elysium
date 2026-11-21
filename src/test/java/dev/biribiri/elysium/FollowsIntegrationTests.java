@@ -574,6 +574,56 @@ class FollowsIntegrationTests {
         mockMvc.perform(get(URI.create(next))).andExpect(jsonPath("$[*].username", contains("bob")));
     }
 
+    // Familiar followers
+
+    @Test
+    void listsTheFollowersThatTheUserFollows() throws Exception {
+        var alice = account("alice");
+        var bob = account("bob");
+        var carol = account("carol");
+        follow("alice", bob);
+        follow("alice", carol);
+        follow("bob", carol);
+        follow("carol", alice);
+        var stranger = remote();
+        insertFollow(stranger, carol);
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/familiar_followers")
+                                .param("id[]", carol.id().toString(), "not-an-id", UUID.randomUUID().toString())
+                                .param("id", bob.id().toString()),
+                        token("alice")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].id").value(carol.id().toString()))
+                .andExpect(jsonPath("$[0].accounts[*].username", contains("bob")))
+                .andExpect(jsonPath("$[1].id").value(bob.id().toString()))
+                .andExpect(jsonPath("$[1].accounts", empty()));
+    }
+
+    @Test
+    void leavesOutFamiliarFollowersOfAnAccountThatHidesThem() throws Exception {
+        var alice = account("alice");
+        var bob = account("bob");
+        var carol = account("carol");
+        follow("alice", bob);
+        follow("bob", carol);
+        follow("bob", alice);
+        actors.setHidesCollections(carol.id(), true);
+        actors.setHidesCollections(alice.id(), true);
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/familiar_followers")
+                                .param("id[]", carol.id().toString(), alice.id().toString()),
+                        token("alice")))
+                .andExpect(jsonPath("$[0].accounts", empty()))
+                .andExpect(jsonPath("$[1].accounts[*].username", contains("bob")));
+    }
+
+    @Test
+    void familiarFollowersNeedAUser() throws Exception {
+        mockMvc.perform(get("/api/v1/accounts/familiar_followers").param("id[]", UUID.randomUUID().toString()))
+                .andExpect(status().isUnauthorized());
+    }
+
     // Hiding collections
 
     @Test
