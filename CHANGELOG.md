@@ -13,7 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documents, as FEP-521a describes. Every activity the server sends is signed with it, as an integrity proof (FEP-8b32),
   so that a server it's passed on to can tell who sent it. The upgrade creates a key for every existing account, so its
   first start can take a few seconds longer on a server with many accounts. See `FEDERATION.md`.
-
 - People can remove someone from their followers without blocking them, from apps that support it, through the
   Mastodon API's `POST /api/v1/accounts/:id/remove_from_followers`. A follower on another server is told, and can follow
   again later.
