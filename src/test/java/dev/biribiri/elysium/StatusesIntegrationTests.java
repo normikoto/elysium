@@ -13,6 +13,7 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.content.StatusDeleted;
 import dev.biribiri.elysium.content.StatusThreadsMerged;
+import dev.biribiri.elysium.timeline.internal.TimelineRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -105,6 +106,8 @@ class StatusesIntegrationTests {
 
     @Autowired
     private StatusService statuses;
+    @Autowired
+    private TimelineRepository timelines;
 
     @BeforeEach
     void setUp() {
@@ -1116,9 +1119,8 @@ class StatusesIntegrationTests {
         var followed = new ArrayList<UUID>(Stream.generate(UUID::randomUUID).limit(40_000).toList());
         followed.add(bob);
 
-        assertThat(statuses.findHome(UUID.fromString(aliceId()), followed, new StatusPage(20, null, null, null)))
-                .extracting(status -> status.id().toString())
-                .containsExactly(bobStatus);
+        assertThat(timelines.findHome(UUID.fromString(aliceId()), followed, new StatusPage(20, null, null, null)))
+                .containsExactly(UUID.fromString(bobStatus));
     }
 
     @Test

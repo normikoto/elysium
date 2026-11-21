@@ -26,6 +26,7 @@ import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.text.Hashtags;
 import jakarta.servlet.http.HttpServletRequest;
 import dev.biribiri.elysium.text.EmojiHtml;
+import dev.biribiri.elysium.timeline.TimelineService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
@@ -80,6 +81,7 @@ class PagesController {
     private final FollowService follows;
     private final LikeService likes;
     private final BoostService boosts;
+    private final TimelineService timelines;
 
     PagesController(
             ActorService actors,
@@ -95,7 +97,9 @@ class PagesController {
             Admins admins,
             FollowService follows,
             LikeService likes,
-            BoostService boosts) {
+            BoostService boosts,
+            TimelineService timelines) {
+        this.timelines = timelines;
         this.likes = likes;
         this.boosts = boosts;
         this.admins = admins;
@@ -119,7 +123,7 @@ class PagesController {
         model.addAttribute("statusCount", statuses.countLocal());
         model.addAttribute("showAdmin", viewer(principal).filter(admins::isAdmin).isPresent());
         model.addAttribute("registrationEnabled", registration.acceptsUninvited());
-        model.addAttribute("statuses", views(statuses.findPublic(StatusOrigin.LOCAL, firstPage(null))));
+        model.addAttribute("statuses", views(timelines.publicTimeline(StatusOrigin.LOCAL, firstPage(null), false, ANONYMOUS)));
         return "home";
     }
 
@@ -245,7 +249,7 @@ class PagesController {
         requireHtmlAccepted(request);
         var tag = Hashtags.parse(name).orElseThrow(PagesController::notFound);
         var page = firstPage(maxId == null ? null : Ids.parse(maxId).orElseThrow(PagesController::notFound));
-        var found = statuses.findTagged(TagFilter.of(tag), StatusOrigin.ANY, page);
+        var found = timelines.tagTimeline(TagFilter.of(tag), StatusOrigin.ANY, page, false, ANONYMOUS);
 
         model.addAttribute("tag", tag);
         model.addAttribute("statuses", profileViews(found, null));

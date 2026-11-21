@@ -50,7 +50,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
 | `api`         | Mastodon-compatible REST API               | `actor`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
-| `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text` |
+| `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text`, `timeline` |
 | `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `jobs`, `moderation`, `ratelimit`, `text` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
@@ -72,9 +72,10 @@ These reach beyond `activitypub`, and a change can break them without a test not
 - **Outbound events:** a module publishes an event inside its transaction, holding only IDs and never a status's text,
   since events are stored. `activitypub.outbound` builds the activity from it.
 - **Remote actors:** other modules find them through `actor.RemoteActorResolver`, never by depending on `activitypub`.
-- **Account state:** `ActorService.findLocal*` and `StatusRepository`'s queries only find active actors. Use `findAnyLocal*`
-  only for what has to keep working for suspended or deleted ones, such as actor documents and signing, and check the state
-  of anything from `findByUri` or `findById`. `auth.AccountActions` decides who can be suspended or deleted.
+- **Account state:** `ActorService.findLocal*`, and status queries built on `content.StatusSql.FROM_ACTIVE`, only find
+  active actors. Use `findAnyLocal*` only for what has to keep working for suspended or deleted ones, such as actor
+  documents and signing, and check the state of anything from `findByUri` or `findById`. `auth.AccountActions` decides
+  who can be suspended or deleted.
 - **Cleanup:** each module that stores data by or about actors implements `actor.ActorDataRemoval` once, and a new
   table's data has to be removed there: remote data when its server is blocked, and remote or account data when its actor
   is deleted, including files in the media directory. The account and domain block cleanup jobs call every

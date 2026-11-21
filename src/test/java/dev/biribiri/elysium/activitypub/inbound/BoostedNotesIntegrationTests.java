@@ -12,8 +12,8 @@ import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.StatusPage;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
-import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
+import dev.biribiri.elysium.timeline.TimelineService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,7 +58,7 @@ class BoostedNotesIntegrationTests {
     @Autowired InboundActivities inbound;
     @Autowired ActorService actors;
     @Autowired StatusService statuses;
-    @Autowired FollowService follows;
+    @Autowired TimelineService timelines;
     @Autowired DomainBlocks blocks;
     @Autowired JdbcClient jdbc;
     @Autowired JsonMapper json;
@@ -126,7 +126,7 @@ class BoostedNotesIntegrationTests {
         assertThat(jdbc.sql("SELECT actor_id FROM status WHERE id = :id").param("id", statusId)
                 .query(UUID.class).single()).isEqualTo(author.id());
         assertThat(boostOf(statusId)).isOne();
-        var home = statuses.findHome(alice.id(), follows.followedIds(alice.id()), new StatusPage(20, null, null, null));
+        var home = timelines.homeTimeline(alice.id(), new StatusPage(20, null, null, null));
         assertThat(home).anyMatch(status -> statusId.equals(status.reblogOfId()));
         verify(documents).fetch(note);
     }

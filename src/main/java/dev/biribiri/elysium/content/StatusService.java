@@ -13,7 +13,6 @@ import dev.biribiri.elysium.content.internal.QuoteRepository;
 import dev.biribiri.elysium.content.internal.StatusIds;
 import dev.biribiri.elysium.content.internal.StatusRepository;
 import dev.biribiri.elysium.content.internal.StatusThreads;
-import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.text.Hashtags;
@@ -1570,51 +1569,6 @@ public class StatusService {
     }
 
     /**
-     * Lists public statuses, leaving out replies to other accounts.
-     */
-    public List<Status> findPublic(StatusOrigin origin, StatusPage page) {
-        return findPublic(origin, page, false);
-    }
-
-    /**
-     * @param onlyMedia whether to only list statuses with attachments
-     */
-    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia) {
-        return statuses.findPublic(origin, page, onlyMedia, null);
-    }
-
-    /**
-     * Like {@link #findPublic(StatusOrigin, StatusPage, boolean)}, leaving out what's hidden from a viewer: statuses by
-     * accounts they've blocked, muted, or blocked the server of, or that block them.
-     */
-    public List<Status> findPublic(StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
-        return statuses.findPublic(origin, page, onlyMedia, viewer.orElse(null));
-    }
-
-    /**
-     * Lists public statuses with these hashtags, including replies.
-     */
-    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page) {
-        return findTagged(tags, origin, page, false);
-    }
-
-    /**
-     * @param onlyMedia whether to only list statuses with attachments
-     */
-    public List<Status> findTagged(TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia) {
-        return statuses.findTagged(tags, origin, page, onlyMedia, null);
-    }
-
-    /**
-     * Like {@link #findTagged(TagFilter, StatusOrigin, StatusPage, boolean)}, leaving out what's hidden from a viewer, as
-     * {@link #findPublic(StatusOrigin, StatusPage, boolean, Optional)} does.
-     */
-    public List<Status> findTagged(
-            TagFilter tags, StatusOrigin origin, StatusPage page, boolean onlyMedia, Optional<UUID> viewer) {
-        return statuses.findTagged(tags, origin, page, onlyMedia, viewer.orElse(null));
-    }
-
-    /**
      * The names of each status's hashtags, in no particular order.
      *
      * @return an entry for each status that has any
@@ -1680,50 +1634,6 @@ public class StatusService {
         texts.add(spoilerText);
         texts.addAll(pollOptions);
         return emojis.findLocalIn(texts).values().stream().map(CustomEmoji::id).toList();
-    }
-
-    /**
-     * Lists the viewer's own statuses and visible statuses from followed accounts, including direct mentions.
-     * As on Mastodon, a followed account's reply is only listed when it's to
-     * its author, to the viewer, or to someone they follow, so that following one person doesn't show their side of every
-     * conversation. A reply to a status that isn't stored here has no known parent author, so it's left out too.
-     *
-     * @param followedIds the accounts the viewer follows
-     */
-    public List<Status> findHome(UUID viewerId, Collection<UUID> followedIds, StatusPage page) {
-        return statuses.findHome(viewerId, followedIds, page);
-    }
-
-    /**
-     * Which of these accounts {@link #findHome} would list this status for.
-     */
-    public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
-        return statuses.homeViewers(statusId, candidates);
-    }
-
-    public List<Status> findList(AccountList list, StatusPage page) {
-        return statuses.findList(list, page);
-    }
-
-    /**
-     * Which of these lists {@link #findList} would list this status in.
-     */
-    public List<UUID> listsShowing(UUID statusId, Collection<AccountList> lists) {
-        return statuses.listsShowing(statusId, lists);
-    }
-
-    /**
-     * Whether {@link #findPublic(StatusOrigin, StatusPage, boolean, Optional)} would list this status.
-     */
-    public boolean inPublic(UUID statusId, StatusOrigin origin, boolean onlyMedia, Optional<UUID> viewer) {
-        return statuses.inPublic(statusId, origin, onlyMedia, viewer.orElse(null));
-    }
-
-    /**
-     * Whether {@link #findTagged(TagFilter, StatusOrigin, StatusPage, boolean, Optional)} would list this status.
-     */
-    public boolean inTagged(UUID statusId, TagFilter tags, StatusOrigin origin, boolean onlyMedia, Optional<UUID> viewer) {
-        return statuses.inTagged(statusId, tags, origin, onlyMedia, viewer.orElse(null));
     }
 
     /**
