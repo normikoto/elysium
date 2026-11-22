@@ -1,8 +1,10 @@
 package dev.biribiri.elysium.actor;
 
+import java.util.Locale;
+
 /**
- * SQL conditions on a joined {@code actor}, for other modules' queries, so that they all agree on which actors are active
- * and which servers are blocked. Each takes the actor's alias.
+ * SQL conditions on a joined {@code actor}, for other modules' queries, so that they all agree on which actors are active,
+ * which servers are blocked, and which usernames a search matches. Each takes the actor's alias.
  *
  * <p>The conditions about blocked servers read {@code domain_block}, which {@code moderation} owns and decides. They're
  * here because modules that {@code moderation} depends on, such as {@code content}, need them too, and this is the one
@@ -19,6 +21,23 @@ public final class ActorSql {
      */
     public static String active(String actor) {
         return actor + ".suspended_at IS NULL AND " + actor + ".deleted_at IS NULL";
+    }
+
+    /**
+     * Whether the actor's username starts with a prefix, ignoring case, so that every search by username agrees.
+     *
+     * @param parameter the name of a parameter holding {@link #usernamePrefixPattern}, without its colon
+     */
+    public static String usernameStartsWith(String actor, String parameter) {
+        return "lower(" + actor + ".username) LIKE :" + parameter + " ESCAPE '\\'";
+    }
+
+    /**
+     * @return the pattern {@link #usernameStartsWith} matches against
+     */
+    public static String usernamePrefixPattern(String prefix) {
+        var escaped = prefix.toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return escaped + "%";
     }
 
     /**

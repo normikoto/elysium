@@ -2,6 +2,7 @@ package dev.biribiri.elysium.actor.internal;
 
 import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Actor;
+import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -239,8 +240,8 @@ public class ActorRepository {
             sql.append(" AND suspended_at IS NOT NULL");
         }
         if (filter.usernamePrefix() != null) {
-            sql.append(" AND lower(username) LIKE :prefix ESCAPE '\\'");
-            parameters.put("prefix", escapeLike(filter.usernamePrefix().toLowerCase(Locale.ROOT)) + "%");
+            sql.append(" AND ").append(ActorSql.usernameStartsWith("actor", "prefix"));
+            parameters.put("prefix", ActorSql.usernamePrefixPattern(filter.usernamePrefix()));
         }
         if (filter.domain() != null) {
             sql.append(" AND lower(domain) = :domain");
@@ -265,8 +266,17 @@ public class ActorRepository {
         return ascending ? found.reversed() : found;
     }
 
-    private static String escapeLike(String value) {
-        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    /**
+     * In the order {@link #list} uses, so that a search pages through the same matches an admin sees.
+     */
+    public List<Actor> findActiveByUsernamePrefix(String prefix, int limit, int offset) {
+        return jdbc.sql("SELECT " + COLUMNS + "FROM actor WHERE " + ActorSql.active("actor") + " AND "
+                        + ActorSql.usernameStartsWith("actor", "prefix") + " ORDER BY id DESC LIMIT :limit OFFSET :offset")
+                .param("prefix", ActorSql.usernamePrefixPattern(prefix))
+                .param("limit", limit)
+                .param("offset", offset)
+                .query(Actor.class)
+                .list();
     }
 
     public Optional<Actor> findByUri(URI uri) {

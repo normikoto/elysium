@@ -284,6 +284,14 @@ public class FollowService {
     }
 
     /**
+     * @param prefix the start of their usernames, ignoring case
+     * @return a page of the active accounts this one follows and has been accepted by, whose usernames start with this
+     */
+    public List<UUID> followedIdsByUsernamePrefix(UUID followerId, String prefix, int limit, int offset) {
+        return follows.findFollowedIdsByUsernamePrefix(followerId, prefix, limit, offset);
+    }
+
+    /**
      * Whether one account follows another, and has been accepted.
      */
     public boolean isFollowing(UUID followerId, UUID followedId) {

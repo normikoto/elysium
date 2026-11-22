@@ -204,6 +204,14 @@ public class ActorService {
     }
 
     /**
+     * @param prefix the start of their usernames, ignoring case
+     * @return a page of the accounts that are neither suspended nor deleted, in the order {@link #list} uses
+     */
+    public List<Actor> findActiveByUsernamePrefix(String prefix, int limit, int offset) {
+        return actors.findActiveByUsernamePrefix(prefix, limit, offset);
+    }
+
+    /**
      * Lists accounts, for admins.
      */
     public List<Actor> list(AccountFilter filter) {

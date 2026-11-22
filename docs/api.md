@@ -683,8 +683,8 @@ Follow [Mastodon's accounts API](https://docs.joinmastodon.org/methods/accounts/
 
 Only these exist:
 
-- `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `relationships`, `familiar_followers`, `:id/statuses`,
-  `:id/followers`, and `:id/following`
+- `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `search`, `relationships`, `familiar_followers`,
+  `:id/statuses`, `:id/followers`, and `:id/following`
 - `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/remove_from_followers`, `/block`, `/unblock`, `/mute`, `/unmute`,
   `/note`, `/endorse`, `/unendorse`, `/pin`, and `/unpin`
 - `PATCH /api/v1/accounts/update_credentials`
@@ -793,10 +793,13 @@ Only these exist:
 
 ### Search
 
+- `GET /api/v1/accounts/search` finds accounts as `search` does below, with the same `following` and `offset`, and
+  returns up to 40 by default and at most 80. An `https` URL only finds the account stored with that ID, and another
+  server is never asked about it, where Mastodon finds nothing.
 - `lookup` and `search` only ask another server about an account, or `search` about a status, for a signed-in user, and
   `search` only when `resolve` is true. Each user can make 30 of those lookups a minute, and then gets a 429.
 - `search` finds a query that's a `username@domain` as that one account, and an `https` URL as the one account or status
-  there, and nothing else. Any other query matches the start of the usernames this server knows.
+  there, and nothing else. Any other query matches the start of the usernames this server knows, not display names.
   - A status is found by its URI or by the page its server gave, such as Mastodon's `https://example.com/@alice/1`.
   - A profile page only finds an account with `resolve`.
   - Statuses at a URL are only found for a signed-in user who can see them, even when they block or mute the author, as
@@ -804,7 +807,8 @@ Only these exist:
   - With `resolve`, a status from another server that isn't stored is fetched, and only stored and found if it's public
     or unlisted. A status that's stored already isn't refreshed.
 - Only the first 200 matches can be paged through with `offset`, and an `offset` past them returns no accounts.
-  `following` and `exclude_unreviewed` are ignored.
+  `following` only finds accounts the user follows, and is ignored without a user. With it, another server isn't asked
+  about an address, since an account the user follows is already known. `exclude_unreviewed` is ignored.
 - `search` finds hashtags by the start of their name, from those that public statuses stored here use, most used first.
   A query that's a valid name, with or without its `#`, also finds that tag when nothing uses it, as the first result,
   as on Mastodon. Only the first 200 can be paged through with `offset`.

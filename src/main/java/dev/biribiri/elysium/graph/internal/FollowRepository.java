@@ -386,6 +386,27 @@ public class FollowRepository {
                 .list();
     }
 
+    /**
+     * In the order {@link dev.biribiri.elysium.actor.ActorService#findActiveByUsernamePrefix} uses, so that searching only
+     * followed accounts pages the same way as searching all of them.
+     */
+    public List<UUID> findFollowedIdsByUsernamePrefix(UUID followerId, String prefix, int limit, int offset) {
+        return jdbc.sql("""
+                        SELECT a.id FROM follow f
+                        JOIN actor a ON a.id = f.followed_id
+                        WHERE f.follower_id = :followerId AND f.state = 'accepted' AND %s
+                          AND %s
+                        ORDER BY a.id DESC
+                        LIMIT :limit OFFSET :offset
+                        """.formatted(ACTIVE_OTHER, ActorSql.usernameStartsWith("a", "prefix")))
+                .param("followerId", followerId)
+                .param("prefix", ActorSql.usernamePrefixPattern(prefix))
+                .param("limit", limit)
+                .param("offset", offset)
+                .query(UUID.class)
+                .list();
+    }
+
     public boolean isFollowing(UUID followerId, UUID followedId) {
         return jdbc.sql("""
                         SELECT EXISTS (
