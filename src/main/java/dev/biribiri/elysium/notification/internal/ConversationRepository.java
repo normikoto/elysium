@@ -46,6 +46,17 @@ public class ConversationRepository {
         return source(id, true);
     }
 
+    /**
+     * Whether a status replies to anyone but its author, including to a status that isn't known here.
+     */
+    public boolean repliesToOthers(UUID id) {
+        return jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM status
+                        WHERE id = :id AND reply AND in_reply_to_account_id IS DISTINCT FROM actor_id)
+                        """)
+                .param("id", id).query(Boolean.class).single();
+    }
+
     private Optional<Source> source(UUID id, boolean hold) {
         return jdbc.sql("""
                         SELECT s.id, s.actor_id, s.thread_id, s.visibility FROM status s JOIN actor a ON a.id = s.actor_id

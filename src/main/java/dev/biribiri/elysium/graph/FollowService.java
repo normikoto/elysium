@@ -70,8 +70,9 @@ public class FollowService {
      * followers by hand, when the request waits for it and {@link FollowRequestReceived} is published. That's not so if it
      * approves requests from accounts it follows, and follows this one. An account on another server has to answer first,
      * so the follow waits for that, and {@link FollowRequested} is published so that it's asked. Asking it again
-     * while it's waiting publishes that again, as its server may have lost the request. Following an account already
-     * followed or asked does nothing else.
+     * while it's waiting with no options publishes that again, as its server may have lost the request, while asking with
+     * options only changes them, so that changing them doesn't send the request again. Following an account already
+     * followed or asked only changes the options given, as on Mastodon.
      *
      * <p>The caller checks that both accounts can take part, since this has no view of instance domain blocks.
      *
@@ -80,7 +81,7 @@ public class FollowService {
      * @throws FollowNotAllowedException if either blocks the other, or the follower has blocked the other's server
      */
     @Transactional
-    public void follow(Actor follower, Actor followed) {
+    public void follow(Actor follower, Actor followed, FollowOptions options) {
         if (follower.id().equals(followed.id())) {
             throw new IllegalArgumentException("An account can't follow itself");
         }
@@ -92,7 +93,8 @@ public class FollowService {
         var existing = follows.findByPair(follower.id(), followed.id());
         var local = actors.isLocal(followed);
         if (existing.isPresent()) {
-            if (!existing.get().accepted() && !local) {
+            follows.updateOptions(follower.id(), followed.id(), options);
+            if (!existing.get().accepted() && !local && options.equals(FollowOptions.NONE)) {
                 events.publishEvent(new FollowRequested(
                         follower.id(), followed.id(), existing.get().activityUri(), Instant.now()));
             }
@@ -101,7 +103,7 @@ public class FollowService {
         var id = UUID.randomUUID();
         if (local) {
             var approved = !waitsForApproval(follower.id(), followed.id());
-            if (follows.insertOutgoing(id, follower.id(), followed.id(), null, approved)) {
+            if (follows.insertOutgoing(id, follower.id(), followed.id(), null, approved, options)) {
                 events.publishEvent(approved
                         ? new FollowEstablished(id, follower.id(), followed.id())
                         : new FollowRequestReceived(id, follower.id(), followed.id()));
@@ -109,8 +111,32 @@ public class FollowService {
             return;
         }
         var activityUri = followActivityUri(follower, id);
-        follows.insertOutgoing(id, follower.id(), followed.id(), activityUri, false);
+        follows.insertOutgoing(id, follower.id(), followed.id(), activityUri, false, options);
         events.publishEvent(new FollowRequested(follower.id(), followed.id(), activityUri, Instant.now()));
+    }
+
+    /**
+     * Follows with the default options, or leaves an existing follow's as they are.
+     *
+     * @see #follow(Actor, Actor, FollowOptions)
+     */
+    @Transactional
+    public void follow(Actor follower, Actor followed) {
+        follow(follower, followed, FollowOptions.NONE);
+    }
+
+    /**
+     * @return the options of a follow, or of a request that's waiting, if there is one
+     */
+    public Optional<FollowOptions> options(UUID followerId, UUID followedId) {
+        return follows.findOptions(followerId, followedId);
+    }
+
+    /**
+     * @return the active local accounts that follow this one, have been accepted, and asked to be notified of its statuses
+     */
+    public List<UUID> notifiedFollowerIds(UUID followedId) {
+        return follows.findNotifiedFollowerIds(followedId);
     }
 
     /**
@@ -276,11 +302,11 @@ public class FollowService {
      * @return how the viewer is related to each of these accounts, in the same order
      */
     public List<Relationship> relationships(UUID viewerId, List<UUID> otherIds) {
-        var outgoing = new HashMap<UUID, Boolean>();
+        var outgoing = new HashMap<UUID, FollowRepository.Pair>();
         var incoming = new HashMap<UUID, Boolean>();
         for (var pair : follows.findPairsWith(viewerId, otherIds)) {
             if (pair.followerId().equals(viewerId)) {
-                outgoing.put(pair.followedId(), pair.accepted());
+                outgoing.put(pair.followedId(), pair);
             } else {
                 incoming.put(pair.followerId(), pair.accepted());
             }
@@ -300,10 +326,14 @@ public class FollowService {
         var endorsed = endorsements.find(viewerId, otherIds);
         return otherIds.stream().map(other -> {
             var mute = muted.get(other);
+            var follow = outgoing.get(other);
             return new Relationship(
                     other,
-                    Boolean.TRUE.equals(outgoing.get(other)),
-                    Boolean.FALSE.equals(outgoing.get(other)),
+                    follow != null && follow.accepted(),
+                    follow != null && !follow.accepted(),
+                    follow != null && follow.showReblogs(),
+                    follow != null && follow.notifies(),
+                    follow == null ? List.of() : follow.languages(),
                     Boolean.TRUE.equals(incoming.get(other)),
                     Boolean.FALSE.equals(incoming.get(other)),
                     blocking.contains(other),

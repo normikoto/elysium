@@ -25,10 +25,12 @@ import dev.biribiri.elysium.graph.FollowEstablished;
 import dev.biribiri.elysium.graph.FollowMoved;
 import dev.biribiri.elysium.graph.FollowRequestAuthorized;
 import dev.biribiri.elysium.graph.FollowRequestReceived;
+import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.ReportFiled;
 import dev.biribiri.elysium.moderation.Reports;
 import dev.biribiri.elysium.notification.internal.ConversationRepository;
 import dev.biribiri.elysium.notification.internal.NotificationRepository;
+import dev.biribiri.elysium.timeline.TimelineService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -53,11 +55,16 @@ public class Notifier {
     private final AccountActions accounts;
     private final PollService polls;
     private final ThreadMuteService threadMutes;
+    private final FollowService follows;
+    private final TimelineService timelines;
     private final ApplicationEventPublisher events;
 
     Notifier(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
              BoostService boosts, Reports reports, AccountActions accounts, PollService polls,
-             ThreadMuteService threadMutes, ApplicationEventPublisher events) {
+             ThreadMuteService threadMutes, FollowService follows, TimelineService timelines,
+             ApplicationEventPublisher events) {
+        this.follows = follows;
+        this.timelines = timelines;
         this.threadMutes = threadMutes;
         this.boosts = boosts;
         this.polls = polls;
@@ -92,6 +99,31 @@ public class Notifier {
     public void on(StatusStored event) {
         if (event.backfilled()) return;
         project(event.statusId(), recipient -> true);
+        subscribed(event.statusId());
+    }
+
+    /**
+     * Mastodon's {@code status}: tells the local accounts that asked to be notified of the author's statuses. As on
+     * Mastodon, only a status that reaches the follower's home timeline does, and never a reply to anyone but its author,
+     * even one the home timeline shows, such as a reply to the follower, who is told of it as a mention.
+     */
+    private void subscribed(UUID statusId) {
+        var preview = conversations.source(statusId);
+        if (preview.isEmpty() || conversations.repliesToOthers(statusId)) return;
+        var authorId = preview.get().authorId();
+        if (follows.notifiedFollowerIds(authorId).isEmpty()) return;
+        notifications.lock();
+        // Read again under the lock, as project does, since a domain block's cleanup can have finished since.
+        var recipients = timelines.homeViewers(statusId, follows.notifiedFollowerIds(authorId));
+        if (recipients.isEmpty()) return;
+        conversations.holdActors(people(recipients, authorId));
+        conversations.holdSource(statusId).ifPresent(source -> {
+            for (var recipient : recipients) {
+                if (!threadMuted(recipient, source.id())) {
+                    notified(recipient, notifications.insert(recipient, source.authorId(), "status", source.id(), source.id(), null));
+                }
+            }
+        });
     }
 
     /**

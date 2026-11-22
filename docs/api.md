@@ -486,10 +486,12 @@ Follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/noti
 
 ### Types
 
-Only these types are generated: `mention`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`, `quoted_update`,
-`update`, `poll`, `move`, `admin.report`, `pleroma:emoji_reaction`, which [Emoji reactions](#emoji-reactions) describes, and
+Only these types are generated: `mention`, `status`, `follow`, `follow_request`, `favourite`, `reblog`, `quote`,
+`quoted_update`, `update`, `poll`, `move`, `admin.report`, `pleroma:emoji_reaction`, which [Emoji reactions](#emoji-reactions) describes, and
 `pending.quote`, which [interaction requests](#interaction-requests) describes.
 
+- A `status` arrives, as on Mastodon, for a new post by an account the user follows with `notify`, if the post reaches
+  their home timeline. Replies to others, and posts in languages the follow leaves out, don't.
 - A `quote` arrives once the quote is accepted, and `quoted_update` once for each edit of a status that a user quoted.
   `update` arrives, as on Mastodon, once for each edit of a status that a user boosted, and goes away if they unboost it.
 - A `poll` arrives within about a minute of a poll ending, for its author if they're a local user, and for each local
@@ -744,9 +746,9 @@ Only these exist:
   chosen at `/settings` to approve requests from people they follow. Clients can't read or change that choice.
 - Following yourself, or an account on a server the admin has blocked, gets a 422. Following an account when either
   blocks the other, or on a server the user has blocked, gets a 403, as on Mastodon.
-- `reblogs`, `notify`, and `languages` are ignored when following, and a relationship's `showing_reblogs` is true
-  whenever `following` or `requested` is.
-- Notifications of new statuses don't exist, so `notifying` is always false.
+- `reblogs` and `languages` apply to the user's lists as well as their home timeline, as on Mastodon. A boost counts as
+  being in the language of the post it boosts, and a post whose language isn't known is always shown. Languages match
+  ignoring case, and `pt` also matches regional codes such as `pt-BR`.
 - `POST /api/v1/accounts/:id/endorse` gets a 422 unless the user follows the account, as on Mastodon, and an endorsement
   ends when the follow does, including when the account moves. `/pin` and `/unpin` are the same as `/endorse` and
   `/unendorse`. Endorsements aren't sent to other servers, and `GET /api/v1/accounts/:id/endorsements` doesn't exist.

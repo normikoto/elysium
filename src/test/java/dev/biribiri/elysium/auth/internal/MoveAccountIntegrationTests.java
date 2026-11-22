@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.actor.RemoteProfile;
+import dev.biribiri.elysium.graph.FollowOptions;
 import dev.biribiri.elysium.graph.FollowService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -158,7 +159,8 @@ class MoveAccountIntegrationTests {
         var alice = account();
         var bob = account();
         var carol = account();
-        follows.follow(carol, alice);
+        var options = FollowOptions.of(false, true, List.of("de"));
+        follows.follow(carol, alice, options);
         var remoteFollower = remote(List.of());
         jdbc.sql("""
                         INSERT INTO follow (id, follower_id, followed_id, state, activity_uri)
@@ -176,6 +178,7 @@ class MoveAccountIntegrationTests {
                 .isEqualTo(bob.uri().toString());
         await().atMost(WAIT).until(() -> follows.isFollowing(carol.id(), bob.id()));
         assertThat(follows.isFollowing(carol.id(), alice.id())).isFalse();
+        assertThat(follows.options(carol.id(), bob.id())).contains(options);
         await().atMost(WAIT).until(() -> outbound(alice.id()).stream().anyMatch(body -> body.contains("\"Move\"")));
         var move = json.readTree(outbound(alice.id()).stream().filter(body -> body.contains("\"Move\"")).findFirst()
                 .orElseThrow());

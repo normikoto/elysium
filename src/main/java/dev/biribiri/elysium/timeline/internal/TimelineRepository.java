@@ -102,7 +102,7 @@ public class TimelineRepository {
 
     /**
      * Replies to accounts the viewer has hidden are left out as well as their own statuses, as on Mastodon, and so is
-     * what's by members of the viewer's exclusive lists.
+     * what's by members of the viewer's exclusive lists, and what the viewer's follow options leave out.
      *
      * @param followedIds the accounts the viewer follows, which can be empty
      */
@@ -141,6 +141,7 @@ public class TimelineRepository {
     private static String home(String viewer, Function<String, String> follows) {
         return "(s.actor_id = " + viewer
                 + " OR (" + follows.apply("s.actor_id") + " AND NOT " + ListMembers.inExclusiveList(viewer, "s.actor_id")
+                + " AND NOT " + Following.hidesFromFeeds(viewer, "s")
                 + " AND ((s.visibility IN ('public', 'unlisted', 'private')"
                 + " AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = " + viewer
                 + " OR " + follows.apply("s.in_reply_to_account_id") + "))"
@@ -187,6 +188,7 @@ public class TimelineRepository {
      */
     private static String list(String owner, String list, String policy) {
         return "(" + ListMembers.inList(list, "s.actor_id") + " AND " + Following.accepted(owner, "s.actor_id")
+                + " AND NOT " + Following.hidesFromFeeds(owner, "s")
                 + " AND s.visibility IN ('public', 'unlisted', 'private')"
                 + " AND (NOT s.reply OR s.in_reply_to_account_id = s.actor_id OR s.in_reply_to_account_id = " + owner
                 + " OR (" + policy + " = 'followed' AND " + Following.accepted(owner, "s.in_reply_to_account_id") + ")"

@@ -18,6 +18,7 @@ import dev.biribiri.elysium.graph.AccountMemos;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowNotAllowedException;
+import dev.biribiri.elysium.graph.FollowOptions;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.MuteService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -80,6 +81,11 @@ public class AccountsController {
      * Room for a mute's two parameters, with plenty to spare.
      */
     private static final long MAX_MUTE_BODY_BYTES = 4 * 1024;
+
+    /**
+     * Room for a follow's options with a language list longer than any client sends.
+     */
+    private static final long MAX_FOLLOW_BODY_BYTES = 16 * 1024;
 
     /**
      * Room for the longest memo in JSON, where each character can be written as two six-byte Unicode escapes. Only JSON
@@ -296,9 +302,7 @@ public class AccountsController {
             operationId = "getRelationships",
             summary = "Check the user's relationships with accounts",
             description = """
-                    Differences from Mastodon: notifications of new statuses don't exist, so `notifying` is always \
-                    false, and `showing_reblogs` is true whenever `following` or `requested` is. \
-                    Suspended accounts are always left out, and `with_suspended` is ignored. Unknown and malformed \
+                    Differences from Mastodon: suspended accounts are always left out, and `with_suspended` is ignored. Unknown and malformed \
                     IDs are left out, as on Mastodon.
 
                     """ + ApiDocs.NEEDS_USER,
@@ -392,8 +396,7 @@ public class AccountsController {
     }
 
     /**
-     * Mastodon's {@code reblogs}, {@code notify} and {@code languages} are ignored: home timelines don't hide anyone's
-     * boosts yet, and notifications of new statuses and languages don't exist.
+     * Following again only changes the options given, as on Mastodon, which is how clients change them.
      */
     @PostMapping("/{id}/follow")
     @PreAuthorize("hasAuthority('SCOPE_write:follows')")
@@ -407,10 +410,10 @@ public class AccountsController {
                     - Following a `locked` account here that follows you can return `following: true` straight away, \
                     when its user has chosen to approve requests from people they follow.
                     - Following yourself, or an account on a server this server blocks, gets a 422.
-                    - `reblogs`, `notify`, and `languages` are ignored.
 
-                    Following an account that either blocks the other, or on a server the user has blocked, gets a \
-                    403, as on Mastodon.
+                    Following an account already followed or asked changes only the options given, as on Mastodon. \
+                    `reblogs` and `languages` also apply to the user's lists. Following an account that either blocks \
+                    the other, or on a server the user has blocked, gets a 403, as on Mastodon.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#follow"),
@@ -419,12 +422,17 @@ public class AccountsController {
                     @ApiResponse(responseCode = "403", description = """
                             The user blocks the account or its server, or the account blocks the user."""),
                     @ApiResponse(responseCode = "404", description = "Not found, or the account is suspended."),
+                    @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
-                            The account is the user's own, or is on a blocked server, or the token has no user.""")
+                            The account is the user's own, or is on a blocked server, a parameter is refused, or the \
+                            token has no user.""")
             })
+    @RequestBody(content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = FollowBody.class)))
     public RelationshipResponse follow(
             @AuthenticationPrincipal TokenPrincipal token,
-            @Parameter(description = ApiDocs.ID) @PathVariable String id) {
+            @Parameter(description = ApiDocs.ID) @PathVariable String id,
+            HttpServletRequest request) throws IOException {
         var follower = viewerAccount(token);
         var followed = activeAccount(id);
         if (followed.id().equals(follower.id())) {
@@ -433,8 +441,49 @@ public class AccountsController {
         if (!actors.isLocal(followed) && blocks.isBlocked(followed.uri().getHost())) {
             throw new InvalidRequestException("Validation failed: this account's server is blocked");
         }
-        follows.follow(follower, followed);
+        follows.follow(follower, followed, followOptions(json.readAny(request, MAX_FOLLOW_BODY_BYTES)));
         return relationship(follower.id(), followed.id());
+    }
+
+    private static FollowOptions followOptions(Map<String, Object> parameters) {
+        return new FollowOptions(
+                optionalFlag(parameters, "reblogs"),
+                optionalFlag(parameters, "notify"),
+                followLanguages(parameters));
+    }
+
+    private static Optional<Boolean> optionalFlag(Map<String, Object> parameters, String name) {
+        return parameters.containsKey(name) ? Optional.of(RequestParameters.flag(parameters, name)) : Optional.empty();
+    }
+
+    /**
+     * A form names them {@code languages[]}, and JSON {@code languages}. An empty list, a null, or a form's empty value
+     * means every language, as on Mastodon.
+     */
+    private static Optional<List<String>> followLanguages(Map<String, Object> parameters) {
+        var key = parameters.containsKey("languages[]") ? "languages[]" : "languages";
+        if (!parameters.containsKey(key)) {
+            return Optional.empty();
+        }
+        List<?> values = switch (parameters.get(key)) {
+            case null -> List.of();
+            case List<?> list -> list;
+            case Object value -> List.of(value);
+        };
+        var languages = new ArrayList<String>();
+        for (var value : values) {
+            if (!(value instanceof String language)) {
+                throw new InvalidRequestException("Validation failed: languages must be a list of language codes");
+            }
+            if (language.isEmpty() || languages.contains(language)) {
+                continue;
+            }
+            if (!StatusService.isLanguageCode(language)) {
+                throw new InvalidRequestException("Validation failed: " + language + " is not a language code");
+            }
+            languages.add(language);
+        }
+        return Optional.of(languages);
     }
 
     /**
@@ -1034,6 +1083,26 @@ public class AccountsController {
             String quote_others) {
     }
 
+    /**
+     * Only documents the body, which is read by hand.
+     */
+    @Schema(name = "AccountFollow")
+    private record FollowBody(
+            @Schema(description = "Whether the account's boosts reach the user's home timeline and lists.",
+                    defaultValue = "true")
+            Boolean reblogs,
+            @Schema(name = "notify", description = "Whether the user is notified of the account's new statuses.",
+                    defaultValue = "false")
+            Boolean notifies,
+            @Schema(description = """
+                    The only languages, as ISO 639 codes, whose statuses by the account reach the user's home timeline \
+                    and lists. Empty or null for every language. Statuses whose language isn't known always do.""")
+            List<String> languages) {
+    }
+
+    /**
+     * Only documents the body, which is read by hand.
+     */
     @Schema(name = "AccountMute")
     private record MuteBody(
             @Schema(description = "Whether to hide the account's notifications too.", defaultValue = "true")
