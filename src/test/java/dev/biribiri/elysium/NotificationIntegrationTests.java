@@ -204,6 +204,23 @@ class NotificationIntegrationTests {
     }
 
     @Test
+    void repliesToOthersDontNotifyEvenWhenHomeShowsThem() throws Exception {
+        follows.follow(bob, alice, new FollowOptions(Optional.empty(), Optional.of(true), Optional.empty()));
+        follows.follow(bob, carol);
+        var carols = createStatus(carol, "carol's", PUBLIC, null);
+        var bobs = createStatus(bob, "bob's", PUBLIC, null);
+        var toCarol = createStatus(alice, "to carol", PUBLIC, carols.id());
+        var toBob = createStatus(alice, "@inboxbob to bob", PUBLIC, bobs.id());
+        settled();
+
+        mvc.perform(get("/api/v1/timelines/home").with(user(bob)))
+                .andExpect(jsonPath("$[*].id", hasItems(toCarol.id().toString(), toBob.id().toString())));
+        mvc.perform(get(NOTIFICATIONS + "?types[]=status").with(user(bob))).andExpect(jsonPath("$", empty()));
+        mvc.perform(get(NOTIFICATIONS + "?types[]=mention").with(user(bob)))
+                .andExpect(jsonPath("$[*].status.id", contains(toBob.id().toString())));
+    }
+
+    @Test
     void remoteStatusesNotifyButBackfilledOnesDont() throws Exception {
         var remote = remote("subscribed.example");
         follows.follow(bob, remote, new FollowOptions(Optional.empty(), Optional.of(true), Optional.empty()));

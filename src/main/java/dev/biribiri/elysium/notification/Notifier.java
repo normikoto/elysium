@@ -104,18 +104,18 @@ public class Notifier {
 
     /**
      * Mastodon's {@code status}: tells the local accounts that asked to be notified of the author's statuses. As on
-     * Mastodon, only a status that reaches the follower's home timeline does, so replies to others, and statuses in
-     * languages the follow leaves out, don't.
+     * Mastodon, only a status that reaches the follower's home timeline does, and never a reply to anyone but its author,
+     * even one the home timeline shows, such as a reply to the follower, who is told of it as a mention.
      */
     private void subscribed(UUID statusId) {
         var preview = conversations.source(statusId);
-        if (preview.isEmpty()) return;
+        if (preview.isEmpty() || conversations.repliesToOthers(statusId)) return;
         var authorId = preview.get().authorId();
-        var candidates = follows.notifiedFollowerIds(authorId);
-        if (candidates.isEmpty()) return;
-        var recipients = timelines.homeViewers(statusId, candidates);
-        if (recipients.isEmpty()) return;
+        if (follows.notifiedFollowerIds(authorId).isEmpty()) return;
         notifications.lock();
+        // Read again under the lock, as project does, since a domain block's cleanup can have finished since.
+        var recipients = timelines.homeViewers(statusId, follows.notifiedFollowerIds(authorId));
+        if (recipients.isEmpty()) return;
         conversations.holdActors(people(recipients, authorId));
         conversations.holdSource(statusId).ifPresent(source -> {
             for (var recipient : recipients) {

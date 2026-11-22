@@ -747,7 +747,8 @@ Only these exist:
 - Following yourself, or an account on a server the admin has blocked, gets a 422. Following an account when either
   blocks the other, or on a server the user has blocked, gets a 403, as on Mastodon.
 - `reblogs` and `languages` apply to the user's lists as well as their home timeline, as on Mastodon. A boost counts as
-  being in the language of the post it boosts, and a post whose language isn't known is always shown.
+  being in the language of the post it boosts, and a post whose language isn't known is always shown. Languages match
+  ignoring case, and `pt` also matches regional codes such as `pt-BR`.
 - `POST /api/v1/accounts/:id/endorse` gets a 422 unless the user follows the account, as on Mastodon, and an endorsement
   ends when the follow does, including when the account moves. `/pin` and `/unpin` are the same as `/endorse` and
   `/unendorse`. Endorsements aren't sent to other servers, and `GET /api/v1/accounts/:id/endorsements` doesn't exist.

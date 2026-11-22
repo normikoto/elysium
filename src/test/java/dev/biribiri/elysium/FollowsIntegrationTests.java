@@ -263,6 +263,25 @@ class FollowsIntegrationTests {
     }
 
     @Test
+    void languagesMatchIgnoringCaseAndLetInRegionalVariants() throws Exception {
+        var dave = account("dave");
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"languages": ["pt", "EN", "zh-TW"]}"""))
+                .andExpect(status().isOk());
+        var brazilian = createStatus(token("dave"), "olá", "public", "pt-BR");
+        var english = createStatus(token("dave"), "hello", "public", "en");
+        var taiwanese = createStatus(token("dave"), "你好", "public", "zh-tw");
+        var mainland = createStatus(token("dave"), "你好", "public", "zh-CN");
+        var spanish = createStatus(token("dave"), "hola", "public", "es");
+
+        assertThat(statusIds(withToken(get("/api/v1/timelines/home"), token("alice"))))
+                .contains(brazilian, english, taiwanese)
+                .doesNotContain(mainland, spanish);
+    }
+
+    @Test
     void unfollowingALocalAccount() throws Exception {
         var bob = account("bob");
         follow("alice", bob);
