@@ -1303,6 +1303,12 @@ class StatusesIntegrationTests {
         mockMvc.perform(get("/api/v1/accounts/verify_credentials/")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/accounts/verify_credentials/").header("Authorization", "Bearer " + alice()))
                 .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/apps/")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("client_name", "Trailing slash app")
+                        .param("redirect_uris", "urn:ietf:wg:oauth:2.0:oob"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.client_id").isNotEmpty());
     }
 
     @Test
