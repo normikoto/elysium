@@ -398,10 +398,10 @@ public class AccountsController {
                     Differences from Mastodon:
 
                     - A query that's a `username@domain` finds that one account, and an `https` URL finds the account \
-                    there, by its ID. A profile page only finds its account with `resolve`. Any other query matches the \
-                    start of the usernames this server knows, not display names.
-                    - Another server is only asked about an account for a signed-in user's request, when `resolve` is \
-                    true. Each user can make\s""" + RemoteActorResolver.LOOKUPS_PER_MINUTE + """
+                    stored with that ID, where Mastodon finds nothing. Any other query matches the start of the \
+                    usernames this server knows, not display names.
+                    - Another server is only asked about an address for a signed-in user's request, when `resolve` is \
+                    true and `following` isn't, and never about a URL. Each user can make\s""" + RemoteActorResolver.LOOKUPS_PER_MINUTE + """
                      of those lookups a minute, and then gets a 429.
                     - Only the first\s""" + AccountFilter.MAX_LIMIT + """
                      matches can be paged through with `offset`, and an `offset` past them returns no accounts.
@@ -410,11 +410,11 @@ public class AccountsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#search"),
             parameters = {
                     @Parameter(name = "q", description = """
-                            A username, or the start of one, a `username@domain`, or an `https` URL of an account. A \
+                            A username, or the start of one, a `username@domain`, or an account's `https` ID. A \
                             missing or blank query returns nothing."""),
                     @Parameter(name = "resolve", description = """
-                            Whether to ask another server about an address or URL this server doesn't know, or an \
-                            account it hasn't refreshed for a while. Only works for a signed-in user.\s""" + ApiDocs.FLAG),
+                            Whether to ask another server about an address this server doesn't know, or an account \
+                            it hasn't refreshed for a while. Only works for a signed-in user, without `following`.\s""" + ApiDocs.FLAG),
                     @Parameter(name = "following", description = """
                             Whether to only find accounts the user follows. Ignored without a user.\s""" + ApiDocs.FLAG),
                     @Parameter(name = "limit", description = "How many accounts to return. Values outside 1 to "

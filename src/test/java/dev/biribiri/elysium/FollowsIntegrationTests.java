@@ -1130,6 +1130,43 @@ class FollowsIntegrationTests {
     }
 
     @Test
+    void searchesAccountsAtAUrlOnlyAmongStoredAccounts() throws Exception {
+        var remote = remote();
+        var post = URI.create("https://" + remote.domain() + "/@bob/1");
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/search").param("q", remote.uri().toString()).param("resolve", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$[*].id", contains(remote.id().toString())));
+        mockMvc.perform(withToken(get("/api/v1/accounts/search").param("q", post.toString()).param("resolve", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$", empty()));
+        verify(urls, never()).resolveUrl(any(), any());
+    }
+
+    @Test
+    void doesNotAskOtherServersForOnlyFollowedAccounts() throws Exception {
+        mockMvc.perform(withToken(get("/api/v1/accounts/search")
+                                .param("q", "bob@unknown.example")
+                                .param("resolve", "true")
+                                .param("following", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$", empty()));
+        verify(resolver, never()).resolveAcct(any(), any(), any());
+    }
+
+    @Test
+    void doesNotCountSuspendedAccountsTowardAPage() throws Exception {
+        account("pagerone");
+        actors.suspend(account("pagertwo").id());
+        actors.suspend(account("pagerthree").id());
+
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", "pager").param("limit", "1"))
+                .andExpect(jsonPath("$[*].username", contains("pagerone")));
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", "pager").param("offset", "1"))
+                .andExpect(jsonPath("$", empty()));
+    }
+
+    @Test
     void searchingAccountsNeedsReadAccountsWithAToken() throws Exception {
         mockMvc.perform(withToken(get("/api/v1/accounts/search").param("q", "ali"), token("alice", "read:statuses")))
                 .andExpect(status().isForbidden());

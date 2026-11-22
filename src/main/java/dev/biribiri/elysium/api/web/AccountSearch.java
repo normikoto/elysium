@@ -7,6 +7,8 @@ import dev.biribiri.elysium.content.RemoteUrlResolver;
 import dev.biribiri.elysium.graph.FollowService;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,6 +19,10 @@ import java.util.stream.Collectors;
 /**
  * Finds accounts for both searches, so that {@code /api/v1/accounts/search} and {@code /api/v2/search} agree on what a query
  * finds. An address or URL names one account, and any other query matches the start of usernames.
+ *
+ * <p>Only {@code /api/v2/search} asks another server about a URL, as on Mastodon, where account search reads a URL as text.
+ * A URL can name a status, and resolving it for a search that only returns accounts would fetch and store the status, and
+ * count against the user's lookups, for nothing.
  *
  * <p>Only the first {@value AccountFilter#MAX_LIMIT} matches can be paged through, since PostgreSQL finds every one before it
  * skips any.
@@ -55,10 +61,15 @@ class AccountSearch {
         var followedBy = following ? viewer : Optional.<UUID>empty();
         var skipped = Math.min(offset, AccountFilter.MAX_LIMIT);
         if (isUrl(query)) {
-            return skipped > 0 ? List.of() : fromUrl(lookup.byUrl(query, viewer, resolve), followedBy);
+            return skipped > 0 ? List.of() : followedOnly(storedAt(query), followedBy).stream().toList();
         }
         if (isAddress(query)) {
-            return skipped > 0 ? List.of() : followedOnly(lookup.byAcct(query, viewer, resolve), followedBy).stream().toList();
+            if (skipped > 0) {
+                return List.of();
+            }
+            // An account the user follows is stored already, so asking its server could only find accounts to leave out.
+            var found = lookup.byAcct(query, viewer, resolve && followedBy.isEmpty());
+            return followedOnly(found, followedBy).stream().toList();
         }
         if (USERNAME_PREFIX.matcher(query).matches()) {
             var prefix = query.startsWith("@") ? query.substring(1) : query;
@@ -81,14 +92,21 @@ class AccountSearch {
         return followedOnly(account, followedBy).stream().toList();
     }
 
+    private Optional<Actor> storedAt(String url) {
+        try {
+            return actors.findByUri(new URI(url)).filter(Actor::isActive);
+        } catch (URISyntaxException e) {
+            return Optional.empty();
+        }
+    }
+
     private Optional<Actor> followedOnly(Optional<Actor> actor, Optional<UUID> followedBy) {
         return actor.filter(found -> followedBy.isEmpty() || follows.isFollowing(followedBy.get(), found.id()));
     }
 
     private List<Actor> byUsernamePrefix(String prefix, int pageSize, int skipped) {
-        // The filter loads at most its maximum, which leaves nothing after a large offset.
-        var filter = new AccountFilter(null, false, prefix, null, pageSize + skipped, null, null, null);
-        return actors.list(filter).stream().filter(Actor::isActive).skip(skipped).limit(pageSize).toList();
+        var limit = Math.min(pageSize, AccountFilter.MAX_LIMIT - skipped);
+        return limit <= 0 ? List.of() : actors.findActiveByUsernamePrefix(prefix, limit, skipped);
     }
 
     private List<Actor> followedByUsernamePrefix(UUID viewer, String prefix, int pageSize, int skipped) {

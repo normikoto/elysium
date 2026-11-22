@@ -99,7 +99,7 @@ public class SearchController {
                      can be paged through with `offset`.
                     - A query that's a `username@domain` finds that one account. Any other query that isn't a URL \
                     matches the start of the usernames this server knows. With `following`, only accounts the user \
-                    follows are found.
+                    follows are found, and another server isn't asked about an address.
                     - An `https` URL finds only the account or status there, by its ID, or by the page its server \
                     gives, such as a status's page. A profile page only finds its account with `resolve`. A status is \
                     only found for a signed-in user who can see it, even if they block or mute its author. With \

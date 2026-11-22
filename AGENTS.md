@@ -92,7 +92,7 @@ There's no ORM. Repositories use `JdbcClient` with hand-written SQL, and the sch
 
 - IDs are UUIDs, and `actor.Ids.parse` is the strict way to read them from a request.
 - A rule that other modules' SQL has to agree with is exported once as SQL conditions, and used rather than written
-  again: `actor.ActorSql` for active actors and blocked servers, `graph.HiddenAccounts` for blocks and mutes, and
+  again: `actor.ActorSql` for active actors, blocked servers, and username searches, `graph.HiddenAccounts` for blocks and mutes, and
   `content.StatusSql` for which statuses a viewer can see.
 - A list paged by Mastodon's ID cursors takes an `actor.IdPage`, whose `cursors` and `orderAndLimit` write its SQL.
   How many a page can hold is up to each API, in `api.web.PageLimits`.
