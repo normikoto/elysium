@@ -103,6 +103,7 @@ public class ProfileService {
                             remote.avatarUrl(), remote.avatarGivenUp()),
                     remote == null ? image(row.header(), null) : remoteImage(row.actorId(), true, row.header(),
                             remote.headerUrl(), remote.headerGivenUp()),
+                    image(row.background(), null),
                     fields.getOrDefault(row.actorId(), List.of()),
                     row.manuallyApprovesFollowers(),
                     row.indexable(),
@@ -138,6 +139,7 @@ public class ProfileService {
                 profile.note(),
                 avatar,
                 header,
+                old.background(),
                 profile.manuallyApprovesFollowers(),
                 profile.indexable(),
                 old.updatedAt(),
@@ -352,7 +354,8 @@ public class ProfileService {
 
     /**
      * Changes a local account's profile. New images are stored before the change is saved, and replaced ones are deleted
-     * once it is. Followers' servers are told through {@link ProfileUpdated}. Turning on
+     * once it is. Followers' servers are told through {@link ProfileUpdated}, unless only the background changed, which
+     * they never see. Turning on
      * {@link ProfileChange#approvesFollowed} publishes {@link FollowedApprovalTurnedOn}, so that the requests already
      * waiting from accounts it follows are approved.
      *
@@ -373,6 +376,7 @@ public class ProfileService {
         try {
             var avatar = store(change.avatar(), ImageKind.AVATAR, stored);
             var header = store(change.header(), ImageKind.HEADER, stored);
+            var background = store(change.background(), ImageKind.BACKGROUND, stored);
             var replaced = transaction.execute(status -> {
                 if (actors.findLocalById(actorId).isEmpty()) {
                     return null;
@@ -392,6 +396,7 @@ public class ProfileService {
                         note.orElse(old.note()),
                         choose(change.avatar(), avatar, old.avatar(), removed),
                         choose(change.header(), header, old.header(), removed),
+                        choose(change.background(), background, old.background(), removed),
                         change.manuallyApprovesFollowers().orElse(old.manuallyApprovesFollowers()),
                         change.indexable().orElse(old.indexable()),
                         old.updatedAt(),
@@ -401,7 +406,10 @@ public class ProfileService {
                 var oldFields = fields.isPresent() ? profiles.findFields(List.of(actorId)) : List.<ProfileRepository.FieldRow>of();
                 var newFields = fields.map(list -> keepVerification(list, actorId, oldFields));
                 // A form sends everything each time it's saved, and other servers shouldn't hear about nothing.
-                if (row.equals(old) && newFields.map(oldFields::equals).orElse(true)) {
+                if (sameButBackground(row, old) && newFields.map(oldFields::equals).orElse(true)) {
+                    if (!Objects.equals(row.background(), old.background())) {
+                        profiles.saveBackground(actorId, row.background());
+                    }
                     return removed;
                 }
                 var at = profiles.save(row);
@@ -456,6 +464,18 @@ public class ProfileService {
         if (row.header() != null) {
             images.delete(row.header());
         }
+        if (row.background() != null) {
+            images.delete(row.background());
+        }
+    }
+
+    /**
+     * Whether nothing that other servers see has changed.
+     */
+    private static boolean sameButBackground(ProfileRepository.Row row, ProfileRepository.Row old) {
+        return new ProfileRepository.Row(row.actorId(), row.displayName(), row.note(), row.avatar(), row.header(),
+                old.background(), row.manuallyApprovesFollowers(), row.indexable(), row.updatedAt(), row.remote(),
+                row.alsoKnownAs(), row.movedTo()).equals(old);
     }
 
     /**
@@ -546,6 +566,13 @@ public class ProfileService {
         checkImageSize(ImageKind.HEADER, size);
     }
 
+    /**
+     * Like {@link #checkAvatarSize}.
+     */
+    public void checkBackgroundSize(long size) {
+        checkImageSize(ImageKind.BACKGROUND, size);
+    }
+
     private void checkImageSize(ImageKind kind, long size) {
         try {
             Images.checkSize(size, properties.maxImageSize());
@@ -555,7 +582,11 @@ public class ProfileService {
     }
 
     private static InvalidProfileException invalid(ImageKind kind, InvalidImageException e) {
-        var name = kind == ImageKind.AVATAR ? "Avatar" : "Header";
+        var name = switch (kind) {
+            case AVATAR -> "Avatar";
+            case BACKGROUND -> "Background";
+            default -> "Header";
+        };
         return new InvalidProfileException("Validation failed: " + name + ": " + e.getMessage(), e);
     }
 

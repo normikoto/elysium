@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  * doesn't have. Those are accepted when they ask for what the server already does, and refused otherwise, rather than
  * ignored, so that a client doesn't tell someone a setting was saved. An empty value counts as missing for them, because
  * form clients send fields they haven't filled in. For {@code display_name} and {@code note}, an empty value clears them,
- * as on Mastodon.
+ * as on Mastodon, and for {@code pleroma_background_image}, an empty value instead of a file removes it, as on Pleroma.
  *
  * @param hideCollections null to leave it as it is
  * @param quotePolicy        the default for new statuses, or null to leave it as it is
@@ -50,6 +50,8 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
             "sensitive", false);
 
     private static final String FIELDS = "fields_attributes";
+
+    private static final String BACKGROUND = "pleroma_background_image";
 
     /**
      * {@code fields_attributes[0][name]}, or {@code fields_attributes[][name]} for a list.
@@ -102,6 +104,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
         var change = ProfileChange.NONE;
         Boolean hide = null;
         var source = Source.NONE;
+        var removeBackground = false;
         for (var entry : values.entrySet()) {
             var key = entry.getKey();
             var value = entry.getValue();
@@ -126,15 +129,28 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                 }
                 case "avatar", "header" -> {
                     if (!isEmpty(value)) {
-                        throw new InvalidRequestException("Validation failed: " + key + " has to be a file in a multipart form");
+                        throw notFile(key);
                     }
+                }
+                case BACKGROUND -> {
+                    if (!isEmpty(value)) {
+                        throw notFile(key);
+                    }
+                    removeBackground = true;
                 }
                 case "source" -> source = source(value);
                 default -> checkFixed(key, value, FIXED, key);
             }
         }
         change = change.withAvatar(image(files.get("avatar"))).withHeader(image(files.get("header")));
+        var background = image(files.get(BACKGROUND));
+        change = change.withBackground(
+                background == ProfileChange.Image.KEEP && removeBackground ? ProfileChange.Image.REMOVE : background);
         return new CredentialsRequest(change, hide, source.quotePolicy(), source.quoteOthers());
+    }
+
+    private static InvalidRequestException notFile(String key) {
+        return new InvalidRequestException("Validation failed: " + key + " has to be a file in a multipart form");
     }
 
     private static String text(String key, Object value) {

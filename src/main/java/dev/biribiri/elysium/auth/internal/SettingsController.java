@@ -72,6 +72,7 @@ class SettingsController {
             @RequestParam MultiValueMap<String, String> form,
             @RequestParam(required = false) MultipartFile avatar,
             @RequestParam(required = false) MultipartFile header,
+            @RequestParam(required = false) MultipartFile background,
             Authentication authentication,
             Model model,
             HttpServletResponse response) throws IOException {
@@ -107,9 +108,13 @@ class SettingsController {
             if (header != null) {
                 profiles.checkHeaderSize(header.getSize());
             }
+            if (background != null) {
+                profiles.checkBackgroundSize(background.getSize());
+            }
             change = change
                     .withAvatar(image(avatar, form.containsKey("removeAvatar")))
-                    .withHeader(image(header, form.containsKey("removeHeader")));
+                    .withHeader(image(header, form.containsKey("removeHeader")))
+                    .withBackground(image(background, form.containsKey("removeBackground")));
             if (!profiles.update(accountId, change)) {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND);
             }
@@ -154,6 +159,8 @@ class SettingsController {
         model.addAttribute("maxFields", profiles.maxFields());
         model.addAttribute("avatar", saved.avatar() == null ? null : instance.resolve(saved.avatar().staticPath()));
         model.addAttribute("header", saved.header() == null ? null : instance.resolve(saved.header().staticPath()));
+        model.addAttribute("background",
+                saved.background() == null ? null : instance.resolve(saved.background().staticPath()));
         model.addAttribute("maxDisplayName", ProfileService.MAX_DISPLAY_NAME);
         model.addAttribute("maxNote", ProfileService.MAX_NOTE);
         model.addAttribute("maxFieldName", ProfileService.MAX_FIELD_NAME);

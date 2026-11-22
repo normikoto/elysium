@@ -46,6 +46,17 @@ class WebpEncoderTests {
     }
 
     @Test
+    void keepsABackgroundsShapeAndOnlyScalesItDown() throws IOException {
+        var small = ImageHeader.read(encoder.encode(image("png", 300, 40, false), ImageKind.BACKGROUND).image());
+        assertThat(small.width()).isEqualTo(300);
+        assertThat(small.height()).isEqualTo(40);
+
+        var large = ImageHeader.read(encoder.encode(image("png", 8000, 1000, false), ImageKind.BACKGROUND).image());
+        assertThat((double) large.width() / large.height()).isCloseTo(8.0, offset(0.05));
+        assertThat((long) large.width() * large.height()).isLessThanOrEqualTo(ImageKind.BACKGROUND.pixels());
+    }
+
+    @Test
     void keepsTransparency() throws IOException {
         var encoded = encoder.encode(image("png", 100, 100, true), ImageKind.AVATAR);
 

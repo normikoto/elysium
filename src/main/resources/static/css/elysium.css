@@ -561,6 +561,20 @@ td {
 }
 
 /* Profiles */
+/* Behind the profile's cards, which keep their own surfaces, so their text stays readable on any image. */
+.profile-background {
+    background-attachment: fixed;
+    background-position: center;
+    background-size: cover;
+}
+
+/* Backgrounds are kept as large as 3840 pixels wide. */
+.profile-background-preview {
+    display: block;
+    height: auto;
+    max-width: 100%;
+}
+
 .profile-banner {
     aspect-ratio: 3 / 1;
     background: var(--banner);

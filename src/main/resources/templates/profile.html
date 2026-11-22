@@ -2,7 +2,9 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <!--/* The profile's name is the page's heading, inside its card, so this page doesn't use the layout's. */-->
 <head th:replace="~{layout :: head(${name})}"></head>
-<body>
+<!--/* The background's URL is one of this server's media paths, so it can't break out of the style. */-->
+<body th:classappend="${background != null} ? 'profile-background'"
+      th:style="${background != null} ? |background-image: url('${background}')|">
 <header th:replace="~{layout :: topbar}"></header>
 <main class="page">
     <div class="wide">

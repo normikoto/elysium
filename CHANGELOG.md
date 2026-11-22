@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - People can endorse accounts they follow from apps that support it, through the Mastodon API's
   `POST /api/v1/accounts/:id/endorse` and `/unendorse`, or the older `/pin` and `/unpin`, and apps can list them with
   `GET /api/v1/endorsements`. Endorsements aren't sent to other servers. See `docs/api.md`.
+- People can give their profile a background image, which is shown behind it on its page here, at `/settings` or from
+  apps that support Pleroma's profile backgrounds, such as Pleroma-FE and Akkoma-FE. Backgrounds aren't sent to other
+  servers, and those from other servers aren't shown. See `docs/accounts.md` and `docs/api.md`.
 
 ### Fixed
 
