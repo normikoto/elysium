@@ -5,7 +5,7 @@ documentation it follows.
 
 - A multipart request has to have a `Content-Length`, and one sent with chunked transfer encoding gets a 411. One that's
   larger than its endpoint's files can be, plus 4 MB for the rest of the form, gets a 413 before it's read. That's the
-  avatar and header limits for `PATCH /api/v1/accounts/update_credentials`, and the media limits for uploads.
+  avatar, header, and background limits for `PATCH /api/v1/accounts/update_credentials`, and the media limits for uploads.
 
 ## OAuth
 
@@ -735,6 +735,13 @@ Only these exist:
   or WebP, 8 MB at most by default.
 - They're always re-encoded as WebP, which removes their metadata, and cropped to 400 × 400 and 1500 × 500. Animated
   ones stay animated, and `avatar_static` and `header_static` are their first frame.
+- `pleroma_background_image` sets the profile's background, as on
+  [Pleroma](https://docs.akkoma.dev/stable/development/API/differences_in_mastoapi_responses/#accounts). It's uploaded
+  like `avatar` and `header`, with the same limit. An empty value instead of a file removes it, and null in JSON
+  leaves it as it is. It's re-encoded as WebP, but not cropped: only scaled down to fit 3840 × 2160 pixels in area.
+  Akkoma's `pleroma_background_image_description` isn't supported, so a value for it gets a 422.
+- Every account has Pleroma's `pleroma.background_image`, its background's URL, or null. Backgrounds aren't sent to or
+  read from other servers, so an account on another server's is always null.
 - Turning `locked` off approves the requests that are waiting, as on Mastodon, but in the background, so they can still
   be listed just after the response. Turning it on keeps the account's followers.
 

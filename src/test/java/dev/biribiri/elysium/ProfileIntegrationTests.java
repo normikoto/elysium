@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.ProfileChange;
 import dev.biribiri.elysium.actor.ProfileService;
+import dev.biribiri.elysium.actor.ProfileUpdated;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteProfile;
 import dev.biribiri.elysium.content.CustomEmojis;
@@ -19,6 +20,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -64,6 +67,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "elysium.profiles.max-image-size=200KB"
 })
 @AutoConfigureMockMvc
+@RecordApplicationEvents
 class ProfileIntegrationTests {
 
     private static final String PASSWORD = "correct horse battery staple";
@@ -86,6 +90,8 @@ class ProfileIntegrationTests {
     private CustomEmojis emojis;
     @Autowired
     private PlatformTransactionManager transactionManager;
+    @Autowired
+    private ApplicationEvents events;
 
     private TransactionTemplate transaction;
 
@@ -100,7 +106,8 @@ class ProfileIntegrationTests {
                 .withNote("")
                 .withFields(List.of())
                 .withAvatar(ProfileChange.Image.REMOVE)
-                .withHeader(ProfileChange.Image.REMOVE));
+                .withHeader(ProfileChange.Image.REMOVE)
+                .withBackground(ProfileChange.Image.REMOVE));
     }
 
     // The client API
@@ -316,6 +323,89 @@ class ProfileIntegrationTests {
     }
 
     @Test
+    void setsAndRemovesABackgroundThroughPleromasApi() throws Exception {
+        mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials")))
+                .andExpect(jsonPath("$.pleroma.background_image").isEmpty());
+
+        var first = uploadBackground(TestImages.png(300, 40));
+        assertThat(first).startsWith("https://profiles.example/media/").endsWith(".webp");
+        mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials")))
+                .andExpect(jsonPath("$.pleroma.background_image").value(first));
+        mockMvc.perform(get("/api/v1/accounts/" + account("alice").id()))
+                .andExpect(jsonPath("$.pleroma.background_image").value(first));
+
+        // An empty file input keeps it, and an empty value instead of a file removes it, as on Pleroma.
+        mockMvc.perform(withToken(multipart(HttpMethod.PATCH, UPDATE)
+                        .file(new MockMultipartFile("pleroma_background_image", "", "application/octet-stream", new byte[0]))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pleroma.background_image").value(first));
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("pleroma_background_image", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pleroma.background_image").isEmpty());
+        mockMvc.perform(get(URI.create(first).getPath())).andExpect(status().isNotFound());
+
+        var second = uploadBackground(TestImages.png(40, 300));
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pleroma_background_image\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pleroma.background_image").value(second));
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pleroma_background_image\":\"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pleroma.background_image").isEmpty());
+        mockMvc.perform(get(URI.create(second).getPath())).andExpect(status().isNotFound());
+
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pleroma_background_image\":\"https://example.com/b.png\"}"))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error").value(containsString("multipart")));
+    }
+
+    /**
+     * Other servers never see it, so they aren't told about it.
+     */
+    @Test
+    void changingOnlyTheBackgroundIsntAProfileUpdate() throws Exception {
+        var alice = account("alice");
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("display_name", "Before"))
+                .andExpect(status().isOk());
+        var updatedAt = profiles.find(alice.id()).updatedAt();
+        events.clear();
+
+        uploadBackground(TestImages.png(30, 30));
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("display_name", "Before")
+                        .param("pleroma_background_image", ""))
+                .andExpect(status().isOk());
+
+        assertThat(events.stream(ProfileUpdated.class)).isEmpty();
+        assertThat(profiles.find(alice.id()).updatedAt()).isEqualTo(updatedAt);
+        assertThat(profiles.find(alice.id()).background()).isNull();
+    }
+
+    @Test
+    void refusesABackgroundOverTheLimit() throws Exception {
+        mockMvc.perform(withToken(multipart(HttpMethod.PATCH, UPDATE)
+                        .file(new MockMultipartFile("pleroma_background_image", "b.png", "image/png", new byte[300 * 1024]))))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error").value(containsString("Background")));
+    }
+
+    @Test
+    void removingAProfileRemovesItsBackground() throws Exception {
+        var erin = account("erin");
+        profiles.update(erin.id(), ProfileChange.NONE.withBackground(ProfileChange.Image.upload(TestImages.png(20, 20))));
+        var path = profiles.find(erin.id()).background().path();
+        mockMvc.perform(get(path)).andExpect(status().isOk());
+
+        profiles.removeAll(erin.id());
+
+        mockMvc.perform(get(path)).andExpect(status().isNotFound());
+    }
+
+    @Test
     void anAnimatedAvatarHasAStillVersion() throws Exception {
         var gif = TestImages.animatedGif(3, 40, 40);
 
@@ -405,7 +495,8 @@ class ProfileIntegrationTests {
                 .andExpect(jsonPath("$.fields[0].value").value("<a href=\"https://bob.test\">bob.test</a>"))
                 .andExpect(jsonPath("$.fields[0].verified_at").isEmpty())
                 .andExpect(jsonPath("$.emojis", hasSize(1)))
-                .andExpect(jsonPath("$.emojis[0].shortcode").value("blob"));
+                .andExpect(jsonPath("$.emojis[0].shortcode").value("blob"))
+                .andExpect(jsonPath("$.pleroma.background_image").isEmpty());
     }
 
     @Test
@@ -566,6 +657,31 @@ class ProfileIntegrationTests {
     }
 
     @Test
+    void setsTheBackgroundFromTheSettingsPageAndShowsItOnTheProfilePage() throws Exception {
+        var session = TestOAuth.logIn(mockMvc, "alice", PASSWORD);
+        mockMvc.perform(get("/settings").session(session))
+                .andExpect(content().string(containsString("name=\"background\"")));
+
+        mockMvc.perform(multipart("/settings")
+                        .file(new MockMultipartFile("background", "b.png", "image/png", TestImages.png(40, 20)))
+                        .session(session).with(csrf()))
+                .andExpect(redirectedUrl("/settings?saved"));
+        var background = profiles.find(account("alice").id()).background();
+        assertThat(background).isNotNull();
+        mockMvc.perform(get("/settings").session(session))
+                .andExpect(content().string(containsString("name=\"removeBackground\"")));
+        mockMvc.perform(get("/users/alice").accept(MediaType.TEXT_HTML))
+                .andExpect(content().string(containsString("background-image: url(&#39;https://profiles.example"
+                        + background.path() + "&#39;)")));
+
+        mockMvc.perform(post("/settings").session(session).with(csrf()).param("removeBackground", "true"))
+                .andExpect(redirectedUrl("/settings?saved"));
+        assertThat(profiles.find(account("alice").id()).background()).isNull();
+        mockMvc.perform(get("/users/alice").accept(MediaType.TEXT_HTML))
+                .andExpect(content().string(not(containsString("background-image"))));
+    }
+
+    @Test
     void theSettingsPageShowsWhatsWrongAndKeepsWhatWasTyped() throws Exception {
         var session = TestOAuth.logIn(mockMvc, "alice", PASSWORD);
 
@@ -584,6 +700,14 @@ class ProfileIntegrationTests {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.avatar");
+    }
+
+    private String uploadBackground(byte[] image) throws Exception {
+        var body = mockMvc.perform(withToken(multipart(HttpMethod.PATCH, UPDATE)
+                        .file(new MockMultipartFile("pleroma_background_image", "b.png", "image/png", image))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.pleroma.background_image");
     }
 
     private Actor account(String username) throws Exception {

@@ -3,13 +3,18 @@ package dev.biribiri.elysium.media;
 /**
  * What an image is for, which decides the size it's made. These are Mastodon's sizes, which clients lay out for.
  *
- * <p>Profile images are cropped to fill their shape exactly. Attachments keep their shape, and are only scaled down to fit
- * a number of pixels, which Mastodon gives as width × height. Fitting an area rather than a box treats a tall image and a
- * wide one the same.
+ * <p>Avatars and headers are cropped to fill their shape exactly. Backgrounds and attachments keep their shape, and are
+ * only scaled down to fit a number of pixels, which Mastodon gives as width × height. Fitting an area rather than a box
+ * treats a tall image and a wide one the same.
  */
 public enum ImageKind {
     AVATAR(400, 400, Fit.COVER),
     HEADER(1500, 500, Fit.COVER),
+    /**
+     * A profile's background, as Pleroma's API has it. Clients cover, tile, or center it behind screens of any shape, so
+     * it isn't cropped to one.
+     */
+    BACKGROUND(3840, 2160, Fit.WITHIN),
     ATTACHMENT(3840, 2160, Fit.WITHIN),
     ATTACHMENT_PREVIEW(640, 360, Fit.WITHIN),
     /**

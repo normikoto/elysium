@@ -13,8 +13,8 @@ import org.springframework.util.unit.DataSize;
 import static org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.pathPattern;
 
 /**
- * The largest multipart request each endpoint takes. Only the endpoints that take larger files than an avatar and a
- * header are listed, and every other one gets the smallest limit, so that a new upload endpoint can't take files as large
+ * The largest multipart request each endpoint takes. Only the endpoints that take larger files than an avatar, a header,
+ * and a background are listed, and every other one gets the smallest limit, so that a new upload endpoint can't take files as large
  * as a video until it's listed here.
  */
 class UploadLimits {
@@ -41,10 +41,10 @@ class UploadLimits {
         var pack = emojis.maxPackSize().toBytes();
         var attachment = attachments.largest().toBytes();
         largestFile = Math.max(Math.max(profileImage, attachment), Math.max(emojiImage, pack));
-        // An attachment can have a thumbnail, and a profile change both an avatar and a header.
+        // An attachment can have a thumbnail, and a profile change an avatar, a header, and a background.
         media = attachment + attachments.maxImageSize().toBytes() + FORM;
         emojiPack = pack + FORM;
-        other = Math.max(2 * profileImage, emojiImage) + FORM;
+        other = Math.max(3 * profileImage, emojiImage) + FORM;
     }
 
     long limitFor(HttpServletRequest request) {

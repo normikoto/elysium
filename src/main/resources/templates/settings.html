@@ -50,9 +50,18 @@
             <img class="profile-header" th:src="${header}" alt="Your header">
             <label><input type="checkbox" name="removeHeader" value="true"> Remove your header</label>
         </th:block>
+        <label>
+            Background
+            <input type="file" name="background" accept="image/png, image/jpeg, image/gif, image/webp">
+        </label>
+        <th:block th:if="${background != null}">
+            <img class="profile-background-preview" th:src="${background}" alt="Your background">
+            <label><input type="checkbox" name="removeBackground" value="true"> Remove your background</label>
+        </th:block>
         <p>
             Images can be PNG, JPEG, GIF, or WebP. Avatars are cropped to a square, and headers to three times as wide
-            as they are tall.
+            as they are tall. Backgrounds aren't cropped, and are shown behind your profile here and in apps that support
+            them, but not on other servers.
         </p>
         <h2>Privacy</h2>
         <label>

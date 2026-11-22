@@ -204,6 +204,9 @@ public class AccountsController {
         if (files.get("header") != null) {
             profiles.checkHeaderSize(files.get("header").getSize());
         }
+        if (files.get("pleroma_background_image") != null) {
+            profiles.checkBackgroundSize(files.get("pleroma_background_image").getSize());
+        }
         return updateCredentials(token, CredentialsRequest.fromForm(form, files));
     }
 
@@ -215,7 +218,7 @@ public class AccountsController {
             summary = "Change the user's profile and account settings",
             description = """
                     Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, \
-                    `locked`, `indexable`, `hide_collections`, `source[quote_policy]`, and `source[quote_others]` can be changed. `bot`, \
+                    Pleroma's `pleroma_background_image`, `locked`, `indexable`, `hide_collections`, `source[quote_policy]`, and `source[quote_others]` can be changed. `bot`, \
                     `discoverable`, and the rest of `source` are accepted only with the values the account already has \
                     (false, and `public` for `source[privacy]`), and any other value for them, or any other field with \
                     a value, gets a 422 naming it. Then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it.
@@ -229,6 +232,11 @@ public class AccountsController {
                     field can go. They have to be a PNG, JPEG, GIF, or WebP, and are always re-encoded as WebP, cropped \
                     to 400 × 400 and 1500 × 500. Animated ones stay animated, and `avatar_static` and `header_static` \
                     are their first frame.
+
+                    `pleroma_background_image` is the profile's background, as on Pleroma. It's a file in a \
+                    multipart form too, and an empty value instead of a file removes it. It's re-encoded as WebP like \
+                    the others, but only scaled down to fit 3840 × 2160 pixels in area, without cropping. It's returned in \
+                    `pleroma.background_image`, and isn't sent to other servers.
 
                     Turning `locked` off approves the requests to follow the user that are still waiting, as on \
                     Mastodon. They're approved in the background, so they can still be waiting just after the response.
@@ -1122,6 +1130,10 @@ public class AccountsController {
             Object avatar,
             @Schema(type = "string", format = "binary", description = "An image file, in a multipart form only.")
             Object header,
+            @Schema(type = "string", format = "binary", description = """
+                    Pleroma's profile background. An image file, in a multipart form only, or an empty string to \
+                    remove it.""")
+            Object pleroma_background_image,
             @Schema(description = """
                     Whether requests to follow the user wait for the user to approve them. Turning it off approves \
                     those still waiting.""")

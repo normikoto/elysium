@@ -178,14 +178,16 @@ an account on another server is acted on each week.
 
 ## Profiles
 People can change their profile at `/settings`, or from an app: a display name of up to 30 characters, a bio of up to 500,
-an avatar, a header, and up to 4 fields, each a name and a value. You can change how many fields there can be with
-[`elysium.profiles.max-fields`](configuration.md). Lowering it doesn't remove anyone's fields, but they can't save their
-fields again until they've removed enough.
+an avatar, a header, a background, and up to 4 fields, each a name and a value. You can change how many fields there can
+be with [`elysium.profiles.max-fields`](configuration.md). Lowering it doesn't remove anyone's fields, but they can't save
+their fields again until they've removed enough.
 
 Images can be PNG, JPEG, GIF, or WebP, up to [`elysium.profiles.max-image-size`](configuration.md). They're always
-converted to WebP and cropped to size, which removes the information that photos carry, such as where they were taken.
-Animations stay animated. Replaced images are deleted, and so is everything in a profile when its account is deleted. A
-suspended account's profile is hidden, but its images can still be loaded by anyone who already has their address.
+converted to WebP, which removes the information that photos carry, such as where they were taken. Avatars and headers
+are cropped to size, and backgrounds only scaled down. Animations stay animated. A background is shown behind the profile
+on its page here, and in apps that support Pleroma's backgrounds, but it isn't sent to other servers. Replaced images
+are deleted, and so is everything in a profile when its account is deleted. A suspended account's profile is hidden, but
+its images can still be loaded by anyone who already has their address.
 
 A field whose value is only a link starting with `https://` is marked as verified if the page there links back to the
 profile with `rel="me"`. The server fetches each of these pages when the profile is saved, which means anyone who can

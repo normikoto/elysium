@@ -17,6 +17,8 @@ import java.util.SequencedSet;
  *                  emoji in.
  * @param avatar    null if there isn't one
  * @param header    null if there isn't one
+ * @param background Pleroma's profile background, which only a local account can have, or null if there isn't one.
+ *                   Other servers never see it
  * @param manuallyApprovesFollowers whether requests to follow the account wait for its approval
  * @param indexable whether anyone's search can find its public statuses
  * @param updatedAt null if it's never been changed
@@ -29,6 +31,7 @@ public record Profile(
         String note,
         ProfileImage avatar,
         ProfileImage header,
+        ProfileImage background,
         List<ProfileField> fields,
         boolean manuallyApprovesFollowers,
         boolean indexable,
@@ -37,7 +40,7 @@ public record Profile(
         List<URI> alsoKnownAs,
         URI movedTo) {
 
-    public static final Profile EMPTY = new Profile("", "", null, null, List.of(), false, false, null);
+    public static final Profile EMPTY = new Profile("", "", null, null, null, List.of(), false, false, null);
 
     /**
      * What an account on another server's actor document says that a local profile doesn't need.
@@ -64,12 +67,13 @@ public record Profile(
             String note,
             ProfileImage avatar,
             ProfileImage header,
+            ProfileImage background,
             List<ProfileField> fields,
             boolean manuallyApprovesFollowers,
             boolean indexable,
             Instant updatedAt) {
-        this(displayName, note, avatar, header, fields, manuallyApprovesFollowers, indexable, updatedAt, null, List.of(),
-                null);
+        this(displayName, note, avatar, header, background, fields, manuallyApprovesFollowers, indexable, updatedAt, null,
+                List.of(), null);
     }
 
     /**

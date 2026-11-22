@@ -29,7 +29,8 @@ import java.util.List;
         Mastodon's Account entity. An account on another server shows the profile from its actor document, as of when \
         it was last fetched. Its avatar and header are `/media_proxy/` URLs that download them until they're kept here, \
         and links to its server if they can't be, or its media is rejected. An account with no name shows its username as `display_name`. \
-        `discoverable` is always false.""")
+        `discoverable` is always false. `pleroma` has Pleroma's `background_image`, which only a local account can \
+        have.""")
 record AccountResponse(
         String id,
         String username,
@@ -68,10 +69,25 @@ record AccountResponse(
                 The account this one has moved to, which is left out if it hasn't moved, or that account is suspended, \
                 deleted, or on a blocked server. That account's own `moved` is always left out. A local account that's \
                 moved keeps working.""")
-        @JsonInclude(JsonInclude.Include.NON_NULL) AccountResponse moved
+        @JsonInclude(JsonInclude.Include.NON_NULL) AccountResponse moved,
+        Pleroma pleroma
 ) {
 
     private static final String PLACEHOLDER_IMAGE_PATH = "/images/missing.png";
+
+    /**
+     * Pleroma's extensions.
+     *
+     * @param backgroundImage null if there isn't one, which is always so for an account on another server, since
+     *                        backgrounds don't federate
+     */
+    @Schema(name = "AccountPleroma", description = "Pleroma's extensions.")
+    record Pleroma(
+            @Schema(description = """
+                    The profile's background, or null if it has none. Only a local account can have one, since \
+                    backgrounds aren't sent to other servers.""")
+            @JsonProperty("background_image") String backgroundImage) {
+    }
 
     /**
      * Mastodon's Field entity.
@@ -139,13 +155,14 @@ record AccountResponse(
                 emojis,
                 profile.fields().stream().map(field -> Field.of(field, field.valueHtml())).toList(),
                 hideCollections,
-                null);
+                null,
+                new Pleroma(profile.background() == null ? null : profile.background().url(instance, false).toString()));
     }
 
     AccountResponse withMoved(AccountResponse moved) {
         return new AccountResponse(id, username, acct, displayName, locked, bot, group, discoverable, indexable, createdAt,
                 note, url, uri, avatar, avatarStatic, header, headerStatic, followersCount, followingCount, statusesCount,
-                lastStatusAt, emojis, fields, hideCollections, moved);
+                lastStatusAt, emojis, fields, hideCollections, moved, pleroma);
     }
 
     private static String url(ProfileImage image, boolean still, String placeholder, InstanceProperties instance) {

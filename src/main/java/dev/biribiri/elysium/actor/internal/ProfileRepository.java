@@ -25,6 +25,7 @@ public class ProfileRepository {
     /**
      * @param avatar the copy kept here, or null if there isn't one
      * @param header the copy kept here, or null if there isn't one
+     * @param background a local account's, or null if there isn't one. Other servers never see it
      * @param remote null for a local account's profile
      * @param movedTo null if it hasn't moved
      */
@@ -34,6 +35,7 @@ public class ProfileRepository {
             String note,
             StoredImage avatar,
             StoredImage header,
+            StoredImage background,
             boolean manuallyApprovesFollowers,
             boolean indexable,
             Instant updatedAt,
@@ -54,8 +56,8 @@ public class ProfileRepository {
                 boolean manuallyApprovesFollowers,
                 boolean indexable,
                 Instant updatedAt) {
-            this(actorId, displayName, note, avatar, header, manuallyApprovesFollowers, indexable, updatedAt, null, List.of(),
-                    null);
+            this(actorId, displayName, note, avatar, header, null, manuallyApprovesFollowers, indexable, updatedAt, null,
+                    List.of(), null);
         }
     }
 
@@ -88,7 +90,8 @@ public class ProfileRepository {
     }
 
     private static final String COLUMNS = """
-            actor_id, display_name, note, avatar, avatar_static, header, header_static, manually_approves_followers,
+            actor_id, display_name, note, avatar, avatar_static, header, header_static, background, background_static,
+            manually_approves_followers,
             indexable, updated_at, note_html, avatar_remote_url, avatar_cache_given_up, header_remote_url, header_cache_given_up, url,
             bot, group_actor, published, also_known_as, moved_to_uri""";
 
@@ -211,6 +214,7 @@ public class ProfileRepository {
         return jdbc.sql("""
                         UPDATE profile SET display_name = :displayName, note = :note, avatar = :avatar,
                             avatar_static = :avatarStatic, header = :header, header_static = :headerStatic,
+                            background = :background, background_static = :backgroundStatic,
                             manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, updated_at = clock_timestamp()
                         WHERE actor_id = :actorId
                         RETURNING updated_at
@@ -222,11 +226,28 @@ public class ProfileRepository {
                 .param("avatarStatic", row.avatar() == null ? null : row.avatar().staticName())
                 .param("header", row.header() == null ? null : row.header().name())
                 .param("headerStatic", row.header() == null ? null : row.header().staticName())
+                .param("background", row.background() == null ? null : row.background().name())
+                .param("backgroundStatic", row.background() == null ? null : row.background().staticName())
                 .param("manuallyApprovesFollowers", row.manuallyApprovesFollowers())
                 .param("indexable", row.indexable())
                 .query(OffsetDateTime.class)
                 .single()
                 .toInstant();
+    }
+
+    /**
+     * Kept apart from {@link #save} for a change that's only the background, since other servers never see it, and
+     * shouldn't be told the profile changed. The profile has to be locked.
+     */
+    public void saveBackground(UUID actorId, StoredImage background) {
+        jdbc.sql("""
+                        UPDATE profile SET background = :background, background_static = :backgroundStatic
+                        WHERE actor_id = :actorId
+                        """)
+                .param("actorId", actorId)
+                .param("background", background == null ? null : background.name())
+                .param("backgroundStatic", background == null ? null : background.staticName())
+                .update();
     }
 
     public void replaceFields(UUID actorId, List<FieldRow> fields) {
@@ -571,6 +592,7 @@ public class ProfileRepository {
                 rs.getString("note"),
                 image(rs.getString("avatar"), rs.getString("avatar_static")),
                 image(rs.getString("header"), rs.getString("header_static")),
+                image(rs.getString("background"), rs.getString("background_static")),
                 rs.getBoolean("manually_approves_followers"),
                 rs.getBoolean("indexable"),
                 instant(rs.getObject("updated_at", OffsetDateTime.class)),

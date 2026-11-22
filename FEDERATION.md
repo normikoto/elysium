@@ -70,7 +70,8 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
 - `tag`, a `Hashtag` for each hashtag in the bio, as a `Note` has them, and an `Emoji` for each
   [custom emoji](#custom-emoji) in the display name, bio, or fields.
 - `icon` and `image`, the avatar and header, as `Image`s with a `url` and a `mediaType` of `image/webp`. They're always WebP,
-  and can be animated. An avatar is 400 × 400, and a header 1500 × 500.
+  and can be animated. An avatar is 400 × 400, and a header 1500 × 500. A profile's background, which local clients can
+  set through Pleroma's API, isn't sent, and backgrounds in other servers' actor documents aren't read.
 - `attachment`, the fields, as `PropertyValue`s (`schema:PropertyValue`), each with a `name` and a `value` that's HTML. A
   URL in a value is a link with `rel="me nofollow noopener noreferrer"`. Whether this server has verified the link isn't
   sent, since each server checks for itself.
