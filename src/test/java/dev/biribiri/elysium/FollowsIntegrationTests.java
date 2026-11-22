@@ -651,6 +651,26 @@ class FollowsIntegrationTests {
     }
 
     @Test
+    void askingARemoteAccountAgainSendsTheFollowAgainUnlessItOnlyChangesOptions() throws Exception {
+        var remote = remote();
+        var alice = account("alice");
+        follow("alice", remote);
+        await().atMost(WAIT).until(() -> deliveryInboxes(alice, remote).size() == 1);
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + remote.id() + "/follow"), token("alice"))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("notify", "true"))
+                .andExpect(jsonPath("$.requested").value(true))
+                .andExpect(jsonPath("$.notifying").value(true));
+        follow("alice", remote);
+
+        await().atMost(WAIT).until(() -> deliveryInboxes(alice, remote).size() == 2);
+        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM event_publication WHERE completion_date IS NULL")
+                .query(Long.class).single() == 0);
+        assertThat(deliveryInboxes(alice, remote)).hasSize(2);
+    }
+
+    @Test
     void unfollowingARemoteAccountCancelsTheFollowAndQueuesAnUndo() throws Exception {
         var remote = remote();
         var alice = account("alice");

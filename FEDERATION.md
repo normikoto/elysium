@@ -536,7 +536,8 @@ whose `id` is a different URL, such as a profile page's, the actor is fetched ag
 
 The follow then waits for an answer, and a `Follow` signed as the user is sent to the actor's `inbox`. Its `id` is
 `{actor-uri}#follows/{uuid}`, which is new each time the user follows, so an answer to an earlier request doesn't count for
-a new one. Asking to follow again while the request is waiting sends the same `Follow` again.
+a new one. Asking to follow again while the request is waiting sends the same `Follow` again, unless the user's client is
+only changing the follow's options, such as whether they're notified of new posts.
 
 ```json
 {

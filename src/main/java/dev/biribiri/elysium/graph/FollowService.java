@@ -70,7 +70,8 @@ public class FollowService {
      * followers by hand, when the request waits for it and {@link FollowRequestReceived} is published. That's not so if it
      * approves requests from accounts it follows, and follows this one. An account on another server has to answer first,
      * so the follow waits for that, and {@link FollowRequested} is published so that it's asked. Asking it again
-     * while it's waiting publishes that again, as its server may have lost the request. Following an account already
+     * while it's waiting with no options publishes that again, as its server may have lost the request, while asking with
+     * options only changes them, so that changing them doesn't send the request again. Following an account already
      * followed or asked only changes the options given, as on Mastodon.
      *
      * <p>The caller checks that both accounts can take part, since this has no view of instance domain blocks.
@@ -93,7 +94,7 @@ public class FollowService {
         var local = actors.isLocal(followed);
         if (existing.isPresent()) {
             follows.updateOptions(follower.id(), followed.id(), options);
-            if (!existing.get().accepted() && !local) {
+            if (!existing.get().accepted() && !local && options.equals(FollowOptions.NONE)) {
                 events.publishEvent(new FollowRequested(
                         follower.id(), followed.id(), existing.get().activityUri(), Instant.now()));
             }
