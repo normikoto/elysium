@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -384,6 +385,31 @@ public class FollowRepository {
                 .param("followerId", followerId)
                 .query(UUID.class)
                 .list();
+    }
+
+    /**
+     * In the order {@link dev.biribiri.elysium.actor.AccountFilter} lists accounts, so that searching only followed accounts
+     * pages the same way as searching all of them.
+     */
+    public List<UUID> findFollowedIdsByUsernamePrefix(UUID followerId, String prefix, int limit, int offset) {
+        return jdbc.sql("""
+                        SELECT a.id FROM follow f
+                        JOIN actor a ON a.id = f.followed_id
+                        WHERE f.follower_id = :followerId AND f.state = 'accepted' AND %s
+                          AND lower(a.username) LIKE :prefix ESCAPE '\\'
+                        ORDER BY a.id DESC
+                        LIMIT :limit OFFSET :offset
+                        """.formatted(ACTIVE_OTHER))
+                .param("followerId", followerId)
+                .param("prefix", escapeLike(prefix.toLowerCase(Locale.ROOT)) + "%")
+                .param("limit", limit)
+                .param("offset", offset)
+                .query(UUID.class)
+                .list();
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     public boolean isFollowing(UUID followerId, UUID followedId) {

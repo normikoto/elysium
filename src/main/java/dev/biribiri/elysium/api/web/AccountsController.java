@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.AccountFilter;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.IdPage;
@@ -67,6 +68,11 @@ import java.util.stream.Collectors;
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/"))
 public class AccountsController {
 
+    /**
+     * Mastodon's, which are larger than {@code /api/v2/search}'s, since a client asks for nothing but accounts.
+     */
+    private static final int DEFAULT_SEARCH_LIMIT = 40;
+    private static final int MAX_SEARCH_LIMIT = 80;
     private static final long MAX_CREDENTIALS_BODY_BYTES = 64 * 1024;
 
     private static final String FOLLOWS = """
@@ -112,6 +118,7 @@ public class AccountsController {
     private final MuteService mutes;
     private final DomainBlocks blocks;
     private final AccountLookup lookup;
+    private final AccountSearch search;
     private final JsonBodies json;
     private final InstanceProperties instance;
     private final ProfileService profiles;
@@ -131,6 +138,7 @@ public class AccountsController {
             MuteService mutes,
             DomainBlocks blocks,
             AccountLookup lookup,
+            AccountSearch search,
             JsonBodies json,
             InstanceProperties instance,
             ProfileService profiles,
@@ -154,6 +162,7 @@ public class AccountsController {
         this.mutes = mutes;
         this.blocks = blocks;
         this.lookup = lookup;
+        this.search = search;
         this.json = json;
         this.instance = instance;
     }
@@ -378,6 +387,63 @@ public class AccountsController {
                                 .map(followers::get)
                                 .toList()))
                 .toList();
+    }
+
+    @GetMapping("/search")
+    @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:accounts')")
+    @Operation(
+            operationId = "searchAccounts",
+            summary = "Search for accounts",
+            description = """
+                    Differences from Mastodon:
+
+                    - A query that's a `username@domain` finds that one account, and an `https` URL finds the account \
+                    there, by its ID. A profile page only finds its account with `resolve`. Any other query matches the \
+                    start of the usernames this server knows, not display names.
+                    - Another server is only asked about an account for a signed-in user's request, when `resolve` is \
+                    true. Each user can make\s""" + RemoteActorResolver.LOOKUPS_PER_MINUTE + """
+                     of those lookups a minute, and then gets a 429.
+                    - Only the first\s""" + AccountFilter.MAX_LIMIT + """
+                     matches can be paged through with `offset`, and an `offset` past them returns no accounts.
+
+                    Suspended accounts are left out.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#search"),
+            parameters = {
+                    @Parameter(name = "q", description = """
+                            A username, or the start of one, a `username@domain`, or an `https` URL of an account. A \
+                            missing or blank query returns nothing."""),
+                    @Parameter(name = "resolve", description = """
+                            Whether to ask another server about an address or URL this server doesn't know, or an \
+                            account it hasn't refreshed for a while. Only works for a signed-in user.\s""" + ApiDocs.FLAG),
+                    @Parameter(name = "following", description = """
+                            Whether to only find accounts the user follows. Ignored without a user.\s""" + ApiDocs.FLAG),
+                    @Parameter(name = "limit", description = "How many accounts to return. Values outside 1 to "
+                            + MAX_SEARCH_LIMIT + " are clamped to them.",
+                            schema = @Schema(type = "integer", defaultValue = "" + DEFAULT_SEARCH_LIMIT)),
+                    @Parameter(name = "offset", description = "How many matches to skip.",
+                            schema = @Schema(type = "integer", defaultValue = "0"))
+            },
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The accounts found."),
+                    @ApiResponse(responseCode = "422", description = "`limit` or `offset` isn't a number."),
+                    @ApiResponse(responseCode = "429", description = "The user has made too many lookups.")
+            })
+    public List<AccountResponse> search(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String resolve,
+            @RequestParam(required = false) String following,
+            @RequestParam(required = false) String limit,
+            @RequestParam(required = false) String offset) {
+        // Read before anything else, so that a malformed request is refused whatever it searches for.
+        var pageSize = Math.clamp(RequestParameters.number("limit", limit, DEFAULT_SEARCH_LIMIT), 1, MAX_SEARCH_LIMIT);
+        var skipped = Math.max(RequestParameters.number("offset", offset, 0), 0);
+        if (q == null || q.isBlank()) {
+            return List.of();
+        }
+        var found = search.find(q.strip(), RequestParameters.viewer(token), RequestParameters.flag(resolve),
+                RequestParameters.flag(following), pageSize, skipped);
+        return accounts.build(found);
     }
 
     @GetMapping("/{id}")

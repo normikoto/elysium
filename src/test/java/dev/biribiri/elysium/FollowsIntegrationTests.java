@@ -1046,10 +1046,105 @@ class FollowsIntegrationTests {
     }
 
     @Test
+    void searchesAccountsByUsernamePrefix() throws Exception {
+        account("alice");
+
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", "@ali"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].username", contains("alice")));
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", "ali").param("offset", "1"))
+                .andExpect(jsonPath("$", empty()));
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", "ali").param("limit", "80").param("offset", "500"))
+                .andExpect(jsonPath("$", empty()));
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", " "))
+                .andExpect(jsonPath("$", empty()));
+        mockMvc.perform(get("/api/v1/accounts/search"))
+                .andExpect(jsonPath("$", empty()));
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", "ali").param("limit", "many"))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    void searchesAccountsForAnAddressOnlyAskingOtherServersForASignedInUser() throws Exception {
+        var remote = remote();
+        when(resolver.resolveAcct(any(), eq("bob"), eq(remote.domain()))).thenReturn(Optional.of(remote));
+
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", "bob@" + remote.domain()).param("resolve", "true"))
+                .andExpect(jsonPath("$[*].id", contains(remote.id().toString())));
+        verify(resolver, never()).resolveAcct(any(), any(), any());
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/search")
+                                .param("q", "@bob@" + remote.domain())
+                                .param("resolve", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$[*].id", contains(remote.id().toString())));
+        verify(resolver).resolveAcct(account("alice").id(), "bob", remote.domain());
+    }
+
+    @Test
+    void searchesOnlyFollowedAccountsWithFollowing() throws Exception {
+        var alice = account("alice");
+        var followed = account("seekfollowed");
+        account("seekstranger");
+        var suspended = account("seeksuspended");
+        insertFollow(alice, followed);
+        insertFollow(alice, suspended);
+        actors.suspend(suspended.id());
+        var followedRemote = remote();
+        insertFollow(alice, followedRemote);
+        var strangerRemote = remote();
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/search").param("q", "seek").param("following", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$[*].username", contains("seekfollowed")));
+        mockMvc.perform(withToken(get("/api/v2/search")
+                                .param("q", "seek")
+                                .param("type", "accounts")
+                                .param("following", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$.accounts[*].username", contains("seekfollowed")));
+        mockMvc.perform(withToken(get("/api/v1/accounts/search").param("q", "seek"), token("alice")))
+                .andExpect(jsonPath("$", hasSize(2)));
+        // Without a user, nobody is followed, so it's ignored.
+        mockMvc.perform(get("/api/v1/accounts/search").param("q", "seek").param("following", "true"))
+                .andExpect(jsonPath("$", hasSize(2)));
+
+        mockMvc.perform(withToken(get("/api/v1/accounts/search")
+                                .param("q", "bob@" + followedRemote.domain())
+                                .param("following", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$[*].id", contains(followedRemote.id().toString())));
+        mockMvc.perform(withToken(get("/api/v2/search")
+                                .param("q", "bob@" + strangerRemote.domain())
+                                .param("following", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$.accounts", empty()));
+        mockMvc.perform(withToken(get("/api/v1/accounts/search").param("q", followedRemote.uri().toString())
+                                .param("following", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$[*].id", contains(followedRemote.id().toString())));
+        mockMvc.perform(withToken(get("/api/v1/accounts/search").param("q", strangerRemote.uri().toString())
+                                .param("following", "true"),
+                        token("alice")))
+                .andExpect(jsonPath("$", empty()));
+    }
+
+    @Test
+    void searchingAccountsNeedsReadAccountsWithAToken() throws Exception {
+        mockMvc.perform(withToken(get("/api/v1/accounts/search").param("q", "ali"), token("alice", "read:statuses")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void saysWhenThereHaveBeenTooManyLookups() throws Exception {
         when(resolver.resolveAcct(any(), any(), any())).thenThrow(new RemoteActorResolver.ResolveLimitException());
 
         mockMvc.perform(withToken(get("/api/v1/accounts/lookup").param("acct", "bob@limited.example"), token("alice")))
+                .andExpect(status().isTooManyRequests());
+        mockMvc.perform(withToken(get("/api/v1/accounts/search")
+                                .param("q", "bob@limited.example")
+                                .param("resolve", "true"),
+                        token("alice")))
                 .andExpect(status().isTooManyRequests());
     }
 

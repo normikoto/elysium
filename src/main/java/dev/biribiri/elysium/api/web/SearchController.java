@@ -2,8 +2,6 @@ package dev.biribiri.elysium.api.web;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.biribiri.elysium.actor.AccountFilter;
-import dev.biribiri.elysium.actor.Actor;
-import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.IdPage;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.auth.TokenPrincipal;
@@ -27,7 +25,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * Searches for accounts, statuses, and hashtags.
@@ -45,8 +42,6 @@ public class SearchController {
 
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_LIMIT = 40;
-    private static final Pattern ACCT = Pattern.compile("@?[^@\\s]+@[^@\\s]+");
-    private static final Pattern USERNAME_PREFIX = Pattern.compile("@?[A-Za-z0-9_]{1,30}");
 
     /**
      * How far {@code offset} can page through hashtags. Each page is counted from every public status that has a matching
@@ -60,7 +55,7 @@ public class SearchController {
      */
     private static final int MAX_STATUS_OFFSET = 200;
 
-    private final ActorService actors;
+    private final AccountSearch accountSearch;
     private final AccountLookup lookup;
     private final AccountResponses accounts;
     private final StatusService statuses;
@@ -69,9 +64,9 @@ public class SearchController {
     private final TagResponses tags;
 
     SearchController(
-            ActorService actors, AccountLookup lookup, AccountResponses accounts, StatusService statuses,
+            AccountSearch accountSearch, AccountLookup lookup, AccountResponses accounts, StatusService statuses,
             StatusSearch statusSearch, StatusResponses statusResponses, TagResponses tags) {
-        this.actors = actors;
+        this.accountSearch = accountSearch;
         this.lookup = lookup;
         this.accounts = accounts;
         this.statuses = statuses;
@@ -103,7 +98,8 @@ public class SearchController {
                     nothing uses it, as the first result. Only the first\s""" + MAX_TAG_OFFSET + """
                      can be paged through with `offset`.
                     - A query that's a `username@domain` finds that one account. Any other query that isn't a URL \
-                    matches the start of the usernames this server knows.
+                    matches the start of the usernames this server knows. With `following`, only accounts the user \
+                    follows are found.
                     - An `https` URL finds only the account or status there, by its ID, or by the page its server \
                     gives, such as a status's page. A profile page only finds its account with `resolve`. A status is \
                     only found for a signed-in user who can see it, even if they block or mute its author. With \
@@ -113,7 +109,7 @@ public class SearchController {
                      of those lookups a minute, and then gets a 429.
                     - Only the first\s""" + AccountFilter.MAX_LIMIT + """
                      matches can be paged through with `offset`, and an `offset` past them returns no accounts.
-                    - `following` and `exclude_unreviewed` are ignored.
+                    - `exclude_unreviewed` is ignored.
 
                     Suspended accounts are left out.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "search/#v2"),
@@ -131,6 +127,8 @@ public class SearchController {
                     @Parameter(name = "resolve", description = """
                             Whether to ask another server about an address or URL this server doesn't know, or an \
                             account it hasn't refreshed for a while. Only works for a signed-in user.\s""" + ApiDocs.FLAG),
+                    @Parameter(name = "following", description = """
+                            Whether to only find accounts the user follows. Ignored without a user.\s""" + ApiDocs.FLAG),
                     @Parameter(name = "limit", description = "How many of each type to return. Values outside 1 to "
                             + MAX_LIMIT + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + DEFAULT_LIMIT)),
@@ -148,6 +146,7 @@ public class SearchController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String resolve,
+            @RequestParam(required = false) String following,
             @RequestParam(name = "account_id", required = false) String accountId,
             @RequestParam(name = "max_id", required = false) String maxId,
             @RequestParam(name = "min_id", required = false) String minId,
@@ -169,11 +168,12 @@ public class SearchController {
         var viewer = RequestParameters.viewer(token);
         var shouldResolve = RequestParameters.flag(resolve);
         var query = q.strip();
-        var skipped = Math.min(requestedOffset, AccountFilter.MAX_LIMIT);
 
         var foundTags = searchTags ? tags(query, pageSize, requestedOffset, viewer.isPresent()) : List.<TagResponse>of();
-        if (isUrl(query)) {
-            return byUrl(query, viewer, shouldResolve, searchAccounts, searchStatuses, requestedOffset, foundTags);
+        var onlyFollowed = RequestParameters.flag(following);
+        if (AccountSearch.isUrl(query)) {
+            return byUrl(query, viewer, shouldResolve, onlyFollowed, searchAccounts, searchStatuses, requestedOffset,
+                    foundTags);
         }
         var foundStatuses = searchStatuses && viewer.isPresent()
                 ? statuses(viewer.get(), query, accountId, page, requestedOffset)
@@ -181,15 +181,7 @@ public class SearchController {
         if (!searchAccounts) {
             return new SearchResponse(List.of(), foundStatuses, foundTags);
         }
-
-        List<Actor> found;
-        if (ACCT.matcher(query).matches()) {
-            found = skipped > 0 ? List.of() : lookup.byAcct(query, viewer, shouldResolve).stream().toList();
-        } else if (USERNAME_PREFIX.matcher(query).matches()) {
-            found = byUsernamePrefix(query.startsWith("@") ? query.substring(1) : query, pageSize, skipped);
-        } else {
-            found = List.of();
-        }
+        var found = accountSearch.find(query, viewer, shouldResolve, onlyFollowed, pageSize, requestedOffset);
         return new SearchResponse(accounts.build(found), foundStatuses, foundTags);
     }
 
@@ -199,16 +191,15 @@ public class SearchController {
      * viewer's own blocks and mutes don't hide it, since they asked for it by name, as a thread shows the status asked for.
      */
     private SearchResponse byUrl(
-            String query, Optional<UUID> viewer, boolean resolve, boolean searchAccounts, boolean searchStatuses,
-            int skipped, List<TagResponse> foundTags) {
+            String query, Optional<UUID> viewer, boolean resolve, boolean following, boolean searchAccounts,
+            boolean searchStatuses, int skipped, List<TagResponse> foundTags) {
         if (skipped > 0 || !(searchAccounts || searchStatuses && viewer.isPresent())) {
             return new SearchResponse(List.of(), List.of(), foundTags);
         }
         var found = lookup.byUrl(query, viewer, resolve);
-        var foundAccounts = found.filter(_ -> searchAccounts)
-                .flatMap(at -> at instanceof RemoteUrlResolver.Found.Account(var actor) ? Optional.of(actor) : Optional.empty())
-                .map(actor -> accounts.build(List.of(actor)))
-                .orElse(List.of());
+        var foundAccounts = searchAccounts
+                ? accounts.build(accountSearch.fromUrl(found, following ? viewer : Optional.empty()))
+                : List.<AccountResponse>of();
         var foundStatuses = found.filter(_ -> searchStatuses && viewer.isPresent())
                 .flatMap(at -> at instanceof RemoteUrlResolver.Found.Post(var status) ? Optional.of(status) : Optional.empty())
                 .filter(status -> statuses.isVisible(status, viewer))
@@ -217,16 +208,12 @@ public class SearchController {
         return new SearchResponse(foundAccounts, foundStatuses, foundTags);
     }
 
-    private static boolean isUrl(String query) {
-        return query.regionMatches(true, 0, "https://", 0, "https://".length());
-    }
-
     /**
      * An address names one account, and its words would find statuses that mention it by chance. The viewer's
      * filters only mark what they match, since hiding what someone searched for would leave them wondering where it went.
      */
     private List<StatusResponse> statuses(UUID viewer, String query, String accountId, IdPage page, int skipped) {
-        if (ACCT.matcher(query).matches() || skipped >= MAX_STATUS_OFFSET) {
+        if (AccountSearch.isAddress(query) || skipped >= MAX_STATUS_OFFSET) {
             return List.of();
         }
         Optional<UUID> account = Optional.empty();
@@ -257,12 +244,6 @@ public class SearchController {
             }
         }
         return tags.build(names, signedIn);
-    }
-
-    private List<Actor> byUsernamePrefix(String prefix, int pageSize, int skipped) {
-        // The filter loads at most its maximum, which leaves nothing after a large offset.
-        var filter = new AccountFilter(null, false, prefix, null, pageSize + skipped, null, null, null);
-        return actors.list(filter).stream().filter(Actor::isActive).skip(skipped).limit(pageSize).toList();
     }
 
     /**

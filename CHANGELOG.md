@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Apps can search for accounts through the Mastodon API's `GET /api/v1/accounts/search`, which they use to suggest
+  people while someone writes a mention. Both searches can now find only the accounts the user follows, as Mastodon's
+  web app does when adding people to a list. See `docs/api.md`.
 - Apps can show which of the people someone follows also follow an account, through the Mastodon API's
   `GET /api/v1/accounts/familiar_followers`. An account that hides its followers doesn't have them shown.
 - Each account and the server's own actor now have an Ed25519 key, which other servers can read from their actor
