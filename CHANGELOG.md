@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `POST /api/v1/accounts/:id/endorse` and `/unendorse`, or the older `/pin` and `/unpin`, and apps can list them with
   `GET /api/v1/endorsements`. Endorsements aren't sent to other servers. See `docs/api.md`.
 
+### Fixed
+
+- Apps that add a slash to the end of a Mastodon API path, as Brutaldon does for `/api/v1/instance/` and
+  `/api/v2/instance/`, were refused with a 401, so they couldn't connect. The slash is now ignored, as on Mastodon.
+
 ## [0.3.0] - 2026-11-20
 
 ### Added
