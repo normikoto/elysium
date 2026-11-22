@@ -568,7 +568,7 @@ td {
     background-size: cover;
 }
 
-/* Backgrounds are kept as large as 3840 pixels wide. */
+/* Backgrounds are kept as large as 3840 × 2160 pixels in area, and can be wider than any screen. */
 .profile-background-preview {
     display: block;
     height: auto;

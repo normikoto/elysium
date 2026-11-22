@@ -235,7 +235,7 @@ public class AccountsController {
 
                     `pleroma_background_image` is the profile's background, as on Pleroma. It's a file in a \
                     multipart form too, and an empty value instead of a file removes it. It's re-encoded as WebP like \
-                    the others, but only scaled down to fit 3840 × 2160 pixels, without cropping. It's returned in \
+                    the others, but only scaled down to fit 3840 × 2160 pixels in area, without cropping. It's returned in \
                     `pleroma.background_image`, and isn't sent to other servers.
 
                     Turning `locked` off approves the requests to follow the user that are still waiting, as on \

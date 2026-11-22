@@ -347,6 +347,10 @@ class ProfileIntegrationTests {
 
         var second = uploadBackground(TestImages.png(40, 300));
         mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pleroma_background_image\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pleroma.background_image").value(second));
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"pleroma_background_image\":\"\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pleroma.background_image").isEmpty());

@@ -3,9 +3,9 @@ package dev.biribiri.elysium.media;
 /**
  * What an image is for, which decides the size it's made. These are Mastodon's sizes, which clients lay out for.
  *
- * <p>Profile images are cropped to fill their shape exactly. Attachments keep their shape, and are only scaled down to fit
- * a number of pixels, which Mastodon gives as width × height. Fitting an area rather than a box treats a tall image and a
- * wide one the same.
+ * <p>Avatars and headers are cropped to fill their shape exactly. Backgrounds and attachments keep their shape, and are
+ * only scaled down to fit a number of pixels, which Mastodon gives as width × height. Fitting an area rather than a box
+ * treats a tall image and a wide one the same.
  */
 public enum ImageKind {
     AVATAR(400, 400, Fit.COVER),

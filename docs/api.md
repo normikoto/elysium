@@ -737,9 +737,9 @@ Only these exist:
   ones stay animated, and `avatar_static` and `header_static` are their first frame.
 - `pleroma_background_image` sets the profile's background, as on
   [Pleroma](https://docs.akkoma.dev/stable/development/API/differences_in_mastoapi_responses/#accounts). It's uploaded
-  like `avatar` and `header`, with the same limit, and an empty value instead of a file removes it. It's re-encoded as
-  WebP, but not cropped: only scaled down to fit 3840 × 2160 pixels. Akkoma's `pleroma_background_image_description`
-  isn't supported, so a value for it gets a 422.
+  like `avatar` and `header`, with the same limit. An empty value instead of a file removes it, and null in JSON
+  leaves it as it is. It's re-encoded as WebP, but not cropped: only scaled down to fit 3840 × 2160 pixels in area.
+  Akkoma's `pleroma_background_image_description` isn't supported, so a value for it gets a 422.
 - Every account has Pleroma's `pleroma.background_image`, its background's URL, or null. Backgrounds aren't sent to or
   read from other servers, so an account on another server's is always null.
 - Turning `locked` off approves the requests that are waiting, as on Mastodon, but in the background, so they can still

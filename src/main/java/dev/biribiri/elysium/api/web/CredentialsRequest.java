@@ -136,7 +136,8 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                     if (!isEmpty(value)) {
                         throw notFile(key);
                     }
-                    removeBackground = true;
+                    // A JSON null leaves it as it is, as on Pleroma, rather than removing it.
+                    removeBackground = value != null;
                 }
                 case "source" -> source = source(value);
                 default -> checkFixed(key, value, FIXED, key);
