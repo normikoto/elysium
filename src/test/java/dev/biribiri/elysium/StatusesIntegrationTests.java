@@ -1293,6 +1293,25 @@ class StatusesIntegrationTests {
     }
 
     @Test
+    void ignoresATrailingSlashOnApiPaths() throws Exception {
+        mockMvc.perform(get("/api/v1/instance/"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.uri").value("elysium.example"));
+        mockMvc.perform(get("/api/v2/instance/"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.domain").value("elysium.example"));
+        mockMvc.perform(get("/api/v1/accounts/verify_credentials/")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/accounts/verify_credentials/").header("Authorization", "Bearer " + alice()))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/apps/")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("client_name", "Trailing slash app")
+                        .param("redirect_uris", "urn:ietf:wg:oauth:2.0:oob"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.client_id").isNotEmpty());
+    }
+
+    @Test
     void instanceAdvertisesTheLengthLimitWithoutAToken() throws Exception {
         alice();
         create(alice(), "Public");
