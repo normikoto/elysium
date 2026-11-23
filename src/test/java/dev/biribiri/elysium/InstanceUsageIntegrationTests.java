@@ -101,6 +101,9 @@ class InstanceUsageIntegrationTests {
                 .param("id", userId).query(LocalDate.class).single()).isEqualTo(LocalDate.now(ZoneOffset.UTC));
     }
 
+    /**
+     * The active counts are kept for an hour, so this is the only test that reads them from NodeInfo or the instance.
+     */
     @Test
     void nodeInfoCountsActiveAccountsButNotSuspendedOnes() throws Exception {
         useTheApi();

@@ -41,9 +41,10 @@ public class NodeInfoController {
             local users, and `localPosts`, which counts replies but not direct statuses. `activeMonth` and \
             `activeHalfyear` count the users who used the server in the last\s""" + ActiveAccounts.MONTH_DAYS + " and "
             + ActiveAccounts.HALF_YEAR_DAYS + """
-             days, and are left out if the admin has turned them off with `elysium.usage.publish`. `localComments` isn't \
-            reported. `metadata.features` has Pleroma's `pleroma_emoji_reactions` and \
-            `custom_emoji_reactions`, for clients that look for them before they offer reactions.""";
+             days, can be up to an hour old, and are left out if the admin has turned them off with \
+            `elysium.usage.publish`. `localComments` isn't reported. `metadata.features` has Pleroma's \
+            `pleroma_emoji_reactions` and `custom_emoji_reactions`, for clients that look for them before they offer \
+            reactions.""";
 
     private static final URI REPOSITORY = URI.create("https://github.com/normikoto/elysium");
 
@@ -123,10 +124,8 @@ public class NodeInfoController {
         if (!usage.publish()) {
             return new NodeInfo.Users(actors.countLocal(), null, null);
         }
-        return new NodeInfo.Users(
-                actors.countLocal(),
-                activeAccounts.countActiveWithin(ActiveAccounts.MONTH_DAYS),
-                activeAccounts.countActiveWithin(ActiveAccounts.HALF_YEAR_DAYS));
+        var active = activeAccounts.recentCounts();
+        return new NodeInfo.Users(actors.countLocal(), active.month(), active.halfYear());
     }
 
     /**

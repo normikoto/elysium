@@ -1334,8 +1334,8 @@ public class StatusService {
 
     /**
      * Counts the statuses local accounts published in each week since {@code since}, keyed by the Monday the week starts
-     * on, in UTC. Like {@link #countLocal}, this leaves out direct statuses, and it leaves out boosts too. Deleted statuses
-     * aren't counted.
+     * on, in UTC. Like {@link #countLocal}, this leaves out direct statuses, and it leaves out boosts too. Deleted statuses,
+     * and those of suspended accounts, aren't counted.
      */
     public Map<LocalDate, Long> countLocalByWeek(LocalDate since) {
         return statuses.countLocalByWeek(since);

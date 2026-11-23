@@ -3,6 +3,8 @@ package dev.biribiri.elysium.actor;
 import dev.biribiri.elysium.actor.internal.AccountUseRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Map;
@@ -25,7 +27,15 @@ public class ActiveAccounts {
      */
     static final int DAYS_KEPT = HALF_YEAR_DAYS;
 
+    /**
+     * NodeInfo and the instance API need no token, and each count reads up to half a year of days, so they're counted at
+     * most this often, as the weekly counts are.
+     */
+    static final Duration COUNTS_KEPT_FOR = Duration.ofHours(1);
+
     private final AccountUseRepository uses;
+
+    private volatile Counted counted;
 
     /**
      * The day each account's use was last recorded by this node, so that an account writes once a day rather than on each
@@ -49,6 +59,19 @@ public class ActiveAccounts {
         }
         uses.insert(actorId, today);
         recorded.put(actorId, today);
+    }
+
+    /**
+     * The month and half-year counts, which can be up to {@link #COUNTS_KEPT_FOR} old.
+     */
+    public Counts recentCounts() {
+        var now = Instant.now();
+        var current = counted;
+        if (current == null || current.at().plus(COUNTS_KEPT_FOR).isBefore(now)) {
+            current = new Counted(now, new Counts(countActiveWithin(MONTH_DAYS), countActiveWithin(HALF_YEAR_DAYS)));
+            counted = current;
+        }
+        return current.counts();
     }
 
     /**
@@ -77,5 +100,15 @@ public class ActiveAccounts {
 
     private static LocalDate today() {
         return LocalDate.now(ZoneOffset.UTC);
+    }
+
+    /**
+     * @param month    the accounts used in the last {@link #MONTH_DAYS} days
+     * @param halfYear the accounts used in the last {@link #HALF_YEAR_DAYS} days
+     */
+    public record Counts(long month, long halfYear) {
+    }
+
+    private record Counted(Instant at, Counts counts) {
     }
 }

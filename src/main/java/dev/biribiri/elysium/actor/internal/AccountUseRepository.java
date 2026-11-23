@@ -19,13 +19,16 @@ public class AccountUseRepository {
     }
 
     /**
-     * Selecting from {@code local_account} skips an account deleted since the request was authenticated, which would
-     * otherwise fail the request on the foreign key.
+     * Skips an account deleted since the request was authenticated. Its {@code local_account} row outlives the deletion
+     * for a while, so without checking the actor a day could be written after the account's cleanup had removed the
+     * others, and be kept until it expired.
      */
     public void insert(UUID actorId, LocalDate day) {
         jdbc.sql("""
                         INSERT INTO account_use_day (actor_id, day)
-                        SELECT actor_id, :day FROM local_account WHERE actor_id = :actorId
+                        SELECT local_account.actor_id, :day FROM local_account
+                        JOIN actor ON actor.id = local_account.actor_id
+                        WHERE local_account.actor_id = :actorId AND actor.deleted_at IS NULL
                         ON CONFLICT DO NOTHING
                         """)
                 .param("actorId", actorId)
@@ -48,8 +51,9 @@ public class AccountUseRepository {
      */
     public Map<LocalDate, Long> countAccountsByWeek(LocalDate since) {
         var weeks = new HashMap<LocalDate, Long>();
+        // A date on its own is truncated as a timestamptz, in the connection's time zone, rather than as the UTC day it is.
         jdbc.sql("""
-                        SELECT date_trunc('week', u.day)::date AS week, count(DISTINCT u.actor_id) AS accounts
+                        SELECT date_trunc('week', u.day::timestamp)::date AS week, count(DISTINCT u.actor_id) AS accounts
                         FROM account_use_day u
                         JOIN actor ON actor.id = u.actor_id
                         WHERE u.day >= :since AND %s

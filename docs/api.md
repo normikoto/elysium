@@ -132,12 +132,14 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   what's missing gets a 404.
 - `GET /api/v2/instance` has no thumbnail, icon, or contact account, and `configuration.translation.enabled` is false.
   `usage.users.active_month` counts the local accounts that used the server in the last 30 days, through an app or a
-  login session. If the admin has turned that off with `elysium.usage.publish`, it counts every local account.
+  login session, and can be up to an hour old. If the admin has turned that off with `elysium.usage.publish`, it counts
+  every local account.
 - `GET /api/v1/instance/activity` gives 12 weeks of counts, this week first, as Mastodon does, with every value as a
   string. Weeks start at midnight UTC on a Monday, and the counts can be up to an hour old. `statuses` counts the
-  statuses local accounts published that still exist, leaving out direct statuses and boosts. `logins` counts the local
-  accounts that used the server that week, and `registrations` the accounts created that week that haven't been
-  deleted. It's a 404 if the admin has turned these off with `elysium.usage.publish`.
+  statuses local accounts published that still exist, leaving out direct statuses, boosts, and suspended accounts'
+  statuses. `logins` counts the local accounts that used the server that week, and `registrations` the accounts
+  created that week that haven't been deleted. It's a 404 if the admin has turned these off with
+  `elysium.usage.publish`.
 - Admins set the server's rules on the `/admin/rules` page. `GET /api/v1/instance/rules` lists them in order, as do
   `rules` in `GET /api/v1/instance` and `GET /api/v2/instance`. Their IDs are UUIDs rather than numbers, and they have
   no `translations`. The sign-up page lists them too.

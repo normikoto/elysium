@@ -148,9 +148,9 @@ public class InstanceController {
                     The last\s""" + WeeklyCounts.WEEKS + """
                      weeks, this one first, each starting at midnight UTC on a Monday. The counts are up to an hour old. \
                     Differences from Mastodon: `statuses` counts the statuses that still exist, leaving out direct \
-                    statuses and boosts, and `registrations` leaves out accounts that have since been deleted. `logins` \
-                    counts accounts that used the API or were logged in that week. Not found when the admin has turned \
-                    these off with `elysium.usage.publish`.""",
+                    statuses, boosts, and suspended accounts' statuses, and `registrations` leaves out accounts that \
+                    have since been deleted. `logins` counts accounts that used the API or were logged in that week. \
+                    Not found when the admin has turned these off with `elysium.usage.publish`.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#activity"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "A week's counts each, this week first."),
@@ -179,8 +179,8 @@ public class InstanceController {
                     isn't here, as `docs/api.md` lists. There's no thumbnail, icon, or contact account. \
                     `usage.users.active_month` counts the local accounts that used the server in the last\s"""
                     + ActiveAccounts.MONTH_DAYS + """
-                     days, or every local account if the admin has turned that off with `elysium.usage.publish`. Push \
-                    notifications aren't implemented.""",
+                     days, up to an hour old, or every local account if the admin has turned that off with \
+                    `elysium.usage.publish`. Push notifications aren't implemented.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v2"),
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
     public InstanceV2Response instanceV2() {
@@ -218,7 +218,7 @@ public class InstanceController {
      * was before use was recorded.
      */
     private long activeMonth() {
-        return usage.publish() ? activeAccounts.countActiveWithin(ActiveAccounts.MONTH_DAYS) : actors.countLocal();
+        return usage.publish() ? activeAccounts.recentCounts().month() : actors.countLocal();
     }
 
     /**
