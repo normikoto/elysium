@@ -117,7 +117,7 @@ class CreateUserCommandTests {
                         """)
                 .param("id", UUID.randomUUID())
                 .param("uri", uri)
-                .param("domain", instance.domain())
+                .param("domain", instance.accountDomain())
                 .update();
 
         assertThat(run(() -> PASSWORD, "orphan")).isOne();

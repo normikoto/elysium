@@ -131,7 +131,7 @@ class FollowPagesController {
             model.addAttribute("error", "Enter your address, such as @you@your.server.");
             return "remote-follow";
         }
-        if (parsed.get().domain().equalsIgnoreCase(instance.domain())) {
+        if (instance.isLocalDomain(parsed.get().domain())) {
             return "redirect:" + authorizeInteraction("acct:" + target.username() + "@" + target.domain());
         }
         var key = clients.keyFor(request);
@@ -162,7 +162,7 @@ class FollowPagesController {
         try {
             var address = Address.parse(uri);
             if (address.isPresent()) {
-                found = address.get().domain().equalsIgnoreCase(instance.domain())
+                found = instance.isLocalDomain(address.get().domain())
                         ? actors.findLocalByUsername(address.get().username())
                         : remoteActors.resolveAcct(viewer.id(), address.get().username(), address.get().domain());
             } else {

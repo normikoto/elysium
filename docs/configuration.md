@@ -9,6 +9,7 @@ Set these in your `application.properties`:
 | Property                           | Description                                                                                                                                             |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `elysium.instance.base-url`        | Required. The server's public HTTPS URL, with no path, such as `https://social.example`. Other servers know your users by it, so don't change it after federating. |
+| `elysium.instance.account-domain`  | Optional. The domain in your users' addresses, such as `social.example` for `@alice@social.example` when the server runs at `https://elysium.social.example`. Defaults to the base URL's host. It needs WebFinger requests to that domain sent here. See [Account domain](#account-domain). |
 | `elysium.registration.mode`        | Optional. Who can create an account at `/signup`: `open`, `approval`, or `closed`. Defaults to `closed`. See [Sign-ups](accounts.md#sign-ups) for what each allows and what it needs. |
 | `spring.mail.host`                 | Optional. The SMTP server that sends email, such as the links that confirm a sign-up's address. Without one, no email is sent. See [Email](#email). |
 | `elysium.mail.from`                | Required once `spring.mail.host` is set. The address that email comes from, which your SMTP server has to allow. |
@@ -42,6 +43,44 @@ Set these in your `application.properties`:
 | `db-scheduler.polling-strategy-upper-limit-fraction-of-threads` | Set to `1.0` along with `LOCK_AND_FETCH`. Leave it unset otherwise. |
 
 You also need to point `spring.datasource.*` at your PostgreSQL database. Migrations run automatically on startup.
+
+## Account domain
+
+Your users' addresses can use a shorter domain than the server's own, the way Mastodon's `LOCAL_DOMAIN` and `WEB_DOMAIN`
+work. For example, the server can run at `https://elysium.social.example` while your users are `@alice@social.example`:
+
+```properties
+elysium.instance.base-url=https://elysium.social.example
+elysium.instance.account-domain=social.example
+```
+
+**Warning:** other servers can't find your users, or accept their posts, unless `https://social.example` sends WebFinger
+requests on to this server. Redirect `/.well-known/webfinger` on that domain, keeping the query. With nginx, in the
+`server` block for `social.example`:
+
+```nginx
+location = /.well-known/webfinger {
+    return 301 https://elysium.social.example$request_uri;
+}
+```
+
+With Caddy, in the site block for `social.example`:
+
+```caddy
+redir /.well-known/webfinger https://elysium.social.example{uri} 301
+```
+
+Addresses on the server's own domain, such as `@alice@elysium.social.example`, keep working: they find the same users, in
+searches and mentions as well as from other servers.
+
+You can set or change this on a server that already has users. Their addresses change on the next start, and their
+followers, posts, and links stay the same, since those use the base URL. Other servers keep showing the old address until
+they next refresh the account. The old domain has to keep sending WebFinger requests here until then. The server refuses
+to start with a domain that it already knows accounts from another server on.
+
+To check it works, run `curl -L 'https://social.example/.well-known/webfinger?resource=acct:alice@social.example'`. Its
+`subject` should be `acct:alice@social.example`, and its `self` link should point to
+`https://elysium.social.example/users/alice`.
 
 ## Email
 Email is needed for the `open` and `approval` [sign-up modes](accounts.md#sign-ups). Along with `spring.mail.host` and

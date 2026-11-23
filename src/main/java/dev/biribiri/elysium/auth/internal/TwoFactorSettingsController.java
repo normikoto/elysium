@@ -215,7 +215,7 @@ class TwoFactorSettingsController {
 
     private String setupPage(Actor account, byte[] secret, Model model, HttpServletResponse response) {
         noStore(response);
-        var uri = TotpCodes.otpAuthUri(secret, instance.baseUrl().getHost(), account.username() + "@" + instance.domain());
+        var uri = TotpCodes.otpAuthUri(secret, instance.baseUrl().getHost(), account.username() + "@" + instance.accountDomain());
         model.addAttribute("qrCode", QrSvg.of(uri));
         // In groups, which is easier to type into an app than one long string.
         model.addAttribute("secret", String.join(" ", Base32.encode(secret).split("(?<=\\G.{4})")));

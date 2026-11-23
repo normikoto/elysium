@@ -135,7 +135,7 @@ class SignUps {
         }
 
         try {
-            mailer.send(email, "Confirm your email address for " + instance.domain(), confirmationEmail(username, token));
+            mailer.send(email, "Confirm your email address for " + instance.accountDomain(), confirmationEmail(username, token));
         } catch (RuntimeException e) {
             // Nobody can confirm it, and it would hold on to the username and address until it expired.
             jdbc.sql("DELETE FROM pending_sign_up WHERE id = :id").param("id", id).update();
@@ -227,9 +227,9 @@ class SignUps {
                 .param("id", id)
                 .query((rs, rowNum) -> new String[]{rs.getString("username"), rs.getString("email")})
                 .optional();
-        removed.ifPresent(found -> sendQuietly(found[1], "Your sign-up for " + instance.domain(), """
+        removed.ifPresent(found -> sendQuietly(found[1], "Your sign-up for " + instance.accountDomain(), """
                 Your request for the account @%s on %s wasn't approved.
-                """.formatted(found[0], instance.domain())));
+                """.formatted(found[0], instance.accountDomain())));
         return removed.isPresent();
     }
 
@@ -253,9 +253,9 @@ class SignUps {
             return false;
         }
         if (approved) {
-            sendQuietly(pending.email(), "Your account on " + instance.domain() + " is ready", """
+            sendQuietly(pending.email(), "Your account on " + instance.accountDomain() + " is ready", """
                     Your account @%s on %s has been approved. You can log in at %s
-                    """.formatted(pending.username(), instance.domain(), loginUrl()));
+                    """.formatted(pending.username(), instance.accountDomain(), loginUrl()));
         }
         return true;
     }
@@ -294,7 +294,7 @@ class SignUps {
                 %s
 
                 %s The link stops working after a day. If this wasn't you, ignore this email, and no account will be made.
-                """.formatted(username, instance.domain(), link, next);
+                """.formatted(username, instance.accountDomain(), link, next);
     }
 
     private String loginUrl() {

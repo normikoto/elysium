@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Mastodon's automated post deletion. They choose how old posts have to be, and which to keep, such as pinned posts,
   direct messages, or posts with enough favourites. Old boosts are undone too. Posts are deleted a few at a time, so
   other servers aren't sent thousands of deletions at once. See `docs/accounts.md`.
+- Users' addresses can be on another domain than the server's own, such as `@alice@social.example` for a server at
+  `https://elysium.social.example`, with the new `elysium.instance.account-domain` setting. That domain has to redirect
+  its WebFinger requests to the server. It can be set on an existing server: its users' addresses change on the next
+  start, and other servers pick up the new ones as they refresh accounts. See
+  [Account domain](docs/configuration.md#account-domain).
 - Apps can search for accounts through the Mastodon API's `GET /api/v1/accounts/search`, which they use to suggest
   people while someone writes a mention. Both searches can now find only the accounts the user follows, as Mastodon's
   web app does when adding people to a list. See `docs/api.md`.

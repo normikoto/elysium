@@ -110,7 +110,7 @@ class RemoteActorLookup implements RemoteActorResolver {
             return Optional.empty();
         }
         var normalized = domain.toLowerCase(Locale.ROOT);
-        if (normalized.equals(instance.domain()) || blocks.isBlocked(hostOf(normalized))) {
+        if (instance.isLocalDomain(normalized) || blocks.isBlocked(hostOf(normalized))) {
             return Optional.empty();
         }
         return Optional.of(normalized);
@@ -128,7 +128,7 @@ class RemoteActorLookup implements RemoteActorResolver {
     @Override
     public Optional<Actor> findStored(String username, String domain) {
         var normalized = domain.toLowerCase(Locale.ROOT);
-        if (normalized.equals(instance.domain()) || blocks.isBlocked(hostOf(normalized))) {
+        if (instance.isLocalDomain(normalized) || blocks.isBlocked(hostOf(normalized))) {
             return Optional.empty();
         }
         return actors.findRemoteByAcct(username, normalized).filter(Actor::isActive);

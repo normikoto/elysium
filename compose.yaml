@@ -16,6 +16,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: '${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}'
       ELYSIUM_INSTANCE_BASE_URL: '${ELYSIUM_INSTANCE_BASE_URL:?set ELYSIUM_INSTANCE_BASE_URL in .env}'
       # Only passed on if it's set in .env. Otherwise the default built into the JAR applies.
+      ELYSIUM_INSTANCE_ACCOUNT_DOMAIN:
       ELYSIUM_REGISTRATION_MODE:
       SPRING_MAIL_HOST:
       SPRING_MAIL_PORT:

@@ -64,7 +64,7 @@ class MigrationTargets {
         if (username.isEmpty() || domain.isEmpty()) {
             return Optional.empty();
         }
-        if (domain.equals(instance.domain())) {
+        if (instance.isLocalDomain(domain)) {
             return actors.findLocalByUsername(username);
         }
         return mover != null

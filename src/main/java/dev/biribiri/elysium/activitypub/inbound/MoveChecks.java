@@ -155,6 +155,6 @@ class MoveChecks {
     }
 
     private boolean isLocal(URI uri) {
-        return RemoteActorDocument.isOnDomain(uri, instance.domain());
+        return RemoteActorDocument.isOnDomain(uri, instance.authority());
     }
 }

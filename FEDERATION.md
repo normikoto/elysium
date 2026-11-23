@@ -1733,6 +1733,14 @@ other sites can read through CORS is the unsigned answer: a `401`, or the shorte
 are served as `application/jrd+json` or `application/json`, include a `self` link to the actor document and a
 `http://webfinger.net/rel/profile-page` link to the user's profile page, and can be read from any origin through CORS.
 
+A server can give its users addresses on another domain than its own, as Mastodon's `LOCAL_DOMAIN` does: actors are at
+`https://elysium.social.example/users/alice`, but the address is `alice@social.example`. Then `social.example` redirects
+its `/.well-known/webfinger` requests to the server. The server answers for `acct:` addresses on both domains, and the
+`subject` always has the account domain. So a server that starts from an actor's URI and looks up
+`acct:alice@elysium.social.example` gets `acct:alice@social.example` as the `subject`, and can confirm that address with
+a lookup to `social.example`. Mentions' `name`s and the actors' addresses shown elsewhere use the account domain too.
+Admins set it up as [Account domain](docs/configuration.md#account-domain) describes.
+
 A user's answer, but not the instance actor's, also has two `template` links for following from another server's pages, as
 Mastodon's does. `http://ostatus.org/schema/1.0/subscribe` is `{base-url}/authorize_interaction?uri={uri}`, and
 [FEP-3b86](https://codeberg.org/fediverse/fep/src/branch/main/fep/3b86/fep-3b86.md)'s `https://w3id.org/fep/3b86/Follow`

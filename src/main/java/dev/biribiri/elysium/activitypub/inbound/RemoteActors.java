@@ -180,8 +180,9 @@ public class RemoteActors {
         if (!InboundActivity.isStorableId(uri.toString())) {
             throw new PermanentJobFailure("An actor's URI is too long to store");
         }
-        if (RemoteActorDocument.domainOf(uri).equals(instance.domain())) {
-            // A remote row claiming this domain could take the URI of a local account that doesn't exist yet.
+        if (instance.isLocalDomain(RemoteActorDocument.domainOf(uri))) {
+            // A remote row on this server's authority could take the URI of a local account that doesn't exist yet, and
+            // one on the account domain would be stored with local accounts' domain, and so be mistaken for one.
             throw new PermanentJobFailure("The actor " + uri + " claims to be on this server");
         }
     }

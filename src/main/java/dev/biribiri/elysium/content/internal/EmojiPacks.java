@@ -111,7 +111,7 @@ class EmojiPacks {
      * Writes every local emoji, including those hidden from pickers, since neither Misskey nor Akkoma can hide one.
      */
     void export(OutputStream out) throws IOException {
-        EmojiPackWriter.write(emojis.listLocal(), this::image, instance.domain(), instance.baseUrl().toString(), json,
+        EmojiPackWriter.write(emojis.listLocal(), this::image, instance.authority(), instance.baseUrl().toString(), json,
                 out);
     }
 
@@ -119,7 +119,7 @@ class EmojiPacks {
      * The name of an export's file, after this server.
      */
     String exportName() {
-        return instance.domain().replaceAll("[^A-Za-z0-9.-]", "_") + "-emojis.zip";
+        return instance.authority().replaceAll("[^A-Za-z0-9.-]", "_") + "-emojis.zip";
     }
 
     /**

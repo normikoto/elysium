@@ -181,7 +181,7 @@ class CavageSignatureScheme implements SignatureScheme {
             case EXPIRES -> required(parameters, "expires");
             // Always this server's own name, rather than what the request says. A reverse proxy can change the header,
             // and nginx's usual $host drops the port. This also means a signature made for another server can't pass.
-            case HOST -> instance.domain();
+            case HOST -> instance.authority();
             default -> {
                 var values = request.headers().get(item);
                 if (values == null) {

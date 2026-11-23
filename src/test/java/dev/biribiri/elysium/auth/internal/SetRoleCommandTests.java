@@ -159,7 +159,7 @@ class SetRoleCommandTests {
                         """)
                 .param("id", UUID.randomUUID())
                 .param("uri", uri)
-                .param("domain", instance.domain())
+                .param("domain", instance.accountDomain())
                 .update();
 
         assertThat(run("remote", "admin")).isOne();

@@ -59,7 +59,9 @@ public class WebFingerController {
                     `, and its profile page is the front page. A suspended user is still found. Served as \
                     `application/jrd+json` or `application/json`, and any origin can read it through CORS.""",
             parameters = @Parameter(name = "resource", required = true, description = """
-                    `acct:{username}@{domain}`, or an actor's URL. Only this server's domain is found."""),
+                    `acct:{username}@{domain}`, or an actor's URL. `{domain}` is the account domain, or the base URL's \
+                    host, which other servers look up first when the two differ. The answer's `subject` always has the \
+                    account domain. No other domain is found."""),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The actor's links."),
                     @ApiResponse(responseCode = "400", description = """
@@ -86,7 +88,7 @@ public class WebFingerController {
                     yield ResponseEntity.badRequest().build();
                 }
                 var domain = account.substring(separator + 1);
-                yield domain.equalsIgnoreCase(instance.domain())
+                yield instance.isLocalDomain(domain)
                         ? findByUsername(account.substring(0, separator))
                         : ResponseEntity.notFound().build();
             }
