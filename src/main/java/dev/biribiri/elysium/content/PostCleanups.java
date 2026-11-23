@@ -15,6 +15,10 @@ import java.util.UUID;
  * <p>Each deletion reaches every server that was sent the status, so a run only deletes a few of each account's, and
  * only looks at so many accounts, as Mastodon does. An account that's just turned its policy on works through its old
  * statuses over many runs, rather than sending thousands of {@code Delete}s at once.
+ *
+ * <p>A run also only looks at so many of an account's old statuses, going on from where the last one stopped, so that an
+ * account that keeps a lot of them isn't read in full every run. Once it reaches statuses too new to delete it starts
+ * again from the oldest, which is how a status kept before, such as one unpinned since, is found.
  */
 @Service
 public class PostCleanups {
@@ -23,6 +27,7 @@ public class PostCleanups {
 
     static final int PER_ACCOUNT = 50;
     static final int ACCOUNTS_PER_RUN = 100;
+    static final int SCANNED_PER_ACCOUNT = 1000;
 
     private final PostCleanupRepository repository;
     private final StatusService statuses;
@@ -59,10 +64,14 @@ public class PostCleanups {
      * Like {@link #runDue}, as if it were {@code now}, so that tests needn't wait for statuses to grow old.
      */
     public int run(Instant now) {
+        return run(now, SCANNED_PER_ACCOUNT);
+    }
+
+    int run(Instant now, int scanLimit) {
         var deleted = 0;
         for (var actorId : repository.findEnabled(ACCOUNTS_PER_RUN)) {
             try {
-                deleted += runFor(actorId, now);
+                deleted += runFor(actorId, now, scanLimit);
             } catch (RuntimeException e) {
                 // One account's failure mustn't stop the others' turns, which marking it run keeps going.
                 log.warn("Couldn't delete the old statuses of {}", actorId, e);
@@ -75,7 +84,7 @@ public class PostCleanups {
     /**
      * A suspended account's statuses wait, since it can be unsuspended, and a policy changed meanwhile is read again.
      */
-    private int runFor(UUID actorId, Instant now) {
+    private int runFor(UUID actorId, Instant now, int scanLimit) {
         if (actors.findLocalById(actorId).isEmpty()) {
             return 0;
         }
@@ -84,16 +93,36 @@ public class PostCleanups {
             return 0;
         }
         var before = now.minus(policy.get().minimumAge().duration());
+        var from = repository.findScannedTo(actorId).orElse(null);
+        var scanned = repository.scan(actorId, policy.get(), before, from, scanLimit);
         var deleted = 0;
-        for (var candidate : repository.findDeletable(actorId, policy.get(), before, PER_ACCOUNT)) {
-            // There's no redrafting a status nobody chose to delete, so its attachments go with it.
-            var gone = candidate.boost()
-                    ? boosts.removeOwn(candidate.id(), actorId)
-                    : statuses.delete(candidate.id(), actorId, true).isPresent();
-            if (gone) {
+        UUID last = null;
+        for (var status : scanned) {
+            last = status.id();
+            if (status.deletable() && delete(status, actorId)) {
                 deleted++;
             }
+            if (deleted == PER_ACCOUNT) {
+                break;
+            }
         }
+        var reachedTheEnd = scanned.size() < scanLimit && (last == null || last.equals(scanned.getLast().id()));
+        repository.markScanned(actorId, from, reachedTheEnd ? null : last);
         return deleted;
+    }
+
+    /**
+     * A status that can't be deleted is left for the next pass, rather than stop the scan going past it.
+     */
+    private boolean delete(PostCleanupRepository.Scanned status, UUID actorId) {
+        try {
+            // There's no redrafting a status nobody chose to delete, so its attachments go with it.
+            return status.boost()
+                    ? boosts.removeOwn(status.id(), actorId)
+                    : statuses.delete(status.id(), actorId, true).isPresent();
+        } catch (RuntimeException e) {
+            log.warn("Couldn't delete the old status {} of {}", status.id(), actorId, e);
+            return false;
+        }
     }
 }

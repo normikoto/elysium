@@ -27,9 +27,9 @@ public class PostCleanupRepository {
     }
 
     /**
-     * A status or boost the policy deletes.
+     * An old status or boost, and whether the policy deletes it.
      */
-    public record Candidate(UUID id, boolean boost) {
+    public record Scanned(UUID id, boolean boost, boolean deletable) {
     }
 
     public Optional<PostCleanupPolicy> find(UUID actorId) {
@@ -50,7 +50,8 @@ public class PostCleanupRepository {
                             keep_polls = excluded.keep_polls, keep_media = excluded.keep_media,
                             keep_self_favourited = excluded.keep_self_favourited,
                             keep_self_bookmarked = excluded.keep_self_bookmarked,
-                            min_favourites = excluded.min_favourites, min_boosts = excluded.min_boosts
+                            min_favourites = excluded.min_favourites, min_boosts = excluded.min_boosts,
+                            scanned_to = NULL
                         """)
                 .param("actorId", actorId)
                 .param("enabled", policy.enabled())
@@ -81,17 +82,36 @@ public class PostCleanupRepository {
                 .param("limit", limit).query(UUID.class).list();
     }
 
+    public Optional<UUID> findScannedTo(UUID actorId) {
+        return jdbc.sql("SELECT scanned_to FROM post_cleanup_policy WHERE actor_id = :actorId")
+                .param("actorId", actorId).query((rs, row) -> rs.getObject(1, UUID.class)).optional()
+                .flatMap(Optional::ofNullable);
+    }
+
     public void markRun(UUID actorId, Instant at) {
         jdbc.sql("UPDATE post_cleanup_policy SET last_run_at = :at WHERE actor_id = :actorId")
                 .param("actorId", actorId).param("at", at.atOffset(ZoneOffset.UTC)).update();
     }
 
     /**
-     * The account's oldest statuses and boosts that the policy deletes. Status IDs sort by when they were published, so
-     * bounding the ID as well lets the scan of the account's statuses stop at the cutoff, rather than read every status
-     * it has when the policy keeps all of the old ones.
+     * Moves the scan on, unless the policy was saved since it was read, which starts the scan again for the new policy.
      */
-    public List<Candidate> findDeletable(UUID actorId, PostCleanupPolicy policy, Instant publishedBefore, int limit) {
+    public void markScanned(UUID actorId, UUID from, UUID to) {
+        jdbc.sql("""
+                        UPDATE post_cleanup_policy SET scanned_to = :to
+                        WHERE actor_id = :actorId AND scanned_to IS NOT DISTINCT FROM :from
+                        """)
+                .param("actorId", actorId).param("from", from, Types.OTHER).param("to", to, Types.OTHER).update();
+    }
+
+    /**
+     * The account's statuses and boosts published before the cutoff and after {@code after}, oldest first, and whether
+     * the policy deletes each. Status IDs sort by when they were published, so bounding the ID as well lets the scan stop
+     * at the cutoff.
+     *
+     * @param after the last status an earlier scan looked at, or null to start from the oldest
+     */
+    public List<Scanned> scan(UUID actorId, PostCleanupPolicy policy, Instant publishedBefore, UUID after, int limit) {
         var keep = new ArrayList<String>();
         if (policy.keepPinned()) {
             keep.add("EXISTS (SELECT 1 FROM status_pin p WHERE p.status_id = s.id AND p.actor_id = s.actor_id)");
@@ -120,11 +140,14 @@ public class PostCleanupRepository {
             keep.add("(SELECT count(*) FROM status r JOIN actor a ON a.id = r.actor_id WHERE r.reblog_of_id = s.id AND "
                     + LikeRepository.eligible("a") + ") >= :minBoosts");
         }
-        var kept = keep.isEmpty() ? "" : " AND NOT (s.reblog_of_id IS NULL AND (" + String.join(" OR ", keep) + "))";
-        var query = jdbc.sql("SELECT s.id, s.reblog_of_id IS NOT NULL AS boost FROM status s "
-                        + "WHERE s.actor_id = :actorId AND s.id < :idBefore AND s.published_at < :before" + kept
-                        + " ORDER BY s.id LIMIT :limit")
+        var deletable = keep.isEmpty()
+                ? "true"
+                : "NOT (s.reblog_of_id IS NULL AND (" + String.join(" OR ", keep) + "))";
+        var query = jdbc.sql("SELECT s.id, s.reblog_of_id IS NOT NULL AS boost, " + deletable + " AS deletable "
+                        + "FROM status s WHERE s.actor_id = :actorId AND s.id > :after AND s.id < :idBefore "
+                        + "AND s.published_at < :before ORDER BY s.id LIMIT :limit")
                 .param("actorId", actorId)
+                .param("after", after == null ? new UUID(0, 0) : after)
                 .param("idBefore", firstIdAt(publishedBefore))
                 .param("before", publishedBefore.atOffset(ZoneOffset.UTC))
                 .param("limit", limit);
@@ -134,7 +157,8 @@ public class PostCleanupRepository {
         if (policy.minBoosts() != null) {
             query = query.param("minBoosts", policy.minBoosts());
         }
-        return query.query((rs, row) -> new Candidate(rs.getObject("id", UUID.class), rs.getBoolean("boost"))).list();
+        return query.query((rs, row) -> new Scanned(
+                rs.getObject("id", UUID.class), rs.getBoolean("boost"), rs.getBoolean("deletable"))).list();
     }
 
     /**

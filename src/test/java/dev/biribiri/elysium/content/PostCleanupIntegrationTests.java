@@ -184,6 +184,43 @@ class PostCleanupIntegrationTests {
     }
 
     @Test
+    void goesOnFromWhereTheLastRunStoppedAndStartsAgainAtTheEnd() {
+        var author = account();
+        var first = pinnedStatus(author);
+        var second = pinnedStatus(author);
+        var third = newStatus(author, Visibility.PUBLIC);
+        enable(author, PostCleanupPolicy.DEFAULT);
+        var later = Instant.now().plus(LATER);
+
+        // Only looks at the first two, which are kept.
+        assertThat(cleanups.run(later, 2)).isZero();
+        assertThat(cleanups.run(later, 2)).isEqualTo(1);
+        assertThat(exists(third)).isFalse();
+
+        pins.unpin(first, author).orElseThrow();
+        assertThat(cleanups.run(later, 2)).isEqualTo(1);
+        assertThat(exists(first)).isFalse();
+        assertThat(exists(second)).isTrue();
+    }
+
+    @Test
+    void savingThePolicyStartsTheScanAgain() {
+        var author = account();
+        var first = pinnedStatus(author);
+        var second = pinnedStatus(author);
+        newStatus(author, Visibility.PUBLIC);
+        enable(author, PostCleanupPolicy.DEFAULT);
+        var later = Instant.now().plus(LATER);
+        assertThat(cleanups.run(later, 2)).isZero();
+
+        enable(author, new PostCleanupPolicy(true, PostCleanupPolicy.MinimumAge.TWO_WEEKS,
+                false, true, false, false, true, true, null, null));
+
+        assertThat(cleanups.run(later, 2)).isEqualTo(2);
+        assertThat(List.of(first, second)).noneMatch(this::exists);
+    }
+
+    @Test
     void waitsWhileTheAccountIsSuspended() {
         var author = account();
         var status = newStatus(author, Visibility.PUBLIC);
@@ -264,6 +301,12 @@ class PostCleanupIntegrationTests {
 
     private UUID newStatus(UUID author, Visibility visibility) {
         return statuses.create(author, new NewStatus("an old post", "", null, visibility, false, null)).id();
+    }
+
+    private UUID pinnedStatus(UUID author) {
+        var status = newStatus(author, Visibility.PUBLIC);
+        pins.pin(status, author).orElseThrow();
+        return status;
     }
 
     private void attachMedia(UUID author, UUID statusId) {
