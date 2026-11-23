@@ -46,7 +46,7 @@ final class RemoteActorDocument {
     }
 
     /**
-     * @return the host and port that would be stored for an actor, as local actors' are
+     * @return the host and port that would be stored for a remote actor, in the same form as this server's authority
      */
     static String domainOf(URI actor) {
         return HostHeader.value(actor.getScheme(), actor.getHost(), actor.getPort());

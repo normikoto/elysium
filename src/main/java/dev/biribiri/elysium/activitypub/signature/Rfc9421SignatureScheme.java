@@ -197,7 +197,7 @@ class Rfc9421SignatureScheme implements SignatureScheme {
             case METHOD -> request.method();
             // Always this server's own name and scheme, rather than what the request says. A reverse proxy can change
             // these, and this means a signature made for another server can't pass.
-            case AUTHORITY -> instance.domain();
+            case AUTHORITY -> instance.authority();
             case SCHEME -> instance.baseUrl().getScheme();
             case TARGET_URI -> instance.origin() + target;
             case REQUEST_TARGET -> target;

@@ -135,7 +135,7 @@ class LocalRecipients {
      */
     boolean quotesSomeoneHere(URI quotedUri, URI senderUri) {
         return statuses.findAuthorOf(quotedUri)
-                .filter(author -> RemoteActorDocument.isOnDomain(author, instance.domain()))
+                .filter(author -> RemoteActorDocument.isOnDomain(author, instance.authority()))
                 .flatMap(actors::findLocalByUri)
                 .filter(author -> blocks.refusingSender(List.of(author.id()), senderUri).isEmpty())
                 .isPresent();
@@ -145,6 +145,6 @@ class LocalRecipients {
      * Only addresses on this server are looked up, which also leaves out the public collection.
      */
     Optional<URI> onThisServer(String address) {
-        return ActivityObject.parseUri(address).filter(uri -> RemoteActorDocument.isOnDomain(uri, instance.domain()));
+        return ActivityObject.parseUri(address).filter(uri -> RemoteActorDocument.isOnDomain(uri, instance.authority()));
     }
 }

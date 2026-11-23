@@ -821,7 +821,7 @@ public class StatusService {
 
     private Optional<Actor> resolveMention(Actor author, Mentions.Match match) {
         var domain = match.domain() == null ? null : match.domain().toLowerCase(Locale.ROOT);
-        if (domain == null || domain.equals(instance.domain())) {
+        if (domain == null || instance.isLocalDomain(domain)) {
             return actors.findLocalByUsername(match.username());
         }
         try {
@@ -835,7 +835,9 @@ public class StatusService {
      * Usernames and domains are both matched without regard to case.
      */
     private String acct(Mentions.Match match) {
-        var domain = match.domain() == null ? instance.domain() : match.domain();
+        var domain = match.domain() == null || instance.isLocalDomain(match.domain())
+                ? instance.accountDomain()
+                : match.domain();
         return (match.username() + "@" + domain).toLowerCase(Locale.ROOT);
     }
 

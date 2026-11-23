@@ -1,17 +1,27 @@
 package dev.biribiri.elysium.actor;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Locale;
 
 /**
- * @param baseUrl the public URL of this server, without a path. It is normalized to a lowercase scheme and host with
- *                no default port, because actor URIs are derived from it and can't change after federating.
+ * @param baseUrl       the public URL of this server, without a path. It is normalized to a lowercase scheme and host
+ *                      with no default port, because actor URIs are derived from it and can't change after federating.
+ * @param accountDomain the domain in local users' addresses, {@code alice@accountDomain}. It defaults to the base URL's
+ *                      authority, and can differ, as Mastodon's {@code LOCAL_DOMAIN} can, when that domain sends its
+ *                      WebFinger requests here. Unlike the base URL it can change later, since actor URIs don't use it.
  */
 @ConfigurationProperties("elysium.instance")
-public record InstanceProperties(URI baseUrl) {
+public record InstanceProperties(URI baseUrl, String accountDomain) {
 
+    public InstanceProperties(URI baseUrl) {
+        this(baseUrl, null);
+    }
+
+    @ConstructorBinding
     public InstanceProperties {
         if (baseUrl == null) {
             throw new IllegalArgumentException(
@@ -35,13 +45,48 @@ public record InstanceProperties(URI baseUrl) {
         var defaultPort = scheme.equals("https") ? 443 : 80;
         var authority = port == -1 || port == defaultPort ? host : host + ":" + port;
         baseUrl = URI.create(scheme + "://" + authority);
+        accountDomain = accountDomain == null || accountDomain.isBlank()
+                ? authority
+                : normalizeDomain(accountDomain.strip(), defaultPort);
     }
 
     /**
-     * The host, plus the port if it isn't the scheme's default. This is the domain in {@code acct:user@domain}.
+     * Normalized as the base URL's authority is, since other servers compare addresses as text: {@code example.com:443}
+     * and {@code example.com} would otherwise be two different addresses for the same users.
      */
-    public String domain() {
+    private static String normalizeDomain(String domain, int defaultPort) {
+        URI parsed;
+        try {
+            parsed = new URI("https://" + domain);
+        } catch (URISyntaxException e) {
+            parsed = null;
+        }
+        // URI accepts an empty port, as in example.com:, and a trailing dot, either of which would end up in every address.
+        if (parsed == null || parsed.getHost() == null || parsed.getRawUserInfo() != null
+                || !domain.equalsIgnoreCase(parsed.getRawAuthority())
+                || domain.endsWith(":") || parsed.getHost().endsWith(".")) {
+            throw new IllegalArgumentException(
+                    "elysium.instance.account-domain must be a domain, with an optional port, and no scheme or path");
+        }
+        var host = parsed.getHost().toLowerCase(Locale.ROOT);
+        var port = parsed.getPort();
+        return port == -1 || port == defaultPort ? host : host + ":" + port;
+    }
+
+    /**
+     * This server's host, plus the port if it isn't the scheme's default: what signatures and URIs are checked against.
+     * Addresses use {@link #accountDomain} instead.
+     */
+    public String authority() {
         return baseUrl.getAuthority();
+    }
+
+    /**
+     * Whether an address on this domain is a local user's. The server's own authority counts as well as the account
+     * domain, because other servers first look up {@code acct:user@authority}, taken from an actor's URI.
+     */
+    public boolean isLocalDomain(String domain) {
+        return domain != null && (domain.equalsIgnoreCase(accountDomain) || domain.equalsIgnoreCase(authority()));
     }
 
     /**

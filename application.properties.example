@@ -5,6 +5,10 @@
 # Don't change it after federating: actor URIs and the instance domain are derived from it.
 elysium.instance.base-url=https://example.com
 
+# Optional: the domain in users' addresses, if it isn't the base URL's host. That domain has to redirect
+# /.well-known/webfinger here. See docs/configuration.md#account-domain.
+#elysium.instance.account-domain=social.example
+
 # Required: your PostgreSQL database. Migrations run automatically on startup.
 spring.datasource.url=jdbc:postgresql://localhost:5432/elysium
 spring.datasource.username=elysium

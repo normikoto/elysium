@@ -22,7 +22,7 @@ class SiteHeader {
 
     @ModelAttribute
     void addTo(Model model, Principal principal) {
-        model.addAttribute("siteDomain", instance.domain());
+        model.addAttribute("siteDomain", instance.accountDomain());
         model.addAttribute("signedIn", principal != null);
     }
 }

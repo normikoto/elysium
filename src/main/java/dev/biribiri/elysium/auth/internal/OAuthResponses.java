@@ -204,7 +204,7 @@ class OAuthResponses {
                 .buildExchange(request, response);
         var context = new WebContext(exchange);
         context.setVariables(model);
-        context.setVariable("siteDomain", instance.domain());
+        context.setVariable("siteDomain", instance.accountDomain());
         context.setVariable("signedIn", trust.isAuthenticated(SecurityContextHolder.getContext().getAuthentication()));
         templates.process("oob-code", context, response.getWriter());
     }

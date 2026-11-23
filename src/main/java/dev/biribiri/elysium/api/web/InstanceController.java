@@ -87,7 +87,7 @@ public class InstanceController {
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
     public InstanceResponse instance() {
         var maxCharacters = statusProperties.maxCharacters();
-        var domain = instance.domain();
+        var domain = instance.accountDomain();
         return new InstanceResponse(
                 domain,
                 domain,
@@ -149,7 +149,7 @@ public class InstanceController {
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
     public InstanceV2Response instanceV2() {
         var maxCharacters = statusProperties.maxCharacters();
-        var domain = instance.domain();
+        var domain = instance.accountDomain();
         return new InstanceV2Response(
                 domain,
                 domain,

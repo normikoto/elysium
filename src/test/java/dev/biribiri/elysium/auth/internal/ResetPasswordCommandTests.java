@@ -121,7 +121,7 @@ class ResetPasswordCommandTests {
                         """)
                 .param("id", UUID.randomUUID())
                 .param("uri", uri)
-                .param("domain", instance.domain())
+                .param("domain", instance.accountDomain())
                 .update();
 
         assertThat(run(MUST_NOT_READ, "notlocal")).isOne();

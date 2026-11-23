@@ -26,7 +26,7 @@ class InstancePropertiesTests {
         var properties = new InstanceProperties(URI.create("HTTPS://Elysium.Example:443/"));
 
         assertThat(properties.baseUrl()).isEqualTo(URI.create("https://elysium.example"));
-        assertThat(properties.domain()).isEqualTo("elysium.example");
+        assertThat(properties.authority()).isEqualTo("elysium.example");
         assertThat(properties.origin()).isEqualTo("https://elysium.example");
         assertThat(properties.resolve("/users/admin")).isEqualTo(URI.create("https://elysium.example/users/admin"));
     }
@@ -35,7 +35,7 @@ class InstancePropertiesTests {
     void keepsNonDefaultPort() {
         var properties = new InstanceProperties(URI.create("http://localhost:8080"));
 
-        assertThat(properties.domain()).isEqualTo("localhost:8080");
+        assertThat(properties.authority()).isEqualTo("localhost:8080");
         assertThat(properties.origin()).isEqualTo("http://localhost:8080");
     }
 
@@ -52,6 +52,50 @@ class InstancePropertiesTests {
                 "https://elysium.example?a=b", "https://elysium.example#a"}) {
             assertThatIllegalArgumentException().isThrownBy(() -> new InstanceProperties(URI.create(url)));
         }
+    }
+
+    @Test
+    void accountDomainDefaultsToTheAuthority() {
+        var properties = new InstanceProperties(URI.create("http://localhost:8080"), " ");
+
+        assertThat(properties.accountDomain()).isEqualTo("localhost:8080");
+        assertThat(properties.isLocalDomain("LOCALHOST:8080")).isTrue();
+        assertThat(properties.isLocalDomain("localhost")).isFalse();
+    }
+
+    @Test
+    void separateAccountDomainIsNormalizedAndBothAreLocal() {
+        var properties = new InstanceProperties(URI.create("https://social.example"), " Example.COM ");
+
+        assertThat(properties.accountDomain()).isEqualTo("example.com");
+        assertThat(properties.authority()).isEqualTo("social.example");
+        assertThat(properties.isLocalDomain("example.com")).isTrue();
+        assertThat(properties.isLocalDomain("Social.Example")).isTrue();
+        assertThat(properties.isLocalDomain("other.example")).isFalse();
+        assertThat(properties.isLocalDomain(null)).isFalse();
+        assertThat(new InstanceProperties(URI.create("https://social.example"), "example.com:8443").accountDomain())
+                .isEqualTo("example.com:8443");
+        assertThat(new InstanceProperties(URI.create("https://social.example"), "example.com:443").accountDomain())
+                .isEqualTo("example.com");
+    }
+
+    @Test
+    void rejectsAccountDomainsThatArentDomains() {
+        for (var domain : new String[]{"https://example.com", "example.com/path", "alice@example.com", ":8080",
+                "example.com?a=b", "example .com", "example.com:", "example.com."}) {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> new InstanceProperties(URI.create("https://social.example"), domain));
+        }
+    }
+
+    @Test
+    void bindsAccountDomain() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(PropertiesConfiguration.class)
+                .withPropertyValues("elysium.instance.base-url=https://social.example",
+                        "elysium.instance.account-domain=example.com")
+                .run(context -> assertThat(context.getBean(InstanceProperties.class).accountDomain())
+                        .isEqualTo("example.com"));
     }
 
     @Configuration(proxyBeanMethods = false)

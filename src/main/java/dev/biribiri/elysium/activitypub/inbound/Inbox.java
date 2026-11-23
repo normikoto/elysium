@@ -185,7 +185,7 @@ public class Inbox {
                 || actor.isEmpty()
                 || !isOnActorsServer(parsedId.get(), actor.get())
                 || !InboundActivity.isStorableId(envelope.id())
-                || RemoteActorDocument.isOnDomain(parsedId.get(), instance.domain())
+                || RemoteActorDocument.isOnDomain(parsedId.get(), instance.authority())
                 || blocks.isBlocked(parsedId.get().getHost())
                 || actors.isInactive(actor.get())) {
             log.debug("Ignoring activity {} from {}, signed by {}, which can't be fetched from its origin",

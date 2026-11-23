@@ -123,7 +123,7 @@ class PagesController {
 
     @GetMapping("/")
     String home(Principal principal, Model model) {
-        model.addAttribute("domain", instance.domain());
+        model.addAttribute("domain", instance.accountDomain());
         model.addAttribute("userCount", actors.countLocal());
         model.addAttribute("statusCount", statuses.countLocal());
         model.addAttribute("showAdmin", viewer(principal).filter(admins::isAdmin).isPresent());

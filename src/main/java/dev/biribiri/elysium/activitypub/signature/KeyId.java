@@ -49,7 +49,7 @@ record KeyId(String value, URI document, String authority, String host, boolean 
 
         var lowerHost = host.toLowerCase(Locale.ROOT);
         var authority = authority(scheme, host, uri.getPort());
-        if (authority.equals(instance.domain())) {
+        if (authority.equals(instance.authority())) {
             // Built by joining rather than URI.resolve, which would treat a path like //other.example/ as a new host.
             var path = uri.getRawPath() == null ? "" : uri.getRawPath();
             var query = uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery();

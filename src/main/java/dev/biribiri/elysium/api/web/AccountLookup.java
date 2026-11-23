@@ -59,7 +59,7 @@ class AccountLookup {
         if (username.isEmpty() || domain.isEmpty() || domain.contains("@")) {
             return Optional.empty();
         }
-        if (domain.equals(instance.domain())) {
+        if (instance.isLocalDomain(domain)) {
             return actors.findLocalByUsername(username);
         }
         if (resolve && viewer.isPresent()) {

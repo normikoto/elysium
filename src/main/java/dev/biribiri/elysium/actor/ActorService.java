@@ -60,7 +60,7 @@ public class ActorService {
                 instance.resolve(InstanceActor.PATH),
                 instance.resolve("/"),
                 InstanceActor.USERNAME,
-                instance.domain(),
+                instance.accountDomain(),
                 instance.resolve(InstanceActor.PATH + "/inbox"),
                 instance.resolve(InstanceActor.PATH + "/outbox"),
                 keys.rsa().publicKeyPem(),
@@ -84,7 +84,7 @@ public class ActorService {
         if (!Actor.isValidLocalUsername(username)) {
             return Optional.empty();
         }
-        return actors.findLocal(username, instance.domain());
+        return actors.findLocal(username, instance.accountDomain());
     }
 
     public Optional<Actor> findLocalByUri(URI uri) {
@@ -114,7 +114,7 @@ public class ActorService {
         if (!Actor.isValidLocalUsername(username)) {
             return Optional.empty();
         }
-        return actors.findAnyLocal(username, instance.domain());
+        return actors.findAnyLocal(username, instance.accountDomain());
     }
 
     /**
@@ -176,10 +176,11 @@ public class ActorService {
     }
 
     /**
-     * Whether an actor is on this server. An actor from another server can't be stored with this server's domain.
+     * Whether an actor is on this server. Local actors are stored with the account domain, and an actor from another server
+     * can't be stored with it, or with this server's authority.
      */
     public boolean isLocal(Actor actor) {
-        return actor.domain().equals(instance.domain());
+        return actor.domain().equals(instance.accountDomain());
     }
 
     public boolean isLocal(UUID actorId) {
@@ -323,11 +324,11 @@ public class ActorService {
      *
      * @return the stored actor, which callers have to check is active
      * @throws IllegalArgumentException if the actor claims to be on this server, where it could take the URI that a local
-     *                                  account would need
+     *                                  account would need, or on the account domain, where it would pass for a local one
      */
     @Transactional
     public Actor upsertRemote(RemoteActorProfile profile) {
-        if (profile.domain().equals(instance.domain())) {
+        if (instance.isLocalDomain(profile.domain())) {
             throw new IllegalArgumentException("A remote actor can't be on this server's domain");
         }
         var stored = actors.upsertRemote(profile);
@@ -418,7 +419,7 @@ public class ActorService {
                 UUID.randomUUID(),
                 instance.resolve(actorPath),
                 username,
-                instance.domain(),
+                instance.accountDomain(),
                 instance.resolve(actorPath + "/inbox"),
                 instance.resolve(actorPath + "/outbox"),
                 null,
