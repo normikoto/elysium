@@ -31,6 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -1329,6 +1330,15 @@ public class StatusService {
      */
     public long countLocal() {
         return statuses.countLocalExcludingDirect();
+    }
+
+    /**
+     * Counts the statuses local accounts published in each week since {@code since}, keyed by the Monday the week starts
+     * on, in UTC. Like {@link #countLocal}, this leaves out direct statuses, and it leaves out boosts too. Deleted statuses,
+     * and those of suspended accounts, aren't counted.
+     */
+    public Map<LocalDate, Long> countLocalByWeek(LocalDate since) {
+        return statuses.countLocalByWeek(since);
     }
 
     private static String normalize(String value) {

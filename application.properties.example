@@ -31,6 +31,10 @@ spring.datasource.password=
 # Limits logins and sign-ups. Only turn this off if you enforce your own limits elsewhere.
 #elysium.rate-limit.enabled=true
 
+# Whether to publish how many accounts are active, in NodeInfo and the instance API, and the weekly counts of statuses,
+# logins, and sign-ups at /api/v1/instance/activity. With few users, these show when each of them is around.
+#elysium.usage.publish=true
+
 # The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Lowering this
 # doesn't affect existing statuses.
 #elysium.statuses.max-characters=5000

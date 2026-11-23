@@ -1762,10 +1762,12 @@ domain is suspended aren't asked.
 `/.well-known/nodeinfo` links to NodeInfo documents at `/nodeinfo/2.1` and `/nodeinfo/2.0`, and all of these can be read
 from any origin through CORS. The documents match, except that only 2.1 includes the software's repository. They report
 `activitypub` as the protocol, even though federation isn't complete yet. Their usage statistics include the total number
-of local users and `localPosts`, which counts replies but not direct messages. Active user counts and `localComments`
-aren't reported. `openRegistrations` is `true` when anyone can ask for an account, even if an admin has to approve it, as
-on Mastodon. `metadata.features` lists Pleroma's `pleroma_emoji_reactions` and `custom_emoji_reactions`, since some
-clients look for them before they offer [emoji reactions](#emoji-reactions).
+of local users and `localPosts`, which counts replies but not direct messages. `activeMonth` and `activeHalfyear` count
+the local users who used the server, through an app or a login session, in the last 30 and 180 days, and can be up to
+an hour old. They're left out if the admin has turned them off with `elysium.usage.publish`. `localComments` isn't
+reported. `openRegistrations` is `true` when anyone can ask for an account, even if an admin has to approve it, as on
+Mastodon. `metadata.features` lists Pleroma's `pleroma_emoji_reactions` and `custom_emoji_reactions`, since some clients
+look for them before they offer [emoji reactions](#emoji-reactions).
 
 ## Additional documentation
 

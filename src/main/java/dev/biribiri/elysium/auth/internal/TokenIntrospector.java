@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.actor.ActiveAccounts;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
@@ -25,11 +26,17 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
     private final OAuth2AuthorizationService authorizations;
     private final ActorService actors;
     private final LocalAccounts accounts;
+    private final ActiveAccounts activeAccounts;
 
-    TokenIntrospector(OAuth2AuthorizationService authorizations, ActorService actors, LocalAccounts accounts) {
+    TokenIntrospector(
+            OAuth2AuthorizationService authorizations,
+            ActorService actors,
+            LocalAccounts accounts,
+            ActiveAccounts activeAccounts) {
         this.authorizations = authorizations;
         this.actors = actors;
         this.accounts = accounts;
+        this.activeAccounts = activeAccounts;
     }
 
     @Override
@@ -44,6 +51,7 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
         }
 
         var actorId = actorId(authorization);
+        actorId.ifPresent(activeAccounts::recordUse);
         return new TokenPrincipal(
                 authorization.getRegisteredClientId(),
                 actorId,

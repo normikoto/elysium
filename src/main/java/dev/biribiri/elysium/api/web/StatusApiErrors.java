@@ -31,6 +31,7 @@ import java.util.Map;
         BookmarksController.class,
         FavouritesController.class,
         FollowRequestsController.class,
+        InstanceController.class,
         InteractionRequestsController.class,
         MutesController.class,
         EndorsementsController.class,

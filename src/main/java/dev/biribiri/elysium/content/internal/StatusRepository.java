@@ -1026,6 +1026,29 @@ public class StatusRepository {
                 .single();
     }
 
+    /**
+     * @return how many statuses local accounts published in each week since {@code since}, keyed by the Monday the week
+     * starts on, in UTC, leaving out direct statuses and boosts
+     */
+    public Map<LocalDate, Long> countLocalByWeek(LocalDate since) {
+        var weeks = new HashMap<LocalDate, Long>();
+        // Going through each local actor's statuses by status_actor_published_idx reads only local statuses, where a range
+        // of status IDs would read every remote one too.
+        jdbc.sql("""
+                        SELECT date_trunc('week', s.published_at AT TIME ZONE 'UTC')::date AS week, count(*) AS statuses
+                        FROM actor
+                        JOIN status s ON s.actor_id = actor.id
+                        WHERE actor.is_local AND %s
+                        AND s.visibility <> 'direct' AND s.reblog_of_id IS NULL AND s.published_at >= :since
+                        GROUP BY week
+                        """.formatted(ActorSql.active("actor")))
+                .param("since", since.atStartOfDay().atOffset(ZoneOffset.UTC))
+                .query(rs -> {
+                    weeks.put(rs.getObject("week", LocalDate.class), rs.getLong("statuses"));
+                });
+        return weeks;
+    }
+
     private List<Status> findPage(String filter, Map<String, ?> parameters, IdPage page) {
         return findPage(filter, parameters, page, 0);
     }

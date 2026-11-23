@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.actor.ActiveAccounts;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import jakarta.servlet.DispatcherType;
@@ -108,7 +109,7 @@ class SecurityConfig {
      * matched by an ID's characters, so that paths such as {@code verify_credentials} still need a token.
      */
     private static final String[] PUBLIC_API_PATHS = {
-            "/api/v1/instance", "/api/v1/instance/rules", "/api/v2/instance",
+            "/api/v1/instance", "/api/v1/instance/rules", "/api/v1/instance/activity", "/api/v2/instance",
             "/api/v1/statuses/*", "/api/v1/statuses/*/context",
             "/api/v1/statuses/*/history", "/api/v1/statuses/*/favourited_by", "/api/v1/statuses/*/reblogged_by",
             "/api/v1/polls/*", "/api/v1/custom_emojis",
@@ -168,6 +169,7 @@ class SecurityConfig {
             AdminAccess adminAccess,
             ActorService actors,
             LocalAccounts accounts,
+            ActiveAccounts activeAccounts,
             JsonMapper json) {
         // Only the link an app sends someone to is a page to return to. A consent sent after the session expired has its
         // parameters in the body, so returning to its URL would only show an error, and a client's call isn't a page.
@@ -175,7 +177,7 @@ class SecurityConfig {
         requestCache.setRequestMatcher(pathPattern(HttpMethod.GET, AUTHORIZE_PATH));
         return http
                 .securityMatcher(authorizationServerRequests())
-                .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
+                .addFilterAfter(new ActiveAccountFilter(actors, accounts, activeAccounts), SecurityContextHolderFilter.class)
                 .addFilterBefore(new JsonTokenRequestFilter(json, responses), AbstractPreAuthenticatedProcessingFilter.class)
                 .cors(cors -> cors.configurationSource(clientCors()))
                 // The consent form is shown by the default chain and sent here, so both need the same tokens.
@@ -245,6 +247,7 @@ class SecurityConfig {
             InstanceProperties instance,
             ActorService actors,
             LocalAccounts accounts,
+            ActiveAccounts activeAccounts,
             TwoFactorAccounts twoFactor) {
         var pagesNeedingLogin = new OrRequestMatcher(
                 adminPageRequests(),
@@ -279,7 +282,7 @@ class SecurityConfig {
         };
 
         return http
-                .addFilterAfter(new ActiveAccountFilter(actors, accounts), SecurityContextHolderFilter.class)
+                .addFilterAfter(new ActiveAccountFilter(actors, accounts, activeAccounts), SecurityContextHolderFilter.class)
                 // Runs after the CSRF filter, so requests without a valid token don't use up anyone's attempts.
                 .addFilterBefore(new LoginRateLimitFilter(limits), UsernamePasswordAuthenticationFilter.class)
                 // After the rate limit, as filters at the same position run in the order they're added.
