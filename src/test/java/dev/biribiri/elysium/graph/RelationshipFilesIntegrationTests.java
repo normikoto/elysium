@@ -1,5 +1,7 @@
 package dev.biribiri.elysium.graph;
 
+import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
+import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestOAuth;
 import dev.biribiri.elysium.TestcontainersConfiguration;
@@ -8,8 +10,10 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.actor.RemoteActorResolver.ResolveLimitException;
+import dev.biribiri.elysium.jobs.Jobs;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -34,6 +38,9 @@ import static org.assertj.core.api.Assertions.within;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -208,6 +215,28 @@ class RelationshipFilesIntegrationTests {
         assertThat(files.latest(alice.actor().id()).orElseThrow().finishedAt()).isNull();
     }
 
+    /**
+     * Retries are timed from when a job was queued, so a long import that kept its first time would be given up on at its
+     * first failure, and stay running for good.
+     */
+    @Test
+    void aLongImportIsRequeuedWithAFreshTime() throws Exception {
+        var alice = signUp();
+        var bob = account();
+        when(resolver.resolveAcctForImport(any(), eq("dave"), eq("remote.example"))).thenThrow(new ResolveLimitException());
+        upload(alice, "blocks", "dave@remote.example\n" + bob.username() + "\n");
+        var importId = importId(alice.actor());
+        var started = Instant.now().minus(Jobs.RETRIED_FOR).minus(Duration.ofDays(1));
+
+        var afterLimit = next(new RelationshipImportJob(importId, started)).orElseThrow();
+        assertThat(afterLimit.isOverdue(Instant.now())).isFalse();
+
+        reset(resolver);
+        var afterBatch = next(new RelationshipImportJob(importId, started)).orElseThrow();
+        assertThat(afterBatch.isOverdue(Instant.now())).isFalse();
+        assertThat(files.latest(alice.actor().id()).orElseThrow().remaining()).isZero();
+    }
+
     @Test
     void refusesFilesItCannotImport() throws Exception {
         var alice = signUp();
@@ -278,6 +307,24 @@ class RelationshipFilesIntegrationTests {
 
     private Relationship relationship(Actor account, Actor other) {
         return follows.relationships(account.id(), List.of(other.id())).getFirst();
+    }
+
+    /**
+     * @return the job's data for its next run, or empty if it's finished
+     */
+    @SuppressWarnings("unchecked")
+    private Optional<RelationshipImportJob> next(RelationshipImportJob job) {
+        var complete = mock(ExecutionComplete.class);
+        var operations = (ExecutionOperations<RelationshipImportJob>) mock(ExecutionOperations.class);
+        files.run(job).complete(complete, operations);
+        var next = ArgumentCaptor.forClass(RelationshipImportJob.class);
+        try {
+            verify(operations).reschedule(eq(complete), any(Instant.class), next.capture());
+            return Optional.of(next.getValue());
+        } catch (AssertionError notRescheduled) {
+            verify(operations).remove();
+            return Optional.empty();
+        }
     }
 
     private UUID importId(Actor account) {
