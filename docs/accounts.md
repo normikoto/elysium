@@ -114,6 +114,7 @@ Admins can suspend or reinstate accounts at `/admin/accounts`, through the [API]
 CLI commands also work when the web server is unavailable.
 
 **Warning:** Deleting a local account is permanent.
+
 ```shell
 java -jar elysium.jar suspend-account alice
 java -jar elysium.jar unsuspend-account alice
@@ -234,10 +235,11 @@ stop it being stored, only shown.
 
 ## Deleting old posts automatically
 
-**Warning:** Automatic post deletion permanently removes old posts. People can enable it at `/settings/post-cleanup`
-and choose an age from one week to two years. As on Mastodon, they can keep pinned posts, direct messages, posts with
-polls or media, posts they favourited or bookmarked themselves, and posts with enough favourites or boosts. The server
-undoes older boosts regardless of those choices.
+**Warning:** Automatic post deletion permanently removes old posts.
+
+People can enable it at `/settings/post-cleanup` and choose an age from one week to two years. As on Mastodon, they
+can keep pinned posts, direct messages, posts with polls or media, posts they favourited or bookmarked themselves, and
+posts with enough favourites or boosts. The server undoes older boosts regardless of those choices.
 
 Elysium deletes attachments with each post and asks other servers to delete their copies, just as it does when the
 author deletes a post. It removes posts in small batches, so a large backlog can take days. A post that stops
@@ -245,7 +247,10 @@ qualifying for an exception, such as one the author unpins, may also take time t
 suspended accounts.
 
 ## Removing posts
-**Warning:** Removing a post is permanent. At `/admin/statuses`, find the post by its URL or ID.
+
+**Warning:** Removing a post is permanent.
+
+At `/admin/statuses`, find the post by its URL or ID.
 
 - **A post from this server** is deleted as if its author had deleted it, attachments included, and other servers are
   asked to delete it too, which they may not do.
@@ -389,8 +394,9 @@ browser use the same login flow.
 
 Keep the server clock synchronized with NTP. Codes can fail if the clock is off by about 30 seconds.
 
-**Warning:** Anyone with a copy of the database can generate two-factor codes. Protect the database and its backups as
-you would passwords.
+**Warning:** Anyone with a copy of the database can generate two-factor codes.
+
+Protect the database and its backups as you would passwords.
 
 ## Authorized apps
 People can review an app’s name, website, permissions, and authorization date at `/oauth/authorized_applications`.
@@ -438,8 +444,9 @@ Login sessions survive restarts and work across instances that share the databas
 inactivity by default. Change that with `server.servlet.session.timeout`. Admins can end all of a person’s sessions
 with `reset-password`, and users can end their other sessions by changing their password.
 
-**Warning:** PostgreSQL logs can contain session IDs if you log statement parameters. Keep those logs private. The
-database and its backups contain only hashes of session IDs.
+**Warning:** PostgreSQL logs can contain session IDs if you log statement parameters.
+
+Keep those logs private. The database and its backups contain only hashes of session IDs.
 
 Viewing the login or sign-up form creates no session. A session begins at login or after someone enters their password
 and is prompted for a two-factor code. Before that, the browser keeps the form state in cookies.
