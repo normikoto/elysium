@@ -158,8 +158,10 @@ Elysium shares the choice with other servers, which decide how to apply it. Gene
 posts only if their authors opted in.
 
 ## Moving accounts
-**Warning:** Moving followers to another account cannot be undone. Clearing the moved label leaves transferred
-followers on the new account. Moves work within this server and between servers.
+
+**Warning:** Moving followers to another account cannot be undone.
+
+A move transfers followers to another account on the same server or on a different server.
 
 - **Moving here:** they add their old account as an alias at `/settings/aliases`, then move it from its own server.
 - **Moving away:** they add this account as an alias on the new one, then enter its address and their password at
@@ -172,7 +174,8 @@ When an account moves, wherever it is:
 - The new account is put in the lists that had the old one.
 - People here who block or mute the old account block or mute the new one too, unless they follow it.
 - A moved account here keeps its posts, and the accounts it follows aren't moved. It keeps working, but shows as moved,
-  and other servers may treat it as closed. Its owner can stop it showing as moved at `/settings/move`.
+  and other servers may treat it as closed. Its owner can clear the moved label at `/settings/move`. Transferred
+  followers stay on the new account.
 
 Other servers only move their people's follows if the new account lists the old one as an alias first. Only one move from
 an account on another server is acted on each week.
