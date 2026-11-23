@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.graph;
 
 import dev.biribiri.elysium.actor.ActorDataRemoval;
+import dev.biribiri.elysium.graph.internal.RelationshipFileRepository;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -17,15 +18,17 @@ class GraphRemoval implements ActorDataRemoval {
     private final AccountMemos memos;
     private final AccountDomainBlockService domainBlocks;
     private final AccountLists lists;
+    private final RelationshipFileRepository imports;
 
     GraphRemoval(FollowService follows, BlockService blocks, MuteService mutes, AccountMemos memos,
-                 AccountDomainBlockService domainBlocks, AccountLists lists) {
+                 AccountDomainBlockService domainBlocks, AccountLists lists, RelationshipFileRepository imports) {
         this.follows = follows;
         this.blocks = blocks;
         this.mutes = mutes;
         this.memos = memos;
         this.domainBlocks = domainBlocks;
         this.lists = lists;
+        this.imports = imports;
     }
 
     @Override
@@ -36,6 +39,7 @@ class GraphRemoval implements ActorDataRemoval {
         memos.removeForActor(actorId);
         domainBlocks.removeForAccount(actorId);
         lists.removeForActor(actorId);
+        imports.deleteForAccount(actorId);
     }
 
     /**

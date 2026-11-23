@@ -39,6 +39,9 @@ dependencies {
     implementation("info.picocli:picocli:4.7.7")
     // Reads Mastodon's emoji packs, which are .tar.gz. Spring Boot doesn't manage its version.
     implementation("org.apache.commons:commons-compress:1.28.0")
+    // Reads and writes the CSV files of follows, blocks, and mutes that Mastodon exports. Spring Boot doesn't manage its
+    // version.
+    implementation("org.apache.commons:commons-csv:1.14.1")
     // Images are re-encoded as WebP, which the JDK can't write. This runs the libwebp tools that come in its JAR, so
     // nothing has to be installed.
     implementation("com.sksamuel.scrimage:scrimage-core:4.6.9")

@@ -56,6 +56,13 @@ public class MuteService {
     }
 
     /**
+     * @return the account's mute of this one, if it hasn't expired
+     */
+    Optional<MuteRepository.Mute> current(UUID accountId, UUID targetId) {
+        return Optional.ofNullable(mutes.findCurrent(accountId, List.of(targetId)).get(targetId));
+    }
+
+    /**
      * @return when the account's current mutes of these accounts end, leaving out those that don't
      */
     public Map<UUID, Instant> expiries(UUID accountId, Collection<UUID> targetIds) {

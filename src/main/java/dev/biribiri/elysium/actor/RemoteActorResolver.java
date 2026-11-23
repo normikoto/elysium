@@ -21,6 +21,12 @@ public interface RemoteActorResolver {
     int LOOKUPS_PER_MINUTE = 30;
 
     /**
+     * How many lookups each local account's imports of follows, blocks, and mutes can make in a minute. It's counted apart
+     * from {@link #LOOKUPS_PER_MINUTE}, so that an import that takes hours doesn't stop the account's own searches.
+     */
+    int IMPORT_LOOKUPS_PER_MINUTE = 30;
+
+    /**
      * Finds an actor through WebFinger, storing it if it's new or the stored copy is old.
      *
      * @param requester the local account asking, whose limit this counts toward
@@ -28,6 +34,14 @@ public interface RemoteActorResolver {
      * @throws ResolveLimitException if the requester has made too many lookups recently
      */
     Optional<Actor> resolveAcct(UUID requester, String username, String domain);
+
+    /**
+     * Like {@link #resolveAcct}, for an import working through a file of accounts, which counts toward
+     * {@link #IMPORT_LOOKUPS_PER_MINUTE} instead.
+     *
+     * @throws ResolveLimitException if the requester's imports have made too many lookups recently
+     */
+    Optional<Actor> resolveAcctForImport(UUID requester, String username, String domain);
 
     /**
      * Like {@link #resolveAcct}, but always fetches the actor's document, for when what it says right now matters: whether

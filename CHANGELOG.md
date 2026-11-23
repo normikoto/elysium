@@ -16,6 +16,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   Elysium records the days each account is active starting with this upgrade, so the initial counts will be low. Set
   `elysium.usage.publish=false` to hide the counts. See [Using the API](docs/api.md#instance) and
   [Federation](FEDERATION.md#nodeinfo).
+- People can import and export the accounts they follow, block, and mute as CSV files at `/settings/imports`, in the
+  same format as Mastodon, so they can bring them along when moving between servers. An import only adds to what they
+  already follow, block, or mute. See [Importing and exporting follows, blocks, and
+  mutes](docs/accounts.md#importing-and-exporting-follows-blocks-and-mutes).
 - People can enable automatic post deletion at `/settings/post-cleanup`, as on Mastodon. They choose how old posts
   must be and which ones to keep, such as pinned posts, direct messages, or posts with enough favourites. Cleanup also
   undoes old boosts and deletes posts in small batches so other servers receive fewer deletions at once. See [Deleting

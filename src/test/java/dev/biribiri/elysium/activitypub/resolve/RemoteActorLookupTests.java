@@ -187,6 +187,23 @@ class RemoteActorLookupTests {
         assertThat(lookup.resolveAcct(UUID.randomUUID(), "bob", "remote.example")).isEmpty();
     }
 
+    @Test
+    void importsAndSearchesHaveSeparateLimits() throws Exception {
+        when(http.get(any(), anyString(), any())).thenReturn(new FederationHttpClient.Response(404, null, null, new byte[0], null));
+        for (var i = 0; i < 30; i++) {
+            lookup.resolveAcctForImport(REQUESTER, "bob" + i, "remote.example");
+        }
+
+        assertThatThrownBy(() -> lookup.resolveAcctForImport(REQUESTER, "bob", "remote.example"))
+                .isInstanceOf(ResolveLimitException.class);
+        assertThat(lookup.resolveAcct(REQUESTER, "bob", "remote.example")).isEmpty();
+        for (var i = 1; i < 30; i++) {
+            lookup.resolveAcct(REQUESTER, "carol" + i, "remote.example");
+        }
+        assertThatThrownBy(() -> lookup.resolveAcct(REQUESTER, "carol", "remote.example"))
+                .isInstanceOf(ResolveLimitException.class);
+    }
+
     private void answerWebFinger(String body) throws IOException {
         when(http.get(eq(WEBFINGER), anyString(), any())).thenReturn(jrd(body));
     }

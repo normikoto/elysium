@@ -71,6 +71,9 @@ class SecurityConfig {
     static final String MOVE_CANCEL_PATH = MOVE_PATH + "/cancel";
     /** Served by {@code content}, which owns the statuses it deletes. */
     static final String POST_CLEANUP_PATH = SETTINGS_PATH + "/post-cleanup";
+    /** Served by {@code graph}, which owns the follows, blocks, and mutes these import and export. */
+    static final String IMPORTS_PATH = SETTINGS_PATH + "/imports";
+    static final String EXPORTS_PATH = SETTINGS_PATH + "/exports/*";
     static final String TWO_FACTOR_LOGIN_PATH = LOGIN_PATH + "/two-factor";
     static final String TWO_FACTOR_SETTINGS_PATH = SETTINGS_PATH + "/two-factor";
     static final String TWO_FACTOR_SETUP_PATH = TWO_FACTOR_SETTINGS_PATH + "/setup";
@@ -257,6 +260,8 @@ class SecurityConfig {
                 pathPattern(HttpMethod.GET, ALIASES_PATH),
                 pathPattern(HttpMethod.GET, MOVE_PATH),
                 pathPattern(HttpMethod.GET, POST_CLEANUP_PATH),
+                pathPattern(HttpMethod.GET, IMPORTS_PATH),
+                pathPattern(HttpMethod.GET, EXPORTS_PATH),
                 pathPattern(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH),
                 pathPattern(HttpMethod.GET, AUTHORIZED_APPS_PATH),
                 // Where other servers' remote follow sends a user, who comes back here after logging in.
@@ -313,9 +318,10 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, SETTINGS_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, CHANGE_PASSWORD_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, CHANGE_PASSWORD_PATH).authenticated()
-                        .requestMatchers(HttpMethod.GET, ALIASES_PATH, MOVE_PATH, POST_CLEANUP_PATH).authenticated()
+                        .requestMatchers(HttpMethod.GET, ALIASES_PATH, MOVE_PATH, POST_CLEANUP_PATH, IMPORTS_PATH,
+                                EXPORTS_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, ALIASES_PATH, ALIASES_REMOVE_PATH, MOVE_PATH, MOVE_CANCEL_PATH,
-                                POST_CLEANUP_PATH).authenticated()
+                                POST_CLEANUP_PATH, IMPORTS_PATH).authenticated()
                         .requestMatchers(HttpMethod.GET, TWO_FACTOR_SETTINGS_PATH).authenticated()
                         .requestMatchers(HttpMethod.POST, TWO_FACTOR_SETUP_PATH, TWO_FACTOR_CONFIRM_PATH,
                                 TWO_FACTOR_DISABLE_PATH, RECOVERY_CODES_PATH).authenticated()

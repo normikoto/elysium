@@ -1,0 +1,55 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Import and export', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="status" th:if="${started}">Your import has started.</p>
+    <p class="error" role="alert" th:if="${error != null}">Nothing was imported: <span th:text="${error}"></span>.</p>
+    <h2>Export</h2>
+    <p>
+        Download the accounts you follow, block, or mute as a CSV file, which you can import here or on Mastodon.
+    </p>
+    <ul>
+        <li><a href="/settings/exports/follows.csv">Accounts you follow</a></li>
+        <li><a href="/settings/exports/blocks.csv">Accounts you block</a></li>
+        <li><a href="/settings/exports/mutes.csv">Accounts you mute</a></li>
+    </ul>
+    <h2>Import</h2>
+    <p>
+        Import a CSV file exported here or from Mastodon. The accounts in the file are added to the ones you already
+        follow, block, or mute, and nothing is removed. A file can list up to
+        <span th:text="${#numbers.formatInteger(maxRows, 1, 'COMMA')}"></span> accounts.
+    </p>
+    <p>
+        Accounts on other servers are looked up about 30 a minute, so a large import can take hours. Accounts that
+        approve their followers stay as follow requests until they do.
+    </p>
+    <th:block th:if="${progress != null}">
+        <p role="status" th:if="${progress.finishedAt() == null}">
+            Your import of <span th:text="${progress.kind().key()}"></span> is running:
+            <span th:text="${progress.remaining()}"></span> of <span th:text="${progress.total()}"></span> accounts are
+            left.
+        </p>
+        <p role="status" th:if="${progress.finishedAt() != null}">
+            Your last import of <span th:text="${progress.kind().key()}"></span> has finished.
+            <span th:text="${progress.total() - progress.failed()}"></span> of
+            <span th:text="${progress.total()}"></span> accounts were added.
+            <th:block th:if="${progress.failed() > 0}">The others couldn't be found, or can't be added.</th:block>
+        </p>
+    </th:block>
+    <form method="post" enctype="multipart/form-data" th:action="@{/settings/imports}">
+        <label>
+            The file lists
+            <select name="kind">
+                <option th:each="option : ${kinds}" th:value="${option.key()}" th:selected="${option.key() == kind}"
+                        th:text="${option.name() == 'FOLLOWS' ? 'Accounts you follow'
+                            : option.name() == 'BLOCKS' ? 'Accounts you block' : 'Accounts you mute'}"></option>
+            </select>
+        </label>
+        <label>
+            File
+            <input type="file" name="file" accept=".csv,text/csv">
+        </label>
+        <button type="submit">Import</button>
+    </form>
+    <p><a href="/settings">Back to settings</a></p>
+</th:block>
+</html>

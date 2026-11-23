@@ -45,7 +45,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `moderation`, `ratelimit`     |
 | `content`     | Posts and related records, and attachments | `actor`, `graph`, `media`, `text`              |
-| `graph`       | Follows, blocks, mutes, and lists          | `actor`                                        |
+| `graph`       | Follows, blocks, mutes, and lists, and their CSV files | `actor`, `jobs`                    |
 | `moderation`  | Domain blocks, reports, and server rules   | `actor`, `content`, `jobs`                     |
 | `announcement` | Admins' announcements, and their dismissals and reactions | `actor`, `content`              |
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
