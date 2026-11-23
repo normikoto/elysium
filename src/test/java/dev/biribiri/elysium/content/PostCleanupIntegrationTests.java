@@ -158,6 +158,20 @@ class PostCleanupIntegrationTests {
     }
 
     @Test
+    void undoesOldBoostsOfSuspendedAuthors() {
+        var author = account();
+        var booster = account();
+        var status = newStatus(author, Visibility.PUBLIC);
+        var boost = boosts.reblog(status, booster, Visibility.PUBLIC).orElseThrow().id();
+        actors.suspend(author);
+        enable(booster, PostCleanupPolicy.DEFAULT);
+
+        cleanups.run(Instant.now().plus(LATER));
+
+        assertThat(exists(boost)).isFalse();
+    }
+
+    @Test
     void deletesOnlySomeOfAnAccountsStatusesEachRun() {
         var author = account();
         for (var i = 0; i < PostCleanups.PER_ACCOUNT + 1; i++) {

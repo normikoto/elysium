@@ -106,7 +106,8 @@ public class BoostService {
     public boolean removeOwn(UUID boostId, UUID actorId) {
         var preview = boosts.find(boostId).filter(boost -> boost.actorId().equals(actorId));
         if (preview.isEmpty()) return false;
-        var status = repository.findById(preview.get().statusId());
+        // findById leaves out the statuses of suspended authors, whose boosts would otherwise never be removed.
+        var status = repository.findForModeration(preview.get().statusId());
         var actor = actors.findLocalById(actorId);
         if (status.isEmpty() || actor.isEmpty()) return false;
         likes.holdActors(List.of(actorId, status.get().actorId()));

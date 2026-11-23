@@ -111,11 +111,14 @@ public class PostCleanupRepository {
         if (policy.keepSelfBookmarked()) {
             keep.add("EXISTS (SELECT 1 FROM status_bookmark b WHERE b.status_id = s.id AND b.actor_id = s.actor_id)");
         }
+        // Counted as clients are shown them, so that a post isn't kept for favourites or boosts its author can't see.
         if (policy.minFavourites() != null) {
-            keep.add("(SELECT count(*) FROM status_like l WHERE l.status_id = s.id) >= :minFavourites");
+            keep.add("(SELECT count(*) FROM status_like l JOIN actor a ON a.id = l.actor_id WHERE l.status_id = s.id AND "
+                    + LikeRepository.eligible("a") + ") >= :minFavourites");
         }
         if (policy.minBoosts() != null) {
-            keep.add("(SELECT count(*) FROM status r WHERE r.reblog_of_id = s.id) >= :minBoosts");
+            keep.add("(SELECT count(*) FROM status r JOIN actor a ON a.id = r.actor_id WHERE r.reblog_of_id = s.id AND "
+                    + LikeRepository.eligible("a") + ") >= :minBoosts");
         }
         var kept = keep.isEmpty() ? "" : " AND NOT (s.reblog_of_id IS NULL AND (" + String.join(" OR ", keep) + "))";
         var query = jdbc.sql("SELECT s.id, s.reblog_of_id IS NOT NULL AS boost FROM status s "
