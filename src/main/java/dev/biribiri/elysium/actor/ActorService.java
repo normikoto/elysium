@@ -13,9 +13,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -386,6 +388,14 @@ public class ActorService {
      */
     public long countExistingLocal() {
         return actors.countExistingLocal();
+    }
+
+    /**
+     * Counts the accounts created in each week since {@code since}, keyed by the Monday the week starts on, in UTC. Accounts
+     * that were deleted since are left out, and suspended ones are counted, since they did sign up.
+     */
+    public Map<LocalDate, Long> countLocalCreatedByWeek(LocalDate since) {
+        return actors.countLocalCreatedByWeek(since);
     }
 
     public boolean hasLocalAccounts() {

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The server reports how many of its accounts are active, as Mastodon does: NodeInfo has `activeMonth` and
+  `activeHalfyear`, `GET /api/v2/instance`'s `usage.users.active_month` counts the accounts used in the last 30 days
+  rather than every account, and `GET /api/v1/instance/activity` gives 12 weeks of counts of posts, logins, and
+  sign-ups. Server lists and apps read these. To count active accounts, the server now records which days each account
+  is used, and keeps that for 180 days. The counts start from the upgrade, so they're low at first. Set the new
+  `elysium.usage.publish` setting to `false` to stop publishing them. See `docs/api.md` and `FEDERATION.md`.
 - People can have their old posts deleted automatically at `/settings/post-cleanup`, linked from their settings, as with
   Mastodon's automated post deletion. They choose how old posts have to be, and which to keep, such as pinned posts,
   direct messages, or posts with enough favourites. Old boosts are undone too. Posts are deleted a few at a time, so

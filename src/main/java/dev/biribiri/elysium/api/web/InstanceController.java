@@ -1,9 +1,11 @@
 package dev.biribiri.elysium.api.web;
 
+import dev.biribiri.elysium.actor.ActiveAccounts;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.RegistrationProperties;
+import dev.biribiri.elysium.actor.UsageProperties;
 import dev.biribiri.elysium.content.AttachmentProperties;
 import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.MediaAttachments;
@@ -52,6 +54,9 @@ public class InstanceController {
     private final ProfileService profiles;
     private final AttachmentProperties attachments;
     private final Rules rules;
+    private final UsageProperties usage;
+    private final ActiveAccounts activeAccounts;
+    private final WeeklyCounts weeklyCounts;
 
     InstanceController(
             InstanceProperties instance,
@@ -61,7 +66,13 @@ public class InstanceController {
             RegistrationProperties registration,
             ProfileService profiles,
             AttachmentProperties attachments,
-            Rules rules) {
+            Rules rules,
+            UsageProperties usage,
+            ActiveAccounts activeAccounts,
+            WeeklyCounts weeklyCounts) {
+        this.usage = usage;
+        this.activeAccounts = activeAccounts;
+        this.weeklyCounts = weeklyCounts;
         this.attachments = attachments;
         this.rules = rules;
         this.profiles = profiles;
@@ -129,6 +140,28 @@ public class InstanceController {
         return rules.list().stream().map(RuleResponse::from).toList();
     }
 
+    @GetMapping("/v1/instance/activity")
+    @Operation(
+            operationId = "getInstanceActivity",
+            summary = "View weekly counts of statuses, logins, and sign-ups",
+            description = """
+                    The last\s""" + WeeklyCounts.WEEKS + """
+                     weeks, this one first, each starting at midnight UTC on a Monday. The counts are up to an hour old. \
+                    Differences from Mastodon: `statuses` counts the statuses that still exist, leaving out direct \
+                    statuses and boosts, and `registrations` leaves out accounts that have since been deleted. `logins` \
+                    counts accounts that used the API or were logged in that week. Not found when the admin has turned \
+                    these off with `elysium.usage.publish`.""",
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#activity"),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "A week's counts each, this week first."),
+                    @ApiResponse(responseCode = "404", description = "The server doesn't publish these.")})
+    public List<WeeklyCountsResponse> weeks() {
+        if (!usage.publish()) {
+            throw new RecordNotFoundException();
+        }
+        return weeklyCounts.lastTwelveWeeks();
+    }
+
     /**
      * Mastodon's API version 7 is the one with quotes, which clients only offer once this says so.
      */
@@ -143,8 +176,11 @@ public class InstanceController {
                     and defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS + """
                      rather than 500. `api_versions.mastodon` is\s""" + MASTODON_API_VERSION + """
                     , which is when Mastodon added quotes, though some of what Mastodon added in the versions before it \
-                    isn't here, as `docs/api.md` lists. There's no thumbnail, icon, or contact account, and \
-                    `usage.users.active_month` counts every local account. Push notifications aren't implemented.""",
+                    isn't here, as `docs/api.md` lists. There's no thumbnail, icon, or contact account. \
+                    `usage.users.active_month` counts the local accounts that used the server in the last\s"""
+                    + ActiveAccounts.MONTH_DAYS + """
+                     days, or every local account if the admin has turned that off with `elysium.usage.publish`. Push \
+                    notifications aren't implemented.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v2"),
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
     public InstanceV2Response instanceV2() {
@@ -156,7 +192,7 @@ public class InstanceController {
                 VERSION,
                 "https://github.com/normikoto/elysium",
                 "",
-                new InstanceV2Response.Usage(new InstanceV2Response.Users(actors.countLocal())),
+                new InstanceV2Response.Usage(new InstanceV2Response.Users(activeMonth())),
                 null,
                 List.of(),
                 List.of(),
@@ -175,6 +211,14 @@ public class InstanceController {
                 Map.of("mastodon", MASTODON_API_VERSION),
                 new InstanceV2Response.Contact("", null),
                 rules());
+    }
+
+    /**
+     * Mastodon's entity has no way to leave this out, so when the active count isn't published it's every account, as it
+     * was before use was recorded.
+     */
+    private long activeMonth() {
+        return usage.publish() ? activeAccounts.countActiveWithin(ActiveAccounts.MONTH_DAYS) : actors.countLocal();
     }
 
     /**

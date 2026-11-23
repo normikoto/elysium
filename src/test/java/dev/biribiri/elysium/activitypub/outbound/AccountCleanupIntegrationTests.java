@@ -167,6 +167,14 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
+    void deletingAnAccountRemovesTheDaysItWasUsed() {
+        jdbc.sql("INSERT INTO account_use_day (actor_id, day) VALUES (:id, current_date), (:id, current_date - 1)")
+                .param("id", local.id()).update();
+        actors.markDeleted(local.id());
+        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM account_use_day WHERE actor_id = :id", local.id()) == 0);
+    }
+
+    @Test
     void deletingALikerRemovesItsLikesAndFavouriteNotifications() {
         var author = newLocal();
         var status = statuses.create(author.id(), draft());

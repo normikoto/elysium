@@ -12,7 +12,7 @@ import java.util.Map;
  */
 @Schema(name = "InstanceV2", description = """
         Mastodon's Instance entity. There's no thumbnail or contact account, and `usage.users.active_month` \
-        counts every local account.""")
+        counts every local account when the admin doesn't publish how many are active.""")
 record InstanceV2Response(
         String domain,
         String title,

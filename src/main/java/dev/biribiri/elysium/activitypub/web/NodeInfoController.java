@@ -3,9 +3,11 @@ package dev.biribiri.elysium.activitypub.web;
 import dev.biribiri.elysium.activitypub.vocab.ActivityStreams;
 import dev.biribiri.elysium.activitypub.vocab.JsonResourceDescriptor;
 import dev.biribiri.elysium.activitypub.vocab.NodeInfo;
+import dev.biribiri.elysium.actor.ActiveAccounts;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RegistrationProperties;
+import dev.biribiri.elysium.actor.UsageProperties;
 import dev.biribiri.elysium.content.StatusService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,8 +38,11 @@ public class NodeInfoController {
     private static final String AS_APPLICATION = ActivityStreams.CONTEXT + "#Application";
     private static final String USAGE = """
             Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the number of \
-            local users, and `localPosts`, which counts replies but not direct statuses. Active user counts and \
-            `localComments` aren't reported. `metadata.features` has Pleroma's `pleroma_emoji_reactions` and \
+            local users, and `localPosts`, which counts replies but not direct statuses. `activeMonth` and \
+            `activeHalfyear` count the users who used the server in the last\s""" + ActiveAccounts.MONTH_DAYS + " and "
+            + ActiveAccounts.HALF_YEAR_DAYS + """
+             days, and are left out if the admin has turned them off with `elysium.usage.publish`. `localComments` isn't \
+            reported. `metadata.features` has Pleroma's `pleroma_emoji_reactions` and \
             `custom_emoji_reactions`, for clients that look for them before they offer reactions.""";
 
     private static final URI REPOSITORY = URI.create("https://github.com/normikoto/elysium");
@@ -47,18 +52,24 @@ public class NodeInfoController {
     private final InstanceProperties instance;
     private final BuildProperties build;
     private final RegistrationProperties registration;
+    private final UsageProperties usage;
+    private final ActiveAccounts activeAccounts;
 
     NodeInfoController(
             ActorService actors,
             StatusService statuses,
             InstanceProperties instance,
             BuildProperties build,
-            RegistrationProperties registration) {
+            RegistrationProperties registration,
+            UsageProperties usage,
+            ActiveAccounts activeAccounts) {
         this.actors = actors;
         this.statuses = statuses;
         this.instance = instance;
         this.build = build;
         this.registration = registration;
+        this.usage = usage;
+        this.activeAccounts = activeAccounts;
     }
 
     @GetMapping(path = "/.well-known/nodeinfo", produces = {"application/jrd+json", MediaType.APPLICATION_JSON_VALUE})
@@ -104,8 +115,18 @@ public class NodeInfoController {
                 List.of("activitypub"),
                 new NodeInfo.Services(List.of(), List.of()),
                 registration.acceptsUninvited(),
-                new NodeInfo.Usage(new NodeInfo.Users(actors.countLocal()), statuses.countLocal()),
+                new NodeInfo.Usage(users(), statuses.countLocal()),
                 Map.of("features", FEATURES));
+    }
+
+    private NodeInfo.Users users() {
+        if (!usage.publish()) {
+            return new NodeInfo.Users(actors.countLocal(), null, null);
+        }
+        return new NodeInfo.Users(
+                actors.countLocal(),
+                activeAccounts.countActiveWithin(ActiveAccounts.MONTH_DAYS),
+                activeAccounts.countActiveWithin(ActiveAccounts.HALF_YEAR_DAYS));
     }
 
     /**

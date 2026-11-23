@@ -11,11 +11,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URI;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -493,6 +495,27 @@ public class ActorRepository {
                         """)
                 .query(Long.class)
                 .single();
+    }
+
+    /**
+     * @return how many of the accounts that still exist were created in each week since {@code since}, keyed by the Monday
+     * the week starts on, in UTC
+     */
+    public Map<LocalDate, Long> countLocalCreatedByWeek(LocalDate since) {
+        var weeks = new HashMap<LocalDate, Long>();
+        jdbc.sql("""
+                        SELECT date_trunc('week', local_account.created_at AT TIME ZONE 'UTC')::date AS week,
+                               count(*) AS accounts
+                        FROM local_account
+                        JOIN actor ON actor.id = local_account.actor_id
+                        WHERE actor.deleted_at IS NULL AND local_account.created_at >= :since
+                        GROUP BY week
+                        """)
+                .param("since", since.atStartOfDay().atOffset(ZoneOffset.UTC))
+                .query(rs -> {
+                    weeks.put(rs.getObject("week", LocalDate.class), rs.getLong("accounts"));
+                });
+        return weeks;
     }
 
     public boolean hasLocalAccounts() {

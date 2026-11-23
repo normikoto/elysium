@@ -9,16 +9,19 @@ class ActorRemoval implements ActorDataRemoval {
 
     private final ProfileService profiles;
     private final AccountMigrations migrations;
+    private final ActiveAccounts activeAccounts;
 
-    ActorRemoval(ProfileService profiles, AccountMigrations migrations) {
+    ActorRemoval(ProfileService profiles, AccountMigrations migrations, ActiveAccounts activeAccounts) {
         this.profiles = profiles;
         this.migrations = migrations;
+        this.activeAccounts = activeAccounts;
     }
 
     @Override
     public void removeForDeleted(UUID actorId) {
         profiles.removeAll(actorId);
         migrations.removeForActor(actorId);
+        activeAccounts.removeForActor(actorId);
     }
 
     @Override

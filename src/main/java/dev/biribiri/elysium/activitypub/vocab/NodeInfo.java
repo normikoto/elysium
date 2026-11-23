@@ -28,6 +28,11 @@ public record NodeInfo(
     public record Usage(Users users, long localPosts) {
     }
 
-    public record Users(long total) {
+    /**
+     * @param activeMonth    null when the server doesn't publish how many accounts are active, which the schema allows
+     * @param activeHalfyear null in the same case
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Users(long total, Long activeMonth, Long activeHalfyear) {
     }
 }

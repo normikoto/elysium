@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.auth.internal;
 
+import dev.biribiri.elysium.actor.ActiveAccounts;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import jakarta.servlet.FilterChain;
@@ -19,7 +20,8 @@ import java.util.UUID;
  * since been replaced. Those all delete the account's sessions, but a login that's still in progress at that moment saves its
  * session afterward, so this looks at the database on each request. It also ends a session that's lost the ID it logged in with:
  * see {@link LoginGenerationFilter}. Only requests with a session pay for this. A browser that's logged in sends it with every
- * page, and status pages show what that account can see, so this also keeps a suspended account from reading them.
+ * page, and status pages show what that account can see, so this also keeps a suspended account from reading them. A session
+ * that's still valid counts as the account's use of the server, for {@link ActiveAccounts}.
  *
  * <p>Not a bean, because Spring Boot would then also run it outside of the security filter chains.
  */
@@ -27,10 +29,12 @@ class ActiveAccountFilter extends OncePerRequestFilter {
 
     private final ActorService actors;
     private final LocalAccounts accounts;
+    private final ActiveAccounts activeAccounts;
 
-    ActiveAccountFilter(ActorService actors, LocalAccounts accounts) {
+    ActiveAccountFilter(ActorService actors, LocalAccounts accounts, ActiveAccounts activeAccounts) {
         this.actors = actors;
         this.accounts = accounts;
+        this.activeAccounts = activeAccounts;
     }
 
     @Override
@@ -38,13 +42,18 @@ class ActiveAccountFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         // A logged in user's name is their actor ID: see LocalAccounts.loadUserByUsername.
-        if (authentication instanceof UsernamePasswordAuthenticationToken login
-                && Ids.parse(login.getName()).filter(id -> hasEnded(id, request)).isPresent()) {
-            SecurityContextHolder.setContext(SecurityContextHolder.createEmptyContext());
-            var session = request.getSession(false);
-            if (session != null) {
-                session.invalidate();
-            }
+        if (authentication instanceof UsernamePasswordAuthenticationToken login) {
+            Ids.parse(login.getName()).ifPresent(id -> {
+                if (hasEnded(id, request)) {
+                    SecurityContextHolder.setContext(SecurityContextHolder.createEmptyContext());
+                    var session = request.getSession(false);
+                    if (session != null) {
+                        session.invalidate();
+                    }
+                } else {
+                    activeAccounts.recordUse(id);
+                }
+            });
         }
         chain.doFilter(request, response);
     }
