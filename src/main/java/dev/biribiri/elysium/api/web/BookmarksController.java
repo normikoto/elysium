@@ -42,21 +42,21 @@ public class BookmarksController {
             operationId = "getBookmarks",
             summary = "List the statuses the user has bookmarked",
             description = """
-                    Pages are by when each status was bookmarked, and the cursors are the IDs in the `Link` header, not \
-                    status IDs, as on Mastodon. Statuses the user can no longer see are left out, so a page can be \
-                    shorter than `limit` and still have more after it. Filters don't hide statuses here, but are given \
-                    in `filtered`.
+                    Pages are by when each status was bookmarked, and the cursors are the IDs in the `Link` header, \
+                    not status IDs, as on Mastodon. Statuses the user can no longer see are excluded, so a page can \
+                    be shorter than `limit` and still have more after it. Filters don't hide statuses here, but are \
+                    given in `filtered`.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "bookmarks/#get"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_STATUSES + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, most recent bookmark first."),
-                    @ApiResponse(responseCode = "422", description = "A cursor isn't a UUID, or the token has no user.")
+                    @ApiResponse(responseCode = "422", description = "A cursor is not a UUID, or the token has no user.")
             })
     public ResponseEntity<List<StatusResponse>> list(
             @AuthenticationPrincipal TokenPrincipal token,

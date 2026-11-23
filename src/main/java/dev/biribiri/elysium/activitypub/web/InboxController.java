@@ -58,7 +58,7 @@ import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON
 @ApiResponse(responseCode = "429", description = """
         This address has caused too many key fetches or had too many requests refused, or the signer's server has \
         delivered too much.""",
-        headers = @Header(name = "Retry-After", description = "Seconds until there's room again.",
+        headers = @Header(name = "Retry-After", description = "Seconds before retrying.",
                 schema = @Schema(type = "integer")))
 @ApiResponse(responseCode = "503", description = "The sender's key can't be fetched right now.")
 class InboxController {
@@ -114,7 +114,7 @@ class InboxController {
     @Operation(
             operationId = "postToSharedInbox",
             summary = "Deliver an activity to the shared inbox",
-            description = "Every actor document gives this as its `endpoints.sharedInbox`. " + FederationDocs.INBOX)
+            description = "Actor documents advertise this URL as `endpoints.sharedInbox`.\n\n" + FederationDocs.INBOX)
     ResponseEntity<Void> sharedInbox(HttpServletRequest request) throws IOException {
         return receive(request);
     }

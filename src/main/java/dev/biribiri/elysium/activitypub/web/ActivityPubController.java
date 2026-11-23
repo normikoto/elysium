@@ -138,16 +138,21 @@ public class ActivityPubController {
             summary = "Fetch a user's actor document",
             description = """
                     A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, an Ed25519 \
-                    `Multikey` in `assertionMethod` identified as `{actor-uri}#ed25519-key` (FEP-521a), and the shared \
-                    inbox at `/inbox` as `endpoints.sharedInbox`. The profile is in `name`, `summary` (HTML), `icon` and \
-                    `image` (WebP `Image`s), and `attachment` (`PropertyValue`s), each left out if it's empty. \
-                    `alsoKnownAs` lists the accounts that can move to this one, and `movedTo` is the account this one \
-                    moved to, which it keeps working after. A suspended user's document has `suspended: true`, the same key, and no profile. When the server \
-                    requires signed fetches, an unsigned request gets a minimal document with only the `id`, `type`, \
-                    `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, `publicKey`, and \
-                    `assertionMethod`, so that the keys can always be read. So does one whose signature can't be accepted, unless it's \
-                    from a blocked server or a suspended actor.\s"""
-                    + FederationDocs.CONTENT_NEGOTIATION + " " + FederationDocs.VARIES_BY_SIGNATURE,
+                    `Multikey` in `assertionMethod` identified as `{actor-uri}#ed25519-key` (FEP-521a), and the \
+                    shared inbox at `/inbox` as `endpoints.sharedInbox`. The profile is in `name`, `summary` \
+                    (HTML), `icon` and `image` (WebP `Image`s), and `attachment` (`PropertyValue`s), each left out \
+                    if it's empty. `alsoKnownAs` lists the accounts that can move to this one, and `movedTo` is the \
+                    account this one moved to, which it keeps working after. A suspended user's document has \
+                    `suspended: true`, the same key, and no profile.
+
+                    With authorized fetch on, an unsigned request gets a minimal document so peers can still read \
+                    the keys. It includes `@context`, `id`, `type`, `preferredUsername`, `inbox`, `outbox`, `followers`, \
+                    `following`, `endpoints`, `publicKey`, and `assertionMethod`, plus `suspended` for a suspended user. \
+                    Requests whose signatures cannot be accepted also get the minimal document. Requests signed with \
+                    a key on a blocked domain or by a suspended or deleted actor get 403.
+
+                    """
+                    + FederationDocs.CONTENT_NEGOTIATION + "\n\n" + FederationDocs.VARIES_BY_SIGNATURE,
             parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The actor, or the profile page for HTML.",
@@ -433,7 +438,7 @@ public class ActivityPubController {
     @Operation(
             operationId = "getInstanceActorOutbox",
             summary = "Fetch the server's own actor's outbox",
-            description = "An empty `OrderedCollection`. " + FederationDocs.DOCUMENT + " " + FederationDocs.UNSIGNED,
+            description = "An empty `OrderedCollection`.\n\n" + FederationDocs.DOCUMENT + "\n\n" + FederationDocs.UNSIGNED,
             responses = @ApiResponse(responseCode = "200", description = "The collection.", content = {
                     @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = OrderedCollection.class)),
             }))
@@ -467,10 +472,13 @@ public class ActivityPubController {
     @GetMapping(path = "/users/{username}/statuses/{id}/likes", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     @Operation(operationId = "getStatusLikes", summary = "Fetch a status's likes",
             description = """
-                    An OrderedCollection with totalItems and a first page at ?page=true. Pages contain up to 40
-                    Like activities, newest first, with max_id cursors. Only existing public and unlisted posts
-                    are available; private, direct, and deleted posts get a 404. Suspended and deleted likers
-                    and actors on blocked domains are excluded. HTML requests redirect to the post's page.
+                    An `OrderedCollection` with `totalItems` and a `first` page at `?page=true`. Pages contain up to \
+                    40 `Like` activities, newest first, with `max_id` cursors. The collection is available for public \
+                    and unlisted posts only. Private, direct, and deleted posts get 404.
+
+                    The collection excludes suspended or deleted actors and actors on blocked domains. HTML requests \
+                    redirect to the post's page.
+
                     """ + FederationDocs.NEGOTIATED,
             responses = {
                     @ApiResponse(responseCode = "200", description = "The collection or its page."),
@@ -504,11 +512,14 @@ public class ActivityPubController {
     @GetMapping(path = "/users/{username}/statuses/{id}/shares", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
     @Operation(operationId = "getStatusShares", summary = "Fetch a status's boosts",
             description = """
-                    An OrderedCollection with totalItems and a first page at ?page=true. Pages contain up to 40
-                    Announce activities, newest first, with max_id cursors. Only existing public and unlisted posts
-                    are available; private, direct, and deleted posts get a 404. Only public and unlisted boosts are
-                    listed or counted, each addressed only to the public. Suspended and deleted boosters and actors on
-                    blocked domains are excluded. HTML requests redirect to the post's page.
+                    An `OrderedCollection` with `totalItems` and a `first` page at `?page=true`. Pages contain up to \
+                    40 `Announce` activities, newest first, with `max_id` cursors. The collection is available for public \
+                    and unlisted posts only. Private, direct, and deleted posts get 404.
+
+                    Only public and unlisted boosts appear in the list and count, each addressed only to the public. \
+                    The collection excludes suspended or deleted actors and actors on blocked domains. HTML requests \
+                    redirect to the post's page.
+
                     """ + FederationDocs.NEGOTIATED,
             responses = {
                     @ApiResponse(responseCode = "200", description = "The collection or its page."),
@@ -573,7 +584,9 @@ public class ActivityPubController {
                     `, for signing requests that no user is behind, such as fetches of keys and actor documents. Its \
                     key is identified as `{actor-uri}#main-key`, its Ed25519 `Multikey` in `assertionMethod` as \
                     `{actor-uri}#ed25519-key`, and its `url` is the front page. It can't be followed, \
-                    so a `Follow` of it is ignored. It never needs a signature.\s""" + FederationDocs.DOCUMENT,
+                    so a `Follow` of it is ignored. It never needs a signature.
+
+                    """ + FederationDocs.DOCUMENT,
             responses = @ApiResponse(responseCode = "200", description = "The actor.", content = {
                     @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = Application.class)),
             }))
@@ -589,7 +602,9 @@ public class ActivityPubController {
             description = """
                     An `Emoji`, as one is in a `tag`: its `name` is the shortcode with colons, and its `icon` is a WebP \
                     `Image`. This is the `id` of each of this server's emoji, which is never reused. Another server's \
-                    emoji aren't served here.\s""" + FederationDocs.DOCUMENT,
+                    emoji aren't served here.
+
+                    """ + FederationDocs.DOCUMENT,
             parameters = @Parameter(name = "id", description = "The emoji's ID."),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The emoji.", content = {
@@ -610,10 +625,14 @@ public class ActivityPubController {
             description = """
                     A FEP-044f `QuoteAuthorization`, which shows that the user approved a quote of their status. It \
                     names the quote as `interactingObject` and the quoted status as `interactionTarget`, and embeds \
-                    neither. It's served for as long as the approval stands, and then gets a 404. One for a public or \
-                    unlisted quote is served to anyone, and one for a followers-only or direct quote only to a signer \
-                    who can see the quote. A signature is only required if the server requires signed fetches.\s"""
-                    + FederationDocs.DOCUMENT + " " + FederationDocs.VARIES_BY_SIGNATURE,
+                    neither. It's served for as long as the approval stands, and then gets 404. One for a public or \
+                    unlisted quote is served to anyone, and one for a followers-only or direct quote only to a \
+                    signer who can see the quote.
+
+                    A signature is only required if the server requires signed fetches.
+
+                    """
+                    + FederationDocs.DOCUMENT + "\n\n" + FederationDocs.VARIES_BY_SIGNATURE,
             parameters = {
                     @Parameter(name = "username", description = "The quoted author's username, matched case-insensitively."),
                     @Parameter(name = "id", description = "The approval's ID.")
@@ -662,13 +681,16 @@ public class ActivityPubController {
             summary = "Fetch a status as a Note",
             description = """
                     Public and unlisted statuses are `Note` objects. A signature is read if there is one, and only \
-                    required if the server requires signed fetches. A private status is only served to a signer who follows its author and was sent it, \
-                    or that it mentions, and a direct one to a signer it mentions. A signature that \
-                    can't be accepted is otherwise answered as if there were none. A deleted public or unlisted status gets a \
-                    410 with a `Tombstone`, and a deleted private or direct one a 404. Answers have \
-                    `Vary: Signature`, and a private or direct `Note` has `Cache-Control: no-store, private`, as \
-                    does every signed answer when signatures are required. A browser can't send a `Signature` header \
-                    from another origin.\s""" + FederationDocs.CONTENT_NEGOTIATION,
+                    required if the server requires signed fetches. A private status is only served to a signer who \
+                    follows its author and was sent it, or that it mentions, and a direct one to a signer it \
+                    mentions. A signature that can't be accepted is otherwise answered as if there were none.
+
+                    A deleted public or unlisted status gets 410 with a `Tombstone`, and a deleted private or \
+                    direct one a 404. Answers have `Vary: Signature`, and a private or direct `Note` has \
+                    `Cache-Control: no-store, private`, as does every signed answer when signatures are required. A \
+                    browser can't send a `Signature` header from another origin.
+
+                    """ + FederationDocs.CONTENT_NEGOTIATION,
             parameters = {
                     @Parameter(name = "username", description = "The author's username, matched case-insensitively."),
                     @Parameter(name = "id", description = "The status's ID.")

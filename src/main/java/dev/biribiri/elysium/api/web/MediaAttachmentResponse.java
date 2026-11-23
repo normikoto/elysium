@@ -15,12 +15,14 @@ import java.util.Optional;
  * Mastodon's MediaAttachment entity.
  */
 @Schema(name = "MediaAttachment", description = """
-        Mastodon's MediaAttachment entity. An image is served as WebP, and an animated GIF as an animated WebP with type \
-        `image` rather than `gifv`. Video and audio are served as they were uploaded, and have no `meta.original`, since \
-        they aren't decoded, and no `preview_url` unless a thumbnail was uploaded with them. `blurhash` is null for \
-        uploads here. A remote attachment that isn't kept here, but can be, has a `/media_proxy/` `url` and image \
-        `preview_url`, which download it and redirect to the copy. One that can't be kept has its `remote_url` as its \
-        `url`, and one from a server or account whose media is rejected has type `unknown`.""")
+        Mastodon's MediaAttachment entity. Images use WebP, and animated GIF uploads become animated WebP with \
+        type `image`. Video and audio preserve the original files. They have no `meta.original` and have a \
+        `preview_url` only if the upload included a thumbnail.
+
+        `blurhash` is null for local uploads. Cacheable remote attachments that have no local copy use `/media_proxy/` \
+        for `url` and image `preview_url`, which fetches the file and redirects to the local copy. If Elysium cannot \
+        cache an attachment, its `url` is its `remote_url`. If an admin rejects media from the server or account, the \
+        attachment has type `unknown`.""")
 record MediaAttachmentResponse(
         String id,
         @Schema(allowableValues = {"image", "video", "audio", "unknown"}) String type,

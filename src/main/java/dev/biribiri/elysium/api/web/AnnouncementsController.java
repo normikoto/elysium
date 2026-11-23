@@ -45,7 +45,7 @@ public class AnnouncementsController {
     private static final String EMOJI = """
             One Unicode emoji, or the shortcode of one of this server's custom emoji. Escape it as a path segment.""";
 
-    private static final String NOT_FOUND = "Not found, unpublished, or the ID isn't a UUID.";
+    private static final String NOT_FOUND = "Not found, unpublished, or the ID is not a UUID.";
 
     private final Announcements announcements;
     private final CustomEmojis emojis;
@@ -64,14 +64,16 @@ public class AnnouncementsController {
     @SecurityRequirement(name = "oauth2")
     @Operation(operationId = "listAnnouncements", summary = "View announcements",
             description = """
-                    The published announcements, oldest first by when they start, or when they were published if they \
-                    have no start. Dismissed ones are included, with `read` true. It needs a token with any scope. \
-                    Differences from Mastodon: IDs are UUIDs rather than numbers, and `mentions` and `statuses` are \
-                    always empty. Admins write them on the `/admin/announcements` page.\s""" + ApiDocs.NEEDS_USER,
+                    The published announcements, oldest first by when they start, or when they were published if \
+                    they have no start. Dismissed ones are included, with `read` true. It needs a token with any \
+                    scope. Differences from Mastodon: IDs are UUIDs rather than numbers, and `mentions` and \
+                    `statuses` are always empty.
+
+                    Admins write them on the `/admin/announcements` page.\n\n""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = DOCS + "#get"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The announcements."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<AnnouncementResponse> list(@AuthenticationPrincipal TokenPrincipal token) {
         var actorId = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
@@ -89,13 +91,13 @@ public class AnnouncementsController {
     @PostMapping("/{id}/dismiss")
     @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
     @Operation(operationId = "dismissAnnouncement", summary = "Dismiss an announcement",
-            description = "Marks it as read for the user. Doing it again has no more effect. " + ApiDocs.NEEDS_USER,
+            description = "Marks it as read for the user. Doing it again has no more effect.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = DOCS + "#dismiss"),
             parameters = @Parameter(name = "id", description = ApiDocs.ID),
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public Map<String, Object> dismiss(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var actorId = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
@@ -110,9 +112,11 @@ public class AnnouncementsController {
     @PreAuthorize("hasAuthority('SCOPE_write:favourites')")
     @Operation(operationId = "reactToAnnouncement", summary = "React to an announcement with an emoji",
             description = """
-                    Adds the user's reaction. Doing it again has no more effect. An announcement can be reacted with \
-                    at most\s""" + Announcements.MAX_REACTIONS + """
-                     different emoji, by everyone together, as on Mastodon.\s""" + ApiDocs.NEEDS_USER,
+                    Adds the user's reaction. Repeating the reaction has no additional effect. Each announcement \
+                    allows up to\s""" + Announcements.MAX_REACTIONS + """
+                    \sdistinct reactions across all users, as on Mastodon.
+
+                    """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = DOCS + "#put-reactions"),
             parameters = {
                     @Parameter(name = "id", description = ApiDocs.ID),
@@ -135,8 +139,7 @@ public class AnnouncementsController {
     @Operation(operationId = "unreactToAnnouncement", summary = "Remove a reaction to an announcement",
             description = """
                     Removes the user's reaction with an emoji. Differences from Mastodon: doing it again, or for an \
-                    emoji the user didn't react with, succeeds with no more effect, rather than getting a 404.\s"""
-                    + ApiDocs.NEEDS_USER,
+                    emoji the user didn't react with, succeeds with no more effect, rather than getting a 404.\n\n""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = DOCS + "#delete-reactions"),
             parameters = {
                     @Parameter(name = "id", description = ApiDocs.ID),

@@ -67,7 +67,7 @@ public class DomainBlocksController {
             summary = "List blocked domains",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/#get"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_DOMAIN_BLOCKS + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.DOMAIN_BLOCKS))
             },
@@ -118,8 +118,8 @@ public class DomainBlocksController {
             description = """
                     Differences from Mastodon:
 
-                    - `severity` is required, and has to be `suspend` or `noop`. Mastodon's default is `silence`, \
-                    which isn't supported, and gets a 422 here, rather than a block that does more or less than an \
+                    - `severity` is required, and must be `suspend` or `noop`. Mastodon's default is `silence`, \
+                    which is unsupported, and gets 422 here, rather than a block that does more or less than an \
                     admin meant.
                     - `reject_media` keeps a `noop` block's server's attachments from being downloaded, and removes \
                     the copies already kept. A suspension rejects them anyway. `reject_reports`, `obfuscate`, and \
@@ -127,8 +127,8 @@ public class DomainBlocksController {
                     - A domain with a wildcard, a port, or a URL's other parts is refused, as are IP addresses, a \
                     domain with only one label such as `com`, and this server's own domain or one above it. Blocks \
                     always cover subdomains and every port. A Unicode domain that converting would change, such as \
-                    `faß.example`, has to be sent in its `xn--` form.
-                    - A domain that a broader block already covers gets a 422 with `existing_domain_block`, like one \
+                    `faß.example`, must be sent in its `xn--` form.
+                    - A domain that a broader block already covers gets 422 with `existing_domain_block`, like one \
                     that's already blocked, unless the new block does more, such as suspending a subdomain of a \
                     `noop` block.
                     - `private_comment` can be up to\s""" + DomainBlocks.MAX_COMMENT_LENGTH + """
@@ -165,12 +165,12 @@ public class DomainBlocksController {
             operationId = "updateDomainBlock",
             summary = "Change a domain block",
             description = """
-                    `severity`, `reject_media`, and `private_comment` can be changed, and what's left out stays as it \
-                    is, as on Mastodon. Making a block a suspension removes what's stored from its server, and \
-                    rejecting media removes the copies of its attachments. Neither comes back if it's undone, though \
-                    attachments are shown as links again.
+                    `severity`, `reject_media`, and `private_comment` can be changed, and what's left out stays as \
+                    it is, as on Mastodon. Making a block a suspension removes what's stored from its server, and \
+                    rejecting media removes the copies of its attachments. Neither comes back if it's undone, \
+                    though attachments are shown as links again.
 
-                    Differences from Mastodon: `severity` has to be `suspend` or `noop`, an empty `private_comment` \
+                    Differences from Mastodon: `severity` must be `suspend` or `noop`, an empty `private_comment` \
                     removes it, and other fields are ignored. A block's domain can't be changed, as on Mastodon.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/domain_blocks/#update"),
             responses = {

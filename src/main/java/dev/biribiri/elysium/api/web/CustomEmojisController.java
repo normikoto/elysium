@@ -30,8 +30,8 @@ public class CustomEmojisController {
             summary = "View the server's custom emoji",
             description = """
                     Every custom emoji an admin has added, ordered by shortcode, including those hidden from the \
-                    picker. It needs no token. Differences from Mastodon: there are no disabled emoji, since an admin \
-                    removes one instead, and the images are WebP.""",
+                    picker. No token is required. Differences from Mastodon: there are no disabled emoji, since an \
+                    admin removes one instead, and the images are WebP.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "custom_emojis/#get"),
             responses = @ApiResponse(responseCode = "200", description = "The server's custom emoji."))
     public List<CustomEmojiResponse> list() {

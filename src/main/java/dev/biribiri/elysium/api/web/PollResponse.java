@@ -12,10 +12,11 @@ import java.util.List;
  * Mastodon's Poll entity. Counts are hidden while a poll with hidden totals is open, as on Mastodon.
  */
 @Schema(name = "Poll", description = """
-        Mastodon's Poll entity. Its `id` is its status's. A poll from another server has the counts its server last \
-        sent, plus votes from here since. `voters_count` is null unless more than one option can be chosen, and the \
-        counts are null while a poll that hides its totals is open. `voted` and `own_votes` are only there for a \
-        user.""")
+        Mastodon's Poll entity. `id` matches the status ID. A remote poll includes the latest counts it received \
+        from its server plus newer local votes.
+
+        `voters_count` is null for single-choice polls. Option counts are null while a poll with hidden totals is \
+        open. Only user requests get `voted` and `own_votes`.""")
 record PollResponse(
         String id,
         @JsonProperty("expires_at") String expiresAt,

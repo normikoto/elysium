@@ -44,31 +44,28 @@ class ApiDocs {
 
     static final String MASTODON_DOCS = "https://docs.joinmastodon.org/methods/";
 
-    static final String ID = "The ID. An ID that isn't a UUID gets a 404, the same as one that doesn't exist.";
+    static final String ID = "The ID must be a UUID. Unknown or malformed IDs get 404.";
 
-    static final String NOT_FOUND = "Not found, or the ID isn't a UUID.";
+    static final String NOT_FOUND = "The resource was not found, or the ID is malformed.";
 
     static final String FLAG = """
-            Read as Mastodon does: missing or empty is false, `0`, `f`, `false`, and `off` are false, and anything else is \
-            true.""";
+            As on Mastodon, missing values, empty values, `0`, `f`, `false`, and `off` mean false. Other values mean true.""";
 
     static final String NEEDS_USER = """
-            Needs a user's token. A token from the `client_credentials` grant gets a 422, with "This method requires an \
-            authenticated user".""";
+            Use a user token. A `client_credentials` token gets 422 with "This method requires an authenticated user".""";
 
     private static final String FORM_OR_JSON = """
-            The body can be form-encoded, multipart, or a JSON object. Values in a JSON body can be strings, or booleans \
-            for flags.""";
+            Send a form-encoded body, multipart body, or JSON object. JSON accepts strings and booleans for flags.""";
 
     private static final String PAGE = """
-            Pages go from newest to oldest, unless the endpoint says otherwise. The `Link` header has a `next` link to the \
-            page after this one, if this page is full, and a `prev` link to newer results, if it isn't empty. A cursor that \
-            isn't a UUID gets a 422.""";
+            Results are newest first unless the endpoint specifies another order. On full pages, the `Link` header \
+            includes `next` for the following page. On nonempty pages, it includes `prev` for newer results. A cursor \
+            that is not a UUID gets 422.""";
 
     private static final Map<String, String> CURSORS = Map.of(
-            "max_id", "Only results older than this ID.",
-            "since_id", "Only results newer than this ID.",
-            "min_id", "Only results newer than this ID, starting with the oldest of them.");
+            "max_id", "Return results older than this ID.",
+            "since_id", "Return results newer than this ID.",
+            "min_id", "Return results newer than this ID, oldest first.");
 
     private static final String ERROR_SCHEMA = "Error";
 
@@ -108,15 +105,15 @@ class ApiDocs {
                 .description("""
                         An ActivityPub server with a Mastodon-compatible client API.
 
-                        The client API, under `/api`, follows [Mastodon's API](https://docs.joinmastodon.org/methods/), \
-                        and each endpoint links to Mastodon's documentation for it. Each endpoint's description says how \
-                        it differs from Mastodon, and endpoints that Mastodon has but that aren't listed here don't \
-                        exist. IDs are UUIDs rather than numbers, and are strings, as Mastodon's are. Errors are JSON \
-                        objects with the reason in `error`. Applications authenticate with OAuth 2, as described under \
-                        OAuth, and each endpoint lists the scopes it accepts.
+                        The client API under `/api` follows [Mastodon's API](https://docs.joinmastodon.org/methods/). \
+                        Each endpoint links to Mastodon's documentation and lists Elysium's differences. \
+                        Unlisted endpoints are unavailable. IDs are UUID strings.
 
-                        The federation endpoints, under ActivityPub, WebFinger, and NodeInfo, are for other servers. \
-                        `FEDERATION.md` in the repository describes them in full."""));
+                        JSON errors give the reason in `error`. Applications authenticate with OAuth 2. Each \
+                        endpoint lists the scopes it accepts.
+
+                        Other servers use the ActivityPub, WebFinger, and NodeInfo endpoints. See `FEDERATION.md` \
+                        for the full federation reference."""));
     }
 
     private static void addErrorSchema(OpenAPI openApi) {
@@ -139,7 +136,7 @@ class ApiDocs {
                     ? "The token is invalid, or has been revoked."
                     : "The token is missing or invalid, or has been revoked."));
             if (security.stream().flatMap(requirement -> requirement.values().stream()).anyMatch(s -> !s.isEmpty())) {
-                responses.putIfAbsent("403", new ApiResponse().description("The token has none of the scopes listed."));
+                responses.putIfAbsent("403", new ApiResponse().description("The token has none of the accepted scopes."));
             }
         }
 
@@ -184,6 +181,7 @@ class ApiDocs {
 
     private static void append(Operation operation, String paragraph) {
         var description = operation.getDescription();
-        operation.setDescription(description == null || description.isBlank() ? paragraph : description + " " + paragraph);
+        operation.setDescription(description == null || description.isBlank()
+                ? paragraph : description.stripTrailing() + "\n\n" + paragraph);
     }
 }

@@ -162,11 +162,10 @@ class OAuthApiDocs {
                 .operationId("oauthAuthorize")
                 .summary("Ask a user to authorize an application")
                 .description("""
-                        Opened in the user's browser, not called by the application. The user logs in if they need \
-                        to, and is asked to approve the scopes unless they already have. The code is then sent to \
-                        `redirect_uri`, or shown on a page for `urn:ietf:wg:oauth:2.0:oob`. Each authorization issues \
-                        a new token rather than reusing the application's existing one. `force_login`, `prompt`, and \
-                        `lang` aren't supported.""")
+                        Open this URL in the user's browser. Elysium prompts for login and scope approval as needed. \
+                        It sends the code to `redirect_uri` or displays it for `urn:ietf:wg:oauth:2.0:oob`.
+
+                        Each authorization issues a new token. `force_login`, `prompt`, and `lang` are unsupported.""")
                 .addParametersItem(query("response_type", true, "Only `code` is supported.",
                         new StringSchema()._enum(List.of("code"))))
                 .addParametersItem(query("client_id", true, "The application's `client_id`.", new StringSchema()))
@@ -174,8 +173,8 @@ class OAuthApiDocs {
                         "One of the application's registered redirect URIs, or `urn:ietf:wg:oauth:2.0:oob`.",
                         new StringSchema()))
                 .addParametersItem(query("scope", false, """
-                        Space-separated scopes, which the application has to have registered for. Admin scopes are \
-                        left out for users who aren't admins.""", new StringSchema()._default(OAuthScopes.DEFAULT_SCOPE)))
+                        Space-separated scopes, which the application must include registered for. Admin scopes are \
+                        excluded for users who aren't admins.""", new StringSchema()._default(OAuthScopes.DEFAULT_SCOPE)))
                 .addParametersItem(query("state", false, "Sent back unchanged with the code.", new StringSchema()))
                 .addParametersItem(query("code_challenge", false, "A PKCE challenge.", new StringSchema()))
                 .addParametersItem(query("code_challenge_method", false, "Only `S256` is supported.",

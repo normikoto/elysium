@@ -1,8 +1,8 @@
 # Federation test lab
 
-Runs real fediverse servers next to Elysium, and checks that they can talk to each other. Everything happens over HTTPS,
-through a reverse proxy, on a Docker network with no route out, so nothing here can reach real servers. All of its
-passwords and secrets are public, so don't use any of this for a real server.
+The lab runs real fediverse servers alongside Elysium to test federation. They communicate over HTTPS through a
+reverse proxy on a Docker network with no route to public servers. All lab credentials are public and are for this lab
+only.
 
 ## Running it
 
@@ -13,85 +13,98 @@ You need Docker, `jq`, and `openssl`.
 federation/smoke.sh gotosocial   # or mastodon, or misskey
 ```
 
-The script deletes any lab left over from an earlier run, starts a new one, and exits with an error if a check fails.
-Rebuild the image to test a change to Elysium, because the lab doesn't build it for you.
+**Warning:** The script permanently deletes any existing lab before starting a new one. It exits with an error if a
+check fails. Rebuild the Elysium image before rerunning the lab with local code changes.
 
 The script checks:
 
-- **Discovery:** Elysium serves its documents through the proxy, and the other server can resolve `@alice@elysium.test`.
-  Elysium runs with authorized fetch on, so an unsigned fetch of alice's actor only gets the shorter document, and the
-  other server's fetches all have to be signed.
-- **Refusing deliveries and fetches:** An unsigned `POST` to Elysium's inbox gets a `401`, and so does an unsigned fetch of
-  alice's followers.
-- **Accepting deliveries:** The other server posts a status mentioning alice, and it ends up in Elysium's
-  `inbound_activity` table. This means that Elysium fetched the sender's key and verified the signature. Mastodon runs
-  with `AUTHORIZED_FETCH` on, so it has to accept Elysium's signed fetch and its instance actor as well.
-- **Following:** The other server's `lab` user follows alice. The other server has to accept Elysium's signed `Accept`, which
-  it shows by counting the follow, and Elysium's `follow` table has to have the row. After an unfollow, the row has to go,
-  and following again has to work. Misskey goes through this twice and then follows once more, since it uses the same ID for
-  each `Undo` between two actors, and a new one for each `Follow`. The script checks that `inbound_activity` has 3 `Follow`
-  rows and 1 `Undo` row, so it fails if Misskey stops reusing the ID and the check stops testing that.
-- **Locked accounts:** while `lab` follows alice, alice turns on approving followers by hand, and the other server has to
-  show her as locked, which it learns from the `Update` of her actor. `lab` then unfollows and asks again. Elysium has to hold
-  the request, list it in alice's follow requests, and send no `Accept`, and the other server has to show it as requested.
-  alice refuses it, and the other server has to take the `Reject` and drop it. `lab` asks once more, alice approves it, and
-  the other server has to show `lab` following. alice then turns the setting off again, for the checks after this.
-- **Blocks:** while `lab` follows alice, alice blocks it. Elysium has to remove the follow, and deliver the `Block`, and
-  the other server has to drop `lab`'s follow and show alice blocking `lab`. alice then unblocks it, the `Undo` has to be
-  delivered, and the other server has to stop showing the block. `lab` follows alice again, for the checks after this.
-- **Following out:** alice looks up `lab` on the other server through Elysium's client API, which makes Elysium use
-  WebFinger, and follows it. The other server has to accept the signed `Follow`, which Elysium shows as `following`. On
-  GoToSocial, whose users approve followers by hand by default, the request waits until `lab` approves it, which tests the
-  waiting state too. alice's `following` collection then has to list `lab`. While alice follows it, `lab` changes its
-  display name, and Elysium has to take the `Update` and fetch `lab`'s actor again. `lab` also posts once before alice
-  follows it, which Elysium is never sent, and the post has to appear among `lab`'s statuses once the follow is accepted,
-  which means Elysium read it from `lab`'s outbox. alice then unfollows, and the other
-  server has to take the `Undo`.
+- **Discovery.** The peer resolves `@alice@elysium.test` through the proxy. With authorized fetch on, an unsigned
+  request for Alice’s actor returns the shorter document. The peer signs its other fetches.
+- **Refusing deliveries and fetches.** An unsigned inbox `POST` and an unsigned fetch of Alice’s followers both return
+  `401`.
+- **Accepting deliveries.** The peer posts a status that mentions Alice. The script checks `inbound_activity` to
+  confirm Elysium fetched the sender’s key and verified the signature. With `AUTHORIZED_FETCH` on, Mastodon must
+  accept Elysium’s signed fetch and its instance actor.
+- **Following.** The peer’s `lab` user follows Alice, receives the signed `Accept`, and counts the follow. Elysium’s
+  `follow` row appears, disappears on unfollow, and returns on a new follow.
+
+  Misskey runs two follow and unfollow cycles, then follows again. It uses a new ID for each `Follow` and reuses the
+  same `Undo` ID for the pair of actors. The script expects three `Follow` rows and one `Undo` row in
+  `inbound_activity` to verify that it is exercising ID reuse.
+- **Locked accounts.** Alice turns on manual follow approval while `lab` follows her, and the peer shows her as locked
+  after receiving the actor `Update`. When `lab` unfollows and requests to follow again, Elysium lists the request and
+  sends no `Accept`, and the peer shows the request as pending.
+
+  Alice rejects the request, and the peer drops it after receiving the `Reject`. Alice approves a new request, and the
+  peer shows `lab` following her. She turns off manual approval for later checks.
+- **Blocks.** Alice blocks `lab` while it follows her. Elysium removes the follow and sends a `Block`, and the peer
+  drops the follow and shows the block. Alice unblocks `lab`, and the peer clears the block after receiving the
+  `Undo`.
+
+  Then `lab` follows Alice again.
+- **Following out.** Alice uses the client API to resolve `lab` through WebFinger and follow it. The peer accepts the
+  signed `Follow` and Elysium shows `following`. On GoToSocial, it first stays pending until `lab` approves it.
+
+  Alice’s `following` collection then lists `lab`.
+
+  When `lab` changes its display name, Elysium receives the `Update` and refetches the actor. After the follow is
+  accepted, a post that predates the follow and was never delivered to Elysium appears among `lab`’s statuses. That
+  confirms Elysium read its outbox. When Alice unfollows, the peer accepts the `Undo`.
 - **Receiving edits:** on Mastodon and GoToSocial, `lab` edits its status that mentions alice, and Elysium has to store the
   new text, marked as edited. Misskey can't edit notes.
-- **Receiving deletes:** `lab` deletes its status that mentions alice, and Elysium has to remove its copy. The other server
-  then creates a `gone` account, which follows alice, or on GoToSocial is followed by her, since GoToSocial only tells a
-  deleted account's followers. Once it's deleted, Elysium has to mark the actor as deleted and remove its follows. This uses a
-  second account because later checks need `lab`, and Misskey can't delete `lab`, which is its admin.
-- **Sending statuses:** alice posts a public and a followers-only status. The other server has to accept the signed `Create`
-  for each and store it with the right visibility. An unsigned fetch of the followers-only one has to get a `401`.
-  GoToSocial also has to show both in the `lab` user's home timeline. That's only read once they're stored, because in
-  GoToSocial 0.22.3, a timeline that first loads with exactly one status stops updating until a restart. Misskey has to show
-  both in the `lab` user's home timeline too, with the text that was posted. Mastodon has to have both in the `lab` user's home
-  feed, which it only fills for users who signed in lately, so the script marks that user as signed in.
-- **Likes:** alice favourites and unfavourites the remote lab post; the peer must receive both activities. The peer then
-  likes and unlikes alice's public and followers-only posts. Elysium must update counts, emit favourite notifications, and
-  list Like activities in the public post's collection.
+- **Receiving deletes.** Elysium removes its copy when `lab` deletes the status that mentioned Alice. The peer then
+  creates a separate `gone` account, since later checks need `lab` and Misskey cannot delete its admin.
+
+  The new account follows Alice, or Alice follows it on GoToSocial, which sends account deletions only to followers.
+  When the peer deletes `gone`, Elysium marks the actor as deleted and removes its follows.
+- **Sending statuses.** Alice posts a public and a followers-only status. The peer accepts both signed `Create`
+  activities and stores each with the correct visibility. An unsigned fetch of the followers-only status returns
+  `401`.
+
+  GoToSocial and Misskey show both posts in the home timeline, and the Misskey check also verifies their text. The
+  script waits until both posts are stored because GoToSocial 0.22.3 stops updating a timeline until restart if its
+  first load contains exactly one post. It marks Mastodon’s `lab` user as recently signed in
+  so Mastodon fills that user’s home feed.
+- **Likes.** The peer receives Alice’s favourite and unfavourite of the remote post. After the peer likes and unlikes
+  Alice’s public and followers-only posts, Elysium updates the counts and sends favourite notifications. The check
+  also verifies `Like` activities in the public post’s collection.
 - **Boosts:** alice boosts and unboosts the remote lab post, and the peer's count has to follow. The peer then boosts and
   unboosts alice's public post. Elysium must update `reblogs_count`, emit a reblog notification, and list the `Announce` in
   the post's shares collection.
-- **Pins:** alice pins and unpins her public post, which Elysium's `featured` collection has to list, and Mastodon and
-  Misskey have to show as pinned and then not, from the `Add` and `Remove`. GoToSocial doesn't read those, and only reads a
-  `featured` collection when it refreshes an actor, so it isn't checked. The peer then pins and unpins the lab post that
-  mentions alice, and Elysium's `?pinned=true` has to follow. GoToSocial doesn't send `Add`s either, so there the lab user's
-  profile is changed after each, and Elysium reads its `featured` collection from the `Update`.
-- **Quotes:** alice quotes a lab post, which Elysium shows as accepted once the peer approves it, and Mastodon has to show
-  as approved too. On Mastodon, alice then edits it to quote another lab post, which Mastodon has to approve and show as
-  the quote, and then edits the quote away, which Mastodon has to drop. The peer then quotes alice's public post, which Elysium approves automatically and notifies her of. On
-  Mastodon, alice then revokes it, and Mastodon has to show it as revoked. GoToSocial's posts say only their author can
-  quote them, so there this only checks that Elysium refuses to quote one.
-- **Reviewing quotes:** on Mastodon and Misskey, alice posts a status whose quotes she reviews by hand, and the peer quotes
-  it twice. Each quote has to wait in alice's interaction requests, and on Mastodon stay pending there too, since Elysium
-  doesn't answer its `QuoteRequest` yet. alice approves the first, and Mastodon has to show it as approved. She rejects the
-  second, and Mastodon has to show it as rejected, and then approves it after all, which only Elysium shows, since
-  Mastodon only takes an `Accept` of a pending quote. Misskey can't ask for approval, so there nothing is sent back.
+- **Pins.** Pinning and unpinning Alice’s public post updates Elysium’s `featured` collection. Mastodon and Misskey
+  also show the change after receiving the `Add` and `Remove`. GoToSocial reads `featured` only when it refreshes an
+  actor, so the script skips that check there.
+
+  The peer then pins and unpins the post that mentions Alice, and Elysium’s `?pinned=true` results change. Since
+  GoToSocial sends no `Add`, the script changes the profile after each action so Elysium gets an `Update` and reads
+  `featured` again.
+- **Quotes.** Alice quotes a `lab` post, and Elysium marks the quote accepted when the peer approves it. Mastodon also
+  shows approval. On Mastodon, the script checks that editing the quote to use another post gets approval and that
+  removing the quote clears it.
+
+  GoToSocial allows only authors to quote their own posts, so the check there expects Elysium to refuse Alice’s quote.
+
+  The peer then quotes Alice’s public post. Elysium approves the quote automatically and notifies Alice. On Mastodon,
+  Alice revokes the quote and the peer shows it as revoked.
+- **Reviewing quotes.** On Mastodon and Misskey, the peer quotes a post twice after Alice sets it to require review.
+  Both quotes appear in Alice’s interaction requests, and they stay pending on Mastodon while Elysium waits to answer
+  the `QuoteRequest`. Alice approves one and rejects the other, and Mastodon shows both decisions.
+
+  Alice later approves the rejected quote. Elysium shows that approval, but Mastodon only accepts an `Accept` for a
+  pending quote. Misskey sends no approval requests, so Elysium sends no decisions back.
 - **Boosts of other posts:** while alice follows the `lab` user, it boosts a post by another account on its server, `other`,
   which Elysium hasn't been sent. Elysium has to fetch that post and show the boost in alice's home timeline, and remove the
   boost when it's undone.
 - **Polls:** alice posts a poll, and the other server's `lab` user votes in it once it's stored there. Elysium has to count
   the vote and queue the `Update` with the new counts. `lab` then posts a poll, which Elysium has to store as one, and alice
   votes in it. The other server has to count her vote.
-- **Reports:** the other server's `lab` user reports alice, with her public status where it can, and forwards it, which
-  Misskey only does once its admin forwards it. Elysium has to store the report from that server, with the status, and
-  notify alice, its admin. alice then reports `lab`, with its post that mentions her, and forwards it. The other server has
-  to accept the `Flag`, signed as Elysium's instance actor, and store a report of `lab` with that comment, from Elysium's
-  instance actor on Mastodon, and with the post on Mastodon and GoToSocial. On GoToSocial, `lab` is an admin, so that it can read
-  reports.
+- **Reports.** The peer reports Alice and includes her public post where supported. On Misskey, an admin forwards the
+  report. Elysium stores the forwarded report and post and notifies Alice as an admin.
+
+  Alice then reports `lab` and forwards the report with the post mentioning her. The peer verifies the `Flag` signed
+  by Elysium’s instance actor and stores the report with its comment. Mastodon records Elysium’s instance actor as the
+  reporter, and Mastodon and GoToSocial record the post. On GoToSocial, `lab` is an admin so the script can read the
+  report.
 - **Deleting statuses:** alice deletes both statuses through the client API. The other server has to accept the signed `Delete`
   for each and remove its copy. Fetching the public status has to get a `410` with a `Tombstone`, and the followers-only one
   a `404`.
@@ -108,7 +121,7 @@ The script checks:
 
 ## Looking into a failure
 
-The lab keeps running after the script finishes:
+The lab stays up after the script exits. Use these commands to inspect logs, fetch an actor, and check the database.
 
 ```shell
 export COMPOSE_FILE=compose.federation.yaml COMPOSE_PROFILES=gotosocial   # or mastodon, or misskey
@@ -119,13 +132,18 @@ docker compose exec -T postgres psql -U elysium -d elysium -c 'SELECT state, act
 docker compose exec -T postgres psql -U elysium -d elysium -c 'SELECT activity_id, body FROM outbound_activity'
 docker compose exec -T postgres psql -U elysium -d elysium -c \
     'SELECT task_name, consecutive_failures, execution_time FROM scheduled_tasks WHERE consecutive_failures > 0'
+```
+
+**Warning:** This command permanently deletes the lab and its volumes.
+
+```shell
 docker compose --profile '*' down -v
 ```
 
-The domains only exist on the lab's network, so requests have to come from the `driver` service. No ports are published.
+The lab publishes no ports. Its domains resolve only on the lab network, so run requests from the `driver` service.
 
-Elysium only logs why it refused a delivery at debug level. To see it, add this to the `elysium` service's `environment`
-in `compose.federation.yaml`:
+For details about refused deliveries, enable debug logging in the `elysium` service’s `environment` in
+`compose.federation.yaml`.
 
 ```yaml
 LOGGING_LEVEL_DEV_BIRIBIRI_ELYSIUM_ACTIVITYPUB: debug
@@ -133,7 +151,7 @@ LOGGING_LEVEL_DEV_BIRIBIRI_ELYSIUM_ACTIVITYPUB: debug
 
 ## How the lab differs from production
 
-Two settings on the `elysium` service let it reach the other servers, and the rest of the path is the same as production:
+Two settings let Elysium reach peers inside the lab. The rest of the federation path works as in production.
 
 - **Reaching private addresses:** `elysium.federation.allowed-private-networks` lets `FederationHttpClient` reach
   `172.30.0.0/24`. Don't add an on/off switch or allow plain HTTP.
@@ -150,5 +168,5 @@ Two settings on the `elysium` service let it reach the other servers, and the re
 | Mastodon and Misskey, at their pinned versions | Nightly, on request, and on pull requests with the `federation` label |
 | All three, at their latest versions  | Nightly and on request                                                        |
 
-If a job fails, its workflow run has every container's logs as an artifact. A failure that's only in the latest versions
-usually means another server changed, not Elysium.
+On failure, the workflow uploads logs from every container. If only the latest-version jobs fail, check for changes in
+peer software.

@@ -16,12 +16,14 @@ import java.util.UUID;
  * @param text the source text, which is only included when a status is deleted, so that clients can offer to redraft it
  */
 @Schema(name = "Status", description = """
-        Mastodon's Status entity. Cards don't exist yet, so `card` is always null. `url` is null only for a boost, and \
-        for a followers-only or direct status from this server it leads to a page that's only shown to someone logged in to this server's website who can see the status. A boost has the boosted status in `reblog`, and no content of its own. \
-        `in_reply_to_id` and `in_reply_to_account_id` are null when the viewer can't see the parent. \
-        `reblogs_count`, `favourites_count` and `quotes_count` only count what this server knows of. `mentions` leaves out accounts that are suspended or deleted, and those \
-        a status from another server was sent to without mentioning them. `edited_at` is when the status was last \
-        edited, or null if it never was.""")
+        Mastodon's Status entity. `card` is always null, and `url` is null only for boosts. A boost contains the \
+        original status in `reblog` and has no content of its own. Local followers-only and direct status URLs \
+        require a website login with permission to view the status.
+
+        When the viewer cannot see a reply's parent, `in_reply_to_id` and `in_reply_to_account_id` are null. \
+        `reblogs_count`, `favourites_count`, and `quotes_count` count only interactions Elysium knows about. `mentions` \
+        excludes suspended or deleted accounts, and recipients of a remote status that it did not mention. `edited_at` \
+        is the last edit time, or null if there was no edit.""")
 record StatusResponse(
         String id,
         @JsonProperty("created_at") String createdAt,

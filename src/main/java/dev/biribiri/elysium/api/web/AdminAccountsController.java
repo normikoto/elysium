@@ -89,7 +89,7 @@ public class AdminAccountsController {
                     @Parameter(name = "suspended", description = "Only suspended accounts. " + ApiDocs.FLAG),
                     @Parameter(name = "username", description = "Only accounts whose username starts with this."),
                     @Parameter(name = "by_domain", description = "Only accounts on this domain."),
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + AccountFilter.MAX_LIMIT + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + AccountFilter.DEFAULT_LIMIT)),
                     // The generic cursor descriptions say older and newer, which these IDs don't mean.
@@ -148,7 +148,7 @@ public class AdminAccountsController {
     @Operation(
             operationId = "getAdminAccount",
             summary = "View an account",
-            description = "A deleted account gets a 404.",
+            description = "A deleted account gets 404.",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#get-one"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The account."),
@@ -174,9 +174,9 @@ public class AdminAccountsController {
             operationId = "actOnAccount",
             summary = "Suspend an account",
             description = """
-                    Differences from Mastodon: `type` has to be `suspend`, and other values get a 422, rather than \
+                    Differences from Mastodon: `type` must be `suspend`, and other values get 422, rather than \
                     doing more than an admin meant to. Other parameters are ignored. Suspending yourself, or the \
-                    server's last admin, gets a 403, with the reason in `error`.""",
+                    server's last admin, gets 403, with the reason in `error`.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#action"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
@@ -219,9 +219,9 @@ public class AdminAccountsController {
             operationId = "deleteAccount",
             summary = "Delete an account",
             description = """
-                    Differences from Mastodon: the account doesn't have to be suspended first. Only accounts on this \
-                    server can be deleted, and one on another server gets a 403. Deleting yourself, or the server's \
-                    last admin, gets a 403, with the reason in `error`.""",
+                    Differences from Mastodon: the account doesn't must be suspended first. Only accounts on this \
+                    server can be deleted, and one on another server gets 403. Deleting yourself, or the server's \
+                    last admin, gets 403, with the reason in `error`.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/accounts/#delete"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The account, as it was deleted."),

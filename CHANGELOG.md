@@ -1,42 +1,42 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+This file records notable changes to Elysium.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Elysium follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic
+Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ### Added
 
-- The server reports how many of its accounts are active, as Mastodon does: NodeInfo has `activeMonth` and
-  `activeHalfyear`, `GET /api/v2/instance`'s `usage.users.active_month` counts the accounts used in the last 30 days
-  rather than every account, and `GET /api/v1/instance/activity` gives 12 weeks of counts of posts, logins, and
-  sign-ups. Server lists and apps read these. To count active accounts, the server now records which days each account
-  is used. The counts start from the upgrade, so they're low at first. Set the new `elysium.usage.publish` setting to
-  `false` to stop publishing them. See `docs/api.md` and `FEDERATION.md`.
-- People can have their old posts deleted automatically at `/settings/post-cleanup`, linked from their settings, as with
-  Mastodon's automated post deletion. They choose how old posts have to be, and which to keep, such as pinned posts,
-  direct messages, or posts with enough favourites. Old boosts are undone too. Posts are deleted a few at a time, so
-  other servers aren't sent thousands of deletions at once. See `docs/accounts.md`.
-- Users' addresses can be on another domain than the server's own, such as `@alice@social.example` for a server at
-  `https://elysium.social.example`, with the new `elysium.instance.account-domain` setting. That domain has to redirect
-  its WebFinger requests to the server. It can be set on an existing server: its users' addresses change on the next
-  start, and other servers pick up the new ones as they refresh accounts. See
-  [Account domain](docs/configuration.md#account-domain).
+- NodeInfo and the instance API now publish active account counts for server lists and apps. NodeInfo includes
+  `activeMonth` and `activeHalfyear`, and `GET /api/v2/instance` reports accounts active in the past 30 days in
+  `usage.users.active_month`. `GET /api/v1/instance/activity` reports 12 weeks of posts, logins, and sign-ups.
+
+  Elysium records the days each account is active starting with this upgrade, so the initial counts will be low. Set
+  `elysium.usage.publish=false` to hide the counts. See [Using the API](docs/api.md#instance) and
+  [Federation](FEDERATION.md#nodeinfo).
+- People can enable automatic post deletion at `/settings/post-cleanup`, as on Mastodon. They choose how old posts
+  must be and which ones to keep, such as pinned posts, direct messages, or posts with enough favourites. Cleanup also
+  undoes old boosts and deletes posts in small batches so other servers receive fewer deletions at once. See [Deleting
+  old posts automatically](docs/accounts.md#deleting-old-posts-automatically).
+- Set `elysium.instance.account-domain` to give users addresses such as `@alice@social.example` when Elysium runs at
+  `https://elysium.social.example`. Set up the WebFinger redirect on the account domain. Existing users’ addresses
+  change on restart, and other servers learn the new ones when they refresh the accounts. See [Account
+  domain](docs/configuration.md#account-domain).
 - Apps can search for accounts through the Mastodon API's `GET /api/v1/accounts/search`, which they use to suggest
   people while someone writes a mention. Both searches can now find only the accounts the user follows, as Mastodon's
   web app does when adding people to a list. See `docs/api.md`.
 - Apps can show which of the people someone follows also follow an account, through the Mastodon API's
   `GET /api/v1/accounts/familiar_followers`. An account that hides its followers doesn't have them shown.
-- Each account and the server's own actor now have an Ed25519 key, which other servers can read from their actor
-  documents, as FEP-521a describes. Every activity the server sends is signed with it, as an integrity proof (FEP-8b32),
-  so that a server it's passed on to can tell who sent it. The upgrade creates a key for every existing account, so its
-  first start can take a few seconds longer on a server with many accounts. See `FEDERATION.md`.
-- A post or other activity that another server passes on, such as a reply that Mastodon forwards to an account's
-  followers, is accepted straight away if its author's server signed it with an integrity proof (FEP-8b32), as Mitra,
-  Fedify-based servers, and Elysium do. Before, it was always fetched again from its author's server, so it was lost if
-  that server was down or refused the fetch. See `FEDERATION.md`.
+- Every account and the instance actor now publish an Ed25519 key in their actor documents (FEP-521a). Outbound
+  activities use that key to carry an integrity proof (FEP-8b32), so peers can verify activities they receive through
+  a relay. The first startup after upgrading may take a few seconds longer on servers with many accounts because
+  Elysium generates keys for existing accounts. See [Integrity proofs](FEDERATION.md#integrity-proofs).
+- Elysium now accepts forwarded activities with a valid integrity proof from the author’s server (FEP-8b32). This
+  includes replies that Mastodon forwards when the author’s server signs them, as Mitra, Elysium, and Fedify-based
+  servers do. These deliveries now work even if the origin is down or refuses a fetch. See [Forwarded
+  activities](FEDERATION.md#forwarded-activities).
 - People can remove someone from their followers without blocking them, from apps that support it, through the
   Mastodon API's `POST /api/v1/accounts/:id/remove_from_followers`. A follower on another server is told, and can follow
   again later.
@@ -67,8 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Apps that add a slash to the end of a Mastodon API path, as Brutaldon does for `/api/v1/instance/` and
-  `/api/v2/instance/`, were refused with a 401, so they couldn't connect. The slash is now ignored, as on Mastodon.
+- The Mastodon API now accepts trailing slashes, as Mastodon does. Apps such as Brutaldon can connect using paths like
+  `/api/v1/instance/` or `/api/v2/instance/`, which previously returned 401.
 
 ## [0.3.0] - 2026-11-20
 
@@ -81,21 +81,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/accounts.md` and `FEDERATION.md`.
 - Profile links on remote accounts show as verified when the linked website links back to the account with `rel="me"`.
   Previously stored profiles are checked when they're next fetched.
-- Moving accounts, as on Mastodon. Someone moving here adds their old account as an alias at `/settings/aliases` first.
-  Someone moving away moves their followers at `/settings/move`, which needs their password and works once every 30
-  days. Their account keeps working here, but shows as moved. When an account that people here follow moves, they're
-  moved to follow the new account, with its lists, blocks, and mutes carried over, and get a `move` notification. See
-  `docs/accounts.md`, `docs/api.md`, and `FEDERATION.md`.
-- Scheduled posts, as on Mastodon, for apps that support them. A post can be scheduled more than a minute ahead, and is
-  posted within about a minute of its time. Each user can have up to 300 scheduled, and 25 on one day. One that can no
-  longer be posted then, such as a reply to a post that's been deleted, is dropped. See `docs/api.md`.
+- Moving accounts, as on Mastodon. Someone moving here adds their old account as an alias at `/settings/aliases`
+  first. Someone moving away moves their followers at `/settings/move`, which needs their password and works once
+  every 30 days. Their account keeps working here, but shows as moved.
+
+  When an account that people here follow moves, they're moved to follow the new account, with its lists, blocks, and
+  mutes carried over, and get a `move` notification. See `docs/accounts.md`, `docs/api.md`, and `FEDERATION.md`.
+- Scheduled posts, as on Mastodon, for apps that support them. A post can be scheduled more than a minute ahead, and
+  is posted within about a minute of its time. Each user can have up to 300 scheduled, and 25 on one day. One that can
+  no longer be posted then, such as a reply to a post that's been deleted, is dropped.
+
+  See `docs/api.md`.
 - People who approve followers by hand can choose at `/settings` to approve requests from people they follow straight
   away. Turning it on approves those requests that are already waiting. See `docs/accounts.md`.
 - People can choose whether the quotes of their posts that aren't approved straight away, such as those of people who
   don't follow them when only followers' quotes are, are rejected or wait for them to approve by hand. They can choose
   it for all of their new posts or for each one, in apps that support it, and review quotes with GoToSocial's
-  interaction requests. Quotes waiting for them give a `pending.quote` notification. A rejected quote can be approved later. Someone whose quote was rejected or revoked can ask again, at
-  most once an hour, from here or from their server, and asking again always waits for the quoted author. See `docs/api.md` and `FEDERATION.md`.
+  interaction requests. Quotes waiting for them give a `pending.quote` notification. A rejected quote can be approved
+  later.
+
+  Someone whose quote was rejected or revoked can ask again, at most once an hour, from here or from their server, and
+  asking again always waits for the quoted author. See `docs/api.md` and `FEDERATION.md`.
 - Editing a post can change what it quotes, or remove the quote, in apps that send `quoted_status_id` when editing.
   Mastodon doesn't allow this. A new quote is approved as it would be in a new post. See `docs/api.md` and
   `FEDERATION.md`.
@@ -117,21 +123,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   author's name and avatar, and how many replies, boosts, and likes they have. Profiles show how many posts, follows, and
   followers the account has, and have tabs for posts with replies, at `/users/<username>/with_replies`, and posts with
   media, at `/users/<username>/media`.
-- A job that has to fetch from a server already busy with this server's other fetches, such as an activity whose author
-  isn't stored yet, now waits and tries again, from a few seconds up to a minute for a job that's been waiting longer.
-  Before, it failed and was retried a minute or more later, and a large backlog of such jobs could come close to being
-  given up on. Searching for an account or a post on such a server now waits up to 2 seconds for it, where before it
-  found nothing. Posting waits the same way for each account it mentions there, though a scheduled post doesn't wait.
+- Background fetches for a peer already handling other Elysium fetches now wait and retry after a few seconds, up to a
+  minute for jobs that have waited longer. Previously those jobs failed and retried a minute or more later, and a
+  large backlog could exhaust retries. Searches and mentions in new posts now wait up to two seconds per lookup when
+  the peer is busy. Scheduled posts skip that wait.
 - An edit from another server of an older post that never arrived here, such as one whose delivery was held up, now
   stores it, in its place by date and without notifying anyone. Older direct messages are still left out. Before, edits
   of posts more than 3 days old were dropped.
 - Approving a follow request gives the user a follow notification from the new follower, in place of the request's
   notification. That includes requests approved automatically, which can give several at once, such as when a user stops
   approving followers by hand. Requests approved before upgrading don't get one.
-- Each kind of upload is held to its own size limits before it's received. Before, every upload could be as large as the
-  largest limit, such as a 100 MB avatar, before it was refused. Uploads now have to say how large they are, and one sent
-  in chunks without a size is refused. Browsers and nginx always give the size, but behind a proxy that passes request
-  bodies on as they arrive, such as Caddy, some apps' uploads may now fail. See `docs/configuration.md`.
+- Elysium checks each upload’s own size limit before receiving its body. Uploads must include a length, and chunked
+  uploads without one are rejected. Browsers and nginx provide a length, but apps that send chunked uploads through a
+  streaming proxy such as Caddy may now fail. See [Media](docs/configuration.md#media).
 - Copies of other servers' avatars and headers are removed after `elysium.attachments.remote-cache-retention`, as
   attachments' copies are. Copies kept before upgrading count from the upgrade.
 - An attachment, avatar, or header from another server whose copy was removed, or that hasn't been copied yet, is
@@ -169,8 +173,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `elysium.federation.authorized-fetch=true` stops blocked servers and suspended accounts on other servers from reading
   them, but web pages stay public. See `docs/configuration.md` and `FEDERATION.md`.
 - Threads fill in from other servers. When someone signed in opens a post's thread, the posts it replies to and the
-  replies its server lists are fetched in the background. Apps that support Mastodon's async refreshes can tell
-  when that's done, and others show what was found when the thread is opened again. Only public and unlisted posts are fetched, and a thread is fetched at most every 15 minutes.
+  replies its server lists are fetched in the background. Apps that support Mastodon's async refreshes can tell when
+  that's done, and others show what was found when the thread is opened again. Only public and unlisted posts are
+  fetched, and a thread is fetched at most every 15 minutes.
+
   See `docs/api.md` and `FEDERATION.md`.
 - Searching for a post's link, from apps, finds the post, as on Mastodon. A post from another server that isn't here yet
   is fetched from its server, when the app asks for that and the post is public or unlisted. This counts toward the same
@@ -183,21 +189,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropped, so a post looks the same everywhere. See `docs/api.md` and `FEDERATION.md`.
 - An admin front page at `/admin`, which links to every admin page. Admins find a link to it on the front page and their
   settings page.
-- Importing and exporting custom emoji packs. Admins can import a Misskey export, a Pleroma or Akkoma pack, or a .zip or
-  .tar.gz of images at `/admin/custom-emojis`, or with the `import-emojis` command for large packs, and choose whether
-  emoji that already exist are skipped or replaced. Exporting, from the page or with `export-emojis`, makes one .zip that
-  this server, Misskey, and Akkoma can all import. The page takes packs of up to 50 MB with up to 1,000 files, which
-  `elysium.custom-emojis.max-pack-size` and `elysium.custom-emojis.max-pack-files` change. See `docs/accounts.md`.
+- Importing and exporting custom emoji packs. Admins can import a Misskey export, a Pleroma or Akkoma pack, or a .zip
+  or .tar.gz of images at `/admin/custom-emojis`, or with the `import-emojis` command for large packs, and choose
+  whether emoji that already exist are skipped or replaced. Exporting, from the page or with `export-emojis`, makes
+  one .zip that this server, Misskey, and Akkoma can all import. The page takes packs of up to 50 MB with up to 1,000
+  files, which `elysium.custom-emojis.max-pack-size` and `elysium.custom-emojis.max-pack-files` change.
+
+  See `docs/accounts.md`.
 
 ### Changed
 
-- Requests to the inboxes that are unsigned, wrongly signed, or too large are now limited by address, so a reverse proxy
-  no longer has to limit them. An address that has 60 refused in a minute gets a `429` until the minute is up, and
-  `elysium.federation.inbox-limits.refused-per-minute` changes this. Valid deliveries don't count, so another server
-  only gets near the limit in a burst of signatures that can't be checked, such as just after it changes its keys. The
-  limit is skipped for requests from the server's own network, which usually means a proxy is hiding its clients'
-  addresses. A proxy limit on inbox requests is still worth keeping, to stop floods before they reach the server. See
-  `docs/configuration.md`.
+- Elysium now limits unsigned, incorrectly signed, and oversized inbox requests by client address. By default, 60
+  refusals in a minute trigger `429` until the window resets. Change the limit with
+  `elysium.federation.inbox-limits.refused-per-minute`. Valid deliveries are excluded, so a peer generally reaches it
+  only after a burst of signature failures, such as after changing keys.
+
+  For public servers, the limit skips requests from the local network because a proxy may be hiding clients’
+  addresses. A proxy inbox limit can still stop floods before they reach Elysium. See [Inbox
+  limits](docs/configuration.md#inbox-limits).
 
 ### Fixed
 

@@ -78,7 +78,7 @@ public class FiltersController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "filters/#get"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The filters."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<FilterResponse> list(@AuthenticationPrincipal TokenPrincipal token) {
         return filters.list(viewer(token)).stream().map(FilterResponse::from).toList();
@@ -94,7 +94,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The filter."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public FilterResponse get(@AuthenticationPrincipal TokenPrincipal token,
                               @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -144,7 +144,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The filter, as changed."),
                     @ApiResponse(responseCode = "404", description = """
-                            Not found, the ID isn't a UUID, or a keyword's `id` isn't one of the filter's."""),
+                            Not found, the ID is not a UUID, or a keyword's `id` isn't one of the filter's."""),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
                             A value is refused, the filter would have too many keywords, or the token has no user.""")
@@ -171,7 +171,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public Map<String, Object> delete(@AuthenticationPrincipal TokenPrincipal token,
                                       @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -192,7 +192,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The filter's keywords, oldest first."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<FilterResponse.KeywordResponse> keywords(@AuthenticationPrincipal TokenPrincipal token,
                                                          @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -243,7 +243,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The keyword."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public FilterResponse.KeywordResponse keyword(@AuthenticationPrincipal TokenPrincipal token,
                                                   @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -289,7 +289,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public Map<String, Object> deleteKeyword(@AuthenticationPrincipal TokenPrincipal token,
                                              @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -310,7 +310,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The filter's statuses, oldest first."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<FilterResponse.FilteredStatusResponse> statuses(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -326,17 +326,17 @@ public class FiltersController {
             operationId = "addFilterStatus",
             summary = "Add a status to a filter",
             description = """
-                    The filter also matches boosts of the status. A status that's deleted is taken out of the filter. \
-                    Answers 200 rather than 201, as Mastodon does.
+                    The filter also matches boosts of the status. A status that's deleted is taken out of the \
+                    filter. Answers 200 rather than 201, as Mastodon does.
 
-                    Differences from Mastodon: the status has to be one the user can see, or the answer is a 404.
+                    Differences from Mastodon: the status must be one the user can see, or the response is 404.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "filters/#statuses-add"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The new status filter."),
                     @ApiResponse(responseCode = "404", description = """
-                            The filter or status isn't found, or one of their IDs isn't a UUID."""),
+                            The filter or status isn't found, or one of their IDs is not a UUID."""),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
                             The filter already has the status, or has as many as it can, or the token has no user.""")
@@ -364,7 +364,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status filter."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public FilterResponse.FilteredStatusResponse status(@AuthenticationPrincipal TokenPrincipal token,
                                                         @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -383,7 +383,7 @@ public class FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public Map<String, Object> deleteStatus(@AuthenticationPrincipal TokenPrincipal token,
                                             @Parameter(description = ApiDocs.ID) @PathVariable String id) {

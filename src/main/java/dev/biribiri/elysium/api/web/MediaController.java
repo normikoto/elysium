@@ -45,14 +45,14 @@ public class MediaController {
             Differences from Mastodon:
 
             - The file is processed before the response, which is always a 200 with its `url`, never a 202.
-            - Images are re-encoded as WebP, which removes their metadata, and scaled down to fit 3840 × 2160 pixels in \
-            area. An animated GIF becomes an animated WebP, with type `image` rather than `gifv`.
+            - Images are re-encoded as WebP, which removes their metadata, and scaled down to fit 3840 × 2160 \
+            pixels in area. An animated GIF becomes an animated WebP, with type `image` rather than `gifv`.
             - Video and audio are kept as they were uploaded, metadata included, and get no preview unless a \
-            `thumbnail` is uploaded with them. A `thumbnail` with an image gets a 422.
-            - Images, video, and audio each have their own size limit, which `GET /api/v1/instance` gives, with audio's \
-            under `video_size_limit` when it's larger.
-            - A user can have only so many uploads that aren't attached to a status yet, 20 by default, and one past \
-            that gets a 422. Uploads are removed if they aren't attached within a day, by default.
+            `thumbnail` is uploaded with them. A `thumbnail` with an image gets 422.
+            - Images, video, and audio each have their own size limit, which `GET /api/v1/instance` gives, with \
+            audio's under `video_size_limit` when it's larger.
+            - A user can have only so many uploads that aren't attached to a status yet, 20 by default, and one \
+            past that gets 422. Uploads are removed if they aren't attached within a day, by default.
             - `blurhash` is always null.
 
             """ + ApiDocs.NEEDS_USER;
@@ -140,14 +140,15 @@ public class MediaController {
             operationId = "getMedia",
             summary = "View an upload",
             description = """
-                    Only finds the user's own uploads that aren't attached to a status yet, as on Mastodon. Uploads are \
-                    processed before they're returned, so this never gets a 206. """ + ApiDocs.NEEDS_USER,
+                    Only finds the user's own uploads that aren't attached to a status yet, as on Mastodon. Uploads \
+                    are processed before they're returned, so this never gets 206.""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "media/#get"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The upload."),
                     @ApiResponse(responseCode = "404", description = """
-                            Not found, the ID isn't a UUID, the upload isn't the user's, or it's attached to a status."""),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                            Not found, the ID is not a UUID, the upload isn't the user's, or it's attached to a \
+                            status."""),
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public MediaAttachmentResponse get(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -178,10 +179,10 @@ public class MediaController {
             operationId = "updateMedia",
             summary = "Change an upload's description or focus",
             description = """
-                    Only the user's own uploads that aren't attached to a status yet can be changed, as on Mastodon. \
-                    Once one is, it's changed by editing the status, with `media_attributes[]`.
+                    Only the user's own uploads that aren't attached to a status yet can be changed, as on \
+                    Mastodon. Once one is, it's changed by editing the status, with `media_attributes[]`.
 
-                    Differences from Mastodon: a new `thumbnail` gets a 422. A missing `description` or `focus` keeps \
+                    Differences from Mastodon: a new `thumbnail` gets 422. A missing `description` or `focus` keeps \
                     what the upload has, and an empty `description` removes it.
 
                     """ + ApiDocs.NEEDS_USER,
@@ -189,7 +190,8 @@ public class MediaController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The upload as it is now."),
                     @ApiResponse(responseCode = "404", description = """
-                            Not found, the ID isn't a UUID, the upload isn't the user's, or it's attached to a status."""),
+                            Not found, the ID is not a UUID, the upload isn't the user's, or it's attached to a \
+                            status."""),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
                             A value is invalid or of the wrong type, or the token has no user.""")
@@ -208,13 +210,14 @@ public class MediaController {
             operationId = "deleteMedia",
             summary = "Delete an upload",
             description = """
-                    Deletes one of the user's uploads that isn't attached to a status, and its files. \
+                    Deletes one of the user's uploads that isn't attached to a status, and its files.
+
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "media/#delete"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = """
-                            Not found, the ID isn't a UUID, or the upload isn't the user's."""),
+                            Not found, the ID is not a UUID, or the upload isn't the user's."""),
                     @ApiResponse(responseCode = "422", description = """
                             The upload is attached to a status, or the token has no user.""")
             })

@@ -26,11 +26,12 @@ import java.util.List;
  * @param moved           the account this one moved to, without its own {@code moved}, or null
  */
 @Schema(name = "Account", description = """
-        Mastodon's Account entity. An account on another server shows the profile from its actor document, as of when \
-        it was last fetched. Its avatar and header are `/media_proxy/` URLs that download them until they're kept here, \
-        and links to its server if they can't be, or its media is rejected. An account with no name shows its username as `display_name`. \
-        `discoverable` is always false. `pleroma` has Pleroma's `background_image`, which only a local account can \
-        have.""")
+        Mastodon's Account entity. Remote profiles reflect the last fetched actor document. When an account has no \
+        name, `display_name` uses its username. `discoverable` is always false.
+
+        The `/media_proxy/` URLs download remote avatars and headers on demand. If Elysium cannot cache them or their \
+        media is rejected, the URLs point to the original files. Pleroma's `pleroma.background_image` is only available \
+        for local accounts.""")
 record AccountResponse(
         String id,
         String username,
@@ -66,9 +67,9 @@ record AccountResponse(
                 server.""")
         @JsonProperty("hide_collections") Boolean hideCollections,
         @Schema(description = """
-                The account this one has moved to, which is left out if it hasn't moved, or that account is suspended, \
-                deleted, or on a blocked server. That account's own `moved` is always left out. A local account that's \
-                moved keeps working.""")
+                The account this one has moved to, which is omitted if it hasn't moved, or that account is \
+                suspended, deleted, or on a blocked server. That account's own `moved` is always left out. A local \
+                account that's moved keeps working.""")
         @JsonInclude(JsonInclude.Include.NON_NULL) AccountResponse moved,
         Pleroma pleroma
 ) {

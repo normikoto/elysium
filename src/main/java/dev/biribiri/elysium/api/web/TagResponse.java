@@ -16,9 +16,9 @@ import java.util.List;
  *                  leaves it out
  */
 @Schema(name = "Tag", description = """
-        Mastodon's Tag entity. `name` is normalized: lowercase, and in Unicode's NFKC form. `history` only counts public \
-        statuses stored on this server. Tags can't be followed or featured, so `following` is always false, and is left \
-        out when there's no token.""")
+        Mastodon's Tag entity. `name` is normalized: lowercase, and in Unicode's NFKC form. `history` only counts \
+        public statuses stored on this server. Tags can't be followed or featured, so `following` is always false, \
+        and is omitted when there's no token.""")
 record TagResponse(
         String name,
         String url,

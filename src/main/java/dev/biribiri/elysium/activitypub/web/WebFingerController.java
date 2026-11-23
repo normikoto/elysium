@@ -51,13 +51,14 @@ public class WebFingerController {
             summary = "Find an actor by its address or URL",
             description = """
                     Gives a `self` link to the actor document, of type `""" + ActivityStreams.ACTIVITY_JSON + """
-                    `, and an `http://webfinger.net/rel/profile-page` link to the profile page. A user's also has \
+                    `, and an `http://webfinger.net/rel/profile-page` link to the profile page. A user's response also includes \
                     `http://ostatus.org/schema/1.0/subscribe` and `https://w3id.org/fep/3b86/Follow` templates, which \
                     lead to `{base-url}/authorize_interaction?uri=…`, where they can follow the account given as `uri`. \
                     The instance actor can be found as `acct:""" + InstanceActor.USERNAME + "@{domain}` or by its URL, `{base-url}"
                     + InstanceActor.PATH + """
-                    `, and its profile page is the front page. A suspended user is still found. Served as \
-                    `application/jrd+json` or `application/json`, and any origin can read it through CORS.""",
+                    `, and its profile page is the front page. Suspended users are still discoverable.
+
+                    Serves `application/jrd+json` or `application/json` with CORS from any origin.""",
             parameters = @Parameter(name = "resource", required = true, description = """
                     `acct:{username}@{domain}`, or an actor's URL. `{domain}` is the account domain, or the base URL's \
                     host, which other servers look up first when the two differ. The answer's `subject` always has the \

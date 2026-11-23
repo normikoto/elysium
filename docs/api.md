@@ -1,11 +1,14 @@
 # Using the API
 
-Elysium implements Mastodon's client API, with the differences listed here. Each section links to the Mastodon
-documentation it follows.
+Elysium implements Mastodon’s client API with the differences below. Each section links to the corresponding Mastodon
+documentation.
 
-- A multipart request has to have a `Content-Length`, and one sent with chunked transfer encoding gets a 411. One that's
-  larger than its endpoint's files can be, plus 4 MB for the rest of the form, gets a 413 before it's read. That's the
-  avatar, header, and background limits for `PATCH /api/v1/accounts/update_credentials`, and the media limits for uploads.
+- Multipart requests require `Content-Length`. A chunked multipart request gets 411. A body over the endpoint’s
+  request limit gets 413 before Elysium reads it.
+
+  Media uploads allow the largest configured attachment size plus one image’s size limit for a thumbnail. For
+  `PATCH /api/v1/accounts/update_credentials`, the budget is the larger of three profile images and one custom emoji
+  image, using their configured limits. Both budgets include another 4 MB for form data.
 
 ## OAuth
 
@@ -16,13 +19,12 @@ Follows [Mastodon's OAuth API](https://docs.joinmastodon.org/methods/oauth/): `P
 - `force_login`, `prompt`, `lang`, `/oauth/userinfo`, and `POST /api/v1/accounts` aren't implemented.
 - Each authorization issues a new token rather than reusing the application's existing one.
 - Revoking an unknown token succeeds, rather than returning Mastodon's 403.
-- A JSON body for `/oauth/token` or `/oauth/revoke` can be at most 64 KB, and a larger one gets a 413. A field that's an
-  array, or a key given twice, gets a 400 `invalid_request`, as a repeated form field does. Fields that are objects or
-  null are ignored.
+- JSON bodies for `/oauth/token` and `/oauth/revoke` have a 64 KB limit. Larger bodies get 413. Repeated keys in JSON,
+  repeated fields in forms, and JSON array values get 400 `invalid_request`. JSON object and null values are ignored.
 - `POST /api/v1/apps` allows 30 registrations an hour from one address, not counting ones that get a 422, and then
   returns a 429 with a `Retry-After` header.
-- An application that isn't approved or issued a token within a day of registering is removed, and has to register
-  again. A token from the `client_credentials` grant keeps it.
+- Elysium removes applications that go a day after registration without user authorization or a token. A token issued
+  through `client_credentials` also keeps the application registered. Removed applications must register again.
 
 ## Statuses
 
@@ -33,13 +35,12 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `scheduled_at` schedules the status instead, and the response is a `ScheduledStatus`. See
   [Scheduled statuses](#scheduled-statuses).
 - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a duplicate status.
-- `visibility` defaults to `public` only when it's missing. An empty value, a repeated value, and `visibility[]` are
-  rejected.
+- `visibility` defaults to `public` when omitted. Empty or repeated values and `visibility[]` are rejected.
 - `media_ids` can have up to 4 of the user's unattached uploads, as on Mastodon. A video or audio can't be attached with
   anything else, and a status with media can have no text.
 - A status with a poll has to have text, and can't have `media_ids`. See [Polls](#polls).
-- `DELETE /api/v1/statuses/:id` keeps the status's attachments so that they can be posted again, as on Mastodon, but for
-  an hour by default rather than a day. `delete_media=true` deletes them at once.
+- `DELETE /api/v1/statuses/:id` keeps attachments available for reuse. The default is one hour, compared with
+  Mastodon’s one day. Set `delete_media=true` to delete attachments immediately.
 
 ### Length and links
 
@@ -47,22 +48,21 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - As in Mastodon, each URL counts as 23 characters, unless it's longer than 2048 characters, in which case it counts at
   its full length. URLs can save at most 4096 characters per status, and any after that count at their full length.
 - A mention counts without its domain, as in Mastodon, and the domains can save at most 4096 characters per status.
-- URLs, mentions, and hashtags are linked. A mention of an account on another server is looked up when the status is
-  posted, and counts toward the same limit of 30 lookups a minute as `lookup` and `search`. A mention that can't be
-  found, or one past that limit of an account that isn't already known here, stays as text rather than failing the
-  request.
+- Elysium links URLs, mentions, and hashtags. Resolving remote mentions shares the 30-lookups-per-minute limit with
+  `lookup` and `search`. Unknown mentions remain plain text if they cannot be resolved, including when the limit is
+  reached.
 
 ### Editing
 
-- In `PUT /api/v1/statuses/:id`, `media_ids` lists every attachment the status is to have, in order, and a missing one
-  keeps them. An attachment that an edit takes out is deleted at once.
+- In `PUT /api/v1/statuses/:id`, `media_ids` is the full list of attachments in display order. Omit it to keep the
+  existing attachments. Any attachment removed by an edit is deleted immediately.
 - `media_attributes[]` only changes `description` and `focus`, and a `thumbnail` in it gets a 422.
-- A missing or empty `language` keeps the status's, as on Mastodon, so a language can't be removed. A missing
-  `sensitive` keeps what the status has.
+- Omitting `language` or sending it empty keeps the existing language, as on Mastodon. Omitting `sensitive` keeps the
+  existing flag.
 - `visibility` and `in_reply_to_id` are ignored.
 - An account that an edit no longer mentions can still see the status, as on Mastodon.
-- An edit that changes nothing doesn't set `edited_at`. Each `edited_at` is at least a second after the version before
-  it, even if that's slightly in the future, because other servers are sent whole seconds.
+- A no-op edit leaves `edited_at` unchanged. Each new `edited_at` is at least one second later than the previous one,
+  even if that puts it slightly in the future. Federation timestamps use whole seconds.
 - `GET /api/v1/statuses/:id/history`:
   - For a status from another server, it only has the versions that were sent here, and none from before the upgrade
     that added it.
@@ -75,14 +75,14 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 
 ### Visibility
 
-- A followers-only or direct status from this server has a `url`, as on Mastodon. Its page is only shown to someone
-  logged in to this server's website who can see the status, and anyone else gets a 404.
+- Local followers-only and direct statuses have a `url`, as on Mastodon. The web page requires a login with access to
+  the status. Other requests get 404.
 - A followers-only or direct status can be seen by the accounts it mentions, as on Mastodon. Mentions from accounts the
   user doesn't follow appear in notifications, and direct messages in conversations, rather than in the home timeline.
 - `mentions` leaves out accounts that have been suspended or deleted since. For a status from another server, it also
   leaves out local accounts that it was sent to without mentioning them, which can still see it.
-- A reply whose parent the viewer can't see, such as a public reply to its author's own followers-only status, has a null
-  `in_reply_to_id` and `in_reply_to_account_id`. Mastodon names the parent whoever can see it.
+- If the viewer cannot see the parent of a reply, both `in_reply_to_id` and `in_reply_to_account_id` are null.
+  Mastodon exposes these IDs to anyone who can see the reply.
 - `local_only=true` keeps a status on this server, as on glitch-soc, alongside any `visibility`.
   - It isn't sent to other servers, and only accounts on this server can see it, through an app or logged in to the
     website. Anyone else gets a 404, and it's left out of what they can list, such as the public timeline and an
@@ -134,12 +134,12 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   `usage.users.active_month` counts the local accounts that used the server in the last 30 days, through an app or a
   login session, and can be up to an hour old. If the admin has turned that off with `elysium.usage.publish`, it counts
   every local account.
-- `GET /api/v1/instance/activity` gives 12 weeks of counts, this week first, as Mastodon does, with every value as a
-  string. Weeks start at midnight UTC on a Monday, and the counts can be up to an hour old. `statuses` counts the
-  statuses local accounts published that still exist, leaving out direct statuses, boosts, and suspended accounts'
-  statuses. `logins` counts the local accounts that used the server that week, and `registrations` the accounts
-  created that week that haven't been deleted. It's a 404 if the admin has turned these off with
-  `elysium.usage.publish`.
+- `GET /api/v1/instance/activity` returns 12 weeks of counts as strings, newest week first. Weeks start Monday at
+  midnight UTC, and counts may be up to an hour old.
+
+  `statuses` counts existing statuses from local accounts for the week, excluding boosts, direct statuses, and posts
+  from suspended accounts. `logins` counts local accounts that used the server that week. `registrations` counts
+  accounts created that week that still exist. The endpoint returns 404 when `elysium.usage.publish` is off.
 - Admins set the server's rules on the `/admin/rules` page. `GET /api/v1/instance/rules` lists them in order, as do
   `rules` in `GET /api/v1/instance` and `GET /api/v2/instance`. Their IDs are UUIDs rather than numbers, and they have
   no `translations`. The sign-up page lists them too.
@@ -226,7 +226,7 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - It lists up to 40 ancestors, and up to 60 descendants at most 20 replies deep, the limits Mastodon uses without a
   token, whoever asks. Statuses the user can't see are left out after those limits apply, so fewer can be listed.
 
-`GET /api/v1_alpha/async_refreshes/:id` only knows the refreshes of that endpoint.
+`GET /api/v1_alpha/async_refreshes/:id` reports only context refreshes.
 
 - A refresh is found for a day after it starts, or until its status's thread is fetched again, and only for a user who
   can see its status.
@@ -236,8 +236,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 
 ### Timelines
 
-- `GET /api/v1/timelines/home` is worked out from the statuses stored here each time, rather than kept as a feed, so it
-  never answers `206`, and an account's stored statuses show as soon as it's followed, older ones too.
+- `GET /api/v1/timelines/home` reads the statuses currently stored here and never returns 206. Following an account
+  immediately includes its eligible statuses, including older ones.
   - A followed account's reply is only listed when it's to its author, to the user, or to someone they follow, as on
     Mastodon, and one to a status that isn't stored here is left out.
   - Direct messages addressed to the user are included only when they follow the author.
@@ -270,8 +270,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `visibility` can be `public`, the default, `unlisted`, or `private`, sent as a form, a query parameter, or JSON.
   `direct` gets a 422.
 - Boosting a status again returns the boost that's there.
-- A boost's ID stands for the status it boosts when it's boosted, favourited, replied to, or asked for its context, and
-  `DELETE /api/v1/statuses/:id` with a boost's ID unboosts it.
+- Use a boost’s ID to refer to the original status when boosting, favouriting, replying, or getting context. `DELETE
+  /api/v1/statuses/:id` with a boost ID undoes that boost.
 - `GET /api/v1/statuses/:id/reblogged_by` works like
   [`favourited_by`](#favourites), but only lists public and unlisted boosts, so an author's boost of their own
   followers-only status isn't listed. For a status from another server, it only lists the boosts this server knows of.
@@ -296,30 +296,34 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   only the author. It's accepted on a new status, in `PUT /api/v1/statuses/:id`, and in
   `PUT /api/v1/statuses/:id/interaction_policy`. Missing means the account's `source[quote_policy]`, which is
   `public` until it's changed. A followers-only or direct status is always `nobody`.
-- `quote_others`, which Mastodon doesn't have, says what happens to everyone else's quotes: `reject`, as on Mastodon,
-  or `review`, which waits for the user to approve or reject them with
-  [interaction requests](#interaction-requests). It changes nothing for a `public` status. It's accepted in the same
-  three places. Missing means the account's `source[quote_others]` on a new status, which is `reject` until it's
-  changed, and keeps what it was in an edit. A `public` status doesn't keep it, so changing one to `followers` or
-  `nobody` without `quote_others` uses the account's default.
-  `PUT /api/v1/statuses/:id/interaction_policy` takes either field alone. Another value gets a 422.
+- Elysium adds `quote_others` to control quotes that lack automatic approval. `reject` matches Mastodon’s behavior and
+  `review` lets the author decide through [interaction requests](#interaction-requests). It uses the same endpoints as
+  `quote_approval_policy`.
+
+  A new status defaults to the account’s `source[quote_others]`, which starts at `reject`. An edit keeps the current
+  value when the field is omitted. A `public` quote policy ignores and discards it, so switching from `public` to
+  `followers` or `nobody` without specifying it uses the account default.
+
+  `PUT /api/v1/statuses/:id/interaction_policy` accepts either policy field on its own. Invalid values get 422.
 - With `review`, `quote_approval.manual` has `public`, so a client shows `current_user` as `manual` for everyone whose
   quotes aren't approved automatically. With `followers`, `automatic` has `followers`, and with `nobody` it's empty.
   Changing either setting doesn't change the quotes approved or waiting already.
-- `PUT /api/v1/statuses/:id` can change what a status quotes, which Mastodon ignores. A missing `quoted_status_id`, or
-  the one it quotes already, keeps the quote and its approval, and a null or empty one removes it. Another status is
-  quoted as it would be by a new status, with the same 404 and 422, and its quote is approved again. A status that
-  isn't followers-only or direct can't quote a followers-only one, a local-only one can't quote one from another
-  server, and one that isn't local-only can't quote a local-only one, since an edit can't change its visibility: each
-  gets a 422, as does quoting itself. The quoted author of a quote that's removed loses its notification.
+- `PUT /api/v1/statuses/:id` can change or remove a quote. Mastodon ignores `quoted_status_id` on edit. Omit it or
+  send the current ID to keep the quote and its approval. Use null or an empty value to remove it.
+
+  A different ID starts approval again and uses the same 404 and 422 rules as a new status. An edit cannot make a
+  public or unlisted status quote a followers-only status. Quoting itself, quoting a remote status from a local-only
+  status, or quoting a local-only status from a federated status also gets 422. Removing a quote clears the
+  notification to the quoted author.
 - A quote of a status on another server is `pending` until that server approves it, and `rejected` if it refuses.
   A quote of a local status whose quotes need approval is `pending` until its author decides.
-- `POST /api/v1/statuses/:id/quote/request`, which Mastodon doesn't have, asks again for approval of what one of the
-  user's statuses quotes, when its `quote.state` is `pending`, `rejected`, or `revoked`, and returns the status. A quote
-  of a local status is decided again by its author's policy. One of a status on another server gets a new request, and
-  is `pending` again. A quote can be asked for once an hour. One that's `accepted`, was asked for less than an hour
-  ago, or whose author no longer allows the user to quote it, gets a 422, and a status that isn't the user's or doesn't
-  quote anything gets a 404.
+- Elysium adds `POST /api/v1/statuses/:id/quote/request` to request approval again for what one of the user’s own
+  statuses quotes. It applies when `quote.state` is `pending`, `rejected`, or `revoked` and returns the updated
+  status. For a quote of a local status, Elysium applies the quoted author’s current policy. For a quote of a remote
+  status, it sends a new request and marks the quote `pending`.
+
+  The endpoint returns 422 if the quote is already accepted, a request was made in the past hour, or the author’s
+  policy disallows it. A status that belongs to someone else or quotes nothing gets 404.
 - A quote from another server is `pending` until this server has checked its approval, which can take a moment. One
   from a server that can't ask for approval is `accepted`, unless it quotes a local status whose policy wouldn't allow
   it.
@@ -362,8 +366,8 @@ Quotes that need approval are reviewed with GoToSocial's `/api/v1/interaction_re
 
 ## Announcements
 
-- Admins write announcements on the `/admin/announcements` page. `GET /api/v1/announcements` lists the published ones,
-  dismissed ones included, and needs a user's token with any scope, as on Mastodon.
+- Admins write announcements at `/admin/announcements`. `GET /api/v1/announcements` returns published announcements,
+  including dismissed ones. It requires a user token with any scope, as on Mastodon.
 - Their IDs are UUIDs rather than numbers.
 - `content` is HTML made from plain text, with links and hashtags linked, and mentions left as text. `mentions` and
   `statuses` are always empty.
@@ -388,9 +392,9 @@ none.
   including text and two emoji, gets a 422.
 - An account can react to a status with up to 20 different emoji, and a 21st gets a 422.
 - A reaction isn't a favourite, so it doesn't change `favourited` or `favourites_count`.
-- A status's reactions are in `pleroma.emoji_reactions`, in the order each emoji was first used. Each has `name`,
-  `count`, and `me`, and `url` and `static_url` for a custom emoji. A custom emoji's `name` is its shortcode, followed
-  by `@` and its server's domain for another server's.
+- `pleroma.emoji_reactions` lists reactions in the order each emoji was first used. Each entry has `name`, `count`,
+  and `me`. Custom emoji also have `url` and `static_url`, and their `name` is the shortcode, with `@domain` appended
+  for remote emoji.
 - A listing's `accounts` has up to 40 of each emoji's accounts, the most recent first.
 - Reactions from other servers are only known for this server's statuses, so another server's status only shows this
   server's accounts' reactions.
@@ -404,8 +408,8 @@ none.
 Follow [Mastodon's polls API](https://docs.joinmastodon.org/methods/polls/).
 
 - A poll's `id` is its status's.
-- A new poll can have 2 to 4 options of up to 50 characters, which have to be different and not blank, and be open for
-  300 to 2629746 seconds, as on Mastodon. `GET /api/v1/instance` gives these limits. `expires_in` is required.
+- A new poll needs 2 to 4 distinct, nonblank options of up to 50 characters. It requires `expires_in` from 300 to
+  2629746 seconds, as on Mastodon. `GET /api/v1/instance` reports these limits.
 - In `PUT /api/v1/statuses/:id`, a missing `poll` keeps the status's poll, and a null or empty one removes it.
   - Changing its `options` or `multiple` makes it a new poll, as on Mastodon, which loses its votes and is open for
     `expires_in` from then.
@@ -415,9 +419,9 @@ Follow [Mastodon's polls API](https://docs.joinmastodon.org/methods/polls/).
   still has the total.
 - `POST /api/v1/polls/:id/votes` takes `choices[]` as a form, a query parameter, or JSON. A choice that isn't an
   option, one given twice, more than one in a poll that allows one, or none at all, gets a 422.
-- A poll from another server has the counts its server last sent, and a vote from here is added to them until its server
-  sends new ones. `GET /api/v1/polls/:id` asks that server for new counts in the background when they're more than 5
-  minutes old, so a later request has them. It also asks once the poll ends.
+- Remote polls show the latest counts received from their server, plus local votes cast since then. `GET
+  /api/v1/polls/:id` refreshes counts in the background when they are over five minutes old and once the poll ends.
+  Clients can fetch the updated counts in a later request.
 
 ## Scheduled statuses
 
@@ -437,10 +441,11 @@ Follow [Mastodon's scheduled statuses API](https://docs.joinmastodon.org/methods
   once the suspension ends.
 - If posting one fails for some other reason, such as the database being unavailable, it's tried again later, waiting
   longer each time, and dropped after about an hour and a quarter.
-- Its media is held for it, and doesn't expire or count toward the limit on uploads waiting to be posted. A user can
-  have at most 100 uploads held, and a status that would hold more gets a 422. Held media can't be attached to another
-  status, and `DELETE /api/v1/media/:id` gets a 422 for it. `GET` and `PUT /api/v1/media/:id` don't
-  find it.
+- Scheduled statuses reserve their media. Reserved uploads do not expire or count toward the unattached upload limit.
+  Scheduling a status that would put the user over 100 reserved uploads gets 422.
+
+  Reserved media cannot be attached to another status. `DELETE /api/v1/media/:id` gets 422 for reserved media, and
+  `GET` and `PUT /api/v1/media/:id` do not find it.
 - `DELETE /api/v1/scheduled_statuses/:id` makes its media unattached uploads for an hour by default, so that it can be
   posted another way.
 - `PUT /api/v1/scheduled_statuses/:id` only changes `scheduled_at`, as on Mastodon, which is required, and has the same
@@ -454,8 +459,8 @@ Follow [Mastodon's scheduled statuses API](https://docs.joinmastodon.org/methods
 
 Follow [Mastodon's media API](https://docs.joinmastodon.org/methods/media/), with the `write:media` scope.
 
-- `POST /api/v2/media` and `POST /api/v1/media` process the file before they answer, so they always answer 200 with a
-  `url`, never 202.
+- `POST /api/v2/media` and `POST /api/v1/media` process uploads before responding. On success both return 200 with a
+  `url`.
 - Uploads can be PNG, JPEG, GIF, or WebP images, MP4, MOV, or WebM video, or MP3, M4A, Ogg, FLAC, or WAV audio. A file's
   type is worked out from its content, and anything else gets a 422, whatever it's sent as.
 - Images are re-encoded as WebP, without their metadata, and scaled down to fit 3840 × 2160 pixels in area. Their
@@ -466,9 +471,9 @@ Follow [Mastodon's media API](https://docs.joinmastodon.org/methods/media/), wit
 - Video and audio are kept as they were uploaded, so `meta` has no `original` for them, and they have no `preview_url`
   unless a `thumbnail` is uploaded with them. A `thumbnail` with an image gets a 422, and so does one in
   `PUT /api/v1/media/:id`.
-- Images, video, and audio each have their own size limit, 16 MB, 100 MB, and 40 MB by default, and a file over its
-  limit gets a 422. A request that's larger than the largest file and an image `thumbnail` together, plus 4 MB, gets a
-  413 before it's read.
+- The default size limits are 16 MB for images, 100 MB for video, and 40 MB for audio. Files over their limit get 422.
+  The request budget adds the largest configured attachment limit, the image limit for a `thumbnail`, and 4 MB for
+  form data. A body over that budget gets 413 before Elysium reads it.
 - A user can have at most 20 uploads waiting to be posted by default, and one more gets a 422. An upload that isn't
   posted within a day, by default, is deleted.
 - `blurhash`, `preview_remote_url`, and `text_url` are always null.
@@ -504,10 +509,9 @@ Only these types are generated: `mention`, `status`, `follow`, `follow_request`,
   `update` arrives, as on Mastodon, once for each edit of a status that a user boosted, and goes away if they unboost it.
 - A `poll` arrives within about a minute of a poll ending, for its author if they're a local user, and for each local
   user who voted in it. Its `account` is the poll's author.
-- `admin.report` goes to each admin, except one who filed the report. Only admins see them, so an account that stops
-  being an admin stops seeing them, in lists and counts, until it's an admin again. Its `account` is the reporter,
-  which for a report from another server is whoever sent it there, usually that server's instance actor. Blocking or
-  muting the reporter doesn't hide it.
+- Each admin gets `admin.report` except the person who filed the report. Losing admin access hides these notifications
+  and removes them from counts until the role is restored. The `account` is the actor that sent the report, usually
+  the instance actor for a report from another server. Blocking or muting that actor leaves the notification visible.
 - A `move` goes to each local follower that was moved when an account moved. Its `account` is the old account, and
   `target` the new one, as on Mastodon. A follower who couldn't be moved, because the new account blocks them, gets
   none. Grouped notifications don't include `target`, so clients use the sample account's `moved`.
@@ -542,8 +546,8 @@ Follow [Mastodon's conversations API](https://docs.joinmastodon.org/methods/conv
 
 - `GET /api/v1/conversations`, `DELETE /api/v1/conversations/:id`, and `POST /api/v1/conversations/:id/read` are
   implemented.
-- Pages default to 20 conversations, and at most 40. Follow the `Link` header, because cursors are latest-status IDs,
-  not conversation IDs.
+- Pages default to 20 conversations and allow up to 40. Use the `Link` header for pagination. Cursors identify the
+  latest status in each conversation.
 - A conversation is a thread of direct statuses for one participant set. A new top-level message starts a separate
   conversation even with the same participants.
 - Only stored statuses are included, and missing remote parents are never fetched. Thread parts join when a missing
@@ -584,10 +588,10 @@ Follow [Mastodon's filters API](https://docs.joinmastodon.org/methods/filters/),
   descriptions. For a status from another server, its text is what its HTML shows.
 - A whole-word keyword only needs a word boundary at an end that's a letter, digit, or underscore, so `#tag` doesn't
   match `#tagged` but does match `#tag!`.
-- A filter whose action is `hide`, or a v1 filter that's `irreversible`, leaves what it matches out of the lists in its
-  contexts: the home timeline for `home`, notifications about those statuses for `notifications`, the public and
-  hashtag timelines for `public`, a status's context for `thread`, an account's statuses for `account`, and the streams
-  of those timelines.
+- A `hide` filter, or an `irreversible` v1 filter, hides matches in the selected contexts. `home` covers the home
+  timeline, `notifications` covers notifications about matched statuses, and `public` covers public and hashtag
+  timelines. `thread` covers a status’s context, and `account` covers account statuses. The same filters apply to
+  streams of those timelines.
   - Pages can then have fewer statuses than `limit`, but their `Link` headers still work.
   - A status that's fetched by itself is always given, with `filtered`.
   - `warn` and `blur` filters are left to clients.
@@ -631,8 +635,8 @@ Follow [Mastodon's lists API](https://docs.joinmastodon.org/methods/lists/), wit
 - `GET /api/v1/lists/:id/accounts` pages by when each account was added, newest first, and the cursors are the IDs in
   the `Link` header, not account IDs. `limit=0` lists all of them, as on Mastodon. Suspended and deleted accounts are
   left out.
-- A list's timeline is worked out from the statuses stored here each time, as the home timeline is, so a newly added
-  member's older statuses show straight away.
+- A list timeline reads the statuses currently stored here, like the home timeline. A newly added member’s older
+  statuses appear immediately.
   - It lists what the home timeline would of its members' statuses and boosts, apart from direct statuses, and nothing
     from a member whose follow request is still waiting.
   - A member's reply to themselves or to the user is always listed, and other replies by `replies_policy`.
@@ -656,9 +660,9 @@ Follows [Mastodon's streaming API](https://docs.joinmastodon.org/methods/streami
 
 ### Streams
 
-- A stream carries what its timeline would list: `user` what the home timeline would, `list` what the list's timeline
-  would, and `public` and `hashtag` what the public and hashtag timelines would. That includes leaving out what the user
-  has hidden or their filters hide. A status from another server only arrives once it's stored here.
+- Streams follow the same visibility and filters as their timelines. `user` follows the home timeline, `list` follows
+  the selected list, and `public` and `hashtag` follow their respective timelines. Remote statuses appear once Elysium
+  stores them.
 - `public`, `public:local`, `public:remote`, their `:media` forms, `hashtag`, and `hashtag:local` work without a token,
   as their timelines do. With one, they need `read:statuses`.
 - `user`, `direct`, and `list` need `read:statuses`, as on Mastodon, though a list's timeline needs `read:lists`.
@@ -670,9 +674,9 @@ Follows [Mastodon's streaming API](https://docs.joinmastodon.org/methods/streami
 - The token can be in the `Authorization` header, the `access_token` query parameter, or the `Sec-WebSocket-Protocol`,
   but the last two only work for streaming.
 - A WebSocket can have up to 50 subscriptions, and more get an error.
-- A WebSocket message that can't be followed gets `{"error": …, "status": 400}`, or 401 or 403 for a stream that needs a
-  token or scope it doesn't have, and the connection stays open. A stream given in the URL that can't be subscribed to
-  gets the error, and the connection is closed.
+- An invalid WebSocket command gets an error message in the form `{"error": …, "status": 400}`. The message uses a
+  `status` of 401 for a missing token or 403 for a missing scope. The connection stays open for command errors. If
+  subscribing to the stream given in the URL fails, Elysium sends the error and closes the connection.
 - An event stream with a missing or invalid `tag`, or a missing `list`, gets a 400, and one with an app token for a
   stream that needs a user gets a 422.
 - A `list` that isn't the user's, or doesn't exist, gets a 401 with "Not authorized to stream this list", as on
@@ -707,9 +711,9 @@ Only these exist:
 - An account on another server shows its profile as of when this server last fetched it, so a change can take a while
   to show if its server doesn't announce it.
 - One with no name has its username as `display_name`, where Mastodon sends an empty one.
-- Its `avatar` and `header`, and their `_static` forms, are `/media_proxy/accounts/:id/…` URLs until they're
-  downloaded, which download the image and redirect to the copy. They're links to its server, possibly on another host,
-  if they can't be downloaded or an admin rejects its server's or its media.
+- `avatar`, `header`, and their `_static` forms use `/media_proxy/accounts/:id/…` until they are cached. That URL
+  downloads the image and redirects to the local copy. If Elysium cannot download the media or an admin rejects it for
+  the account or domain, these fields use the original URL, which may be on another host.
 - A `fields` entry containing only an HTTPS URL can get a `verified_at` after the profile is fetched. If the URL is an
   HTML link, its text has to match its destination. The linked page has to link back with `rel="me"` to the actor URI
   or to the profile URL on the actor's origin, matching the case of its path and query.
@@ -732,8 +736,8 @@ Only these exist:
   `source[quote_policy]`. The other preferences can't be changed yet, so they have the values a new account would have
   on Mastodon: `public`, not sensitive, no language (`null`), media hidden only when sensitive, content warnings
   collapsed, and GIFs not autoplayed.
-- `fields_attributes` replaces all of the fields. It can be a list or an object keyed by position, in JSON or in a form
-  (`fields_attributes[0][name]` or `fields_attributes[][name]`). Fields with an empty name and value are left out.
+- `fields_attributes` replaces all profile fields. Send a list or an object keyed by position in JSON. In a form, use
+  `fields_attributes[0][name]` or `fields_attributes[][name]`. Fields with both name and value empty are omitted.
 - How many fields there can be is set by the admin, and defaults to 4. `GET /api/v1/instance` reports it in
   `configuration.accounts.max_profile_fields`, which Mastodon doesn't send.
 - A field whose value is only an `https` URL gets a `verified_at` once that page links back to the account with
@@ -747,6 +751,7 @@ Only these exist:
   [Pleroma](https://docs.akkoma.dev/stable/development/API/differences_in_mastoapi_responses/#accounts). It's uploaded
   like `avatar` and `header`, with the same limit. An empty value instead of a file removes it, and null in JSON
   leaves it as it is. It's re-encoded as WebP, but not cropped: only scaled down to fit 3840 × 2160 pixels in area.
+
   Akkoma's `pleroma_background_image_description` isn't supported, so a value for it gets a 422.
 - Every account has Pleroma's `pleroma.background_image`, its background's URL, or null. Backgrounds aren't sent to or
   read from other servers, so an account on another server's is always null.
@@ -761,9 +766,9 @@ Only these exist:
   chosen at `/settings` to approve requests from people they follow. Clients can't read or change that choice.
 - Following yourself, or an account on a server the admin has blocked, gets a 422. Following an account when either
   blocks the other, or on a server the user has blocked, gets a 403, as on Mastodon.
-- `reblogs` and `languages` apply to the user's lists as well as their home timeline, as on Mastodon. A boost counts as
-  being in the language of the post it boosts, and a post whose language isn't known is always shown. Languages match
-  ignoring case, and `pt` also matches regional codes such as `pt-BR`.
+- `reblogs` and `languages` apply to lists and the home timeline, as on Mastodon. A boost uses the original status’s
+  language. Statuses with an unknown language always appear. Language matching ignores case, and `pt` also matches
+  regional codes such as `pt-BR`.
 - `POST /api/v1/accounts/:id/endorse` gets a 422 unless the user follows the account, as on Mastodon, and an endorsement
   ends when the follow does, including when the account moves. `/pin` and `/unpin` are the same as `/endorse` and
   `/unendorse`. Endorsements aren't sent to other servers, and `GET /api/v1/accounts/:id/endorsements` doesn't exist.
@@ -821,12 +826,11 @@ Only these exist:
     a status's own thread shows it.
   - With `resolve`, a status from another server that isn't stored is fetched, and only stored and found if it's public
     or unlisted. A status that's stored already isn't refreshed.
-- Only the first 200 matches can be paged through with `offset`, and an `offset` past them returns no accounts.
-  `following` only finds accounts the user follows, and is ignored without a user. With it, another server isn't asked
-  about an address, since an account the user follows is already known. `exclude_unreviewed` is ignored.
-- `search` finds hashtags by the start of their name, from those that public statuses stored here use, most used first.
-  A query that's a valid name, with or without its `#`, also finds that tag when nothing uses it, as the first result,
-  as on Mastodon. Only the first 200 can be paged through with `offset`.
+- `offset` pages through the first 200 account matches and returns an empty list beyond them. `following` limits
+  results to accounts the user follows and disables remote lookups. Without a user, `following` is ignored.
+  `exclude_unreviewed` is ignored.
+- `search` matches hashtag prefixes from public statuses stored here and sorts matches by usage. A valid tag name with
+  or without `#` appears first, even if nothing uses it, as on Mastodon. `offset` pages through the first 200 results.
 - `search` only finds statuses for a signed-in user. As on Mastodon, those are the statuses they wrote, favourited,
   bookmarked, or are mentioned in, and public statuses by accounts whose `indexable` is true, newest first. It only
   finds what the user can see, and leaves out accounts they block or mute. Unlike Mastodon:
@@ -930,12 +934,12 @@ follow, and can stop being shown as moved. The `moved` account never has a `move
 
 ## API documentation
 
-API documentation is public, with Swagger UI at `/api-docs/ui` and the OpenAPI document at `/api-docs` or
-`/api-docs.yaml`. It describes each endpoint and how it differs from Mastodon, with a link to Mastodon's documentation
-for it. It also includes the OAuth endpoints, the scopes each endpoint needs, and the ActivityPub, WebFinger, and
-NodeInfo endpoints that other servers use. A scope such as `read` also grants the granular scopes under it.
+The public API reference is available at `/api-docs/ui`, `/api-docs` (OpenAPI JSON), and `/api-docs.yaml`. Each client
+endpoint lists its differences and links to Mastodon’s documentation. The reference includes OAuth, required scopes,
+and the federation endpoints for ActivityPub, WebFinger, and NodeInfo. A scope such as `read` grants its granular
+scopes too.
 
-To sign in from Swagger UI, first register an application with the redirect URI
-`<base-url>/api-docs/swagger-ui/oauth2-redirect.html`, and then enter its `client_id` and `client_secret` under
-Authorize. Swagger UI builds that redirect URI from the request, so behind a reverse proxy, the server has to
-[trust the proxy's forwarded headers](configuration.md#reverse-proxies), or the sign-in is refused.
+To sign in through Swagger UI, register an app with the redirect URI
+`<base-url>/api-docs/swagger-ui/oauth2-redirect.html`. Enter its `client_id` and `client_secret` under **Authorize**.
+Swagger UI uses the request URL to build the redirect URI, so behind a reverse proxy, [configure forwarded
+headers](configuration.md#reverse-proxies) for sign-in to work.

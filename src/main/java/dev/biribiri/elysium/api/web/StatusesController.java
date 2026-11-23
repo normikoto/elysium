@@ -78,13 +78,14 @@ public class StatusesController {
     private static final Optional<PostFilter.Context> THREAD = Optional.of(PostFilter.Context.THREAD);
 
     private static final String INTERACTIONS = """
-            Works without a token for public and unlisted statuses. A boost's ID stands for the status it boosts. \
-            Pages are by when each was made, and the cursors are the IDs in the `Link` header, not account IDs, as on \
-            Mastodon. Suspended and deleted accounts, and those on suspended servers, are left out. With a token, \
-            so are accounts the user has blocked, muted, or blocked the server of, and those that block the user, as \
-            on Mastodon.""";
+            No token is required for public and unlisted statuses. A boost ID refers to the original status. Pages \
+            are by when each was made, and the cursors are the IDs in the `Link` header, not account IDs, as on \
+            Mastodon. Suspended and deleted accounts, and those on suspended servers, are excluded.
 
-    private static final String INTERACTION_LIMIT = "How many to return. Values outside 1 to "
+            With a token, so are accounts the user has blocked, muted, or blocked the server of, and those that \
+            block the user, as on Mastodon.""";
+
+    private static final String INTERACTION_LIMIT = "Maximum number of results. Values outside 1 to "
             + PageLimits.MAX_ACCOUNTS + " are clamped to them.";
 
     /**
@@ -189,48 +190,50 @@ public class StatusesController {
             description = """
                     Differences from Mastodon:
 
-                    - `scheduled_at` has to be an ISO 8601 date and time with an offset, such as \
-                    `2030-01-01T09:00:00Z`. It has to be more than a minute ahead, rather than Mastodon's 5 minutes, \
-                    or the request gets a 422. One in the past posts the status now, as on Mastodon. A user can have up \
-                    to\s""" + ScheduledStatusService.TOTAL_LIMIT + """
-                     scheduled, and\s""" + ScheduledStatusService.DAILY_LIMIT + """
-                     for one day in UTC, as on Mastodon, and at most\s""" + ScheduledStatusService.MAX_HELD_MEDIA + """
-                     uploads held for them. The status is checked as if it were posted now, and again \
-                    when it's posted, within about a minute of its time. See `GET /api/v1/scheduled_statuses` for what \
-                    happens to one that can no longer be posted then.
+                    - `scheduled_at` must be an ISO 8601 timestamp with an offset, such as `2030-01-01T09:00:00Z`. \
+                    It must be more than a minute ahead, rather than Mastodon's 5 minutes, or the request gets 422. \
+                    A past time posts the status immediately, as on Mastodon.
+
+                      Each user can schedule up to\s""" + ScheduledStatusService.TOTAL_LIMIT + """
+                    \sstatuses total and\s""" + ScheduledStatusService.DAILY_LIMIT + """
+                    \sper UTC day, as on Mastodon, and hold up to\s""" + ScheduledStatusService.MAX_HELD_MEDIA + """
+                    \suploads for them. Elysium checks the status at scheduling and again when it posts it, \
+                    within about a minute of the scheduled time. See `GET /api/v1/scheduled_statuses` for what happens \
+                    if the status can no longer be posted.
                     - A poll can have 2 to\s""" + Poll.MAX_OPTIONS + """
-                     options of up to\s""" + Poll.MAX_OPTION_CHARACTERS + """
-                     characters each, which have to be different, and be open for\s""" + Poll.MIN_EXPIRATION + """
-                     to\s""" + Poll.MAX_EXPIRATION + """
-                     seconds, as on Mastodon. A status with a poll can't have media, and has to have text.
+                    \soptions of up to\s""" + Poll.MAX_OPTION_CHARACTERS + """
+                    \scharacters each, which must be different, and be open for\s""" + Poll.MIN_EXPIRATION + """
+                    \sto\s""" + Poll.MAX_EXPIRATION + """
+                     seconds, as on Mastodon. A status with a poll can't have media, and must include text.
                     - `media_ids` can have up to\s""" + MediaAttachments.MAX_PER_STATUS + """
                      uploads that the user made and hasn't attached yet. As on Mastodon, a video or audio can't be \
                     attached with anything else, and a status with media can have no text.
                     - The length limit defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS + """
                      characters rather than 500, and `GET /api/v1/instance` gives it. As in Mastodon, each URL \
-                    counts as 23 characters, unless it's longer than 2048 characters, when it \
-                    counts at its full length. URLs can save at most 4096 characters per status, and any after that \
-                    also count at their full length. As in Mastodon, a mention counts without its domain, though the \
-                    domains can save at most 4096 characters per status.
-                    - A mention of an account on another server is looked up first, and counts toward the user's limit \
-                    of 30 lookups a minute. A mention that can't be found, or one past that limit that isn't stored \
-                    here, stays as text rather than failing the request.
-                    - `visibility` defaults to `public` only when it's missing. An empty value gets a 422, as do a \
+                     counts as 23 characters, unless it's longer than 2048 characters, when it counts at its full \
+                     length. URLs can save at most 4096 characters per status, and any after that also count at \
+                     their full length. As in Mastodon, a mention counts without its domain, though the domains can \
+                     save at most 4096 characters per status.
+                    - A mention of an account on another server is looked up first, and counts toward the user's \
+                    limit of 30 lookups a minute. A mention that can't be found, or one past that limit that isn't \
+                    stored here, stays as text rather than failing the request.
+                    - `visibility` defaults to `public` only when omitted. An empty value gets 422, as do a \
                     repeated value and `visibility[]`.
                     - `Idempotency-Key` is accepted but ignored, so a client that retries a request can create a \
                     duplicate status.
                     - `quoted_status_id` can be a status on a server that doesn't say who can quote its statuses, \
                     which is quoted as such servers quote each other, without asking. A status from before this \
-                    server supported quotes can only be quoted by its author. A status that can't be quoted gets a \
+                    server supported quotes can only be quoted by its author. A status that can't be quoted gets \
                     422.
-                    - `local_only`, as on glitch-soc, keeps the status on this server: it isn't sent to other servers, \
-                    and only accounts logged in here can see it. A reply to or quote of a local-only status is \
-                    local-only too, and a local-only status that quotes a status from another server gets a 422.
+                    - `local_only`, as on glitch-soc, keeps the status on this server: it isn't sent to other \
+                    servers, and only accounts logged in here can see it. A reply to or quote of a local-only \
+                    status is local-only too, and a local-only status that quotes a status from another server gets \
+                    422.
                     - `content_type`, as on glitch-soc, Pleroma, and Akkoma, is `text/plain`, the default, or \
-                    `text/markdown`, and anything else gets a 422. Markdown keeps only the formatting that Mastodon \
-                    shows: headings are bold paragraphs, images are links, rules are dropped, tables stay as text, and HTML is \
-                    shown as text. A mention or hashtag in code or in a link's text isn't linked, and doesn't notify \
-                    anyone or tag the status.
+                    `text/markdown`, and anything else gets 422. Markdown keeps only the formatting that Mastodon \
+                    shows: headings are bold paragraphs, images are links, rules are dropped, tables stay as text, \
+                    and HTML is shown as text. A mention or hashtag in code or in a link's text isn't linked, and \
+                    doesn't notify anyone or tag the status.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
@@ -262,8 +265,8 @@ public class StatusesController {
             operationId = "getStatus",
             summary = "View a status",
             description = """
-                    Works without a token for public and unlisted statuses. Others are only found for a user who can \
-                    see them. A status from a suspended account gets a 404.""",
+                    No token is required for public and unlisted statuses. Others are only found for a user who can \
+                    see them. A status from a suspended account gets 404.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#get"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status."),
@@ -294,28 +297,29 @@ public class StatusesController {
             operationId = "editStatus",
             summary = "Edit a status",
             description = """
-                    Only the author can edit a status, and a boost can't be edited. Other servers that were sent it are \
-                    sent an `Update`. The text has the same limits as a new status, and its mentions are looked up \
-                    again in the same way. An account it no longer mentions can still see it.
+                    Only the author can edit a status, and a boost can't be edited. Other servers that were sent it \
+                    are sent an `Update`. The text has the same limits as a new status, and its mentions are looked \
+                    up again in the same way. An account it no longer mentions can still see it.
 
                     Differences from Mastodon:
 
                     - A missing `poll` keeps the poll the status has, and an empty or null one removes it. Changing \
-                    its `options` or `multiple` makes it a new poll, as on Mastodon, which loses its votes and is open \
-                    for `expires_in` from now. Otherwise only `hide_totals` can change, and the poll keeps its votes \
-                    and when it closes.
-                    - `media_ids` has every attachment the status is to have, in order, and can add the user's uploads \
-                    that aren't attached yet. A missing `media_ids` keeps the attachments it has. `media_attributes[]` \
-                    only changes `description` and `focus`, and a `thumbnail` gets a 422.
+                    its `options` or `multiple` makes it a new poll, as on Mastodon, which loses its votes and is \
+                    open for `expires_in` from now. Otherwise only `hide_totals` can change, and the poll keeps its \
+                    votes and when it closes.
+                    - `media_ids` has every attachment the status is to have, in order, and can add the user's \
+                    uploads that aren't attached yet. A missing `media_ids` keeps the attachments it has. \
+                    `media_attributes[]` only changes `description` and `focus`, and a `thumbnail` gets 422.
                     - Earlier versions in the status's history don't keep their attachments.
-                    - A missing `sensitive` or `language` keeps what the status has, as Mastodon does, and so does an \
-                    empty `language`, so a language can't be removed. `visibility` and `in_reply_to_id` are ignored.
-                    - `quoted_status_id` changes what the status quotes, which Mastodon doesn't allow. A missing one, \
-                    or the status it quotes already, keeps the quote and its approval, and a null or empty one removes \
-                    it. Another status is quoted as it would be in a new status, and its quote is approved again. A \
-                    status that isn't followers-only or direct can't quote a followers-only one, a local-only one \
-                    can't quote one from another server, and one that isn't local-only can't quote a local-only one, \
-                    since the status's visibility can't change.
+                    - A missing `sensitive` or `language` keeps what the status has, as Mastodon does, and so does \
+                    an empty `language`, so a language can't be removed. `visibility` and `in_reply_to_id` are \
+                    ignored.
+                    - `quoted_status_id` changes what the status quotes, which Mastodon doesn't allow. A missing \
+                    one, or the status it quotes already, keeps the quote and its approval, and a null or empty one \
+                    removes it. Another status is quoted as it would be in a new status, and its quote is approved \
+                    again. A status that isn't followers-only or direct can't quote a followers-only one, a \
+                    local-only one can't quote one from another server, and one that isn't local-only can't quote a \
+                    local-only one, since the status's visibility can't change.
                     - `content_type` is `text/plain` or `text/markdown`, as for a new status. A missing one keeps \
                     what the status was written in, and `GET /api/v1/statuses/:id/source` gives it.
 
@@ -349,12 +353,12 @@ public class StatusesController {
             description = """
                     Gives the text and content warning of one of the user's own statuses, for editing it. Unlike \
                     Mastodon's, it also has `content_type`, as on glitch-soc and Pleroma, which is `text/plain` or \
-                    `text/markdown`.\s""" + ApiDocs.NEEDS_USER,
+                    `text/markdown`.\n\n""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#source"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status's source."),
                     @ApiResponse(responseCode = "404", description = "Not found, or the status isn't the user's."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusSourceResponse source(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -372,10 +376,10 @@ public class StatusesController {
             operationId = "getStatusHistory",
             summary = "View a status's edit history",
             description = """
-                    Works without a token for public and unlisted statuses, and others are only found for a user who \
-                    can see them. Lists each version oldest first, ending with the current one, so a status that was \
-                    never edited has one. A status from another server only has the versions that this server was \
-                    sent, so it can lack some that its own server shows. Only the latest 50 versions are kept.""",
+                    No token is required for public and unlisted statuses, and others are only found for a user who \
+                    can see them. Lists each version oldest first, ending with the current one, so a status that \
+                    was never edited has one. A status from another server only has the versions that this server \
+                    was sent, so it can lack some that its own server shows. Only the latest 50 versions are kept.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#history"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "Each version of the status."),
@@ -476,15 +480,17 @@ public class StatusesController {
             operationId = "getStatusContext",
             summary = "View a status's thread",
             description = """
-                    Works without a token for public and unlisted statuses. A boost's ID gives the thread of the \
-                    status it boosts. Lists up to 40 ancestors, and up to 60 \
-                    descendants at most 20 replies deep, as Mastodon does for a request without a token, whatever the \
-                    token. Statuses the user can't see are left out after those limits apply, so fewer can be listed. \
-                    Only statuses stored here are listed. For a request with a token, missing parents, and replies to \
-                    a status from another server, are fetched from other servers in the background, at most every 15 \
-                    minutes for each status, so a later request can list more. While that's running, the response has \
-                    a `Mastodon-Async-Refresh` header, as on Mastodon 4.5, whose `id` can be checked with \
-                    `GET /api/v1_alpha/async_refreshes/:id`. Its `result_count` counts parents as well as replies.""",
+                    No token is required for public and unlisted statuses. A boost ID returns the original status's \
+                    thread. Lists up to 40 ancestors, and up to 60 descendants at most 20 replies deep, as Mastodon \
+                    does for a request without a token, whatever the token. Statuses the user can't see are \
+                    excluded after those limits apply, so fewer can be listed.
+
+                    Only statuses stored here are listed. For a request with a token, missing parents, and replies \
+                    to a status from another server, are fetched from other servers in the background, at most \
+                    every 15 minutes for each status, so a later request can list more. While that's running, the \
+                    response has a `Mastodon-Async-Refresh` header, as on Mastodon 4.5, whose `id` can be checked \
+                    with `GET /api/v1_alpha/async_refreshes/:id`. Its `result_count` counts parents as well as \
+                    replies.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#context"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status's ancestors and descendants.",
@@ -519,14 +525,15 @@ public class StatusesController {
                     Deleting one of the user's boosts unboosts it, as `POST /api/v1/statuses/:id/unreblog` does.
 
                     Differences from Mastodon: unless `delete_media` is true, the status's attachments can be posted \
-                    again for an hour by default, which the server's admin sets, rather than a day. \
+                    again for an hour by default, which the server's admin sets, rather than a day.
+
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#delete"),
             responses = {
                     @ApiResponse(responseCode = "200", description = """
                             The deleted status, with its source `text`, so that a client can offer to redraft it."""),
                     @ApiResponse(responseCode = "404", description = "Not found, or the status isn't the user's."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse delete(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
@@ -557,7 +564,8 @@ public class StatusesController {
                     Boosts a public or unlisted status the user can see, or one of their own followers-only statuses, \
                     whose boost is followers-only too. A boost's ID boosts the status it boosts. Boosting a status \
                     again returns the boost that's there, whatever `visibility` says. `visibility` can be sent as a \
-                    form, a query parameter, or JSON. \
+                    form, a query parameter, or JSON.
+
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#boost"),
             responses = {
@@ -583,14 +591,13 @@ public class StatusesController {
     @PreAuthorize("hasAuthority('SCOPE_write:statuses')")
     @Operation(operationId = "unreblogStatus", summary = "Undo a boost",
             description = """
-                    Removes the user's boost of a status they can see. A boost's ID stands for the status it boosts. \
-                    Repeats have no additional effect. \
-                    """ + ApiDocs.NEEDS_USER,
+                    Removes the user's boost of a status they can see. A boost ID refers to the original status. \
+                    Repeats have no additional effect.\n\n""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unreblog"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status that was boosted."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse unreblog(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -620,13 +627,12 @@ public class StatusesController {
     @PreAuthorize("hasAuthority('SCOPE_write:favourites')")
     @Operation(operationId = "favouriteStatus", summary = "Favourite a status",
             description = "Favourites a visible local or stored remote status. A boost's ID favourites the status it "
-                    + "boosts. Repeats have no additional effect. "
-                    + ApiDocs.NEEDS_USER,
+                    + "boosts. Repeats have no additional effect.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#favourite"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status with updated favourite state."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse favourite(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var viewer = requireUser(token);
@@ -639,13 +645,12 @@ public class StatusesController {
     @PreAuthorize("hasAuthority('SCOPE_write:favourites')")
     @Operation(operationId = "unfavouriteStatus", summary = "Undo a favourite",
             description = "Removes a favourite of a visible status, which a boost's ID stands for. Repeats have no "
-                    + "additional effect. "
-                    + ApiDocs.NEEDS_USER,
+                    + "additional effect.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unfavourite"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status with updated favourite state."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse unfavourite(@AuthenticationPrincipal TokenPrincipal token, @PathVariable String id) {
         var viewer = requireUser(token);
@@ -658,13 +663,12 @@ public class StatusesController {
     @PreAuthorize("hasAuthority('SCOPE_write:bookmarks')")
     @Operation(operationId = "bookmarkStatus", summary = "Bookmark a status",
             description = "Bookmarks a visible status, privately: neither its author nor other servers are told. A "
-                    + "boost's ID bookmarks the status it boosts. Repeats have no additional effect. "
-                    + ApiDocs.NEEDS_USER,
+                    + "boost's ID bookmarks the status it boosts. Repeats have no additional effect.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#bookmark"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status, now bookmarked."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse bookmark(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -679,12 +683,12 @@ public class StatusesController {
     @Operation(operationId = "unbookmarkStatus", summary = "Remove a bookmark",
             description = "Removes a bookmark of a status, which a boost's ID stands for. Repeats, and statuses that "
                     + "aren't bookmarked, have no additional effect. The bookmark is removed even if the user can no "
-                    + "longer see the status, though that answers `404`. " + ApiDocs.NEEDS_USER,
+                    + "longer see the status, though that answers `404`.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unbookmark"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status, no longer bookmarked."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse unbookmark(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -702,12 +706,12 @@ public class StatusesController {
             description = "Stops new notifications about statuses in the thread of a visible status, which a boost's "
                     + "ID stands for. It covers every status in the thread, including parts of it that are fetched "
                     + "later. Direct statuses still reach conversations, and quotes waiting for review still ask for "
-                    + "it. Nobody else is told. Repeats have no additional effect. " + ApiDocs.NEEDS_USER,
+                    + "it. Your mute is private and repeating it has no additional effect.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#mute"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status, its thread now muted."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse mute(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -722,13 +726,12 @@ public class StatusesController {
     @Operation(operationId = "unmuteStatusThread", summary = "Unmute a status's thread",
             description = "Unmutes the thread of a status, which a boost's ID stands for. Notifications from while it "
                     + "was muted don't come back. Repeats, and threads that aren't muted, have no additional effect. "
-                    + "The thread is unmuted even if the user can no longer see the status, though that answers `404`. "
-                    + ApiDocs.NEEDS_USER,
+                    + "The thread is unmuted even if the user can no longer see the status, though that answers `404`.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unmute"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status, its thread no longer muted."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse unmute(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -745,7 +748,7 @@ public class StatusesController {
     @Operation(operationId = "pinStatus", summary = "Pin a status to the profile",
             description = "Pins one of the user's own statuses, which other servers are sent as an `Add`. At most "
                     + StatusPinService.MAX_PER_ACCOUNT + " can be pinned, as on Mastodon. Repeats have no additional "
-                    + "effect. " + ApiDocs.NEEDS_USER,
+                    + "effect.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#pin"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status, now pinned."),
@@ -766,12 +769,12 @@ public class StatusesController {
     @PreAuthorize("hasAuthority('SCOPE_write:accounts')")
     @Operation(operationId = "unpinStatus", summary = "Unpin a status from the profile",
             description = "Unpins a status, which other servers are sent as a `Remove`. Repeats, and statuses that "
-                    + "aren't pinned, have no additional effect. " + ApiDocs.NEEDS_USER,
+                    + "aren't pinned, have no additional effect.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#unpin"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The status, no longer pinned."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse unpin(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -788,7 +791,8 @@ public class StatusesController {
             summary = "View a status's quotes",
             description = """
                     Lists the accepted quotes of a status that the user can see, newest first. Only quotes stored here \
-                    are listed. A boost's ID lists the quotes of the status it boosts. \
+                    are listed. A boost's ID lists the quotes of the status it boosts.
+
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#quotes"),
             responses = {
@@ -819,7 +823,8 @@ public class StatusesController {
             description = """
                     Withdraws the user's approval of a quote of their status, which stops the quote showing it. The \
                     quote's server, and the user's followers' servers, are sent a `Delete` of the approval. A quote \
-                    from a server that can't ask for approval is only hidden here. Repeats have no additional effect. \
+                    from a server that can't ask for approval is only hidden here. Repeats have no additional effect.
+
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#revoke_quote"),
             parameters = @Parameter(name = "quotingId", description = "The quote's ID."),
@@ -828,7 +833,7 @@ public class StatusesController {
                     @ApiResponse(responseCode = "403", description = "The status isn't the user's."),
                     @ApiResponse(responseCode = "404", description = """
                             Not found, or the other status doesn't quote it."""),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public StatusResponse revokeQuote(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id,
@@ -851,11 +856,12 @@ public class StatusesController {
             operationId = "requestQuoteApproval",
             summary = "Ask again for approval of a quote",
             description = """
-                    Not in Mastodon. Asks again for approval of what one of the user's statuses quotes, when the quote \
-                    is `pending`, `rejected`, or `revoked`. A quote of a status on this server is decided again by its \
-                    author's policy, and may wait for them to review it. One of a status on another server gets a new \
-                    request, so its `quote.state` is `pending` again. A quote can only be asked for once an hour. \
-                    """ + ApiDocs.NEEDS_USER,
+                    Not in Mastodon. Asks again for approval of what one of the user's statuses quotes, when the \
+                    quote is `pending`, `rejected`, or `revoked`. A quote of a status on this server is decided \
+                    again by its author's policy, and may wait for them to review it. One of a status on another \
+                    server gets a new request, so its `quote.state` is `pending` again.
+
+                    A quote can only be asked for once an hour.\n\n""" + ApiDocs.NEEDS_USER,
             // Mastodon has no such endpoint, so this links to where quotes are made.
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#create"),
             responses = {
@@ -902,7 +908,8 @@ public class StatusesController {
                     it are sent in an `Update`. It doesn't change the quotes approved already, nor those waiting for \
                     the user to review. A followers-only or direct status can only be quoted by its author, whatever \
                     this says. Differences from Mastodon: `quote_others` sets whether the quotes that aren't approved \
-                    automatically are rejected or wait for the user to review. \
+                    automatically are rejected or wait for the user to review.
+
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "statuses/#interaction_policy"),
             responses = {
@@ -1246,11 +1253,11 @@ public class StatusesController {
             @Schema(allowableValues = {"public", "unlisted", "private", "direct"}, defaultValue = "public",
                     description = """
                             Who can see the status. A direct status is only sent to the accounts it mentions. An \
-                            empty value gets a 422.""")
+                            empty value gets 422.""")
             String visibility,
             @Schema(description = "Whether the content is sensitive.", defaultValue = "false")
             Boolean sensitive,
-            @Schema(description = "The status this replies to, which the user has to be able to see.")
+            @Schema(description = "The status this replies to, which the user must be able to see.")
             String in_reply_to_id,
             @Schema(description = """
                     Uploads to attach, in order, which the user made and hasn't attached yet. A status with media can \
@@ -1263,7 +1270,7 @@ public class StatusesController {
                     or in the past posts it now. Otherwise the response is a ScheduledStatus.""", format = "date-time")
             String scheduled_at,
             @Schema(description = """
-                    The status to quote, which the user has to be able to see, and be allowed to quote. Quoting a \
+                    The status to quote, which the user must be able to see, and be allowed to quote. Quoting a \
                     followers-only status, which only its author can, makes this one followers-only.""")
             String quoted_status_id,
             @Schema(allowableValues = {"public", "followers", "nobody"}, description = """

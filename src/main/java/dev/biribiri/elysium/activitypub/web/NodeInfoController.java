@@ -37,14 +37,15 @@ public class NodeInfoController {
     private static final String SCHEMA_2_1 = "http://nodeinfo.diaspora.software/ns/schema/2.1";
     private static final String AS_APPLICATION = ActivityStreams.CONTEXT + "#Application";
     private static final String USAGE = """
-            Reports `activitypub` as the protocol, even though federation isn't complete yet. Usage has the number of \
-            local users, and `localPosts`, which counts replies but not direct statuses. `activeMonth` and \
-            `activeHalfyear` count the users who used the server in the last\s""" + ActiveAccounts.MONTH_DAYS + " and "
+            Reports `activitypub` as the protocol. Usage includes the local user count and `localPosts`, which counts \
+            replies and excludes direct statuses. Elysium omits `localComments`.
+
+            `activeMonth` and `activeHalfyear` count the users active in the last\s""" + ActiveAccounts.MONTH_DAYS + " and "
             + ActiveAccounts.HALF_YEAR_DAYS + """
-             days, can be up to an hour old, and are left out if the admin has turned them off with \
-            `elysium.usage.publish`. `localComments` isn't reported. `metadata.features` has Pleroma's \
-            `pleroma_emoji_reactions` and `custom_emoji_reactions`, for clients that look for them before they offer \
-            reactions.""";
+            \sdays. Counts may be up to an hour old. Elysium omits them when `elysium.usage.publish` is off.
+
+            `metadata.features` lists Pleroma's `pleroma_emoji_reactions` and `custom_emoji_reactions` for clients \
+            that check before offering reactions.""";
 
     private static final URI REPOSITORY = URI.create("https://github.com/normikoto/elysium");
 

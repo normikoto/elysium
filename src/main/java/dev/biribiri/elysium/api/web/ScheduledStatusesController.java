@@ -69,13 +69,13 @@ public class ScheduledStatusesController {
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "scheduled_statuses/#get"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_STATUSES + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The scheduled statuses, most recently scheduled first."),
-                    @ApiResponse(responseCode = "422", description = "A cursor isn't a UUID, or the token has no user.")
+                    @ApiResponse(responseCode = "422", description = "A cursor is not a UUID, or the token has no user.")
             })
     public ResponseEntity<List<ScheduledStatusResponse>> list(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -102,8 +102,8 @@ public class ScheduledStatusesController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The scheduled status."),
                     @ApiResponse(responseCode = "404", description = """
-                            Not found, the ID isn't a UUID, it isn't the user's, or it's been posted."""),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                            Not found, the ID is not a UUID, it isn't the user's, or it's been posted."""),
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public ScheduledStatusResponse get(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -129,16 +129,16 @@ public class ScheduledStatusesController {
             operationId = "updateScheduledStatus",
             summary = "Change when a scheduled status is posted",
             description = """
-                    Only `scheduled_at` can be changed, as on Mastodon. It has the same limits as when the status was \
-                    scheduled, though the status already counts toward the total, and a time in the past gets a 422, \
-                    as on Mastodon.
+                    Only `scheduled_at` can be changed, as on Mastodon. It has the same limits as when the status \
+                    was scheduled, though the status already counts toward the total, and a time in the past gets \
+                    422, as on Mastodon.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "scheduled_statuses/#update"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The scheduled status as it is now."),
                     @ApiResponse(responseCode = "404", description = """
-                            Not found, the ID isn't a UUID, it isn't the user's, or it's been posted."""),
+                            Not found, the ID is not a UUID, it isn't the user's, or it's been posted."""),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
                             `scheduled_at` is missing, isn't a date and time, or is too soon, the day it's moved to has \
@@ -166,8 +166,8 @@ public class ScheduledStatusesController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = """
-                            Not found, the ID isn't a UUID, it isn't the user's, or it's been posted."""),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                            Not found, the ID is not a UUID, it isn't the user's, or it's been posted."""),
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public Map<String, Object> delete(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {

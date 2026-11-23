@@ -76,17 +76,17 @@ public class ReportsController {
             operationId = "createReport",
             summary = "Report an account",
             description = """
-                    Reports an account, and some of its statuses, to this server's admins. With `forward`, a report of \
-                    an account on another server is also sent to that server, without saying who sent it.
+                    Reports an account, and some of its statuses, to this server's admins. With `forward`, a report \
+                    of an account on another server is also sent to that server, without saying who sent it.
 
                     Differences from Mastodon:
 
                     - Reports can't cite the server's rules yet, so a `category` of `violation`, or any `rule_ids`, \
-                    gets a 422.
-                    - A status that isn't the account's, or that the user can't see, gets a 404 rather than being \
+                    gets 422.
+                    - A status that isn't the account's, or that the user can't see, gets 404 rather than being \
                     left out.
-                    - A report can include at most 100 statuses, and more get a 422.
-                    - Reporting your own account gets a 422.
+                    - A report can include at most 100 statuses, and more get 422.
+                    - Reporting your own account gets 422.
                     - `forward_to_domains` is ignored: only the account's own server is sent the report.
 
                     """ + ApiDocs.NEEDS_USER,

@@ -64,17 +64,18 @@ class AppsController {
             operationId = "createApp",
             summary = "Register an application",
             description = """
-                    Needs no token. The response is the only time `client_secret` is shown. Each address can register \
-                    30 applications an hour, and then gets a 429. Requests that get a 422 don't count. An application \
-                    that isn't approved or issued a token within a day of registering is removed, and has to register \
-                    again. A token from the `client_credentials` grant is enough to keep it.""",
+                    Needs no token. The response is the only time `client_secret` is shown. Each address can \
+                    register 30 applications an hour, and then gets 429. Requests that get 422 don't count.
+
+                    An application that isn't approved or issued a token within a day of registering is removed, \
+                    and has to register again. A token from the `client_credentials` grant is enough to keep it.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "apps/#create"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The application, with its credentials."),
                     @ApiResponse(responseCode = "422", description = """
                             The name, a redirect URI, the website, or a scope is missing or invalid."""),
                     @ApiResponse(responseCode = "429", description = "This address has registered too many applications.",
-                            headers = @Header(name = "Retry-After", description = "Seconds until there's room again.",
+                            headers = @Header(name = "Retry-After", description = "Seconds before retrying.",
                                     schema = @Schema(type = "integer")))
             })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
@@ -161,7 +162,7 @@ class AppsController {
             List<String> redirect_uris,
             @Schema(defaultValue = "read", description = "The scopes the application can ask for, separated by spaces.")
             String scopes,
-            @Schema(description = "The application's home page, which has to be an `http` or `https` URL.")
+            @Schema(description = "The application's home page, which must be an `http` or `https` URL.")
             String website) {
     }
 }

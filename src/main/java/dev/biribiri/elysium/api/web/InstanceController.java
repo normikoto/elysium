@@ -146,11 +146,12 @@ public class InstanceController {
             summary = "View weekly counts of statuses, logins, and sign-ups",
             description = """
                     The last\s""" + WeeklyCounts.WEEKS + """
-                     weeks, this one first, each starting at midnight UTC on a Monday. The counts are up to an hour old. \
-                    Differences from Mastodon: `statuses` counts the statuses that still exist, leaving out direct \
-                    statuses, boosts, and suspended accounts' statuses, and `registrations` leaves out accounts that \
-                    have since been deleted. `logins` counts accounts that used the API or were logged in that week. \
-                    Not found when the admin has turned these off with `elysium.usage.publish`.""",
+                    \sweeks, newest week first, starting at midnight UTC on Monday. Counts may be up to an hour old. \
+                    If `elysium.usage.publish` is off, this endpoint returns 404.
+
+                    `statuses` counts existing statuses, excluding direct statuses, boosts, and suspended accounts' \
+                    statuses. `registrations` excludes deleted accounts. `logins` counts accounts active through the \
+                    API or a login session that week.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#activity"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "A week's counts each, this week first."),
@@ -174,13 +175,15 @@ public class InstanceController {
             description = """
                     Differences from Mastodon: the status length limit is in `configuration.statuses.max_characters`, \
                     and defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS + """
-                     rather than 500. `api_versions.mastodon` is\s""" + MASTODON_API_VERSION + """
+                    \srather than 500. `api_versions.mastodon` is\s""" + MASTODON_API_VERSION + """
                     , which is when Mastodon added quotes, though some of what Mastodon added in the versions before it \
-                    isn't here, as `docs/api.md` lists. There's no thumbnail, icon, or contact account. \
-                    `usage.users.active_month` counts the local accounts that used the server in the last\s"""
+                    isn't here, as `docs/api.md` lists. Elysium omits the thumbnail, icon, and contact account. \
+                    Push notifications are unavailable.
+
+                    `usage.users.active_month` counts the local accounts active in the last\s"""
                     + ActiveAccounts.MONTH_DAYS + """
-                     days, up to an hour old, or every local account if the admin has turned that off with \
-                    `elysium.usage.publish`. Push notifications aren't implemented.""",
+                    \sdays. The count may be up to an hour old. It counts all local accounts if \
+                    `elysium.usage.publish` is off.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "instance/#v2"),
             responses = @ApiResponse(responseCode = "200", description = "Information about the server."))
     public InstanceV2Response instanceV2() {

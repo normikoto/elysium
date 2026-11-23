@@ -56,17 +56,19 @@ class StreamingApiDocs {
                 .operationId("streamWebSocket")
                 .addTagsItem("Streaming")
                 .summary("Stream over a WebSocket")
-                .description(StreamingController.DIFFERENCES + """
+                .description(StreamingController.DIFFERENCES + "\n\n" + """
                         A connection can have up to 50 subscriptions.
 
-                        Upgrade to a WebSocket here. Subscribe with `{"type": "subscribe", "stream": "…"}`, adding \
-                        `"tag"` for a hashtag stream or `"list"` for a list's, and unsubscribe with \
-                        `"type": "unsubscribe"`. The streams are `user`, `user:notification`, `direct`, `list`, \
-                        `public`, `public:local`, `public:remote`, each of the last three with `:media`, `hashtag`, \
-                        and `hashtag:local`. `user`, `user:notification`, `direct`, and `list` need a user token with \
-                        the scopes their REST endpoints need, except that `list` needs `read:statuses`, as on \
-                        Mastodon, and the others work without a token. A list that isn't the user's is refused with \
-                        401, as on Mastodon.
+                        Upgrade to a WebSocket at this URL. Send `{"type": "subscribe", "stream": "…"}` to subscribe, \
+                        with `"tag"` for hashtag streams or `"list"` for list streams. Use `"type": "unsubscribe"` to \
+                        unsubscribe.
+
+                        Streams include `user`, `user:notification`, `direct`, `list`, `hashtag`, and `hashtag:local`. \
+                        `public`, `public:local`, and `public:remote` each have a `:media` variant.
+
+                        `user`, `user:notification`, and `direct` require user tokens with the same scopes as their \
+                        REST endpoints. `list` requires a user token with `read:statuses`, as on Mastodon. Requests for \
+                        another user's list get 401. Public and hashtag streams work without a token.
 
                         Each event is a message such as `{"stream": ["user"], "event": "update", "payload": "…"}`, \
                         whose payload is the entity as a JSON string, or the status ID for `delete`. A message that \
@@ -79,7 +81,7 @@ class StreamingApiDocs {
                         can't set headers.""")
                 .externalDocs(new ExternalDocumentation().url(ApiDocs.MASTODON_DOCS + "streaming/#websocket"))
                 .addParametersItem(new Parameter().in("query").name("stream").schema(new StringSchema())
-                        .description("A stream to subscribe to straight away. If it can't be, the error message is "
+                        .description("A stream to subscribe to immediately. If it can't be, the error message is "
                                 + "sent and the connection closed."))
                 .addParametersItem(new Parameter().in("query").name("tag").schema(new StringSchema())
                         .description("The tag for `stream`, if it's a hashtag stream."))
