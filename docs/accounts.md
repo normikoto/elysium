@@ -233,6 +233,20 @@ choices, separate from an admin's [domain blocks](#domain-blocks), and other peo
 What someone on another server posts can still reach this server through the people here who follow them, and blocks don't
 stop it being stored, only shown.
 
+### Importing and exporting follows, blocks, and mutes
+People can download the accounts they follow, block, or mute as CSV files at `/settings/imports`, and import those files
+there, as on Mastodon. Files exported here and from Mastodon both work, in either direction.
+
+- An import only adds. Accounts already followed, blocked, or muted that aren't in the file stay as they are.
+- A file can list up to 20,000 accounts. Accounts on other servers that this server hasn't seen are looked up about 30 a
+  minute, so a large import can take hours. While it runs, the person's own searches for accounts on other servers can be
+  refused for a minute at a time, since they share that limit.
+- Accounts that approve their followers get a follow request, as when following them from an app.
+- The page shows how many accounts are left, and how many couldn't be added once the import is done, such as accounts
+  that no longer exist or are on a blocked server.
+- Each import sends the same follows and blocks to other servers as following or blocking each account would.
+- An export of follows leaves out follow requests that haven't been approved yet.
+
 ## Deleting old posts automatically
 
 **Warning:** Automatic post deletion permanently removes old posts.

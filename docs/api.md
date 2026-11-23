@@ -926,6 +926,10 @@ the `/settings/delete-account` page. People can also hide their followers and fo
 As on Mastodon, there's no API for automated post deletion either. It's on the `/settings/post-cleanup` page, and its
 deletions reach clients as if the author had deleted each post.
 
+There's also no API for importing or exporting follows, blocks, and mutes as CSV files, as on Mastodon. They're on the
+`/settings/imports` page, and what an import adds reaches clients as if each account had been followed, blocked, or muted
+one at a time.
+
 ## Moving your account
 
 As on Mastodon, there's no API for aliases or moving. They're on the `/settings/aliases` and `/settings/move` pages. A
