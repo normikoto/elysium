@@ -911,6 +911,9 @@ with the `admin:read:accounts` and `admin:write:accounts` scopes.
 There's no API for people to delete their own accounts, so that an application can't do it with a token. It's only on
 the `/settings/delete-account` page. People can also hide their followers and following on the `/settings` page.
 
+As on Mastodon, there's no API for automated post deletion either. It's on the `/settings/post-cleanup` page, and its
+deletions reach clients as if the author had deleted each post.
+
 ## Moving your account
 
 As on Mastodon, there's no API for aliases or moving. They're on the `/settings/aliases` and `/settings/move` pages. A
