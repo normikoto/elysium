@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * Counts each local account's lookups of accounts and statuses on other servers, together, so that looking up by URL can't
- * make more requests than looking up by address. Its own bean, rather than part of either lookup, so that a test replacing
+ * make more requests than looking up by address. Imports are counted apart, since they run for hours. Its own bean, rather than part of either lookup, so that a test replacing
  * one of them doesn't take the other's limit with it.
  */
 @Component
@@ -20,6 +20,7 @@ class ResolveLimits {
     private static final int MAX_TRACKED_ACCOUNTS = 10_000;
 
     private final RateLimiter lookups;
+    private final RateLimiter importLookups;
 
     ResolveLimits() {
         this(Ticker.systemTicker());
@@ -28,13 +29,26 @@ class ResolveLimits {
     ResolveLimits(Ticker ticker) {
         this.lookups = new RateLimiter(
                 RemoteActorResolver.LOOKUPS_PER_MINUTE, Duration.ofMinutes(1), MAX_TRACKED_ACCOUNTS, ticker);
+        this.importLookups = new RateLimiter(
+                RemoteActorResolver.IMPORT_LOOKUPS_PER_MINUTE, Duration.ofMinutes(1), MAX_TRACKED_ACCOUNTS, ticker);
     }
 
     /**
      * @throws ResolveLimitException if the requester has made too many lookups recently
      */
     void count(UUID requester) {
-        if (lookups.tryAcquire(requester.toString()).isEmpty()) {
+        count(lookups, requester);
+    }
+
+    /**
+     * Like {@link #count}, for lookups by an import, which have a limit of their own.
+     */
+    void countImport(UUID requester) {
+        count(importLookups, requester);
+    }
+
+    private static void count(RateLimiter limiter, UUID requester) {
+        if (limiter.tryAcquire(requester.toString()).isEmpty()) {
             throw new ResolveLimitException();
         }
     }

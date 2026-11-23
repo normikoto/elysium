@@ -57,10 +57,18 @@ class RemoteActorLookup implements RemoteActorResolver {
 
     @Override
     public Optional<Actor> resolveAcct(UUID requester, String username, String domain) {
-        return ActivityDocuments.lookUp(() -> lookUpAcct(requester, username, domain));
+        return ActivityDocuments.lookUp(() -> lookUpAcct(() -> limits.count(requester), username, domain));
     }
 
-    private Optional<Actor> lookUpAcct(UUID requester, String username, String domain) {
+    @Override
+    public Optional<Actor> resolveAcctForImport(UUID requester, String username, String domain) {
+        return ActivityDocuments.lookUp(() -> lookUpAcct(() -> limits.countImport(requester), username, domain));
+    }
+
+    /**
+     * @param count counts the lookup toward a limit, which only lookups that make requests do
+     */
+    private Optional<Actor> lookUpAcct(Runnable count, String username, String domain) {
         var remoteDomain = remoteDomain(username, domain);
         if (remoteDomain.isEmpty()) {
             return Optional.empty();
@@ -70,7 +78,7 @@ class RemoteActorLookup implements RemoteActorResolver {
         if (stored.filter(RemoteActors::isFresh).isPresent()) {
             return stored.filter(Actor::isActive);
         }
-        limits.count(requester);
+        count.run();
         return webFinger(username, normalized)
                 .flatMap(answer -> fetch(remoteActors, blocks, answer.actor()))
                 .filter(found -> hasAddress(found, username, normalized))

@@ -193,22 +193,28 @@ public class RelationshipFileRepository {
     public List<ExportedAccount> findFollowed(UUID accountId) {
         return findExported(accountId, "f.show_reblogs, f.notify, f.languages, NULL::boolean",
                 "follow f JOIN actor a ON a.id = f.followed_id",
-                "f.follower_id = :account AND f.state = 'accepted'", "f");
-    }
-
-    public List<ExportedAccount> findBlocked(UUID accountId) {
-        return findExported(accountId, "NULL::boolean, NULL::boolean, NULL::text[], NULL::boolean",
-                "account_block r JOIN actor a ON a.id = r.target_id",
-                "r.account_id = :account", "r");
+                "f.follower_id = :account AND f.state = 'accepted' AND " + ActorSql.active("a"), "f");
     }
 
     /**
-     * Leaves out expired mutes, which are ignored until they're purged.
+     * Keeps suspended accounts, so that someone moving away still blocks the accounts moderators acted on here. Deleted
+     * ones have nothing left to block.
+     */
+    public List<ExportedAccount> findBlocked(UUID accountId) {
+        return findExported(accountId, "NULL::boolean, NULL::boolean, NULL::text[], NULL::boolean",
+                "account_block r JOIN actor a ON a.id = r.target_id",
+                "r.account_id = :account AND a.deleted_at IS NULL", "r");
+    }
+
+    /**
+     * Leaves out expired mutes, which are ignored until they're purged. Keeps suspended accounts, as
+     * {@link #findBlocked} does.
      */
     public List<ExportedAccount> findMuted(UUID accountId) {
         return findExported(accountId, "NULL::boolean, NULL::boolean, NULL::text[], r.notifications",
                 "account_mute r JOIN actor a ON a.id = r.target_id",
-                "r.account_id = :account AND (r.expires_at IS NULL OR r.expires_at > now())", "r");
+                "r.account_id = :account AND (r.expires_at IS NULL OR r.expires_at > now()) AND a.deleted_at IS NULL",
+                "r");
     }
 
     /**
@@ -216,8 +222,8 @@ public class RelationshipFileRepository {
      * @param alias   the alias of the relationship's table in {@code from}, which has {@code created_at} and {@code id}
      */
     private List<ExportedAccount> findExported(UUID accountId, String options, String from, String where, String alias) {
-        return jdbc.sql("SELECT a.username, a.domain, " + options + " FROM " + from + " WHERE " + where + " AND "
-                        + ActorSql.active("a") + " ORDER BY " + alias + ".created_at, " + alias + ".id")
+        return jdbc.sql("SELECT a.username, a.domain, " + options + " FROM " + from + " WHERE " + where
+                        + " ORDER BY " + alias + ".created_at, " + alias + ".id")
                 .param("account", accountId)
                 .query(ExportedAccount.MAPPER)
                 .list();

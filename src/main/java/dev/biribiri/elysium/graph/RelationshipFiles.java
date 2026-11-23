@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
 import dev.biribiri.elysium.actor.RemoteActorResolver.ResolveLimitException;
+import dev.biribiri.elysium.graph.internal.MuteRepository;
 import dev.biribiri.elysium.graph.internal.RelationshipFileRepository;
 import dev.biribiri.elysium.graph.internal.RelationshipFileRepository.Progress;
 import dev.biribiri.elysium.graph.internal.RelationshipFileRepository.Row;
@@ -32,8 +33,8 @@ import java.util.UUID;
  * only adds: it never undoes a follow, block, or mute that isn't in the file.
  *
  * <p>Accounts on other servers may have to be looked up, which takes requests and counts toward the importing account's
- * {@link RemoteActorResolver#LOOKUPS_PER_MINUTE}, so a job works through the file a batch at a time and waits whenever it
- * reaches that limit.
+ * {@link RemoteActorResolver#IMPORT_LOOKUPS_PER_MINUTE}, so a job works through the file a batch at a time and waits
+ * whenever it reaches that limit.
  */
 @Service
 public class RelationshipFiles {
@@ -55,6 +56,8 @@ public class RelationshipFiles {
     private static final int BATCH = 50;
 
     private static final Duration LIMIT_WAIT = Duration.ofMinutes(1);
+
+    private static final Duration SUSPENDED_WAIT = Duration.ofHours(1);
 
     private final RelationshipFileRepository imports;
     private final ActorService actors;
@@ -135,10 +138,14 @@ public class RelationshipFiles {
         if (running.isEmpty()) {
             return Jobs.done();
         }
-        var account = actors.findLocalById(running.get().accountId());
-        if (account.isEmpty()) {
+        var account = actors.findAnyLocalById(running.get().accountId());
+        if (account.isEmpty() || account.get().isDeleted()) {
             imports.delete(job.importId());
             return Jobs.done();
+        }
+        // Kept for if the suspension is lifted, rather than lost with what's been done.
+        if (account.get().isSuspended()) {
+            return Jobs.waitUntil(Instant.now().plus(SUSPENDED_WAIT), job.requeued());
         }
         var rows = imports.findRows(job.importId(), BATCH);
         if (rows.isEmpty()) {
@@ -150,12 +157,12 @@ public class RelationshipFiles {
             try {
                 target = find(account.get(), row);
             } catch (ResolveLimitException e) {
-                return Jobs.rescheduleAt(Instant.now().plus(LIMIT_WAIT));
+                return Jobs.rescheduleAt(Instant.now().plus(LIMIT_WAIT), job.requeued());
             }
             var added = target.isPresent() && add(running.get().kind(), account.get(), target.get(), row);
             imports.deleteRow(job.importId(), row.position(), !added);
         }
-        return Jobs.rescheduleAt(Instant.now());
+        return Jobs.rescheduleAt(Instant.now(), job.requeued());
     }
 
     /**
@@ -165,7 +172,7 @@ public class RelationshipFiles {
         if (row.domain() == null || instance.isLocalDomain(row.domain())) {
             return actors.findLocalByUsername(row.username());
         }
-        return resolver.resolveAcct(account.id(), row.username(), row.domain());
+        return resolver.resolveAcctForImport(account.id(), row.username(), row.domain());
     }
 
     /**
@@ -187,9 +194,16 @@ public class RelationshipFiles {
                             Optional.ofNullable(row.notifies()), Optional.ofNullable(row.languages())));
                 }
                 case BLOCKS -> blocks.block(account, target);
-                // A mute hides notifications too unless the file says otherwise, as the mute API does.
-                case MUTES -> mutes.mute(account.id(), target.id(),
-                        row.hideNotifications() == null || row.hideNotifications(), Optional.empty());
+                case MUTES -> {
+                    // An import only adds, so a mute that's there already keeps its end, and its notifications unless
+                    // the file gives them. A new one hides notifications too unless the file says otherwise, as the mute
+                    // API does.
+                    var current = mutes.current(account.id(), target.id());
+                    var notifications = row.hideNotifications() != null
+                            ? row.hideNotifications()
+                            : current.map(MuteRepository.Mute::notifications).orElse(true);
+                    mutes.mute(account.id(), target.id(), notifications, current.map(MuteRepository.Mute::expiresAt));
+                }
             }
             return true;
         } catch (FollowNotAllowedException | IllegalArgumentException e) {

@@ -24,11 +24,13 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -87,9 +89,12 @@ class RelationshipFilesIntegrationTests {
         var carol = account();
         var dave = account();
         var erin = account();
+        var frank = account();
         follows.follow(alice.actor(), bob, FollowOptions.of(false, true, List.of("en", "de")));
         follows.follow(alice.actor(), carol);
         blocks.block(alice.actor(), dave);
+        blocks.block(alice.actor(), frank);
+        actors.suspend(frank.id());
         mutes.mute(alice.actor().id(), erin.id(), false, Optional.empty());
         mutes.mute(alice.actor().id(), carol.id(), true, Optional.of(Instant.now().minus(Duration.ofMinutes(1))));
 
@@ -102,7 +107,8 @@ class RelationshipFilesIntegrationTests {
                         %s,true,false,
                         """.formatted(address(bob), address(carol))));
         mockMvc.perform(get("/settings/exports/blocks.csv").session(alice.session()))
-                .andExpect(content().string(address(dave) + "\n"));
+                // A suspended account stays blocked, so that it is on the new server too.
+                .andExpect(content().string(address(dave) + "\n" + address(frank) + "\n"));
         // The expired mute of carol is left out.
         mockMvc.perform(get("/settings/exports/mutes.csv").session(alice.session()))
                 .andExpect(content().string("Account address,Hide notifications\n" + address(erin) + ",false\n"));
@@ -114,7 +120,7 @@ class RelationshipFilesIntegrationTests {
         var bob = account();
         var carol = account();
         var dave = remote("dave");
-        when(resolver.resolveAcct(any(), eq("dave"), eq("remote.example"))).thenReturn(Optional.of(dave));
+        when(resolver.resolveAcctForImport(any(), eq("dave"), eq("remote.example"))).thenReturn(Optional.of(dave));
 
         upload(alice, "follows", """
                 Account address,Show boosts,Notify on new posts,Languages
@@ -144,6 +150,37 @@ class RelationshipFilesIntegrationTests {
     }
 
     @Test
+    void anImportKeepsWhatAMuteAlreadyHas() throws Exception {
+        var alice = signUp();
+        var bob = account();
+        var ends = Instant.now().plus(Duration.ofDays(1));
+        mutes.mute(alice.actor().id(), bob.id(), false, Optional.of(ends));
+
+        upload(alice, "mutes", bob.username() + "\n");
+        runImport(alice.actor());
+
+        assertThat(relationship(alice.actor(), bob).mutingNotifications()).isFalse();
+        assertThat(mutes.expiries(alice.actor().id(), List.of(bob.id())).get(bob.id()))
+                .isCloseTo(ends, within(1, ChronoUnit.SECONDS));
+    }
+
+    @Test
+    void aSuspendedAccountsImportWaitsForTheSuspensionToEnd() throws Exception {
+        var alice = signUp();
+        var bob = account();
+        upload(alice, "blocks", bob.username() + "\n");
+        var importId = importId(alice.actor());
+
+        actors.suspend(alice.actor().id());
+        files.run(new RelationshipImportJob(importId, Instant.now()));
+        assertThat(files.latest(alice.actor().id()).orElseThrow().remaining()).isEqualTo(1);
+
+        actors.unsuspend(alice.actor().id());
+        runImport(alice.actor());
+        assertThat(relationship(alice.actor(), bob).blocking()).isTrue();
+    }
+
+    @Test
     void anExportImportsIntoAnotherAccount() throws Exception {
         var alice = signUp();
         var bob = signUp();
@@ -161,7 +198,7 @@ class RelationshipFilesIntegrationTests {
     @Test
     void waitsWhenTheAccountHasLookedUpTooManyAccounts() throws Exception {
         var alice = signUp();
-        when(resolver.resolveAcct(any(), eq("dave"), eq("remote.example"))).thenThrow(new ResolveLimitException());
+        when(resolver.resolveAcctForImport(any(), eq("dave"), eq("remote.example"))).thenThrow(new ResolveLimitException());
 
         upload(alice, "blocks", "dave@remote.example\n");
         var importId = importId(alice.actor());

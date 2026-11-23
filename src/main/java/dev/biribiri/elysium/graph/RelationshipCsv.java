@@ -63,7 +63,7 @@ final class RelationshipCsv {
      * @throws InvalidRelationshipFileException if it isn't CSV, has an address that isn't one, or lists none or too many
      */
     static List<Row> read(RelationshipKind kind, String text) {
-        if (text.startsWith("﻿")) {
+        if (text.startsWith("\uFEFF")) {
             text = text.substring(1);
         }
         List<CSVRecord> records;
