@@ -196,6 +196,8 @@ class PagesController {
         model.addAttribute("header", profile.header() == null ? null : instance.resolve(profile.header().path()));
         model.addAttribute("background",
                 profile.background() == null ? null : instance.resolve(profile.background().path()));
+        model.addAttribute("bot", profile.bot());
+        model.addAttribute("cat", profile.cat());
         model.addAttribute("joined", JOINED.format(LocalDate.ofInstant(actor.createdAt(), ZoneOffset.UTC)));
         // Above the first page only, and still in their place below, as on Mastodon.
         model.addAttribute("pinned", maxId == null && tab == ProfileTab.POSTS

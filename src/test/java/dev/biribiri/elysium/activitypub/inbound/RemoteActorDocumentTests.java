@@ -226,6 +226,22 @@ class RemoteActorDocumentTests {
     }
 
     @Test
+    void readsMisskeysCats() {
+        var cat = RemoteActorDocument.read(ACTOR, json("""
+                {"id":"%s","type":"Person","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox",
+                 "isCat":true}
+                """.formatted(ACTOR))).profile();
+        var notBoolean = RemoteActorDocument.read(ACTOR, json("""
+                {"id":"%s","type":"Person","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox",
+                 "isCat":"true"}
+                """.formatted(ACTOR))).profile();
+
+        assertThat(cat.cat()).isTrue();
+        assertThat(cat.bot()).isFalse();
+        assertThat(notBoolean.cat()).isFalse();
+    }
+
+    @Test
     void readsGroupsFromTheirType() {
         var profile = RemoteActorDocument.read(ACTOR, json("""
                 {"id":"%s","type":"Group","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox"}

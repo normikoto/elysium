@@ -643,6 +643,22 @@ td {
     overflow-wrap: anywhere;
 }
 
+.profile-names .profile-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.3rem 0 0;
+}
+
+.profile-label {
+    background: var(--highlight);
+    border-radius: 999px;
+    color: var(--on-highlight);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.1rem 0.55rem;
+}
+
 .profile-top .follow {
     flex: 0 1 24rem;
     min-width: 0;

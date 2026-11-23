@@ -219,9 +219,10 @@ public class AccountsController {
             summary = "Change the user's profile and account settings",
             description = """
                     Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, \
-                    Pleroma's `pleroma_background_image`, `locked`, `indexable`, `hide_collections`, \
-                    `source[quote_policy]`, and `source[quote_others]` can be changed. `bot`, `discoverable`, and \
-                    the rest of `source` are accepted only with the values the account already has (false, and \
+                    Pleroma's `pleroma_background_image`, `locked`, `bot`, `indexable`, `hide_collections`, \
+                    Elysium's `is_cat`, `source[quote_policy]`, and `source[quote_others]` can be changed. \
+                    `discoverable` and the rest of `source` are accepted only with the values the account already \
+                    has (false, and \
                     `public` for `source[privacy]`), and any other value for them, or any other field with a value, \
                     gets 422 naming it. Then nothing is changed. Empty values are ignored, except that an empty \
                     `display_name` or `note` clears it.
@@ -240,6 +241,8 @@ public class AccountsController {
                     multipart form too, and an empty value instead of a file removes it. It's re-encoded as WebP \
                     like the others, but only scaled down to fit 3840 × 2160 pixels in area, without cropping. It's \
                     returned in `pleroma.background_image`, and isn't sent to other servers.
+
+                    A `bot` is sent to other servers as a `Service` actor, and `is_cat` as Misskey's `isCat`.
 
                     Turning `locked` off approves the requests to follow the user that are still waiting, as on \
                     Mastodon. They're approved in the background, so they can still be waiting just after the \
@@ -1147,6 +1150,12 @@ public class AccountsController {
                     Whether anyone's search can find the user's public statuses. Without it, only those who wrote, \
                     favourited, bookmarked, or are mentioned in a status can find it.""")
             Boolean indexable,
+            @Schema(description = "Whether the user's account is automated. Other servers see it as a `Service`.")
+            Boolean bot,
+            @Schema(description = """
+                    Whether the user is a cat, as Misskey's `isCat` says. Elysium's own field, which other servers \
+                    see as `isCat`.""")
+            Boolean is_cat,
             @Schema(description = """
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")

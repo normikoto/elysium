@@ -849,14 +849,14 @@ class FollowsIntegrationTests {
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("alice"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("hide_collections", "true")
-                        .param("bot", "true"))
+                        .param("discoverable", "true"))
                 .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.error").value(containsString("bot")));
+                .andExpect(jsonPath("$.error").value(containsString("discoverable")));
         assertThat(actors.hidesCollections(account("alice").id())).isFalse();
 
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("alice"))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("bot", "false")
+                        .param("discoverable", "false")
                         .param("unknown", ""))
                 .andExpect(status().isOk());
     }

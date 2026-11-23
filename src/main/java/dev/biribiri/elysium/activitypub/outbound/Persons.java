@@ -46,7 +46,7 @@ public class Persons {
      * @see Person#minimal
      */
     public Person minimal(Actor actor) {
-        return Person.minimal(actor, proofKey(actor), instance);
+        return Person.minimal(actor, profiles.find(actor.id()).bot(), proofKey(actor), instance);
     }
 
     private String proofKey(Actor actor) {

@@ -36,7 +36,9 @@ This reference describes what peers can send, receive, and fetch.
 
 ### Actors
 
-Local users are `Person` actors at `/users/{username}`. Request `application/activity+json` or `application/ld+json` in
+Local users are actors at `/users/{username}`. Their `type` is `Person`, or `Service` for a user who marks the account
+as a bot, as Mastodon sends bots. The type changes when the user changes that setting. A suspended user's document is
+always a `Person`. Request `application/activity+json` or `application/ld+json` in
 `Accept` to get the actor document. Elysium supports the standard
 `application/ld+json; profile="https://www.w3.org/ns/activitystreams"` and accepts other JSON-LD profiles too.
 
@@ -83,17 +85,18 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
 `manuallyApprovesFollowers` is always included, and is true when the user [approves followers by hand](#follows).
 `indexable` is always included too, as Mastodon sends it, and is true when the user lets anyone's search find their public
 statuses. It's false until they choose that. This server's own search follows other servers' actors' `indexable` in the
-same way.
+same way. Misskey's `isCat` is always included as well, and is true when the user says they're a cat.
 
 The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields,
 `Hashtag` (`as:Hashtag`), `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`), and `toot`
 (`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`), `indexable` (`toot:indexable`), and `Emoji`
-(`toot:Emoji`). It also adds `alsoKnownAs` (`as:alsoKnownAs`) and `movedTo` (`as:movedTo`), both `@id`s, as Mastodon
+(`toot:Emoji`), and `misskey` (`https://misskey-hub.net/ns#`) with `isCat` (`misskey:isCat`). It also adds `alsoKnownAs` (`as:alsoKnownAs`) and `movedTo` (`as:movedTo`), both `@id`s, as Mastodon
 defines them, rather than FEP-7628's IRIs. `featured` is the user's
 [pinned statuses](#pinned-statuses), at `/users/{username}/collections/featured`. A suspended user's document leaves it
 out.
 
-When a user changes their profile, whether they approve followers by hand, whether they're indexable, or their aliases, or
+When a user changes their profile, whether they approve followers by hand, whether they're indexable, a bot, or a cat, or
+their aliases, or
 stops being marked as moved, their followers' servers get an `Update` of the actor, signed by the actor, with the ID
 `{actor-uri}#profile/{milliseconds}`. It's addressed to the public, with the followers collection in `cc`, and its
 `object` is the actor document, without a `@context` of its own, as it is when it's sent. A save that changes nothing
@@ -525,7 +528,9 @@ was stored before. A part that can't be used is left out, without refusing the a
   domain.
 - `manuallyApprovesFollowers`, `indexable`, `published`, and `url`, a URL or a `Link`, of which the first with an HTTP
   or HTTPS `href` is taken. An actor without `indexable`, or with anything but `true`, isn't indexable, so its public
-  statuses are only found here by the users who favourited them or are mentioned in them. A `type` of `Service` or `Application` marks the account as a bot, and `Group` as a group.
+  statuses are only found here by the users who favourited them or are mentioned in them. A `type` of `Service` or
+  `Application` marks the account as a bot, and `Group` as a group.
+- `isCat`, as Misskey sends it. Anything but `true` means the account isn't a cat.
 - `alsoKnownAs`, one ID or an array of IDs or objects with one, of which the first 20 HTTPS URLs are kept, on any server,
   and `movedTo`, an ID or an object with one. A fetch made to check a [move](#moving-accounts) finds the old account
   anywhere in the list. Clients are shown the account as moved while `movedTo` names an actor that's

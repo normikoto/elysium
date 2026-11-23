@@ -18,6 +18,7 @@ import java.util.List;
  * An ActivityPub actor document.
  *
  * @param context    null when this is part of an activity, which has the {@code @context} for both
+ * @param type       {@code Service} for a bot, which is what Mastodon sends and reads as one, and {@code Person} otherwise
  * @param name       the display name, left out if there isn't one
  * @param summary    the bio as HTML, left out if there isn't one
  * @param attachment the profile's fields, as Mastodon sends them
@@ -29,6 +30,8 @@ import java.util.List;
  * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them, left out of a
  *                   {@linkplain #minimal minimal} document, since a false one would say the actor isn't locked
  * @param indexable  whether any server's search may find the actor's public statuses, left out of a minimal document
+ * @param isCat      Misskey's flag for an account that's a cat, always sent as Misskey sends it, but left out of a minimal
+ *                   document
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
  * @param alsoKnownAs the accounts that can move to this one, left out if there are none
  * @param movedTo    the account this one has moved to, left out if it hasn't. The account keeps working here, but other
@@ -59,6 +62,7 @@ public record Person(
         List<Tag> tag,
         Boolean manuallyApprovesFollowers,
         Boolean indexable,
+        Boolean isCat,
         String published,
         String updated,
         List<URI> alsoKnownAs,
@@ -114,7 +118,7 @@ public record Person(
         return new Person(
                 ActivityStreams.PERSON_CONTEXT,
                 actor.uri(),
-                "Person",
+                type(profile.bot()),
                 actor.username(),
                 profile.displayName().isEmpty() ? null : profile.displayName(),
                 profile.note().isEmpty() ? null : profile.noteHtml(instance.baseUrl()),
@@ -138,6 +142,7 @@ public record Person(
                 tags.isEmpty() ? null : List.copyOf(tags),
                 profile.manuallyApprovesFollowers(),
                 profile.indexable(),
+                profile.cat(),
                 ActivityStreams.time(actor.createdAt()),
                 ActivityStreams.time(profile.updatedAt()),
                 profile.alsoKnownAs().isEmpty() ? null : profile.alsoKnownAs(),
@@ -157,13 +162,17 @@ public record Person(
      * What's served to an unsigned request when signed fetches are required. It keeps the key, because some servers fetch
      * a key without signing, and this server's deliveries are only accepted once the key can be read. That goes for the
      * Ed25519 key too, which a server needs to check an activity's integrity proof. Otherwise it's what Mastodon serves
-     * then, with the collections' URIs, which say nothing that the actor's URI doesn't.
+     * then, with the collections' URIs, which say nothing that the actor's URI doesn't. It keeps the type too, since a
+     * server that reads this first would otherwise take a bot for a person until it fetches the actor again.
+     *
+     * @param bot whether the actor's profile says it's automated, which isn't shown while it's suspended, as the rest of
+     *            its profile isn't
      */
-    public static Person minimal(Actor actor, String proofKeyPem, InstanceProperties instance) {
+    public static Person minimal(Actor actor, boolean bot, String proofKeyPem, InstanceProperties instance) {
         return new Person(
                 actor.isSuspended() ? ActivityStreams.SUSPENDED_ACTOR_CONTEXT : ActivityStreams.ACTOR_CONTEXT,
                 actor.uri(),
-                "Person",
+                type(bot && !actor.isSuspended()),
                 actor.username(),
                 null,
                 null,
@@ -186,7 +195,12 @@ public record Person(
                 null,
                 null,
                 null,
+                null,
                 actor.isSuspended() ? true : null);
+    }
+
+    private static String type(boolean bot) {
+        return bot ? "Service" : "Person";
     }
 
     private static List<Multikey> assertionMethod(Actor actor, String proofKeyPem) {
@@ -204,7 +218,7 @@ public record Person(
         return new Person(
                 context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, featured,
                 endpoints,
-                publicKey, assertionMethod, icon, image, attachment, tag, manuallyApprovesFollowers, indexable, published, updated,
-                alsoKnownAs, movedTo, suspended);
+                publicKey, assertionMethod, icon, image, attachment, tag, manuallyApprovesFollowers, indexable, isCat,
+                published, updated, alsoKnownAs, movedTo, suspended);
     }
 }

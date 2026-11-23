@@ -201,6 +201,11 @@ save a profile can make your server fetch a page. It only fetches public address
 
 Other servers that follow the account are told about each change.
 
+At `/settings` or in an app, people can mark their account as a bot, for one that posts automatically. Their profile
+page, apps, and other servers show it as a bot. They can also say they're a cat, which their profile page shows, and
+which Misskey and the servers based on it show as cat ears. Both are off by default, and other servers are told when
+either changes.
+
 Signed-in users can follow an account from its profile page. A visitor from another server can enter their address,
 such as `@alice@mastodon.social`, to follow from their own server if it supports remote follow, as Mastodon, Akkoma,
 and Misskey do. Otherwise, Elysium directs them to search for the profile in their app. Local users who enter their

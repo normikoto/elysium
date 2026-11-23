@@ -12,6 +12,7 @@ import java.util.List;
  * @param noteHtml  the bio as sanitized HTML, which is empty if there's none
  * @param avatarUrl an HTTPS URL, or null if there isn't one
  * @param headerUrl an HTTPS URL, or null if there isn't one
+ * @param cat       Misskey's {@code isCat}
  * @param published when its server says it was created, or null if it doesn't
  * @param url       its profile page, or null if the document doesn't give one
  * @param alsoKnownAs the accounts it says are also it
@@ -27,6 +28,7 @@ public record RemoteProfile(
         boolean manuallyApprovesFollowers,
         boolean indexable,
         boolean bot,
+        boolean cat,
         boolean group,
         Instant published,
         URI url,
@@ -34,7 +36,7 @@ public record RemoteProfile(
         URI movedTo) {
 
     public static final RemoteProfile EMPTY =
-            new RemoteProfile("", "", "", null, null, List.of(), false, false, false, false, null, null);
+            new RemoteProfile("", "", "", null, null, List.of(), false, false, false, false, false, null, null);
 
     /**
      * @param value     as text
@@ -61,10 +63,11 @@ public record RemoteProfile(
             boolean manuallyApprovesFollowers,
             boolean indexable,
             boolean bot,
+            boolean cat,
             boolean group,
             Instant published,
             URI url) {
-        this(displayName, note, noteHtml, avatarUrl, headerUrl, fields, manuallyApprovesFollowers, indexable, bot, group,
-                published, url, List.of(), null);
+        this(displayName, note, noteHtml, avatarUrl, headerUrl, fields, manuallyApprovesFollowers, indexable, bot, cat,
+                group, published, url, List.of(), null);
     }
 }

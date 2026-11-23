@@ -457,6 +457,7 @@ class UpdateIntegrationTests {
         document.put("tag", List.of(Map.of("type", "Emoji", "name", ":wave:",
                 "icon", Map.of("type", "Image", "url", "https://" + host + "/emoji/wave.png"))));
         document.put("manuallyApprovesFollowers", true);
+        document.put("isCat", true);
         when(documents.fetch(eq(author.uri()))).thenReturn(json.readTree(json.writeValueAsString(document)));
 
         handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
@@ -465,7 +466,8 @@ class UpdateIntegrationTests {
         assertThat(profile.displayName()).isEqualTo("Sam :wave:");
         assertThat(profile.noteHtml(URI.create("https://create.example/"))).isEqualTo("<p>Hello there</p>");
         assertThat(profile.manuallyApprovesFollowers()).isTrue();
-        assertThat(profile.remote().bot()).isTrue();
+        assertThat(profile.bot()).isTrue();
+        assertThat(profile.cat()).isTrue();
         assertThat(profile.fields()).singleElement().satisfies(field -> {
             assertThat(field.name()).isEqualTo("Site");
             assertThat(field.valueHtml()).contains("https://sam.test");
@@ -487,7 +489,8 @@ class UpdateIntegrationTests {
         assertThat(replaced.noteHtml(URI.create("https://create.example/"))).isEmpty();
         assertThat(replaced.fields()).isEmpty();
         assertThat(replaced.manuallyApprovesFollowers()).isFalse();
-        assertThat(replaced.remote().bot()).isFalse();
+        assertThat(replaced.bot()).isFalse();
+        assertThat(replaced.cat()).isFalse();
         assertThat(emojis.findForRemoteProfiles(List.of(author.id()))).isEmpty();
         makeEmojiOld();
         emojis.removeUnused();

@@ -107,9 +107,11 @@ public class ProfileService {
                     fields.getOrDefault(row.actorId(), List.of()),
                     row.manuallyApprovesFollowers(),
                     row.indexable(),
+                    row.bot(),
+                    row.cat(),
                     row.updatedAt(),
                     remote == null ? null : new Profile.Remote(
-                            remote.noteHtml(), remote.url(), remote.bot(), remote.group(), remote.published()),
+                            remote.noteHtml(), remote.url(), remote.group(), remote.published()),
                     row.alsoKnownAs(),
                     row.movedTo()));
         }
@@ -142,6 +144,8 @@ public class ProfileService {
                 old.background(),
                 profile.manuallyApprovesFollowers(),
                 profile.indexable(),
+                profile.bot(),
+                profile.cat(),
                 old.updatedAt(),
                 new ProfileRepository.Remote(
                         profile.noteHtml(),
@@ -150,7 +154,6 @@ public class ProfileService {
                         profile.headerUrl(),
                         givenUp(oldRemote, true, profile.headerUrl()),
                         profile.url(),
-                        profile.bot(),
                         profile.group(),
                         profile.published()),
                 profile.alsoKnownAs(),
@@ -399,6 +402,8 @@ public class ProfileService {
                         choose(change.background(), background, old.background(), removed),
                         change.manuallyApprovesFollowers().orElse(old.manuallyApprovesFollowers()),
                         change.indexable().orElse(old.indexable()),
+                        change.bot().orElse(old.bot()),
+                        change.cat().orElse(old.cat()),
                         old.updatedAt(),
                         null,
                         old.alsoKnownAs(),
@@ -474,8 +479,8 @@ public class ProfileService {
      */
     private static boolean sameButBackground(ProfileRepository.Row row, ProfileRepository.Row old) {
         return new ProfileRepository.Row(row.actorId(), row.displayName(), row.note(), row.avatar(), row.header(),
-                old.background(), row.manuallyApprovesFollowers(), row.indexable(), row.updatedAt(), row.remote(),
-                row.alsoKnownAs(), row.movedTo()).equals(old);
+                old.background(), row.manuallyApprovesFollowers(), row.indexable(), row.bot(), row.cat(), row.updatedAt(),
+                row.remote(), row.alsoKnownAs(), row.movedTo()).equals(old);
     }
 
     /**

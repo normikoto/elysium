@@ -132,6 +132,7 @@ final class RemoteActorDocument {
                 ActivityJson.flag(document.path("manuallyApprovesFollowers")),
                 ActivityJson.flag(document.path("indexable")),
                 types.stream().anyMatch(BOT_TYPES::contains),
+                ActivityJson.flag(document.path("isCat")),
                 types.contains("Group"),
                 RemoteNote.timestamp(document.path("published")),
                 profileUrl(document.path("url")),

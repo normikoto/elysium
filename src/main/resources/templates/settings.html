@@ -96,6 +96,21 @@
             Even with this off, people here can find your posts that they've favourited or bookmarked, or that mention
             them. Other servers are told about this setting, and decide for themselves what their search finds.
         </p>
+        <label>
+            <input type="checkbox" name="bot" value="true" th:checked="${bot}">
+            This is an automated account
+        </label>
+        <p>
+            For an account that posts by itself, or mostly doesn't read replies. It's marked as a bot on your profile,
+            in apps, and on other servers.
+        </p>
+        <label>
+            <input type="checkbox" name="cat" value="true" th:checked="${cat}">
+            I'm a cat
+        </label>
+        <p>
+            Misskey and the servers based on it show cat ears on your avatar. Your profile here says so too.
+        </p>
         <button type="submit">Save</button>
     </form>
     <p><a href="/settings/password">Change your password</a></p>
