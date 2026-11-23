@@ -34,14 +34,20 @@ class ActivityCleanupIntegrationTests {
         host("old.test", "8 days");
         host("recent.test", "6 days");
 
-        // Waits for the job to appear, which happens when the scheduler starts.
+        // Waits for the job to appear, which happens when the scheduler starts. The scheduler also runs it once at start,
+        // which can still be going while the rows above are inserted, so this only succeeds when no run is, and the run
+        // it asks for starts after them.
         await().atMost(WAIT).until(() -> jdbc.sql("""
                 UPDATE scheduled_tasks SET execution_time = now()
                 WHERE task_name = 'activity-cleanup' AND picked = false
                 """).update() == 1);
 
-        await().atMost(WAIT).until(() -> ids("SELECT host FROM federation_host WHERE host IN ('old.test', 'recent.test')")
-                .equals(java.util.List.of("recent.test")));
+        // Waiting for one table to change could be satisfied by the run at start, before the one asked for has removed
+        // anything else. A finished run puts the next one a day away.
+        await().atMost(WAIT).until(() -> jdbc.sql("""
+                SELECT count(*) FROM scheduled_tasks
+                WHERE task_name = 'activity-cleanup' AND picked = false AND execution_time > now() + INTERVAL '1 hour'
+                """).query(Long.class).single() == 1);
         assertThat(ids("SELECT activity_id FROM outbound_activity WHERE activity_id LIKE 'cleanup-%'"))
                 .containsExactly("cleanup-recent");
         assertThat(ids("SELECT activity_id FROM inbound_activity WHERE activity_id LIKE 'cleanup-%'"))
