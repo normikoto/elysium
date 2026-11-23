@@ -669,13 +669,17 @@ class ProfileIntegrationTests {
     @Test
     void aSuspendedAccountsDocumentLeavesOutItsProfile() throws Exception {
         var carol = account("carol");
-        profiles.update(carol.id(), ProfileChange.NONE.withDisplayName("Carol").withNote("Bio"));
+        profiles.update(carol.id(), ProfileChange.NONE.withDisplayName("Carol").withNote("Bio").withIndexable(true)
+                .withBot(true).withCat(true));
         actors.suspend(carol.id());
         try {
             mockMvc.perform(get("/users/carol").accept("application/activity+json"))
                     .andExpect(jsonPath("$.suspended").value(true))
+                    .andExpect(jsonPath("$.type").value("Person"))
                     .andExpect(jsonPath("$.name").doesNotExist())
-                    .andExpect(jsonPath("$.summary").doesNotExist());
+                    .andExpect(jsonPath("$.summary").doesNotExist())
+                    .andExpect(jsonPath("$.indexable").doesNotExist())
+                    .andExpect(jsonPath("$.isCat").doesNotExist());
         } finally {
             actors.unsuspend(carol.id());
         }

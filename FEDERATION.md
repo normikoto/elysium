@@ -85,7 +85,8 @@ An actor document also has the user's profile, as Mastodon sends it, and leaves 
 `manuallyApprovesFollowers` is always included, and is true when the user [approves followers by hand](#follows).
 `indexable` is always included too, as Mastodon sends it, and is true when the user lets anyone's search find their public
 statuses. It's false until they choose that. This server's own search follows other servers' actors' `indexable` in the
-same way. Misskey's `isCat` is always included as well, and is true when the user says they're a cat.
+same way. Misskey's `isCat` is always included as well, and is true when the user says they're a cat. A suspended user's
+document leaves out both.
 
 The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields,
 `Hashtag` (`as:Hashtag`), `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`), and `toot`

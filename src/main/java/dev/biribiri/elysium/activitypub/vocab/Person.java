@@ -29,9 +29,10 @@ import java.util.List;
  * @param featured   the collection of pinned statuses, left out while the actor is suspended, since it can't be read then
  * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them, left out of a
  *                   {@linkplain #minimal minimal} document, since a false one would say the actor isn't locked
- * @param indexable  whether any server's search may find the actor's public statuses, left out of a minimal document
- * @param isCat      Misskey's flag for an account that's a cat, always sent as Misskey sends it, but left out of a minimal
- *                   document
+ * @param indexable  whether any server's search may find the actor's public statuses, left out of a minimal or suspended
+ *                   actor's document, whose context doesn't define it
+ * @param isCat      Misskey's flag for an account that's a cat, always sent as Misskey sends it, but left out of a minimal or
+ *                   suspended actor's document, as {@code indexable} is
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
  * @param alsoKnownAs the accounts that can move to this one, left out if there are none
  * @param movedTo    the account this one has moved to, left out if it hasn't. The account keeps working here, but other
@@ -155,7 +156,8 @@ public record Person(
      * saying this, and so that the actor is still there to come back. Its profile isn't shown, as Mastodon does.
      */
     public static Person suspended(Actor actor, String proofKeyPem, InstanceProperties instance) {
-        return from(actor, Profile.EMPTY, List.of(), proofKeyPem, instance).with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, true);
+        return from(actor, Profile.EMPTY, List.of(), proofKeyPem, instance)
+                .with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, null, null, true);
     }
 
     /**
@@ -211,10 +213,10 @@ public record Person(
      * This document as part of an activity, which has the {@code @context} for both.
      */
     Person withoutContext() {
-        return with(null, featured, suspended);
+        return with(null, featured, indexable, isCat, suspended);
     }
 
-    private Person with(List<?> context, URI featured, Boolean suspended) {
+    private Person with(List<?> context, URI featured, Boolean indexable, Boolean isCat, Boolean suspended) {
         return new Person(
                 context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, featured,
                 endpoints,
