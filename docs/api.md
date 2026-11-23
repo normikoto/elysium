@@ -731,9 +731,9 @@ Only these exist:
   have, and which `source` has too.
   - `discoverable` and the rest of `source` are accepted only with the values the account already has: false, and
     `public` for `source[privacy]`.
+  - Any other value for them, or any other field with a value, gets a 422 naming it, and nothing is changed.
   - `is_cat` is Elysium's own field, which Mastodon doesn't have. It's true for an account that says it's a cat, as
     Misskey's `isCat` does, and Account entities include it for every account. Other servers see it as `isCat`.
-  - Any other value for them, or any other field with a value, gets a 422 naming it, and nothing is changed.
   - Empty values are ignored, except that an empty `display_name` or `note` clears it, as on Mastodon.
 - `GET /api/v1/preferences` needs `read:accounts`, as on Mastodon. `posting:default:quote_policy` is
   `source[quote_policy]`. The other preferences can't be changed yet, so they have the values a new account would have
