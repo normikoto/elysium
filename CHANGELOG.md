@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- People can have their old posts deleted automatically at `/settings/post-cleanup`, linked from their settings, as with
+  Mastodon's automated post deletion. They choose how old posts have to be, and which to keep, such as pinned posts,
+  direct messages, or posts with enough favourites. Old boosts are undone too. Posts are deleted a few at a time, so
+  other servers aren't sent thousands of deletions at once. See `docs/accounts.md`.
 - Apps can search for accounts through the Mastodon API's `GET /api/v1/accounts/search`, which they use to suggest
   people while someone writes a mention. Both searches can now find only the accounts the user follows, as Mastodon's
   web app does when adding people to a list. See `docs/api.md`.

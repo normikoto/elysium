@@ -1,0 +1,68 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Automated post deletion', ~{::content})}">
+<th:block th:fragment="content">
+    <p class="notice" role="status" th:if="${saved}">Your settings are saved.</p>
+    <p class="error" role="alert" th:if="${error != null}">Nothing was saved: <span th:text="${error}"></span>.</p>
+    <p>
+        Your posts and boosts are deleted once they're older than you choose, except for the posts you keep below. Deleted
+        posts can't be brought back. Other servers are told to delete them too, but can't be made to.
+    </p>
+    <p>
+        Posts are deleted a few at a time, so if you have a lot of old ones it can take days to get through them.
+    </p>
+    <form method="post" th:action="@{/settings/post-cleanup}">
+        <label>
+            <input type="checkbox" name="enabled" value="true" th:checked="${policy.enabled()}">
+            Delete old posts automatically
+        </label>
+        <label>
+            Delete posts older than
+            <select name="minAgeDays">
+                <option th:each="age : ${ages}" th:value="${age.days()}" th:text="${age.label()}"
+                        th:selected="${age == policy.minimumAge()}"></option>
+            </select>
+        </label>
+        <fieldset>
+            <legend>Keep posts</legend>
+            <p>These only keep your own posts. Boosts are deleted once they're old enough.</p>
+            <label>
+                <input type="checkbox" name="keepPinned" value="true" th:checked="${policy.keepPinned()}">
+                That you've pinned
+            </label>
+            <label>
+                <input type="checkbox" name="keepDirect" value="true" th:checked="${policy.keepDirect()}">
+                That are direct messages
+            </label>
+            <label>
+                <input type="checkbox" name="keepPolls" value="true" th:checked="${policy.keepPolls()}">
+                With polls
+            </label>
+            <label>
+                <input type="checkbox" name="keepMedia" value="true" th:checked="${policy.keepMedia()}">
+                With images, video, or audio
+            </label>
+            <label>
+                <input type="checkbox" name="keepSelfFavourited" value="true"
+                       th:checked="${policy.keepSelfFavourited()}">
+                That you've favourited
+            </label>
+            <label>
+                <input type="checkbox" name="keepSelfBookmarked" value="true"
+                       th:checked="${policy.keepSelfBookmarked()}">
+                That you've bookmarked
+            </label>
+            <label>
+                With at least this many favourites
+                <input type="number" name="minFavourites" min="1" th:value="${policy.minFavourites()}">
+            </label>
+            <label>
+                Boosted at least this many times
+                <input type="number" name="minBoosts" min="1" th:value="${policy.minBoosts()}">
+            </label>
+            <p>Leave a number empty to keep no posts for it.</p>
+        </fieldset>
+        <button type="submit">Save</button>
+    </form>
+    <p><a href="/settings">Back to settings</a></p>
+</th:block>
+</html>

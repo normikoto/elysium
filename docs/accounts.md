@@ -228,6 +228,18 @@ choices, separate from an admin's [domain blocks](#domain-blocks), and other peo
 What someone on another server posts can still reach this server through the people here who follow them, and blocks don't
 stop it being stored, only shown.
 
+## Deleting old posts automatically
+
+People can have their own old posts deleted at `/settings/post-cleanup`, linked from their settings. It's off until they
+turn it on. As on Mastodon, they choose an age from one week to two years, and can keep posts that are pinned, direct,
+have polls or media, that they've favourited or bookmarked themselves, or that have at least so many favourites or
+boosts. Their boosts older than that age are undone, whatever else they keep.
+
+Each post is deleted as if its author had deleted it, attachments included, and other servers are asked to delete it
+too. Only a few of each account's posts are deleted every few minutes, so an account with years of posts can take days
+to catch up, and its followers' servers aren't sent every deletion at once. A suspended account's posts aren't deleted
+until it's unsuspended.
+
 ## Removing posts
 An admin can remove a post that breaks the rules at `/admin/statuses`, by finding it with its URL or its ID. Removing a post
 can't be undone.

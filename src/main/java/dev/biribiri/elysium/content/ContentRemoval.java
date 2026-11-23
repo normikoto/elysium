@@ -21,11 +21,13 @@ class ContentRemoval implements ActorDataRemoval {
     private final PostingDefaults postingDefaults;
     private final PostFilters filters;
     private final CustomEmojis emojis;
+    private final PostCleanups postCleanups;
 
     ContentRemoval(LikeService likes, ReactionService reactions, StatusPinService pins, BookmarkService bookmarks,
                    ThreadMuteService threadMutes, PollService polls, ScheduledStatusService scheduled,
                    StatusService statuses, MediaAttachments attachments, FollowersOnlyRecipients followersOnly,
-                   PostingDefaults postingDefaults, PostFilters filters, CustomEmojis emojis) {
+                   PostingDefaults postingDefaults, PostFilters filters, CustomEmojis emojis,
+                   PostCleanups postCleanups) {
         this.likes = likes;
         this.reactions = reactions;
         this.pins = pins;
@@ -39,10 +41,13 @@ class ContentRemoval implements ActorDataRemoval {
         this.postingDefaults = postingDefaults;
         this.filters = filters;
         this.emojis = emojis;
+        this.postCleanups = postCleanups;
     }
 
     @Override
     public void removeForDeleted(UUID actorId) {
+        // First, so that the job doesn't delete statuses alongside the removal.
+        postCleanups.removeFor(actorId);
         likes.removeForActor(actorId);
         reactions.removeForActor(actorId);
         pins.removeForActor(actorId);

@@ -96,6 +96,29 @@ public class BoostService {
     }
 
     /**
+     * Removes a local account's boost by its own ID, for {@link PostCleanups}. Unlike {@link #unreblog}, this works when the
+     * account can no longer see the status it boosted, such as after its author blocked the account, since the boost is
+     * still the account's own to remove.
+     *
+     * @return whether the boost was removed
+     */
+    @Transactional
+    public boolean removeOwn(UUID boostId, UUID actorId) {
+        var preview = boosts.find(boostId).filter(boost -> boost.actorId().equals(actorId));
+        if (preview.isEmpty()) return false;
+        var status = repository.findById(preview.get().statusId());
+        var actor = actors.findLocalById(actorId);
+        if (status.isEmpty() || actor.isEmpty()) return false;
+        likes.holdActors(List.of(actorId, status.get().actorId()));
+        boosts.lockPair(actor.get().uri(), status.get().id());
+        return boosts.findPair(actorId, status.get().id()).map(boost -> {
+            boosts.delete(boost.id());
+            events.publishEvent(StatusUnreblogged.of(boost, status.get().uri(), status.get().actorId()));
+            return true;
+        }).orElse(false);
+    }
+
+    /**
      * @return the status a boost boosts, or the ID itself if it isn't a boost's
      */
     public Optional<UUID> original(UUID statusId) {
