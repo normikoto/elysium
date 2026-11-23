@@ -47,22 +47,30 @@ public record InstanceProperties(URI baseUrl, String accountDomain) {
         baseUrl = URI.create(scheme + "://" + authority);
         accountDomain = accountDomain == null || accountDomain.isBlank()
                 ? authority
-                : normalizeDomain(accountDomain.strip());
+                : normalizeDomain(accountDomain.strip(), defaultPort);
     }
 
-    private static String normalizeDomain(String domain) {
+    /**
+     * Normalized as the base URL's authority is, since other servers compare addresses as text: {@code example.com:443}
+     * and {@code example.com} would otherwise be two different addresses for the same users.
+     */
+    private static String normalizeDomain(String domain, int defaultPort) {
         URI parsed;
         try {
             parsed = new URI("https://" + domain);
         } catch (URISyntaxException e) {
             parsed = null;
         }
+        // URI accepts an empty port, as in example.com:, and a trailing dot, either of which would end up in every address.
         if (parsed == null || parsed.getHost() == null || parsed.getRawUserInfo() != null
-                || !domain.equalsIgnoreCase(parsed.getRawAuthority())) {
+                || !domain.equalsIgnoreCase(parsed.getRawAuthority())
+                || domain.endsWith(":") || parsed.getHost().endsWith(".")) {
             throw new IllegalArgumentException(
                     "elysium.instance.account-domain must be a domain, with an optional port, and no scheme or path");
         }
-        return domain.toLowerCase(Locale.ROOT);
+        var host = parsed.getHost().toLowerCase(Locale.ROOT);
+        var port = parsed.getPort();
+        return port == -1 || port == defaultPort ? host : host + ":" + port;
     }
 
     /**

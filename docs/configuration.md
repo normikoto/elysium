@@ -75,8 +75,9 @@ searches and mentions as well as from other servers.
 
 You can set or change this on a server that already has users. Their addresses change on the next start, and their
 followers, posts, and links stay the same, since those use the base URL. Other servers keep showing the old address until
-they next refresh the account. The old domain has to keep sending WebFinger requests here until then. The server refuses
-to start with a domain that it already knows accounts from another server on.
+they next refresh the account, which they do from its URL, so they don't need the old domain for it. Addresses on an old
+account domain stop being found, unless it was the server's own domain, which always works. The server refuses to start
+with a domain that it already knows accounts from another server on.
 
 To check it works, run `curl -L 'https://social.example/.well-known/webfinger?resource=acct:alice@social.example'`. Its
 `subject` should be `acct:alice@social.example`, and its `self` link should point to

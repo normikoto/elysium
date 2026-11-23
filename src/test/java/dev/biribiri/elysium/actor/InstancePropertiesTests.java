@@ -75,12 +75,14 @@ class InstancePropertiesTests {
         assertThat(properties.isLocalDomain(null)).isFalse();
         assertThat(new InstanceProperties(URI.create("https://social.example"), "example.com:8443").accountDomain())
                 .isEqualTo("example.com:8443");
+        assertThat(new InstanceProperties(URI.create("https://social.example"), "example.com:443").accountDomain())
+                .isEqualTo("example.com");
     }
 
     @Test
     void rejectsAccountDomainsThatArentDomains() {
         for (var domain : new String[]{"https://example.com", "example.com/path", "alice@example.com", ":8080",
-                "example.com?a=b", "example .com"}) {
+                "example.com?a=b", "example .com", "example.com:", "example.com."}) {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> new InstanceProperties(URI.create("https://social.example"), domain));
         }
