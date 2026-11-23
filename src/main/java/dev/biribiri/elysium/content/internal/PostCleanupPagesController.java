@@ -31,10 +31,39 @@ class PostCleanupPagesController {
         this.cleanups = cleanups;
     }
 
+    /**
+     * What the page shows, which after a refused save is what was sent, so that nobody has to make their changes again. A
+     * policy can't hold that, since it's refused.
+     */
+    record Form(
+            boolean enabled,
+            Integer minAgeDays,
+            boolean keepPinned,
+            boolean keepDirect,
+            boolean keepPolls,
+            boolean keepMedia,
+            boolean keepSelfFavourited,
+            boolean keepSelfBookmarked,
+            Integer minFavourites,
+            Integer minBoosts) {
+
+        static Form of(PostCleanupPolicy policy) {
+            return new Form(policy.enabled(), policy.minimumAge().days(), policy.keepPinned(), policy.keepDirect(),
+                    policy.keepPolls(), policy.keepMedia(), policy.keepSelfFavourited(), policy.keepSelfBookmarked(),
+                    policy.minFavourites(), policy.minBoosts());
+        }
+
+        PostCleanupPolicy policy() {
+            var age = minAgeDays == null ? null : PostCleanupPolicy.MinimumAge.ofDays(minAgeDays).orElse(null);
+            return new PostCleanupPolicy(enabled, age, keepPinned, keepDirect, keepPolls, keepMedia, keepSelfFavourited,
+                    keepSelfBookmarked, minFavourites, minBoosts);
+        }
+    }
+
     @GetMapping(PATH)
     String show(@RequestParam(required = false) String saved, Authentication authentication, Model model) {
         model.addAttribute("saved", saved != null);
-        return show(cleanups.find(accountId(authentication)), model);
+        return show(Form.of(cleanups.find(accountId(authentication))), model);
     }
 
     /**
@@ -55,22 +84,21 @@ class PostCleanupPagesController {
             Authentication authentication,
             Model model,
             HttpServletResponse response) {
-        var age = minAgeDays == null ? null : PostCleanupPolicy.MinimumAge.ofDays(minAgeDays).orElse(null);
+        var form = new Form(enabled, minAgeDays, keepPinned, keepDirect, keepPolls, keepMedia, keepSelfFavourited,
+                keepSelfBookmarked, minFavourites, minBoosts);
         try {
-            var policy = new PostCleanupPolicy(enabled, age, keepPinned, keepDirect, keepPolls, keepMedia,
-                    keepSelfFavourited, keepSelfBookmarked, minFavourites, minBoosts);
-            cleanups.save(accountId(authentication), policy);
+            cleanups.save(accountId(authentication), form.policy());
         } catch (InvalidPostCleanupPolicyException e) {
             response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
             model.addAttribute("saved", false);
             model.addAttribute("error", e.getMessage());
-            return show(cleanups.find(accountId(authentication)), model);
+            return show(form, model);
         }
         return "redirect:" + PATH + "?saved";
     }
 
-    private static String show(PostCleanupPolicy policy, Model model) {
-        model.addAttribute("policy", policy);
+    private static String show(Form form, Model model) {
+        model.addAttribute("form", form);
         model.addAttribute("ages", List.of(PostCleanupPolicy.MinimumAge.values()));
         return PAGE;
     }

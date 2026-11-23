@@ -277,6 +277,29 @@ class PostCleanupIntegrationTests {
         assertThat(cleanups.find(actorId)).isEqualTo(PostCleanupPolicy.DEFAULT);
     }
 
+    @Test
+    void aRefusedSaveShowsWhatWasSent() throws Exception {
+        var username = signUp();
+        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
+
+        var page = mockMvc.perform(post(PAGE).session(session).with(csrf())
+                        .param("enabled", "true")
+                        .param("minAgeDays", "90")
+                        .param("keepPolls", "true")
+                        .param("minFavourites", "7")
+                        .param("minBoosts", "0"))
+                .andExpect(status().isUnprocessableContent())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(page)
+                .containsPattern("name=\"enabled\" value=\"true\" checked")
+                .containsPattern("value=\"90\" selected")
+                .containsPattern("name=\"keepPolls\" value=\"true\" checked")
+                // Kept by default, but unchecked in what was sent.
+                .containsPattern("name=\"keepPinned\" value=\"true\">")
+                .contains("value=\"7\"", "value=\"0\"");
+    }
+
     private void enable(UUID actorId, PostCleanupPolicy policy) {
         cleanups.save(actorId, new PostCleanupPolicy(true, policy.minimumAge(), policy.keepPinned(), policy.keepDirect(),
                 policy.keepPolls(), policy.keepMedia(), policy.keepSelfFavourited(), policy.keepSelfBookmarked(),
