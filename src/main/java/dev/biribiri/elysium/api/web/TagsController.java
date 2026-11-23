@@ -37,11 +37,11 @@ public class TagsController {
             operationId = "getTag",
             summary = "View a hashtag",
             description = """
-                    Differences from Mastodon: `history` only counts public statuses stored on this server. Tags can't \
-                    be followed or featured, so `following` is always false, and `featuring` is left out.
+                    Differences from Mastodon: `history` only counts public statuses stored on this server. Tags \
+                    can't be followed or featured, so `following` is always false, and `featuring` is omitted.
 
-                    Any valid tag name is found, even one that nothing uses, which has a `history` of zeros. Any token \
-                    works, with any scope, as does none.""",
+                    Any valid tag name is found, even one that nothing uses, which has a `history` of zeros. Any \
+                    token works, with any scope, as does none.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "tags/#get"),
             parameters = @Parameter(name = "id", description = "The tag's name, without its `#`."),
             responses = {

@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 public class FollowRequestsController {
 
     private static final String NO_REQUEST = """
-            The account isn't waiting for an answer, isn't found, or is suspended, or the ID isn't a UUID.""";
+            The account isn't waiting for an answer, isn't found, or is suspended, or the ID is not a UUID.""";
 
     private final ActorService actors;
     private final FollowService follows;
@@ -55,19 +55,19 @@ public class FollowRequestsController {
             operationId = "getFollowRequests",
             summary = "List the accounts waiting for the user to approve them as followers",
             description = """
-                    Differences from Mastodon: pages are by when each request was made, and the cursors are the IDs in \
-                    the `Link` header, not account IDs. Suspended and deleted accounts are left out.
+                    Differences from Mastodon: pages are by when each request was made, and the cursors are the IDs \
+                    in the `Link` header, not account IDs. Suspended and deleted accounts are excluded.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "follow_requests/#get"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_ACCOUNTS + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.ACCOUNTS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent request first."),
-                    @ApiResponse(responseCode = "422", description = "A cursor isn't a UUID, or the token has no user.")
+                    @ApiResponse(responseCode = "422", description = "A cursor is not a UUID, or the token has no user.")
             })
     public ResponseEntity<List<AccountResponse>> list(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -97,7 +97,7 @@ public class FollowRequestsController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
                     @ApiResponse(responseCode = "404", description = NO_REQUEST),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public RelationshipResponse authorize(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -124,7 +124,7 @@ public class FollowRequestsController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
                     @ApiResponse(responseCode = "404", description = NO_REQUEST),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public RelationshipResponse reject(
             @AuthenticationPrincipal TokenPrincipal token,

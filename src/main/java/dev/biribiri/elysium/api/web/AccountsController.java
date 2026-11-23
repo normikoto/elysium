@@ -76,12 +76,12 @@ public class AccountsController {
     private static final long MAX_CREDENTIALS_BODY_BYTES = 64 * 1024;
 
     private static final String FOLLOWS = """
-            Differences from Mastodon: pages are by when each follow was made, so a cursor from a follow that's since been \
-            removed gives an empty page. For an account on another server, only accounts on this server are listed. \
-            Suspended and deleted accounts are left out.
+            Differences from Mastodon: pages are by when each follow was made, so a cursor from a follow that's \
+            since been removed gives an empty page. For an account on another server, only accounts on this server \
+            are listed. Suspended and deleted accounts are excluded.
 
-            If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A suspended \
-            account gets a 404.""";
+            If the account hides who's in its collections, anyone else gets an empty list, as on Mastodon. A \
+            suspended account gets 404.""";
 
     /**
      * Room for a mute's two parameters, with plenty to spare.
@@ -100,14 +100,15 @@ public class AccountsController {
     private static final long MAX_MEMO_BODY_BYTES = 64 * 1024;
 
     private static final String ENDORSE = """
-            Shows the account in `GET /api/v1/endorsements`, and as `endorsed` on the relationship. The user has to \
-            follow the account already, or gets a 422, as on Mastodon, and the endorsement ends when the follow does. \
-            Endorsing an account again changes nothing. Nothing is sent to other servers.
+            The account appears in `GET /api/v1/endorsements` and its relationship has `endorsed` set. The user must \
+            already follow the account, as on Mastodon, or the request gets 422. The endorsement ends when the follow ends.
+
+            Repeating an endorsement has no additional effect. Elysium keeps endorsements local.
 
             """;
 
     private static final String FOLLOW_LIMIT =
-            "How many to return. Values outside 1 to " + PageLimits.MAX_ACCOUNTS + " are clamped to them.";
+            "Maximum number of results. Values outside 1 to " + PageLimits.MAX_ACCOUNTS + " are clamped to them.";
 
     private final ActorService actors;
     private final StatusService statuses;
@@ -176,7 +177,7 @@ public class AccountsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#verify_credentials"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The user's account."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public ResponseEntity<CredentialAccountResponse> verifyCredentials(@AuthenticationPrincipal TokenPrincipal token) {
         var actorId = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
@@ -218,28 +219,31 @@ public class AccountsController {
             summary = "Change the user's profile and account settings",
             description = """
                     Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, \
-                    Pleroma's `pleroma_background_image`, `locked`, `indexable`, `hide_collections`, `source[quote_policy]`, and `source[quote_others]` can be changed. `bot`, \
-                    `discoverable`, and the rest of `source` are accepted only with the values the account already has \
-                    (false, and `public` for `source[privacy]`), and any other value for them, or any other field with \
-                    a value, gets a 422 naming it. Then nothing is changed. Empty values are ignored, except that an empty `display_name` or `note` clears it.
+                    Pleroma's `pleroma_background_image`, `locked`, `indexable`, `hide_collections`, \
+                    `source[quote_policy]`, and `source[quote_others]` can be changed. `bot`, `discoverable`, and \
+                    the rest of `source` are accepted only with the values the account already has (false, and \
+                    `public` for `source[privacy]`), and any other value for them, or any other field with a value, \
+                    gets 422 naming it. Then nothing is changed. Empty values are ignored, except that an empty \
+                    `display_name` or `note` clears it.
 
                     `fields_attributes` can be a list, or an object keyed by position, as can a form's \
                     `fields_attributes[0][name]` or `fields_attributes[][name]`. It replaces all of the fields, and \
-                    those with an empty name and value are left out. The instance's \
+                    those with an empty name and value are excluded. The instance's \
                     `configuration.accounts.max_profile_fields` says how many there can be.
 
-                    `avatar` and `header` can only be sent as files in a multipart form, which is where every \
-                    field can go. They have to be a PNG, JPEG, GIF, or WebP, and are always re-encoded as WebP, cropped \
-                    to 400 × 400 and 1500 × 500. Animated ones stay animated, and `avatar_static` and `header_static` \
+                    `avatar` and `header` can only be sent as files in a multipart form, which is where every field \
+                    can go. They must be a PNG, JPEG, GIF, or WebP, and are always re-encoded as WebP, cropped to \
+                    400 × 400 and 1500 × 500. Animated ones stay animated, and `avatar_static` and `header_static` \
                     are their first frame.
 
                     `pleroma_background_image` is the profile's background, as on Pleroma. It's a file in a \
-                    multipart form too, and an empty value instead of a file removes it. It's re-encoded as WebP like \
-                    the others, but only scaled down to fit 3840 × 2160 pixels in area, without cropping. It's returned in \
-                    `pleroma.background_image`, and isn't sent to other servers.
+                    multipart form too, and an empty value instead of a file removes it. It's re-encoded as WebP \
+                    like the others, but only scaled down to fit 3840 × 2160 pixels in area, without cropping. It's \
+                    returned in `pleroma.background_image`, and isn't sent to other servers.
 
                     Turning `locked` off approves the requests to follow the user that are still waiting, as on \
-                    Mastodon. They're approved in the background, so they can still be waiting just after the response.
+                    Mastodon. They're approved in the background, so they can still be waiting just after the \
+                    response.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#update_credentials"),
@@ -292,11 +296,11 @@ public class AccountsController {
                     Only asks another server about an account for a signed-in user's request, and so finds only the \
                     accounts this server already knows otherwise. Each user can make\s"""
                     + RemoteActorResolver.LOOKUPS_PER_MINUTE
-                    + " of those lookups a minute, and then gets a 429. A suspended or deleted account isn't found.",
+                    + " of those lookups a minute, and then gets 429. A suspended or deleted account isn't found.",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#lookup"),
             parameters = @Parameter(name = "acct", required = true, description = """
                     The username of an account on this server, or `username@domain` for one on another server. A \
-                    missing or empty value gets a 404."""),
+                    missing or empty value gets 404."""),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The account."),
                     @ApiResponse(responseCode = "404", description = "No account was found."),
@@ -319,8 +323,8 @@ public class AccountsController {
             operationId = "getRelationships",
             summary = "Check the user's relationships with accounts",
             description = """
-                    Differences from Mastodon: suspended accounts are always left out, and `with_suspended` is ignored. Unknown and malformed \
-                    IDs are left out, as on Mastodon.
+                    Differences from Mastodon: suspended accounts are always left out, and `with_suspended` is \
+                    ignored. Unknown and malformed IDs are excluded, as on Mastodon.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#relationships"),
@@ -330,7 +334,7 @@ public class AccountsController {
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "A relationship for each account found."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<RelationshipResponse> relationships(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -362,9 +366,9 @@ public class AccountsController {
                     Differences from Mastodon: for an account on another server, only accounts on this server are \
                     listed. Each list has the most recent follow first.
 
-                    Suspended and deleted followers are left out. If the account hides who's in its collections, its list \
-                    is empty, unless it's the user's own. Unknown, malformed, and suspended accounts are left out, as on \
-                    Mastodon.
+                    Suspended and deleted followers are excluded. If the account hides who's in its collections, \
+                    its list is empty, unless it's the user's own. Unknown, malformed, and suspended accounts are \
+                    excluded, as on Mastodon.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#familiar_followers"),
@@ -374,7 +378,7 @@ public class AccountsController {
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "An entry for each account found, in the order asked."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<FamiliarFollowersResponse> familiarFollowers(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -410,11 +414,11 @@ public class AccountsController {
                     usernames this server knows, not display names.
                     - Another server is only asked about an address for a signed-in user's request, when `resolve` is \
                     true and `following` isn't, and never about a URL. Each user can make\s""" + RemoteActorResolver.LOOKUPS_PER_MINUTE + """
-                     of those lookups a minute, and then gets a 429.
+                     of those lookups a minute, and then gets 429.
                     - Only the first\s""" + AccountFilter.MAX_LIMIT + """
                      matches can be paged through with `offset`, and an `offset` past them returns no accounts.
 
-                    Suspended accounts are left out.""",
+                    Suspended accounts are excluded.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#search"),
             parameters = {
                     @Parameter(name = "q", description = """
@@ -459,7 +463,7 @@ public class AccountsController {
     @Operation(
             operationId = "getAccount",
             summary = "View an account",
-            description = "A suspended or deleted account gets a 404.",
+            description = "A suspended or deleted account gets 404.",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#get"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The account."),
@@ -481,13 +485,13 @@ public class AccountsController {
                     Differences from Mastodon:
 
                     - Following an account on another server returns `requested: true` until that server accepts.
-                    - Following a `locked` account here that follows you can return `following: true` straight away, \
+                    - Following a `locked` account here that follows you can return `following: true` immediately, \
                     when its user has chosen to approve requests from people they follow.
-                    - Following yourself, or an account on a server this server blocks, gets a 422.
+                    - Following yourself, or an account on a server this server blocks, gets 422.
 
                     Following an account already followed or asked changes only the options given, as on Mastodon. \
-                    `reblogs` and `languages` also apply to the user's lists. Following an account that either blocks \
-                    the other, or on a server the user has blocked, gets a 403, as on Mastodon.
+                    `reblogs` and `languages` also apply to the user's lists. Following an account that either \
+                    blocks the other, or on a server the user has blocked, gets 403, as on Mastodon.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#follow"),
@@ -570,12 +574,12 @@ public class AccountsController {
             summary = "Unfollow an account",
             description = """
                     Also withdraws a request to follow that's still waiting. An account can be unfollowed while it's \
-                    suspended.\s""" + ApiDocs.NEEDS_USER,
+                    suspended.\n\n""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unfollow"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public RelationshipResponse unfollow(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -598,12 +602,12 @@ public class AccountsController {
                     Stops the account following the user, without blocking it, so it can follow again. An account on \
                     another server has its server sent a `Reject` of its `Follow`. A request to follow that's still \
                     waiting isn't affected, and nor is an account that doesn't follow the user. A follower can be \
-                    removed while it's suspended.\s""" + ApiDocs.NEEDS_USER,
+                    removed while it's suspended.\n\n""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#remove_from_followers"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public RelationshipResponse removeFromFollowers(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -621,12 +625,12 @@ public class AccountsController {
             summary = "Block an account",
             description = """
                     Removes the follows between the user and the account, both ways, and the notifications between \
-                    them, and stops either following the other. The account's statuses are hidden from the user, and \
-                    the user's from the account. An account on another server is sent a `Block`, unless the server \
-                    is set not to, and its server is told that the follows ended either way. Repeats have no \
+                    them, and stops either following the other. The account's statuses are hidden from the user, \
+                    and the user's from the account. An account on another server is sent a `Block`, unless the \
+                    server is set not to, and its server is told that the follows ended either way. Repeats have no \
                     additional effect.
 
-                    Differences from Mastodon: blocking yourself gets a 422.
+                    Differences from Mastodon: blocking yourself gets 422.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#block"),
@@ -656,14 +660,15 @@ public class AccountsController {
             operationId = "unblockAccount",
             summary = "Unblock an account",
             description = """
-                    Follows that the block removed don't come back. An account on another server is sent an `Undo`, \
-                    unless the server is set not to send blocks. An account can be unblocked while it's suspended.\s\
+                    Users must follow each other again after a block removes their follows. Elysium sends an `Undo` \
+                    to remote accounts if sending blocks is enabled. This endpoint also works for suspended accounts.
+
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unblock"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public RelationshipResponse unblock(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -684,11 +689,11 @@ public class AccountsController {
             summary = "Mute an account",
             description = """
                     Hides the account's statuses and boosts of them from the user's timelines and threads, and, \
-                    unless `notifications` is false, its notifications. Follows are left as they are, and nothing is \
-                    sent to other servers. Muting an account already muted changes the mute.
+                    unless `notifications` is false, its notifications. Follows are left as they are, and nothing \
+                    is sent to other servers. Muting an account already muted changes the mute.
 
                     Differences from Mastodon: muting yourself, or a `duration` that's negative or not a whole \
-                    number of seconds, gets a 422.
+                    number of seconds, gets 422.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#mute"),
@@ -751,12 +756,12 @@ public class AccountsController {
             summary = "Unmute an account",
             description = """
                     Notifications from while the account was muted don't come back. An account can be unmuted \
-                    while it's suspended.\s""" + ApiDocs.NEEDS_USER,
+                    while it's suspended.\n\n""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unmute"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public RelationshipResponse unmute(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -872,12 +877,12 @@ public class AccountsController {
     @Operation(
             operationId = "unendorseAccount",
             summary = "Stop endorsing an account",
-            description = "An account can be unendorsed while it's suspended. " + ApiDocs.NEEDS_USER,
+            description = "An account can be unendorsed while it's suspended.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unendorse"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public RelationshipResponse unendorse(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -898,13 +903,13 @@ public class AccountsController {
             summary = "Stop endorsing an account, under its old name",
             description = """
                     The same as `POST /api/v1/accounts/{id}/unendorse`. An account can be unendorsed while it's \
-                    suspended.\s""" + ApiDocs.NEEDS_USER,
+                    suspended.\n\n""" + ApiDocs.NEEDS_USER,
             deprecated = true,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#unpin"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The relationship with the account."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public RelationshipResponse unpin(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -922,12 +927,12 @@ public class AccountsController {
     @Operation(
             operationId = "getAccountLists",
             summary = "List the user's lists that have an account",
-            description = "Oldest first. A suspended or deleted account gets a 404.\n\n" + ApiDocs.NEEDS_USER,
+            description = "Oldest first. A suspended or deleted account gets 404.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#lists"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The lists."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<ListResponse> lists(@AuthenticationPrincipal TokenPrincipal token,
                                     @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -1027,19 +1032,19 @@ public class AccountsController {
             summary = "List an account's statuses",
             description = """
                     Differences from Mastodon: for an account on another server, only the statuses it has sent here \
-                    are listed, and older ones aren't fetched. Its boosts of other servers' statuses are only stored \
-                    while someone here follows it, so others aren't listed. Statuses can't be tagged, so `tagged` \
-                    returns an empty list. `only_media` leaves out boosts.
+                    are listed, and older ones aren't fetched. Its boosts of other servers' statuses are only \
+                    stored while someone here follows it, so others aren't listed. Statuses can't be tagged, so \
+                    `tagged` returns an empty list. `only_media` leaves out boosts.
 
                     With `pinned`, the pins are listed the most recently pinned first, with no `Link` header, since \
                     they all fit in one page. Only `limit` applies to them, and `max_id`, `since_id` and `min_id` \
                     return an empty list. An account on another server only has the pins it has sent here, or that \
                     its `featured` collection listed when it was last fetched.
 
-                    Only statuses the viewer can see are listed. A suspended account gets a 404.""",
+                    Only statuses the viewer can see are listed. A suspended account gets 404.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#statuses"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_STATUSES + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
                     @Parameter(name = "exclude_replies", description = "Leave out replies. " + ApiDocs.FLAG),

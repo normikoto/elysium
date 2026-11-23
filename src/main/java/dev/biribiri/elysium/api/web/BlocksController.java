@@ -51,19 +51,19 @@ public class BlocksController {
             operationId = "getBlocks",
             summary = "List the accounts the user blocks",
             description = """
-                    Differences from Mastodon: pages are by when each block was made, and the cursors are the IDs in \
-                    the `Link` header, not account IDs. Suspended and deleted accounts are left out.
+                    Differences from Mastodon: pages are by when each block was made, and the cursors are the IDs \
+                    in the `Link` header, not account IDs. Suspended and deleted accounts are excluded.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "blocks/#get"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_ACCOUNTS + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.ACCOUNTS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recent block first."),
-                    @ApiResponse(responseCode = "422", description = "A cursor isn't a UUID, or the token has no user.")
+                    @ApiResponse(responseCode = "422", description = "A cursor is not a UUID, or the token has no user.")
             })
     public ResponseEntity<List<AccountResponse>> list(
             @AuthenticationPrincipal TokenPrincipal token,

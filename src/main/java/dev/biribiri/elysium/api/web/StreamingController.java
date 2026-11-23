@@ -37,26 +37,25 @@ import java.util.Map;
 class StreamingController {
 
     static final String EVENTS = """
-            Each event is sent as it happens, with Mastodon's names and payloads: `update` and `status.update` with a \
-            Status, `delete` with a status ID, `notification` with a Notification, `conversation` with a \
-            Conversation, and `filters_changed` with none, on `user` only. A status that the viewer's filters hide in \
-            the timeline's context isn't sent. A comment is sent every 30 seconds so that the connection doesn't look \
-            idle. Events can arrive out of order, or more than once.""";
+            Events use Mastodon's names and payloads. `update` and `status.update` carry a Status, `delete` carries a \
+            status ID, `notification` carries a Notification, and `conversation` carries a Conversation. Only `user` \
+            receives `filters_changed`, with no payload.
+
+            Timeline filters also hide statuses from streams. Elysium sends a heartbeat comment every 30 seconds. \
+            Events may arrive out of order or more than once.""";
 
     static final String DIFFERENCES = """
-            Differences from Mastodon: a stream only carries what its timeline would list at the time, so a status \
-            from another server only arrives once it's been stored here. There are no `announcement` or \
-            `notifications_merged` events. A `delete` goes to every stream that carries statuses, whether or not it \
-            carried that status. The connection closes once its token is revoked or expires, within about 30 \
-            seconds. """;
+            A stream shows what its timeline would list, so remote statuses arrive only after Elysium stores them. \
+            Elysium sends no `announcement` or `notifications_merged` events. Every stream that carries statuses \
+            receives `delete` events, even for statuses it did not show. Elysium closes connections within about \
+            30 seconds of token revocation or expiry.""";
 
     private static final String TOKEN = """
-            The token can also be given as the `access_token` query parameter, since a browser's `EventSource` can't \
-            set headers.""";
+            Clients such as a browser's `EventSource` can send the token in the `access_token` query parameter.""";
 
     private static final String OPEN = "The stream, which stays open until either side closes it.";
 
-    private static final String TOO_MANY = "As many streaming connections are open as the server allows.";
+    private static final String TOO_MANY = "The server reached its streaming connection limit.";
 
     private final StreamRegistry registry;
 
@@ -66,7 +65,7 @@ class StreamingController {
 
     @GetMapping(path = "/health", produces = MediaType.TEXT_PLAIN_VALUE)
     @Operation(operationId = "getStreamingHealth", summary = "Check that streaming is available",
-            description = "Answers `OK`, as Mastodon does.",
+            description = "Returns `OK`, as on Mastodon.",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#health"),
             responses = @ApiResponse(responseCode = "200", description = "Streaming is available.",
                     content = @Content(mediaType = MediaType.TEXT_PLAIN_VALUE, schema = @Schema(example = "OK"))))
@@ -78,11 +77,11 @@ class StreamingController {
     @PreAuthorize("hasAuthority('SCOPE_read:statuses')")
     @Operation(operationId = "streamUser", summary = "Stream the home timeline and notifications",
             description = DIFFERENCES + "\n\nCarries what the home timeline would list, and the user's notifications "
-                    + "if the token has `read:notifications`. " + EVENTS + " " + TOKEN + "\n\n" + ApiDocs.NEEDS_USER,
+                    + "if the token has `read:notifications`. " + EVENTS + "\n\n" + TOKEN + "\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#user"),
             responses = {
                     @ApiResponse(responseCode = "200", description = OPEN),
-                    @ApiResponse(responseCode = "422", description = "The token has no user."),
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user."),
                     @ApiResponse(responseCode = "503", description = TOO_MANY)
             })
     ResponseEntity<SseEmitter> user(Authentication authentication) {
@@ -92,11 +91,11 @@ class StreamingController {
     @GetMapping(path = "/user/notification", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("hasAuthority('SCOPE_read:notifications')")
     @Operation(operationId = "streamNotifications", summary = "Stream notifications",
-            description = DIFFERENCES + "\n\n" + EVENTS + " " + TOKEN + "\n\n" + ApiDocs.NEEDS_USER,
+            description = DIFFERENCES + "\n\n" + EVENTS + "\n\n" + TOKEN + "\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#notification"),
             responses = {
                     @ApiResponse(responseCode = "200", description = OPEN),
-                    @ApiResponse(responseCode = "422", description = "The token has no user."),
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user."),
                     @ApiResponse(responseCode = "503", description = TOO_MANY)
             })
     ResponseEntity<SseEmitter> notifications(Authentication authentication) {
@@ -107,11 +106,11 @@ class StreamingController {
     @PreAuthorize("hasAuthority('SCOPE_read:statuses')")
     @Operation(operationId = "streamDirect", summary = "Stream direct conversations",
             description = DIFFERENCES + "\n\nSends a `conversation` event whenever a status is added to one of the "
-                    + "user's conversations. " + EVENTS + " " + TOKEN + "\n\n" + ApiDocs.NEEDS_USER,
+                    + "user's conversations. " + EVENTS + "\n\n" + TOKEN + "\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#direct"),
             responses = {
                     @ApiResponse(responseCode = "200", description = OPEN),
-                    @ApiResponse(responseCode = "422", description = "The token has no user."),
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user."),
                     @ApiResponse(responseCode = "503", description = TOO_MANY)
             })
     ResponseEntity<SseEmitter> direct(Authentication authentication) {
@@ -121,7 +120,7 @@ class StreamingController {
     @GetMapping(path = "/public", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
     @Operation(operationId = "streamPublic", summary = "Stream public statuses",
-            description = DIFFERENCES + "Works without a token, like the public timeline.\n\n" + EVENTS + " " + TOKEN,
+            description = DIFFERENCES + "As with the public timeline, no token is required.\n\n" + EVENTS + "\n\n" + TOKEN,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#public"),
             parameters = @Parameter(name = "only_media", description = "Only stream statuses with media. "
                     + ApiDocs.FLAG),
@@ -137,7 +136,7 @@ class StreamingController {
     @GetMapping(path = "/public/local", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
     @Operation(operationId = "streamPublicLocal", summary = "Stream public statuses from this server",
-            description = DIFFERENCES + "Works without a token, like the public timeline.\n\n" + EVENTS + " " + TOKEN,
+            description = DIFFERENCES + "As with the public timeline, no token is required.\n\n" + EVENTS + "\n\n" + TOKEN,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#public-local"),
             parameters = @Parameter(name = "only_media", description = "Only stream statuses with media. "
                     + ApiDocs.FLAG),
@@ -153,7 +152,7 @@ class StreamingController {
     @GetMapping(path = "/public/remote", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
     @Operation(operationId = "streamPublicRemote", summary = "Stream public statuses from other servers",
-            description = DIFFERENCES + "Works without a token, like the public timeline.\n\n" + EVENTS + " " + TOKEN,
+            description = DIFFERENCES + "As with the public timeline, no token is required.\n\n" + EVENTS + "\n\n" + TOKEN,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#public-remote"),
             parameters = @Parameter(name = "only_media", description = "Only stream statuses with media. "
                     + ApiDocs.FLAG),
@@ -169,7 +168,7 @@ class StreamingController {
     @GetMapping(path = "/hashtag", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
     @Operation(operationId = "streamHashtag", summary = "Stream public statuses with a hashtag",
-            description = DIFFERENCES + "Works without a token, like the hashtag timeline.\n\n" + EVENTS + " " + TOKEN,
+            description = DIFFERENCES + "As with the hashtag timeline, no token is required.\n\n" + EVENTS + "\n\n" + TOKEN,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#hashtag"),
             parameters = @Parameter(name = "tag", description = "The tag's name, without its `#`.", required = true),
             responses = {
@@ -184,7 +183,7 @@ class StreamingController {
     @GetMapping(path = "/hashtag/local", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
     @Operation(operationId = "streamHashtagLocal", summary = "Stream public statuses from this server with a hashtag",
-            description = DIFFERENCES + "Works without a token, like the hashtag timeline.\n\n" + EVENTS + " " + TOKEN,
+            description = DIFFERENCES + "As with the hashtag timeline, no token is required.\n\n" + EVENTS + "\n\n" + TOKEN,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#hashtag-local"),
             parameters = @Parameter(name = "tag", description = "The tag's name, without its `#`.", required = true),
             responses = {
@@ -200,7 +199,7 @@ class StreamingController {
     @PreAuthorize("hasAuthority('SCOPE_read:statuses')")
     @Operation(operationId = "streamList", summary = "Stream a list's timeline",
             description = DIFFERENCES + "\n\nCarries what the list's timeline would list. It needs "
-                    + "`read:statuses`, as on Mastodon, though the list's timeline needs `read:lists`. " + EVENTS + " "
+                    + "`read:statuses`, as on Mastodon, though the list's timeline needs `read:lists`.\n\n" + EVENTS + "\n\n"
                     + TOKEN + "\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "streaming/#list"),
             parameters = @Parameter(name = "list", description = "The list's ID.", required = true),
@@ -208,8 +207,8 @@ class StreamingController {
                     @ApiResponse(responseCode = "200", description = OPEN),
                     @ApiResponse(responseCode = "400", description = "`list` is missing."),
                     @ApiResponse(responseCode = "401", description = """
-                            The list isn't the user's, or doesn't exist, or its ID isn't a UUID, as on Mastodon."""),
-                    @ApiResponse(responseCode = "422", description = "The token has no user."),
+                            The list isn't the user's, or doesn't exist, or its ID is not a UUID, as on Mastodon."""),
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user."),
                     @ApiResponse(responseCode = "503", description = TOO_MANY)
             })
     ResponseEntity<SseEmitter> list(Authentication authentication, @RequestParam(required = false) String list) {

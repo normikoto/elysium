@@ -48,7 +48,7 @@ public class InteractionRequestsController {
     static final String GOTOSOCIAL_DOCS = "https://docs.gotosocial.org/en/latest/api/swagger/";
 
     private static final String NO_REQUEST = """
-            Not found, the quoted status isn't the user's, or the ID isn't a UUID.""";
+            Not found, the quoted status isn't the user's, or the ID is not a UUID.""";
 
     private final QuoteService quotes;
     private final StatusService statuses;
@@ -95,14 +95,14 @@ public class InteractionRequestsController {
                             schema = @Schema(type = "boolean")),
                     @Parameter(name = "reblogs", description = "Ignored, since boosts aren't approved by hand.",
                             schema = @Schema(type = "boolean")),
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_STATUSES + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The quotes, newest first."),
                     @ApiResponse(responseCode = "422", description = """
-                            A cursor or `status_id` isn't a UUID, or the token has no user.""")
+                            A cursor or `status_id` is not a UUID, or the token has no user.""")
             })
     public ResponseEntity<List<InteractionRequestResponse>> list(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -148,7 +148,7 @@ public class InteractionRequestsController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The request."),
                     @ApiResponse(responseCode = "404", description = NO_REQUEST),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public InteractionRequestResponse one(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -175,7 +175,7 @@ public class InteractionRequestsController {
                     @ApiResponse(responseCode = "404", description = """
                             Not found, the quoted status isn't the user's, the quote was revoked or is waiting for \
                             nothing, or the status's policy no longer allows its author to quote it."""),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public InteractionRequestResponse authorize(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -200,7 +200,7 @@ public class InteractionRequestsController {
                     @ApiResponse(responseCode = "200", description = "The request, now rejected."),
                     @ApiResponse(responseCode = "404", description = """
                             Not found, the quoted status isn't the user's, or the quote isn't waiting for the user."""),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public InteractionRequestResponse reject(
             @AuthenticationPrincipal TokenPrincipal token, @Parameter(description = ApiDocs.ID) @PathVariable String id) {

@@ -125,7 +125,7 @@ class FederationApiDocs implements OperationCustomizer {
                 + "or it isn't valid.");
         addOrExtend(responses, "429", "Signed fetches are required, and this address has caused too many key fetches.");
         responses.get("429").addHeaderObject("Retry-After", new io.swagger.v3.oas.models.headers.Header()
-                .description("Seconds until there's room again.")
+                .description("Seconds before retrying.")
                 .schema(new IntegerSchema()));
         addOrExtend(responses, "503", "Signed fetches are required, and the signer's key can't be fetched right now.");
     }

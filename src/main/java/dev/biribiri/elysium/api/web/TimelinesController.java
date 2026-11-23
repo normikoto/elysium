@@ -57,30 +57,29 @@ public class TimelinesController {
             operationId = "getHomeTimeline",
             summary = "View statuses from followed accounts",
             description = """
-                    Differences from Mastodon: the timeline is read from the statuses stored here each time, rather than \
-                    from a feed kept for each user, so it never answers `206`, and a newly followed account's stored \
-                    statuses show straight away, including older ones. Statuses from other servers are only those sent \
-                    here since the follow was accepted, or before it if someone else here follows the author. A followed \
-                    account's reply to a status that isn't stored here is left out, since who it's replying to isn't known. Every boost \
-                    from a followed account is listed, even of a status that's already there. `local` has no effect.
+                    The timeline reads stored statuses on each request and never returns `206`. A newly followed \
+                    account's eligible statuses appear immediately, including older ones already stored here. \
+                    Followed accounts' replies with missing parents are omitted because the recipient is unknown.
+
+                    Every boost from a followed account appears, including boosts of statuses already in the timeline. \
+                    `local` has no effect.
 
                     Lists all of the user's own statuses, visible statuses of accounts they follow, and direct \
-                    statuses from followed accounts that address the user. A followed account's reply is only listed \
-                    when it's to its author, to the user, \
-                    or to an account they follow. Statuses by members of the user's exclusive lists are left out, \
-                    other than the user's own.
+                    statuses from followed accounts that address the user. A followed account's reply is only \
+                    listed when it's to its author, to the user, or to an account they follow. Statuses by members \
+                    of the user's exclusive lists are excluded, other than the user's own.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#home"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_STATUSES + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
                     @Parameter(name = "local", description = "Has no effect. Mastodon has deprecated it.")
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public ResponseEntity<List<StatusResponse>> homeTimeline(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -108,20 +107,20 @@ public class TimelinesController {
                     Filters for `home` apply, as on Mastodon.
 
                     Differences from Mastodon: the timeline is read from the statuses stored here each time, as the \
-                    home timeline is, so a newly added member's older statuses show straight away.
+                    home timeline is, so a newly added member's older statuses show immediately.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#list"),
             parameters = {
                     @Parameter(name = "listId", description = ApiDocs.ID),
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_STATUSES + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public ResponseEntity<List<StatusResponse>> listTimeline(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -148,11 +147,11 @@ public class TimelinesController {
                     which is when a local account follows their author or is addressed.
 
                     Only public statuses are listed, and not ones from suspended accounts. With a user token, ones \
-                    from accounts the user has blocked, muted, or blocked the server of, or that block the user, are \
-                    left out too.""",
+                    from accounts the user has blocked, muted, or blocked the server of, or that block the user, \
+                    are excluded too.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#public"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_STATUSES + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
                     @Parameter(name = "local", description = "Only list statuses from this server. " + ApiDocs.FLAG),
@@ -208,7 +207,7 @@ public class TimelinesController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#tag"),
             parameters = {
                     @Parameter(name = "hashtag", description = "The tag's name, without its `#`."),
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_STATUSES + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
                     @Parameter(name = "any[]", description = "Also list statuses with any of these tags. Only the "

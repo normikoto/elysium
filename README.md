@@ -1,21 +1,18 @@
 # Elysium
 
-Experimental ActivityPub server using Java and Spring Boot. Aim is general compatibility with Mastodon and other common
-AP implementations.
+Elysium is an experimental ActivityPub server built with Java and Spring Boot. It aims to work with Mastodon and other
+common ActivityPub servers.
 
-**There are known limitations and pitfalls when it comes to being production-ready right now, please don't run this on a
-public server unless you really know what you're doing.** For example, federation is only
-[partly built](FEDERATION.md).
+**Warning:** Elysium is experimental. Run it on a public server only if you are prepared to manage its limitations,
+including [partial federation support](FEDERATION.md).
 
 ## Documentation
-- [Installation](docs/installation.md): downloading and running the server, with Docker Compose or as a systemd service,
-  behind the reverse proxy that a public server needs
-- [Configuration](docs/configuration.md): settings, the database, and reverse proxies
-- [Accounts and sign-ups](docs/accounts.md): creating accounts, resetting passwords, login sessions, and the job queue
-- [Using the API](docs/api.md): OAuth, statuses, and how they differ from Mastodon
-- [Federation](FEDERATION.md): which federation protocols and standards are implemented so far
+- [Installation](docs/installation.md) covers Docker Compose, systemd, and HTTPS.
+- [Configuration](docs/configuration.md) covers settings, PostgreSQL, and reverse proxies.
+- [Accounts and sign-ups](docs/accounts.md) covers account setup, moderation, and routine administration.
+- [Using the API](docs/api.md) covers OAuth and differences from Mastodon.
+- [Federation](FEDERATION.md) lists supported protocols and describes how servers interoperate.
 
 ## Local development
-`./gradlew bootRun` activates the `dev` profile, which sets the base URL to `http://localhost:8080`, and starts
-PostgreSQL through `compose.dev.yaml`. If you run the application another way, such as from your IDE, activate the `dev`
-profile yourself.
+Run `./gradlew bootRun` to start Elysium at `http://localhost:8080` with the `dev` profile and PostgreSQL from
+`compose.dev.yaml`. If you launch the app from your IDE or another tool, activate the `dev` profile yourself.

@@ -67,7 +67,7 @@ public class V1FiltersController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "filters/#get-v1"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The filters."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<FilterResponse.V1Response> list(@AuthenticationPrincipal TokenPrincipal token) {
         return filters.legacyList(FiltersController.viewer(token)).stream().map(V1FiltersController::response).toList();
@@ -83,7 +83,7 @@ public class V1FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The filter."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public FilterResponse.V1Response get(@AuthenticationPrincipal TokenPrincipal token,
                                          @Parameter(description = "The keyword's ID. " + ApiDocs.ID)
@@ -183,7 +183,7 @@ public class V1FiltersController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public Map<String, Object> delete(@AuthenticationPrincipal TokenPrincipal token,
                                       @Parameter(description = "The keyword's ID. " + ApiDocs.ID)

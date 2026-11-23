@@ -14,9 +14,10 @@ import java.util.HexFormat;
  * to obfuscate.
  */
 @Schema(name = "AdminDomainBlock", description = """
-        Mastodon's Admin::DomainBlock entity. `severity` is `suspend` or `noop`. A suspension always has `reject_media` \
-        and `reject_reports` true, since it rejects everything. A `noop` block's `reject_reports` is false, since a \
-        limited server's reports are accepted. `obfuscate` is always false, and `public_comment` is always null.""")
+        Mastodon's Admin::DomainBlock entity. `severity` is `suspend` or `noop`. A suspension sets both `reject_media` \
+        and `reject_reports` to true. A `noop` block always has `reject_reports` set to false.
+
+        `obfuscate` is always false, and `public_comment` is always null.""")
 record DomainBlockResponse(
         String id,
         String domain,

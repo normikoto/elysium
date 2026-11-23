@@ -79,7 +79,7 @@ public class ListsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "lists/#get"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The lists."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public List<ListResponse> list(@AuthenticationPrincipal TokenPrincipal token) {
         return lists.all(viewer(token)).stream().map(ListResponse::from).toList();
@@ -90,12 +90,12 @@ public class ListsController {
     @Operation(
             operationId = "getList",
             summary = "View a list",
-            description = "Another user's list gets a 404, as on Mastodon.\n\n" + ApiDocs.NEEDS_USER,
+            description = "Another user's list gets 404, as on Mastodon.\n\n" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "lists/#get-one"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The list."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public ListResponse get(@AuthenticationPrincipal TokenPrincipal token,
                             @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -165,7 +165,7 @@ public class ListsController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public Map<String, Object> delete(@AuthenticationPrincipal TokenPrincipal token,
                                       @Parameter(description = ApiDocs.ID) @PathVariable String id) {
@@ -185,8 +185,8 @@ public class ListsController {
                     Includes accounts that the user has asked to follow, whose statuses aren't listed until they \
                     accept. A `limit` of 0 lists every account, with no `Link` header, as on Mastodon.
 
-                    Differences from Mastodon: pages are by when each account was added, and the cursors are the IDs \
-                    in the `Link` header, not account IDs. Suspended and deleted accounts are left out.
+                    Differences from Mastodon: pages are by when each account was added, and the cursors are the \
+                    IDs in the `Link` header, not account IDs. Suspended and deleted accounts are excluded.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "lists/#accounts"),
@@ -198,7 +198,7 @@ public class ListsController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The accounts, most recently added first."),
                     @ApiResponse(responseCode = "404", description = ApiDocs.NOT_FOUND),
-                    @ApiResponse(responseCode = "422", description = "A cursor isn't a UUID, or the token has no user.")
+                    @ApiResponse(responseCode = "422", description = "A cursor is not a UUID, or the token has no user.")
             })
     public ResponseEntity<List<AccountResponse>> accounts(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -234,8 +234,8 @@ public class ListsController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
                     @ApiResponse(responseCode = "404", description = """
-                            The list isn't found, or an account isn't, or the user doesn't follow it, or an ID isn't a \
-                            UUID, as on Mastodon."""),
+                            The list isn't found, or an account isn't, or the user doesn't follow it, or an ID is \
+                            not a UUID, as on Mastodon."""),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
                     @ApiResponse(responseCode = "422", description = """
                             An account is already in the list, or the token has no user.""")
@@ -261,9 +261,9 @@ public class ListsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "lists/#accounts-remove"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "An empty object."),
-                    @ApiResponse(responseCode = "404", description = "The list isn't found, or an ID isn't a UUID."),
+                    @ApiResponse(responseCode = "404", description = "The list isn't found, or an ID is not a UUID."),
                     @ApiResponse(responseCode = "413", description = "The body is too large."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     @RequestBody(content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = AccountIdsBody.class)))

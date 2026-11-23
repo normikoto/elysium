@@ -1,20 +1,18 @@
 # Accounts and sign-ups
 
-Sign-ups are disabled by default, and the first account can only be created with the `create-user` command, which makes it
-[an admin](#admins):
+Sign-ups are off by default. Use `create-user` to create the first account, which becomes [an admin](#admins).
 ```shell
 java -jar elysium.jar create-user alice
 ```
 
-It asks for the password, which must be 8 to 128 characters. Without a terminal, it reads the password as one line from
-stdin, so scripts can pipe it in. Run `java -jar elysium.jar help` to list the commands.
+The command prompts for a password of 8 to 128 characters. When run without a terminal, it reads one line from stdin,
+so scripts can pipe in the password. Run `java -jar elysium.jar help` to list the commands.
 
-Commands need the same [configuration](configuration.md) as the server, and are safe to run while it's up. They apply any
-pending database migrations, so use the same version of the JAR as the server unless you're upgrading. To pass Spring
-options, such as `--spring.profiles.active=prod`, put them before the command.
+Run commands with the server’s [configuration](configuration.md). You can run them while the server is up. They apply
+pending database migrations, so use the server’s JAR version unless you are upgrading. Put Spring options such as
+`--spring.profiles.active=prod` before the command.
 
-How you run a command depends on [how you run the server](installation.md). Every command works the same way as
-`create-user`:
+Use the same command form for each CLI task, depending on [how you run the server](installation.md).
 ```shell
 # Docker Compose
 docker compose run --rm app create-user alice
@@ -31,11 +29,11 @@ systemd-run --pty --wait --collect --uid=elysium --gid=elysium \
 ./gradlew bootRun --args='create-user alice'
 ```
 
-With Docker Compose, some JVM startup messages are printed around the command's output. They don't mean anything went wrong.
+Docker Compose may print JVM startup messages before or after the command output.
 
-People can change their own password at `/settings/password`, linked from their settings, by typing their current one. This
-logs them out of every other browser and revokes their applications' access, so they'll need to authorize them again. To
-replace someone's password for them, run `reset-password alice`, which does the same and logs them out of every browser.
+People can change their password at `/settings/password` by entering their current password. This signs out every
+other browser and revokes app access until they authorize the apps again. Admins can run `reset-password alice` to
+replace the password, revoke app access, and sign out every browser.
 
 ## Sign-ups
 Once the first account exists, people can create their own at `/signup`. Who can depends on
@@ -50,11 +48,12 @@ Once the first account exists, people can create their own at `/signup`. Who can
 `open` and `approval` need an SMTP server to send the confirmation links, set with
 [`spring.mail.host` and `elysium.mail.from`](configuration.md#email). The server won't start in those modes without one.
 
-Someone signing up without an invite gives an email address, and gets a link to confirm it. The link works for a day. Until
-they've confirmed it, they can't log in, and nobody else can see the account or take its username or address. If the email
-doesn't arrive, they can sign up again once the day is up. The server only keeps addresses for accounts that confirmed one.
-Admins can see them through the [admin API](api.md), and they go when the account is deleted. No other email is sent apart
-from the [approval](#approving-sign-ups) messages.
+People who sign up without an invite receive a confirmation link valid for one day. Until they confirm, they cannot
+log in and their account is hidden, but the sign-up reserves the username and email address. If the message never
+arrives, they can sign up again after the link expires.
+
+After sign-up, Elysium keeps confirmed addresses until the account is deleted. Admins can see them in the [admin
+API](api.md). Elysium sends only confirmation and [approval](#approving-sign-ups) emails.
 
 An address can only be used by one account or sign-up at a time. The server only checks that an address looks like one,
 then relies on the confirmation link, so it can't stop someone with many addresses from making many accounts. The
@@ -73,15 +72,15 @@ java -jar elysium.jar list-invites
 java -jar elysium.jar revoke-invite 5f0c6c1e-...                    # By the ID that list-invites shows
 ```
 
-The page and `create-invite` show a link to `/signup` to send to whoever you're inviting. Only a hash of it is stored, so
-it can't be shown again. Anyone with the link can use it, so give it only to the people it's for. Revoking an invite
-doesn't affect the accounts it has already made. Accounts made with an invite have no email address, so they won't get any
-email.
+Copy the `/signup` link from the page or `create-invite` when you create it. The server only shows it once. Anyone
+with the link can use it, so share it only with the intended recipients.
+
+Revoking an invite leaves existing accounts in place. Accounts created by invite have no email address.
 
 ### Approving sign-ups
-With `approval`, the sign-up page also asks why they want to join. After they've confirmed their address, they're listed at
-`/admin/sign-ups`, along with their reason, until an admin approves or rejects them. They're emailed either way. Approving
-one creates the account. Rejecting one frees its username and address. The commands do the same:
+In `approval` mode, the sign-up form asks why the person wants to join. After email confirmation, the request and
+their reason appear at `/admin/sign-ups`. Approval creates the account and rejection frees the username and email
+address. Elysium emails the person either way.
 ```shell
 java -jar elysium.jar list-sign-ups
 java -jar elysium.jar approve-sign-up alice
@@ -92,11 +91,10 @@ Sign-ups waiting for approval never expire, and they aren't accounts yet, so the
 the API.
 
 ## Admins
-The server's first account becomes an admin, and later accounts are regular users. `/signup` refuses to create the first
-account until `create-user` has been run, even with an invite, so that a stranger can't become the admin.
+The first account is an admin and later accounts start as regular users. To prevent a visitor from claiming the admin
+role, `/signup` requires the first account to exist even if the visitor has an invite.
 
-Admin pages are all linked from `/admin`, and admins have a link to it on the front page and at the
-bottom of their settings page.
+Admins can open `/admin` from the front page or the bottom of their settings page. It links to all admin pages.
 
 To give or remove the role:
 ```shell
@@ -104,16 +102,18 @@ java -jar elysium.jar set-role alice admin
 java -jar elysium.jar set-role alice user
 ```
 
-Changes apply straight away, including to anyone who's logged in. Removing the role doesn't log them out, and giving it back
-restores admin access to any session that's still logged in, so if an admin's account may be compromised, remove the role
-and run `reset-password`.
+Role changes apply immediately, including to active sessions. Removing the role keeps sessions signed in, and
+restoring it grants those sessions admin access again. If an admin account may be compromised, remove the role and run
+`reset-password`.
 
 Only an admin can authorize an application's admin scopes. Changing an account's role revokes all of its access for its
 applications that have admin scopes, so they'll need to be authorized again.
 
 ## Suspending and deleting accounts
-An admin can suspend an account, which can be undone, at `/admin/accounts`, through the [API](api.md), or with a command,
-which works even when the web server can't be reached:
+Admins can suspend or reinstate accounts at `/admin/accounts`, through the [API](api.md), or from the command line.
+CLI commands also work when the web server is unavailable.
+
+**Warning:** Deleting a local account is permanent.
 ```shell
 java -jar elysium.jar suspend-account alice
 java -jar elysium.jar unsuspend-account alice
@@ -121,7 +121,8 @@ java -jar elysium.jar suspend-account https://other.example/users/bob   # An acc
 java -jar elysium.jar delete-account alice                              # Asks you to type the username, unless given --yes
 ```
 
-These apply straight away, but when a command does it, other servers may only be told about 10 minutes later.
+The changes take effect immediately. When you run a CLI command, other servers may be notified up to about 10 minutes
+later.
 
 **Suspending a local account** keeps its data for as long as it's suspended. While it's suspended:
 - It can't log in, and its applications can't use it. If the account may be compromised, also run `reset-password`, because
@@ -130,35 +131,35 @@ These apply straight away, but when a command does it, other servers may only be
 - Other servers [are told](../FEDERATION.md#suspended-and-deleted-accounts), and it keeps its followers. New posts that were
   still being sent are dropped.
 
-**Suspending an account on another server** removes its follows, and they don't come back if the suspension ends. While
-it's suspended, everything from it is refused, nothing is sent to it, and its posts stored here are hidden. The posts come
-back if the suspension ends. To cut off a whole server, use a [domain block](#domain-blocks).
+**Suspending a remote account** permanently removes its follows. During suspension, Elysium hides its stored posts and
+stops exchanging activities with it. Ending the suspension restores the posts. To suspend a whole server, use a
+[domain block](#domain-blocks).
 
-**Rejecting an account's media**, at `/admin/accounts`, is for an account on another server whose posts are fine but whose
-attachments you don't want kept here. Its attachments are shown as links to its server instead of being downloaded, and the
-copies already kept are removed. Allowing its media again shows them as what they are, and downloads them again when
-someone views them, apart from ones that couldn't be kept before.
+**Rejecting media** at `/admin/accounts` removes cached attachments for a remote account and displays links to the
+originals. If you allow its media again, Elysium displays and downloads attachments on demand, except those it could
+not cache before.
 
-**Deleting a local account** can't be undone. Its posts and follows are removed, and other servers are asked to remove it
-too, which they may not do. Its username can't be used again, because other servers can still know it. Accounts on other
-servers can't be deleted, so suspend them instead.
+**Deleting a local account** permanently removes its posts and follows. Elysium asks other servers to delete the
+account, but they may keep copies. The username stays reserved because other servers may still know it. For remote
+accounts, use suspension.
 
-People can delete their own account at `/settings/delete-account`, with their password. At `/settings`, they can also hide
-who follows them and who they follow, from other people and other servers, which still see how many there are. They can
-also choose to approve followers by hand, there or from an app, and then approve or refuse each request in an app. A
-request that's waiting doesn't make someone a follower, so they don't see followers-only posts. Turning it off approves
-every request that's waiting, and turning it on keeps the followers they already have. At `/settings`, they can also
-approve requests from people they follow straight away. Turning that on approves the requests already waiting from
-people they follow.
+People can permanently delete their account at `/settings/delete-account` by entering their password. At `/settings`,
+they can hide their follower and following lists from other people and servers while leaving the counts visible.
 
-People can choose, at `/settings` or from an app, whether anyone can find their public posts by searching. It's off at
-first, as on Mastodon. Either way, people here can find posts they wrote, favourited, bookmarked, or are mentioned in.
-Other servers are told about the choice and decide what their own search does with it. Posts on other servers are only
-found when their author has made the same choice there.
+People can turn on manual follow approval at `/settings` or in an app and handle requests in an app. Pending requests
+give no access to followers-only posts. Turning approval off accepts all pending requests, and turning it on keeps
+existing followers. At `/settings`, they can also turn on automatic approval for people they follow, including their
+pending requests.
+
+At `/settings` or in an app, people can let anyone find their public posts in search. This is off by default. People
+on this server can always find posts they wrote, favourited, bookmarked, or are mentioned in.
+
+Elysium shares the choice with other servers, which decide how to apply it. General search includes remote public
+posts only if their authors opted in.
 
 ## Moving accounts
-People can move their followers to another account, here or on another server, as on Mastodon. Moving can't be undone
-for the followers who were moved: stopping being shown as moved doesn't bring them back.
+**Warning:** Moving followers to another account cannot be undone. Clearing the moved label leaves transferred
+followers on the new account. Moves work within this server and between servers.
 
 - **Moving here:** they add their old account as an alias at `/settings/aliases`, then move it from its own server.
 - **Moving away:** they add this account as an alias on the new one, then enter its address and their password at
@@ -166,7 +167,7 @@ for the followers who were moved: stopping being shown as moved doesn't bring th
 
 When an account moves, wherever it is:
 
-- People here who follow it follow the new account instead, and are notified. One the new account blocks keeps following
+- People here who follow it follow the new account instead, and are notified. A follower blocked by the new account keeps following
   the old one. Following an account that approves followers by hand waits for its approval.
 - The new account is put in the lists that had the old one.
 - People here who block or mute the old account block or mute the new one too, unless they follow it.
@@ -182,12 +183,13 @@ an avatar, a header, a background, and up to 4 fields, each a name and a value. 
 be with [`elysium.profiles.max-fields`](configuration.md). Lowering it doesn't remove anyone's fields, but they can't save
 their fields again until they've removed enough.
 
-Images can be PNG, JPEG, GIF, or WebP, up to [`elysium.profiles.max-image-size`](configuration.md). They're always
-converted to WebP, which removes the information that photos carry, such as where they were taken. Avatars and headers
-are cropped to size, and backgrounds only scaled down. Animations stay animated. A background is shown behind the profile
-on its page here, and in apps that support Pleroma's backgrounds, but it isn't sent to other servers. Replaced images
-are deleted, and so is everything in a profile when its account is deleted. A suspended account's profile is hidden, but
-its images can still be loaded by anyone who already has their address.
+Profile images can be PNG, JPEG, GIF, or WebP, up to [`elysium.profiles.max-image-size`](configuration.md). Elysium
+converts them to WebP, strips metadata such as location, and preserves animation. It crops avatars and headers and
+scales down backgrounds as needed.
+
+Backgrounds appear on local profile pages and in apps that support Pleroma backgrounds. Elysium keeps them local. It
+deletes replaced images and images from deleted accounts. Images from suspended accounts remain accessible by their
+URLs even though the profile is hidden.
 
 A field whose value is only a link starting with `https://` is marked as verified if the page there links back to the
 profile with `rel="me"`. The server fetches each of these pages when the profile is saved, which means anyone who can
@@ -195,11 +197,10 @@ save a profile can make your server fetch a page. It only fetches public address
 
 Other servers that follow the account are told about each change.
 
-Profile pages have a follow button for people who are logged in. A visitor from another server can enter their own
-address instead, such as `@alice@mastodon.social`, and is sent to their server to follow from there. That works with
-Mastodon, Akkoma, Misskey, and other servers that say where to follow from. When a visitor's server doesn't say, they're
-told to search for the account in their app instead. In the other direction, when someone with an account here follows from a profile on another
-server and enters their address here, they're sent to a page here where they can follow it.
+Signed-in users can follow an account from its profile page. A visitor from another server can enter their address,
+such as `@alice@mastodon.social`, to follow from their own server if it supports remote follow, as Mastodon, Akkoma,
+and Misskey do. Otherwise, Elysium directs them to search for the profile in their app. Local users who enter their
+address on another server’s remote-follow form return to Elysium to follow the account.
 
 When someone looks up an account on another server, this server asks that server about it. Each person can make 30 of these
 lookups a minute, so that nobody can use this server to flood another one with requests.
@@ -230,20 +231,18 @@ stop it being stored, only shown.
 
 ## Deleting old posts automatically
 
-People can have their own old posts deleted at `/settings/post-cleanup`, linked from their settings. It's off until they
-turn it on. As on Mastodon, they choose an age from one week to two years, and can keep posts that are pinned, direct,
-have polls or media, that they've favourited or bookmarked themselves, or that have at least so many favourites or
-boosts. Their boosts older than that age are undone, whatever else they keep.
+**Warning:** Automatic post deletion permanently removes old posts. People can enable it at `/settings/post-cleanup`
+and choose an age from one week to two years. As on Mastodon, they can keep pinned posts, direct messages, posts with
+polls or media, posts they favourited or bookmarked themselves, and posts with enough favourites or boosts. The server
+undoes older boosts regardless of those choices.
 
-Each post is deleted as if its author had deleted it, attachments included, and other servers are asked to delete it
-too. Only a few of each account's posts are deleted every few minutes, so an account with years of posts can take days
-to catch up, and its followers' servers aren't sent every deletion at once. A post that was being kept, such as one that's
-unpinned later, can also take a while to be deleted, since the server works through all of an account's old posts before
-it looks at one again. A suspended account's posts aren't deleted until it's unsuspended.
+Elysium deletes attachments with each post and asks other servers to delete their copies, just as it does when the
+author deletes a post. It removes posts in small batches, so a large backlog can take days. A post that stops
+qualifying for an exception, such as one the author unpins, may also take time to be deleted. Cleanup pauses for
+suspended accounts.
 
 ## Removing posts
-An admin can remove a post that breaks the rules at `/admin/statuses`, by finding it with its URL or its ID. Removing a post
-can't be undone.
+**Warning:** Removing a post is permanent. At `/admin/statuses`, find the post by its URL or ID.
 
 - **A post from this server** is deleted as if its author had deleted it, attachments included, and other servers are
   asked to delete it too, which they may not do.
@@ -267,11 +266,11 @@ other servers.
 - Removing an announcement can't be undone, and removes its reactions.
 
 ## Custom emoji
-Admins add the server's custom emoji at `/admin/custom-emojis`. Each has a shortcode, such as `blobcat`, which people write
-between colons, as `:blobcat:`, in a post, a display name, a bio, or a profile field, and an image, which is kept as WebP,
-animated if it was. Images can be up to 256 KB, as on Mastodon, unless you set
-[`elysium.custom-emojis.max-image-size`](configuration.md), which also limits the emoji downloaded from other servers. People's apps list them in their emoji pickers, apart from those you hide from pickers,
-which can still be used by typing their shortcode.
+Admins manage custom emoji at `/admin/custom-emojis`. People can type a shortcode such as `:blobcat:` in posts,
+display names, bios, and profile fields. Images are stored as WebP and keep their animation. The 256 KB default limit
+applies to local and remote emoji and can be changed with [`elysium.custom-emojis.max-image-size`](configuration.md).
+
+Apps list custom emoji in their pickers. People can still type the shortcodes of emoji hidden from the picker.
 
 An emoji can have a category, and apps show each category as its own section of their pickers, with the uncategorized
 emoji together, usually as "Custom". The admin page lists the emoji by category, with the uncategorized ones last. You can
@@ -294,16 +293,15 @@ The admin page can import a pack of emoji at once. A pack can be:
 - **A .zip, .tar.gz, or .tar of images**, as Mastodon's `tootctl emoji import` takes. Each emoji is named after its file,
   so `blobcat.png` becomes `:blobcat:`. The emoji are put in a category as Akkoma's are.
 
-You can give a category for all of a pack's emoji instead. Each image is checked as an upload is, so it has to be within
-the image limit, and one that's too large or isn't an image is listed as not imported without stopping the rest. Emoji
-whose shortcodes already exist are skipped, unless you choose to replace them. A replaced emoji gets the pack's image
-and category, and stays in the posts and reactions that use it, though other servers keep the image they were sent.
-Importing the same pack again only adds what's missing.
+You can assign one category to the whole pack. The upload rules apply to every image. Elysium lists invalid or
+oversized files and imports the rest.
 
-The page takes packs of up to 50 MB with up to 1,000 files, which
-[`elysium.custom-emojis.max-pack-size` and `max-pack-files`](configuration.md) change. The page waits while every image
-is converted, so a large pack can take longer than your reverse proxy waits. Import those with the `import-emojis`
-command, which has neither limit:
+Importing skips existing shortcodes unless you choose to replace them. A replacement uses the pack’s image and
+category in existing posts and reactions. Other servers keep the original image.
+
+The page accepts packs up to 50 MB with up to 1,000 files. Change these limits with
+[`elysium.custom-emojis.max-pack-size` and `max-pack-files`](configuration.md). Use `import-emojis` for larger packs
+or imports that outlast the proxy timeout. The command has neither limit.
 
 ```shell
 java -jar elysium.jar import-emojis blobs.zip                       # Skip emoji that already exist
@@ -342,14 +340,13 @@ through the [API](api.md).
   you only limit can still send reports.
 
 ## Domain blocks
-Admins can cut off or limit another server at `/admin/domain-blocks`, or through the [API](api.md). A block covers the
-domain's subdomains too, and applies straight away. There are two kinds:
+Admins can suspend or limit a server at `/admin/domain-blocks` or through the [API](api.md). A block takes effect
+immediately and also covers subdomains.
 
-- **Suspending** a server means nothing more is accepted from it or sent to it, and its follows and posts are removed.
-  Removing the block, or changing it to only limit the server, doesn't bring those back, so followers on that server have
-  to follow again. It doesn't stop the server from reading your users' public posts and profiles unless you turn on
-  [authorized fetch](configuration.md#authorized-fetch). See [`FEDERATION.md`](../FEDERATION.md#domain-blocks) for
-  what else a suspension doesn't stop.
+- **Suspending** a server permanently removes its follows and posts and stops deliveries in both directions. If you
+  lift the suspension or change it to a limit, users on that server have to follow again. The server can still fetch
+  public ActivityPub documents unless you enable [authorized fetch](configuration.md#authorized-fetch). See the other
+  effects in the [federation reference](../FEDERATION.md#domain-blocks).
 - **Limiting** a server lets it federate as usual, apart from what you choose to reject. Rejecting its media shows its
   posts' attachments as links to its server instead of downloading them, and removes the copies already kept, as rejecting
   an account's media does.
@@ -358,10 +355,9 @@ Comments on a block are only shown to admins. The list of blocks isn't published
 can test whether a domain is on it.
 
 ## Job queue
-Admins can see the background job queue at `/admin/db-scheduler`. It holds the work of sending and receiving activities,
-and of cleaning up after blocks, suspensions, and deletions. Each job shows when it'll next run, and **History** shows why it
-failed. History leaves out runs where a job only waited, such as for a busy server. Jobs don't contain posts, so private
-posts aren't shown.
+Admins can inspect the job queue at `/admin/db-scheduler`. It shows when work such as federation deliveries or account
+cleanup will run. **History** shows failures and skips runs that only waited, such as for a busy server. Job records
+contain no post text.
 
 - **Retries:** A job that fails for a temporary reason, like a server being down, is tried again with longer and longer gaps,
   for up to 3 days.
@@ -375,9 +371,9 @@ posts aren't shown.
   for its turn gives up, as for a server that keeps failing.
 
 ## Two-factor login
-Anyone can turn on two-factor login at `/settings/two-factor`, linked from their settings. Logging in then asks for a
-six-digit code from an authenticator app, such as Aegis, 2FAS, or Google Authenticator, after the password. Apps that log in
-through the browser get the same page, so they need nothing extra.
+People can turn on two-factor login at `/settings/two-factor`. After they enter their password, they supply a
+six-digit code from an authenticator app such as Aegis, 2FAS, or Google Authenticator. Apps that sign in through the
+browser use the same login flow.
 
 - **Turning it on** needs the password and a code from the app. It logs the account out of every other browser. Apps that
   were already authorized keep working.
@@ -388,15 +384,14 @@ through the browser get the same page, so they need nothing extra.
   turn it off.
 - **Turning it off** needs the password.
 
-The server's clock has to be right, within about 30 seconds, or codes won't match. Use NTP, as most systems do already.
+Keep the server clock synchronized with NTP. Codes can fail if the clock is off by about 30 seconds.
 
-Two-factor secrets are stored in the database as they are, because the server needs them to check codes. Anyone with a copy
-of the database or a backup could work out codes, so keep them as private as you keep passwords.
+**Warning:** Anyone with a copy of the database can generate two-factor codes. Protect the database and its backups as
+you would passwords.
 
 ## Authorized apps
-Anyone can see the apps they've authorized at `/oauth/authorized_applications`, linked from their settings, with each app's
-name, website, access, and when it was authorized. Names and websites are whatever the app registered with, so they don't
-prove who made it.
+People can review an app’s name, website, permissions, and authorization date at `/oauth/authorized_applications`.
+Apps supply their own names and websites, which are unverified.
 
 Revoking an app logs it out of that person's account straight away, and it has to ask for approval again. Other people's use
 of the same app isn't affected.
@@ -436,14 +431,12 @@ These limits only slow down abuse from a small number of addresses. To stop peop
 [`approval` or `closed`](#sign-ups).
 
 ## Login sessions
-Login sessions are stored in the database, so restarting doesn't log anyone out, and with more than one copy of the server,
-any of them can serve any browser. A session ends after 30 minutes without a request, which you can change with
-`server.servlet.session.timeout`. To end someone's sessions, use `reset-password`. People can end their other sessions
-themselves by changing their password.
+Login sessions survive restarts and work across instances that share the database. They expire after 30 minutes of
+inactivity by default. Change that with `server.servlet.session.timeout`. Admins can end all of a person’s sessions
+with `reset-password`, and users can end their other sessions by changing their password.
 
-Only a hash of each session's ID is stored, so the database or a backup can't be used to take over a session. If you log
-PostgreSQL statements with their parameters, those logs do contain session IDs, so keep them private.
+**Warning:** PostgreSQL logs can contain session IDs if you log statement parameters. Keep those logs private. The
+database and its backups contain only hashes of session IDs.
 
-Visitors who aren't logged in don't get sessions, so showing them the login or sign-up form stores nothing. A session
-starts when someone logs in, or when they've entered their password and the server is waiting for their two-factor code.
-Until then, the browser keeps what the forms need in cookies.
+Viewing the login or sign-up form creates no session. A session begins at login or after someone enters their password
+and is prompted for a two-factor code. Before that, the browser keeps the form state in cookies.

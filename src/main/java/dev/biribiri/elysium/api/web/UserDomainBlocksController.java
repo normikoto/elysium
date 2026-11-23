@@ -48,9 +48,9 @@ public class UserDomainBlocksController {
     private static final long MAX_BODY_BYTES = 4 * 1024;
 
     private static final String DOMAIN_RULES = """
-            A domain with a wildcard, a port, or a URL's other parts is refused, as are IP addresses, a domain with only \
-            one label such as `com`, and this server's own domain or one above it. A Unicode domain that converting \
-            would change, such as `faß.example`, has to be sent in its `xn--` form.""";
+            A domain with a wildcard, a port, or a URL's other parts is refused, as are IP addresses, a domain with \
+            only one label such as `com`, and this server's own domain or one above it. A Unicode domain that \
+            converting would change, such as `faß.example`, must be sent in its `xn--` form.""";
 
     private final AccountDomainBlockService domainBlocks;
     private final InstanceProperties instance;
@@ -74,13 +74,13 @@ public class UserDomainBlocksController {
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "domain_blocks/#get"),
             parameters = {
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_DOMAIN_BLOCKS + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.DOMAIN_BLOCKS))
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The domains, most recent block first."),
-                    @ApiResponse(responseCode = "422", description = "A cursor isn't a UUID, or the token has no user.")
+                    @ApiResponse(responseCode = "422", description = "A cursor is not a UUID, or the token has no user.")
             })
     public ResponseEntity<List<String>> list(
             @AuthenticationPrincipal TokenPrincipal token,
@@ -135,7 +135,7 @@ public class UserDomainBlocksController {
             summary = "Unblock a server",
             description = """
                     Followers that the block removed don't come back. A domain that isn't blocked gets an empty \
-                    object too, as on Mastodon, while one that can't be blocked gets a 422.
+                    object too, as on Mastodon, while one that can't be blocked gets 422.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "domain_blocks/#unblock"),

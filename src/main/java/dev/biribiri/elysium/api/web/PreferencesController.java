@@ -40,7 +40,7 @@ public class PreferencesController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "preferences/#get"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The user's preferences."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public ResponseEntity<PreferencesResponse> get(@AuthenticationPrincipal TokenPrincipal token) {
         var actorId = token.actorId().orElseThrow(InvalidRequestException::requiresUser);

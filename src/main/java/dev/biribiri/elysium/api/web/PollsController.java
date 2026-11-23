@@ -100,7 +100,7 @@ public class PollsController {
                     Differences from Mastodon:
 
                     - A choice that isn't an option, one given twice, more than one in a poll that only allows one, \
-                    and none at all each get a 422.
+                    and none at all each get 422.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "polls/#vote"),

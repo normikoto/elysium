@@ -39,7 +39,7 @@ public class ProfileController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "profile/#delete-profile-avatar"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The user's account, as changed."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public CredentialAccountResponse deleteAvatar(@AuthenticationPrincipal TokenPrincipal token) {
         return change(token, ProfileChange.NONE.withAvatar(ProfileChange.Image.REMOVE));
@@ -54,7 +54,7 @@ public class ProfileController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "profile/#delete-profile-header"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The user's account, as changed."),
-                    @ApiResponse(responseCode = "422", description = "The token has no user.")
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
             })
     public CredentialAccountResponse deleteHeader(@AuthenticationPrincipal TokenPrincipal token) {
         return change(token, ProfileChange.NONE.withHeader(ProfileChange.Image.REMOVE));

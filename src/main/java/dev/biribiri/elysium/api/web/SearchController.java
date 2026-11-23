@@ -85,14 +85,15 @@ public class SearchController {
 
                     - Statuses are found by whole words in their text and content warning, in any language, with no \
                     stemming. Words in quotes are a phrase, `OR` is between alternatives, and a word after `-` \
-                    mustn't be there. Mastodon's operators, such as `from:` and `has:`, aren't supported, and poll \
+                    mustn't be there. Mastodon's operators, such as `from:` and `has:`, are unsupported, and poll \
                     options and media descriptions aren't searched.
-                    - Only a signed-in user finds statuses: those they wrote, favourited, bookmarked, or are \
-                    mentioned in, and \
-                    public statuses by accounts whose `indexable` is true, newest first. Of those, only what they can \
-                    see is found, leaving out accounts they block or mute. Their filters don't leave statuses out, \
-                    but are given in `filtered`. Only the first\s""" + MAX_STATUS_OFFSET + """
-                     statuses can be paged through with `offset`. `max_id` and `min_id` page through statuses only.
+                    - Only signed-in users can find statuses they wrote, favourited, bookmarked, or are mentioned in, \
+                    and public statuses from accounts with `indexable` set to true. Results are newest first. The \
+                    results exclude statuses the user cannot see and accounts the user blocks or mutes. Filters \
+                    annotate results with `filtered` without hiding them.
+
+                      Use `offset` to page through the first\s""" + MAX_STATUS_OFFSET + """
+                    \sstatuses. `max_id` and `min_id` apply only to statuses.
                     - Hashtags are found by the start of their name, from those that public statuses stored here use, \
                     most used first. A query that's a valid tag name, with or without its `#`, is also found when \
                     nothing uses it, as the first result. Only the first\s""" + MAX_TAG_OFFSET + """
@@ -106,12 +107,12 @@ public class SearchController {
                     `resolve`, one from another server is fetched if anyone can see it there.
                     - Another server is only asked about an account or status for a signed-in user's request, when \
                     `resolve` is true. Each user can make\s""" + RemoteActorResolver.LOOKUPS_PER_MINUTE + """
-                     of those lookups a minute, and then gets a 429.
+                     of those lookups a minute, and then gets 429.
                     - Only the first\s""" + AccountFilter.MAX_LIMIT + """
                      matches can be paged through with `offset`, and an `offset` past them returns no accounts.
                     - `exclude_unreviewed` is ignored.
 
-                    Suspended accounts are left out.""",
+                    Suspended accounts are excluded.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "search/#v2"),
             parameters = {
                     @Parameter(name = "q", description = """

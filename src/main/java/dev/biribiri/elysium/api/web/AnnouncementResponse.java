@@ -9,9 +9,10 @@ import java.util.List;
  * Mastodon's Announcement entity.
  */
 @Schema(name = "Announcement", description = """
-        Mastodon's Announcement entity. `content` is HTML made from the admin's plain text, with links and hashtags \
-        linked. `mentions` and `statuses` are always empty. `starts_at` and `ends_at` are both null or both set. \
-        `published_at` is when it was last published.""")
+        Mastodon's Announcement entity. `content` renders the admin's plain text as HTML with links and hashtags. \
+        `mentions` and `statuses` are always empty.
+
+        `starts_at` and `ends_at` are either both set or both null. `published_at` is the last time an admin published it.""")
 record AnnouncementResponse(
         String id,
         String content,

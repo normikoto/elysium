@@ -105,8 +105,7 @@ public class ReactionsController {
     @Operation(operationId = "unreactToStatus", summary = "Remove a reaction to a status",
             description = """
                     Removes the account's reaction with an emoji, and sends an `Undo` to the status's author's server. \
-                    Doing it again, or for an emoji the account didn't react with, has no more effect.\s"""
-                    + ApiDocs.NEEDS_USER,
+                    Doing it again, or for an emoji the account didn't react with, has no more effect.\n\n""" + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = DOCS),
             parameters = {
                     @Parameter(name = "id", description = ApiDocs.ID),

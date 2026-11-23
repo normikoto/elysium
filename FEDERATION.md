@@ -1,16 +1,16 @@
 # Federation
 
-Elysium implements enough of the ActivityPub specification for basic interaction with Mastodon and other common implementations of the standard.
-The extent of this support and its limitations are what's described in the rest of this document.
+Elysium supports server-to-server ActivityPub for basic federation with Mastodon and other common implementations.
+This reference describes what peers can send, receive, and fetch.
 
 ## Supported federation protocols and standards
 
-- [ActivityPub](https://www.w3.org/TR/activitypub/) (Server-to-Server): receiving `Follow`, `Like`, `EmojiReact`,
-  `Announce`, and `Block` and their `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create` of a `Note` or a
-  `Question`, `Update` of an actor, a `Note`, or a `Question`, `Delete`, `Flag`, and `Move`, and sending `Follow`, `Like`,
-  `EmojiReact`, `Announce`, and `Block` and their
-  `Undo`, `QuoteRequest`, `Accept` and `Reject` of a `Follow` or a `QuoteRequest`, `Create`, `Update`, `Delete`, `Flag`, and
-  `Move`
+- [ActivityPub](https://www.w3.org/TR/activitypub/) (server to server)
+
+  - Elysium sends and receives `Follow`, `Like`, `EmojiReact`, `Announce`, and `Block` and their `Undo`s. It also
+    sends and receives `QuoteRequest`, `Accept` and `Reject` of a `Follow` or `QuoteRequest`, `Delete`, `Flag`, and `Move`.
+  - Elysium sends and receives `Create` and `Update`. Incoming `Create` supports `Note` and `Question`. Incoming
+    `Update` supports actors, `Note`, and `Question`.
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -36,15 +36,16 @@ The extent of this support and its limitations are what's described in the rest 
 
 ### Actors
 
-Local users are `Person` actors at `/users/{username}`. These documents are served as `application/activity+json` or
-`application/ld+json; profile="https://www.w3.org/ns/activitystreams"`, and any origin can read them through CORS. A
-request has to ask for one of these types in its `Accept` header, and `application/ld+json` is accepted with any profile.
-Requests that accept HTML instead, including `*/*` or no header, get the user's profile page, and others get a 406. The
-document's `url` links to that page, which is at the same URL.
+Local users are `Person` actors at `/users/{username}`. Request `application/activity+json` or `application/ld+json` in
+`Accept` to get the actor document. Elysium supports the standard
+`application/ld+json; profile="https://www.w3.org/ns/activitystreams"` and accepts other JSON-LD profiles too.
 
-Each actor document includes `publicKey` with an RSA 2048 key, identified as `{actor-uri}#main-key`, and
-`endpoints.sharedInbox`, which is the [shared inbox](#inboxes) at `/inbox`. If [signed fetches are required](#authorized-fetch), an unsigned request gets a
-shorter document without the profile.
+Requests that accept HTML without asking for ActivityPub, including `*/*` or a missing header, get the profile page. Other types get 406. The
+document’s `url` points to the profile page at the same URL. Any origin can read the document through CORS.
+
+Actor documents include an RSA 2048 `publicKey` at `{actor-uri}#main-key` and `endpoints.sharedInbox` at
+[`/inbox`](#inboxes). With [authorized fetch](#authorized-fetch), an unsigned request gets a shorter document without
+the profile.
 
 Each actor document, including the shorter one, also has an Ed25519 key in `assertionMethod`, as FEP-521a describes. It
 checks the actor's [integrity proofs](#integrity-proofs). HTTP signatures still use only the RSA key.
@@ -114,24 +115,29 @@ up to 40 `orderedItems`, which are actor URIs, newest follow first, and a `next`
 `?page=true&max_id={cursor}`. Only accepted follows are counted or listed, and suspended actors are left out. A user can hide
 who's in their collections, and then a collection, or any page of it, only has its `totalItems`, with no `first` or items.
 
-An actor's `outbox` is an `OrderedCollection` at `/users/{username}/outbox`, served like followers and following, with the
-same paging, 403, and 410. It lists the user's public and unlisted posts and boosts, newest first, and `totalItems` counts
-them. A post is the `Create` that was [sent](#statuses) for it, embedding the `Note` as it's served now, and a boost is its
-[`Announce`](#boosts). Followers-only and direct posts, followers-only boosts, and boosts of posts that can't be shown are left
-out, so a page can have fewer than 40 items and still have a `next`. Any signature is ignored unless [signed fetches are required](#authorized-fetch). The
-[instance actor](#instance-actor)'s outbox, at `/actor/outbox`, is always empty.
+An actor's `outbox` is an `OrderedCollection` at `/users/{username}/outbox`, served like followers and following, with
+the same paging, 403, and 410. It lists the user's public and unlisted posts and boosts, newest first, and
+`totalItems` counts them. A post is the `Create` that was [sent](#statuses) for it, embedding the `Note` as it's
+served now, and a boost is its [`Announce`](#boosts). Followers-only and direct posts, followers-only boosts, and
+boosts of posts that can't be shown are left out, so a page can have fewer than 40 items and still have a `next`.
+
+Any signature is ignored unless [signed fetches are required](#authorized-fetch). The [instance
+actor](#instance-actor)'s outbox, at `/actor/outbox`, is always empty.
 
 Usernames are 1 to 30 letters, digits, or underscores, and are matched case-insensitively. A deleted account's username
 can't be used again, because other servers can still know its URI.
 
 ### Instance actor
 
-The server itself is an `Application` actor at `/actor`, with the `preferredUsername` `instance.actor`. It's for signing
-requests that no user is behind, which so far means fetching keys and actor documents, and sending [reports](#reports). Its document is served as
-`application/activity+json` or `application/ld+json` with any profile, and any origin can read it through CORS. It never
-requires a signature. There's no web page at this URL, so its `url` links to the front page. Its key is identified as
-`{actor-uri}#main-key`, it has an Ed25519 key in `assertionMethod` as [a user does](#actors), its `endpoints.sharedInbox` is `/inbox`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is ignored, with no
-`Reject`.
+The server itself is an `Application` actor at `/actor`, with the `preferredUsername` `instance.actor`. It's for
+signing requests that no user is behind, which so far means fetching keys and actor documents, and sending
+[reports](#reports). Its document is served as `application/activity+json` or `application/ld+json` with any profile,
+and any origin can read it through CORS. It never requires a signature.
+
+There's no web page at this URL, so its `url` links to the front page. Its key is identified as
+`{actor-uri}#main-key`, it has an Ed25519 key in `assertionMethod` as [a user does](#actors), its
+`endpoints.sharedInbox` is `/inbox`, and it isn't counted as a user. It can't be followed, so a `Follow` of it is
+ignored, with no `Reject`.
 
 The instance actor is linked from the NodeInfo well-known URL at `/.well-known/nodeinfo` for servers that look for such
 a thing per FEP-2677. Elysium currently does not do this with other servers.
@@ -194,13 +200,17 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
   `@bob@example.com`, as `name`. Mentioned accounts that have since been suspended or deleted are left out. Then a
   `Hashtag` for each of its hashtags, up to 100, with `#` and the normalized name as `name`, such as `#café`, and this
   server's page of public statuses with the tag, `/tags/{name}`, as `href`. A normalized name is lowercase, in
-  Unicode's NFKC form. That page is HTML only, and isn't an ActivityPub collection. Then an `Emoji` for each
-  [custom emoji](#custom-emoji) that its text, content warning, or poll options name.
+  Unicode's NFKC form.
+
+  That page is HTML only, and isn't an ActivityPub collection. Then an `Emoji` for each [custom emoji](#custom-emoji)
+  that its text, content warning, or poll options name.
 - `attachment`: a `Document` for each of its images, video, and audio, up to 4, in order, as Mastodon sends them. Each
   has `mediaType`, `url`, and, if it has them, `name` (the description, as plain text), `width` and `height` (images
-  only), and `focalPoint`. Images are always `image/webp`. Video and audio are the files as they were uploaded, so their
-  `mediaType` is one of `video/mp4`, `video/quicktime`, `video/webm`, `audio/mp4`, `audio/mpeg`, `audio/ogg`,
-  `audio/flac`, or `audio/wav`. There's no `blurhash`. A status can have attachments and empty `content`.
+  only), and `focalPoint`. Images are always `image/webp`. Video and audio are the files as they were uploaded, so
+  their `mediaType` is one of `video/mp4`, `video/quicktime`, `video/webm`, `audio/mp4`, `audio/mpeg`, `audio/ogg`,
+  `audio/flac`, or `audio/wav`.
+
+  There's no `blurhash`. A status can have attachments and empty `content`.
 - `quote`, and once it's approved, `quoteUri`, `quoteUrl`, `_misskey_quote`, a `Link` tag, and `quoteAuthorization`: what
   it [quotes](#quoting-a-status).
 - `interactionPolicy`: who can [quote](#quote-policies) it, which every `Note` has.
@@ -252,12 +262,13 @@ and each emoji that's used is a `tag`:
 }
 ```
 
-The image is always WebP, and can be animated. It fits within 256 × 256 pixels' worth of area, keeping its shape. There's
-no `updated`, since an emoji's image never changes: an admin removes it and adds another. The `id` serves the same
-object, with an `@context` of its own, as `application/activity+json` or `application/ld+json` with any profile,
-including for `*/*` or no `Accept` header, and any origin can read it through CORS. One that's been removed gets a `404`.
-A removed emoji's shortcode shows as text from then on, and nothing is sent about it, so other servers keep the copies
-they have until they fetch what used it again.
+The image is always WebP, and can be animated. It fits within 256 × 256 pixels' worth of area, keeping its shape.
+There's no `updated`, since an emoji's image never changes: an admin removes it and adds another. The `id` serves the
+same object, with an `@context` of its own, as `application/activity+json` or `application/ld+json` with any profile,
+including for `*/*` or no `Accept` header, and any origin can read it through CORS.
+
+One that's been removed gets a `404`. A removed emoji's shortcode shows as text from then on, and nothing is sent
+about it, so other servers keep the copies they have until they fetch what used it again.
 
 #### Receiving custom emoji
 
@@ -267,21 +278,23 @@ belongs to the server of the actor whose status used it, as on Mastodon, so a se
 host its `id` or image is on. Its `id` is kept, and is the image's URL if there isn't one.
 
 An emoji that's new is downloaded shortly afterward, [as attachments are](#receiving-statuses), and counts toward the
-same hourly limit. Its image has to be within 256 KB by default, which an admin
-[can change](docs/configuration.md), and is kept as WebP. One that's too large or isn't an image is
-linked to instead. A later status or `Update` that gives an emoji with the same shortcode a different image, or an
-`updated` later than the one kept, replaces it, unless its `updated` is earlier than the one kept. Emoji are also read
-from [actor documents](#profiles-from-other-servers). Emoji that no status, reaction, or profile here uses any more are
-removed.
+same hourly limit. Its image has to be within 256 KB by default, which an admin [can change](docs/configuration.md),
+and is kept as WebP. One that's too large or isn't an image is linked to instead. A later status or `Update` that
+gives an emoji with the same shortcode a different image, or an `updated` later than the one kept, replaces it, unless
+its `updated` is earlier than the one kept.
+
+Emoji are also read from [actor documents](#profiles-from-other-servers). Emoji that no status, reaction, or profile
+here uses any more are removed.
 
 ### Inboxes
 
 Each local user has an inbox at `/users/{username}/inbox`, the instance actor has one at `/actor/inbox`, and there's a
-shared inbox at `/inbox`, which every actor document gives as its `endpoints.sharedInbox`. They all work the same way, since
-who an activity is for comes from the activity rather than the inbox it was sent to. They accept a `POST` with a
-`Content-Type` of
-`application/activity+json`, or `application/ld+json` with any profile, and a body of up to 1 MiB. Activities are read as
-plain JSON, without a JSON-LD processor, and no `@context` is ever fetched. Inboxes can't be read, so a `GET` gets a 403.
+shared inbox at `/inbox`, which every actor document gives as its `endpoints.sharedInbox`. They all work the same way,
+since who an activity is for comes from the activity rather than the inbox it was sent to. They accept a `POST` with a
+`Content-Type` of `application/activity+json`, or `application/ld+json` with any profile, and a body of up to 1 MiB.
+Activities are read as plain JSON, without a JSON-LD processor, and no `@context` is ever fetched.
+
+Inboxes can't be read, so a `GET` gets a 403.
 
 | Status | Meaning                                                                                                      |
 |--------|--------------------------------------------------------------------------------------------------------------|
@@ -299,30 +312,32 @@ Key fetches are limited by address: requests from one address can start 30 a min
 counts if it starts a fetch, so one signed with a key this server already has isn't limited, and neither is one waiting on
 a fetch that's already running. IPv6 addresses are counted by their /64 network.
 
-An address can also have at most 60 requests a minute refused, by default, with a `413`, or with a `400` or `401` for a
-signature that's missing, can't be read, or doesn't match its key, including when the key's document can't be found. A
-`401` for a key whose document answers `410 Gone` doesn't count. Past that, everything it sends to an inbox gets a `429`
-until the minute is up, before its body is read, including valid deliveries. No other response counts, so however much a
-server delivers, it only gets near the limit with a burst of signatures this server can't check. That can happen just
-after it changes its keys, since a key that was fetched recently isn't fetched again at once, or when it signs with keys
-whose documents answer `404` rather than `410` after their actors are deleted. Admins can change this limit, as described
-in [Configuration](docs/configuration.md#inbox-limits).
+By default an address can have 60 refusals per minute. Only `413` and signature-related `400` or `401` responses
+count, including when Elysium cannot find the key document. A `401` for a key document that returns `410 Gone` is
+exempt. After the address reaches the limit, all its inbox requests get `429` until the minute ends, even valid
+deliveries, and Elysium skips reading their bodies.
 
-Each server can also deliver at most 120 activities a minute, with bodies adding up to at most 20 MiB an hour, by default.
-Admins can change these, and remove them for servers they trust, as described in
-[Configuration](docs/configuration.md#inbox-limits). A server is the registrable domain of the signing key's actor, from the
-[Public Suffix List](https://publicsuffix.org/), so `a.example.com` and `b.example.com` share one limit, but `a.github.io`
-and `b.github.io` don't. An IP address counts as itself, and an IPv6 address by its /64 network. Only activities that pass every other check count, including
-repeats of an `id` that's already been accepted, and one that gets a `429` doesn't count. Each minute and hour is a fixed
-window, so a burst at the end of one and the start of the next can reach twice the limit. `Retry-After` says when the limit
-that was reached has room again. Counts are kept in memory, and restarting resets them.
+A recently changed key can cause a burst of refusals because Elysium does not immediately refresh recently fetched
+keys. Deleted actors whose key documents return `404` can cause refusals too. Admins can change the limit in
+[Configuration](docs/configuration.md#inbox-limits).
+
+Each server can deliver up to 120 activities per minute by default, with bodies totalling up to 20 MiB per hour.
+Admins can change these limits or exempt trusted servers in [Configuration](docs/configuration.md#inbox-limits).
+Elysium groups signers by their actor’s registrable domain according to the [Public Suffix
+List](https://publicsuffix.org/). For example, `a.example.com` and `b.example.com` share a limit, while `a.github.io`
+and `b.github.io` have separate limits.
+
+IP addresses count separately, with IPv6 grouped by /64. The limits count deliveries that pass every other check,
+including duplicate IDs, and exclude requests that receive `429`. Fixed windows allow bursts of up to twice the limit
+across a window boundary. `Retry-After` says when the limit resets, and restarting the server clears the counts.
 
 ### Activities
 
-Activities that are accepted are stored, and processed later by a background job, so an inbox's answer doesn't say whether
-one worked. Activities are processed in no particular order. `Follow`, `Like`, `Announce`, `Block`, their `Undo`s, `Accept`
-and `Reject` of a `Follow`, `Create` of a `Note`, `Update` of an actor or a `Note`, `Delete`, `Flag`, [`Move`](#moving-accounts),
-and `Add` and `Remove` of a [pinned status](#pinned-statuses) are acted on, and other types are ignored.
+A `202` acknowledges the delivery. Elysium may queue it for processing, fetch it from its origin, or drop it, as
+[described above](#inboxes). Elysium processes queued activities in no particular order.
+
+The [supported protocols](#supported-federation-protocols-and-standards) list the activity types Elysium handles. It
+also handles `Add` and `Remove` for [pinned statuses](#pinned-statuses). Elysium ignores other activity types.
 
 An activity is accepted as it was sent if its `actor`, which can be an array of one, is the actor that signed the request.
 One with several actors is answered with a `202` and dropped. [Linked Data Signatures](#linked-data-signatures) aren't
@@ -330,26 +345,27 @@ verified.
 
 #### Forwarded activities
 
-An activity signed by someone other than its `actor`, such as a reply that Mastodon forwards to the followers of the
-account being replied to, is accepted as it was sent if it has a valid [integrity proof](#integrity-proofs) from its
-`actor`. It's then treated as if the `actor` had delivered it, except that it counts against the signer's server's
-[limits](#inboxes), and anything wrong with its `id` gets a `202` rather than a `403`, since the signer didn't make it.
+When the HTTP signer differs from the activity’s `actor`, Elysium accepts the forwarded copy if it has a valid
+[integrity proof](#integrity-proofs) from that actor. It processes the activity as a direct delivery from the actor,
+with two exceptions. The delivery counts against the HTTP signer’s server’s [limits](#inboxes), and an `id` that
+would fail with `400` or `403` on direct delivery gets `202` and is dropped. For example, Mastodon may forward a
+reply to the followers of the account it replies to.
 
-Otherwise it's answered with a `202`, and fetched later from its `id`, signed as the [instance actor](#instance-actor).
-Nothing from the forwarded copy is kept: the `id` isn't stored until the origin answers, so a forwarded activity can't
-stop the real one from being accepted.
+Without a valid proof, Elysium queues eligible activities for fetching and responds with `202`. It fetches the
+`id` from the origin, signed as the [instance actor](#instance-actor). The ID is recorded as accepted only after the
+origin answers, so receiving a forwarded copy leaves the original delivery eligible for acceptance.
 
-It's dropped, still with a `202`, unless its `id` is an HTTPS URL on the same host and port as its `actor`, on another
-server than this one, that isn't [blocked](#domain-blocks). Each counts against the signer's server's
-[limits](#inboxes), because that's the server causing the fetch, and a `429` can be sent for one. A repeat of an `id` that's
-already been accepted, or already queued, isn't fetched again. It counts as arriving when the first forwarded copy did,
-not when it's fetched, so an `Undo` that arrives in between still covers a forwarded `Follow`.
+To qualify for a fetch, the `id` must be an HTTPS URL on the same host and port as the `actor`, on a remote server
+that Elysium has [not blocked](#domain-blocks). Other IDs are dropped with `202`. Eligible deliveries count toward the
+HTTP signer’s server’s [limits](#inboxes) and can get `429`.
 
-What the origin serves is only accepted if it's an activity whose `id` is exactly the one fetched, with one `actor` on the
-same host and port. That actor is the one believed, even if the forwarded copy named another. A `404`, `410`, or another
-refusal drops the activity, and a server error or timeout is tried again later. This means an activity that its origin
-doesn't serve is lost when it's forwarded, except for a `Delete`, a `Create`, or an `Update` of a status, if its `object`
-is on the same host and port as the `actor`:
+Elysium skips the fetch for IDs it has already accepted or queued. It uses the first delivery time, so an `Undo`
+received before the fetch still applies to a forwarded `Follow`.
+
+Elysium accepts an activity from the origin only if its `id` matches the fetched URL and it names one `actor` on the
+same host and port. The actor in the fetched activity takes precedence over the one in the forwarded copy. On a server
+error or timeout, Elysium retries. A `404`, `410`, or other refusal drops the activity, with the following exceptions
+for a status object on the actor’s host and port.
 
 - A `Delete`, such as Mastodon's, whose `id` has a fragment, has its `object` [checked with its own
   server](#receiving-deletes) instead.
@@ -372,8 +388,8 @@ that is tried again later.
 
 #### Reading activities
 
-Activities are read as plain JSON, so properties are matched by their usual names, such as `content` or `sensitive`, and
-unknown ones are ignored. A server that renames them with its own `@context` is misread. These forms are treated the same:
+Elysium reads activities as plain JSON and matches familiar property names such as `content` and `sensitive`. It
+ignores unknown names and does not resolve aliases in `@context`. The following forms are equivalent.
 
 - `to`, `cc`, `bto`, `bcc`, `audience`, `attributedTo`, `type`, and `tag` can be one value or an array, and each address
   can be an ID or an object with an `id`.
@@ -390,11 +406,13 @@ collections of other actors aren't fetched.
 
 ### Follows
 
-A `Follow` whose `object` is a local user is accepted straight away, unless the user approves followers by hand, when it
-waits for them. A user who approves followers by hand can choose to accept a `Follow` from an actor they follow straight
-away, even though their `manuallyApprovesFollowers` is true. An actor they've only asked to follow doesn't count. Who's
-following comes from the signature, and not from the activity's body. The `object` can be an ID, an embedded object
-with an `id`, or an array of one of those. A `Follow` of anything else is ignored.
+A `Follow` whose `object` is a local user is accepted straight away, unless the user approves followers by hand, when
+it waits for them. A user who approves followers by hand can choose to accept a `Follow` from an actor they follow
+straight away, even though their `manuallyApprovesFollowers` is true. An actor they've only asked to follow doesn't
+count. Who's following comes from the signature, and not from the activity's body.
+
+The `object` can be an ID, an embedded object with an `id`, or an array of one of those. A `Follow` of anything else
+is ignored.
 
 The follower's document is fetched, signed as the [instance actor](#instance-actor), unless a copy from the last 24 hours
 is stored. If an older copy is stored, it's used when the fetch fails, unless the server answers with a `404` or `410`. A
@@ -429,11 +447,13 @@ with its `id`, `type`, `actor`, and `object`:
 }
 ```
 
-A `Follow` that waits for the user gets no answer until they decide, however often it's repeated, and the follower doesn't
-count as one meanwhile: it's left out of the followers collection, gets no activities sent to followers, and can't fetch
-followers-only statuses. A newer `Follow` from the same actor while it's waiting takes its place, and the answer names that
-one. If the user approves it, the follower gets an `Accept` as above. Followers-only statuses posted before then aren't
-served to it. If the user refuses it, the follower gets a `Reject`, with the `id` `{actor-uri}#rejects/follows/{hash}` and the
+A `Follow` that waits for the user gets no answer until they decide, however often it's repeated, and the follower
+doesn't count as one meanwhile: it's left out of the followers collection, gets no activities sent to followers, and
+can't fetch followers-only statuses. A newer `Follow` from the same actor while it's waiting takes its place, and the
+answer names that one. If the user approves it, the follower gets an `Accept` as above. Followers-only statuses posted
+before then aren't served to it.
+
+If the user refuses it, the follower gets a `Reject`, with the `id` `{actor-uri}#rejects/follows/{hash}` and the
 `Follow` as its `object`, in the same form as an `Accept`:
 
 ```json
@@ -516,24 +536,28 @@ If the URL is an HTML link, its text has to match its destination. The linked pa
 the actor's URI or its `url` on the same HTTPS origin, matching the case of the path and query. Requests are rate
 limited and otherwise follow the same rules as [link checks for local profiles](#actors).
 
-Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit. Each
-has to be within 8 MB by default, which an admin [can change](docs/configuration.md), and is kept as WebP. One that's too
-large or isn't an image is linked to instead, until its URL changes. A new URL replaces the copy. Copies are kept for 30
-days by default, after which the image is downloaded again when someone here next views it, or when the actor is next
-fetched. A server or account whose media is rejected has its copies removed, and they're linked to until it's allowed
-again.
+Avatars and headers are downloaded [as attachments are](#receiving-statuses), and count toward the same hourly limit.
+Each has to be within 8 MB by default, which an admin [can change](docs/configuration.md), and is kept as WebP. One
+that's too large or isn't an image is linked to instead, until its URL changes. A new URL replaces the copy.
+
+Copies are kept for 30 days by default, after which the image is downloaded again when someone here next views it, or
+when the actor is next fetched. A server or account whose media is rejected has its copies removed, and they're linked
+to until it's allowed again.
 
 A suspended or deleted actor's profile isn't changed, and a domain block removes the profiles of the server's actors.
 
 ### Following other actors
 
-A local user can follow an actor on another server, which they find by its `username@domain` or URL. This server looks up the
-address with an unsigned WebFinger request to `https://{domain}/.well-known/webfinger`, and takes the `self` link of type
-`application/activity+json`, or `application/ld+json` with the ActivityStreams profile. It then fetches the actor document as
-described in [Follows](#follows), with the same checks. The actor only counts if its `preferredUsername` and domain match
-the address, ignoring case in the username, or if a WebFinger request for it to its own domain gives the address looked up as
-the `subject`, as for a server whose accounts have a different domain from the server's own. A URL is fetched as an ActivityPub document, and if that's an actor
-whose `id` is a different URL, such as a profile page's, the actor is fetched again from its `id`.
+A local user can follow an actor on another server, which they find by its `username@domain` or URL. This server looks
+up the address with an unsigned WebFinger request to `https://{domain}/.well-known/webfinger`, and takes the `self`
+link of type `application/activity+json`, or `application/ld+json` with the ActivityStreams profile. It then fetches
+the actor document as described in [Follows](#follows), with the same checks. The actor only counts if its
+`preferredUsername` and domain match the address, ignoring case in the username, or if a WebFinger request for it to
+its own domain gives the address looked up as the `subject`, as for a server whose accounts have a different domain
+from the server's own.
+
+A URL is fetched as an ActivityPub document, and if that's an actor whose `id` is a different URL, such as a profile
+page's, the actor is fetched again from its `id`.
 
 The follow then waits for an answer, and a `Follow` signed as the user is sent to the actor's `inbox`. Its `id` is
 `{actor-uri}#follows/{uuid}`, which is new each time the user follows, so an answer to an earlier request doesn't count for
@@ -550,11 +574,13 @@ only changing the follow's options, such as whether they're notified of new post
 }
 ```
 
-An `Accept` or `Reject` is only acted on if the actor that signed it is the one being followed, and its `object` names a
-`Follow` from here by its `id`, or embeds one with that `id`. An embedded `Follow` with no `id`, or with an `id` that isn't from
-this server, counts for whatever follow there is between its `actor` and the signer, if its `object` is the signer or missing. An `Accept` makes the follow active, and a
-`Reject` removes it, whether it was waiting or already accepted. Repeats of either are processed again. Anything else is
-ignored, including an `Accept` or `Reject` of another type of activity.
+An `Accept` or `Reject` is only acted on if the actor that signed it is the one being followed, and its `object` names
+a `Follow` from here by its `id`, or embeds one with that `id`. An embedded `Follow` with no `id`, or with an `id`
+that isn't from this server, counts for whatever follow there is between its `actor` and the signer, if its `object`
+is the signer or missing. An `Accept` makes the follow active, and a `Reject` removes it, whether it was waiting or
+already accepted. Repeats of either are processed again.
+
+Anything else is ignored, including an `Accept` or `Reject` of another type of activity.
 
 When the user unfollows, or withdraws a request that's still waiting, the `Follow` isn't sent if it hasn't been already. An
 `Undo` is sent either way, with the `id` `{follow-id}/undo`, and it waits until any request with the `Follow` to the same server
@@ -585,16 +611,20 @@ When a `Follow` from here is accepted, the followed actor's `outbox` is fetched,
 for several follows of the same actor at the same time. Fetches share the per-host [turns](#forwarded-activities) of other
 fetches made on another server's word.
 
-- The `outbox` given in the actor document is only used if it's an HTTPS URL on the same host and port as the actor. It has to
-  be an `OrderedCollection` or `Collection` whose `id` is the URL fetched. Its `first` page can be embedded, or an ID on the
-  actor's host, which is fetched and has to be an `OrderedCollectionPage` or `CollectionPage` with that `id`. A collection
-  with no `first` is read for its own items. Only that first page is read, and `next` is never followed.
-- Up to 40 items of `orderedItems`, or `items`, are read. Only a `Create` whose `actor` is the followed actor is used, and
-  `Announce`s, items that are only an ID, and other activities are skipped. The `Create`'s `object` can be an embedded
-  `Note`, as Mastodon and Misskey send it, or the `Note`'s ID, as GoToSocial sends it. An ID on the actor's host and port
-  that isn't stored here is fetched, signed as the instance actor, each taking its own turn, and has to come back with the
-  same `id`. Either way, the `Note` has to be attributed to that actor alone, with an `id` on its host and port, and be
-  public or unlisted, read [as for a `Create`](#receiving-statuses). It also needs a `published`.
+- The `outbox` given in the actor document is only used if it's an HTTPS URL on the same host and port as the actor.
+  It has to be an `OrderedCollection` or `Collection` whose `id` is the URL fetched. Its `first` page can be embedded,
+  or an ID on the actor's host, which is fetched and has to be an `OrderedCollectionPage` or `CollectionPage` with
+  that `id`. A collection with no `first` is read for its own items.
+
+  Only that first page is read, and `next` is never followed.
+- Up to 40 items of `orderedItems`, or `items`, are read. Only a `Create` whose `actor` is the followed actor is used,
+  and `Announce`s, items that are only an ID, and other activities are skipped. The `Create`'s `object` can be an
+  embedded `Note`, as Mastodon and Misskey send it, or the `Note`'s ID, as GoToSocial sends it. An ID on the actor's
+  host and port that isn't stored here is fetched, signed as the instance actor, each taking its own turn, and has to
+  come back with the same `id`.
+
+  Either way, the `Note` has to be attributed to that actor alone, with an `id` on its host and port, and be public or
+  unlisted, read [as for a `Create`](#receiving-statuses). It also needs a `published`.
 - These are stored as if they'd been sent then, with the same checks on content and repeats, except that they're sorted by
   their `published` time, so they don't look newer than statuses that arrived before them. Local accounts they mention
   aren't notified.
@@ -603,19 +633,23 @@ fetches made on another server's word.
 
 ### Statuses
 
-When a local user posts a public, unlisted, or followers-only status, it's sent to their followers on other servers, signed as
-the user, and to the actors on other servers that it mentions. A direct status is only sent to the actors it mentions. Each
-server's shared inbox is used for the recipients that have one, so that they share one delivery, and other recipients'
-`inbox` is used otherwise. A public or unlisted reply to a status from another server is also sent to that
-status's author. A mention of `@user@domain` is looked up through WebFinger when the status is posted, as
-[Following other actors](#following-other-actors) describes, and one that can't be found stays as text, and isn't sent anything. Followers are
-worked out shortly after posting, and statuses from before someone followed aren't sent. A
+When a local user posts a public, unlisted, or followers-only status, it's sent to their followers on other servers,
+signed as the user, and to the actors on other servers that it mentions. A direct status is only sent to the actors it
+mentions. Each server's shared inbox is used for the recipients that have one, so that they share one delivery, and
+other recipients' `inbox` is used otherwise. A public or unlisted reply to a status from another server is also sent
+to that status's author.
+
+A mention of `@user@domain` is looked up through WebFinger when the status is posted, as [Following other
+actors](#following-other-actors) describes, and one that can't be found stays as text, and isn't sent anything.
+Followers are worked out shortly after posting, and statuses from before someone followed aren't sent. A
 followers-only status only goes to those who were already following when it was posted.
 
 Each copy of this server sends at most 3 activities at a time to one server, and any others wait for their turn. A
-delivery that gets a `5xx`, `408`, or `429`, or no answer, is retried for up to 3 days, honouring `Retry-After`. So is one
-that keeps waiting for its turn because the server answers too slowly. After that it isn't sent, unless an admin here
-retries it. A delivery that gets any other `4xx` isn't retried.
+delivery that gets a `5xx`, `408`, or `429`, or no answer, is retried for up to 3 days, honouring `Retry-After`. So is
+one that keeps waiting for its turn because the server answers too slowly. After that it isn't sent, unless an admin
+here retries it.
+
+A delivery that gets any other `4xx` isn't retried.
 
 ```json
 {
@@ -646,13 +680,15 @@ The `object` is the same `Note` that's described in [Objects](#objects). The `id
 the `Note` instead, if the `Note` can be fetched. In rare cases, such as after a failure, a `Create` can be sent again with the
 same `id`.
 
-When a local user edits a status, an `Update` of it is sent, signed as the user, to everyone its `Delete` would be sent
-to, as described below. That includes the actors it mentioned before the edit, who can still fetch it, and those it now
-mentions, who haven't been sent its `Create`. For a followers-only status, it only goes to the followers who still follow
-the author. Its `id` is `{note-uri}#updates/{milliseconds}`, it's addressed like the
-`Note`, and its `object` is the `Note` as it is when the `Update` is sent, with `updated` set. Each edit's `updated` is at
-least a second later than the version before, and an edit that changes nothing sends nothing. A user can change the
-text, content warning, sensitivity, and language, but not the visibility or `inReplyTo`, as on Mastodon.
+When a local user edits a status, an `Update` of it is sent, signed as the user, to everyone its `Delete` would be
+sent to, as described below. That includes the actors it mentioned before the edit, who can still fetch it, and those
+it now mentions, who haven't been sent its `Create`. For a followers-only status, it only goes to the followers who
+still follow the author. Its `id` is `{note-uri}#updates/{milliseconds}`, it's addressed like the `Note`, and its
+`object` is the `Note` as it is when the `Update` is sent, with `updated` set.
+
+Each edit's `updated` is at least a second later than the version before, and an edit that changes nothing sends
+nothing. A user can change the text, content warning, sensitivity, and language, but not the visibility or
+`inReplyTo`, as on Mastodon.
 
 ```json
 {
@@ -716,15 +752,21 @@ again with the same `id`.
 
 #### Receiving statuses
 
-A `Create` whose `object` is a `Note` is stored as a status, if the `Note` is for a local user: one who follows its author,
-with the author's `followers` collection addressed, or one it addresses. A public or unlisted `Note` is also stored if its
-`inReplyTo` is a status stored here whose author is a local user or is followed by one, as Mastodon does, unless that
-user, or every such follower, [blocks](#blocks) the `Note`'s author or its server. That covers a
-reply that Mastodon [forwards](#forwarded-activities) to the parent author's followers, which only addresses the replier's
-followers and the parent's author. The parent has to be stored first, so a reply that arrives before it is ignored. A `Note`
-that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts), [backfilled](#backfill), or
-[fetched for a thread](#fetching-threads). A `Question` is stored as a status with a [poll](#receiving-polls), and a `Note` that's a vote in a local poll is
-[counted](#voting-in-a-local-poll). Other object types, such as `Article` and `Page`, are ignored.
+Elysium stores the `Note` from a `Create` that addresses a local user. Addressing the author’s `followers` collection
+also qualifies if the author has a local follower.
+
+A public or unlisted reply can also qualify through its stored parent, as on Mastodon. If the parent’s author is local,
+that author must allow the replier and their server under its [blocks](#blocks). If the parent’s author is remote, at
+least one active local follower of that author must allow both.
+
+This covers replies that Mastodon [forwards](#forwarded-activities) to the parent author’s followers, even when the
+reply addresses only the replier’s followers and the parent author. A reply that arrives before the parent cannot
+qualify this way.
+
+A `Note` that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts),
+[backfilled](#backfill), or [fetched for a thread](#fetching-threads). A `Question` is stored as a status with a
+[poll](#receiving-polls), and a `Note` that's a vote in a local poll is [counted](#voting-in-a-local-poll). Other
+object types, such as `Article` and `Page`, are ignored.
 
 - **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
   same host and port. Anything else is dropped.
@@ -733,39 +775,53 @@ that isn't for anyone here is ignored, even if it's public, unless it's [boosted
 - **Visibility:** read from the `Note`'s own `to` and `cc`, not the `Create`'s. The public collection in `to` makes it public,
   and in `cc` unlisted. Otherwise, the author's `followers` collection in either makes it followers-only. Anything else is
   direct.
-- **Mentions:** `Mention` tags are read, up to 100 of them. A followers-only or direct `Note` is only shown to the local
-  users that it or its `Create` addresses one by one in `to`, `cc`, `bto`, `bcc`, or `audience`, besides followers for a followers-only
-  one. A `Mention` tag alone doesn't show it to anyone. A local user it addresses without a `Mention` tag can see it, but
-  isn't listed as mentioned, as on Mastodon. A public or unlisted `Note` lists every local user it tags. Actors on other
-  servers are only listed as mentioned if they're already known here, and they're never fetched for this.
+- **Mentions:** `Mention` tags are read, up to 100 of them. A followers-only or direct `Note` is only shown to the
+  local users that it or its `Create` addresses one by one in `to`, `cc`, `bto`, `bcc`, or `audience`, besides
+  followers for a followers-only one. A `Mention` tag alone doesn't show it to anyone. A local user it addresses
+  without a `Mention` tag can see it, but isn't listed as mentioned, as on Mastodon.
+
+  A public or unlisted `Note` lists every local user it tags. Actors on other servers are only listed as mentioned if
+  they're already known here, and they're never fetched for this.
 - **Hashtags:** a `Hashtag` tag's `name`, with or without its `#`, is the tag, up to 100 of them. Its `href` isn't
   read. Names are matched without regard to case or Unicode composition, and one that needs no letter, has characters
   other than letters, marks, digits, `_`, and an inner `·` or zero-width non-joiner, or is longer than 100 characters,
   is ignored. Hashtag links in the `content` don't count, as on Mastodon.
-- **Content:** `content` is sanitized. `p`, `br`, `span`, `a`, `del`, `s`, `pre`, `code`, `em`, `strong`, `b`, `i`, `u`,
-  `ul`, `ol`, `li`, and `blockquote` are kept, headings become bold paragraphs, and other elements are replaced by their
-  text. Links keep only HTTP and HTTPS `href`s, and get `rel="nofollow noopener noreferrer"`. Only Mastodon's `h-card`,
-  `mention`, `hashtag`, `u-url`, `invisible`, and `ellipsis` classes are kept, and no other attributes. `summary` is
-  reduced to plain text and shown as a content warning, which also marks the status as sensitive.
-- **Other properties:** `url` is kept if it's an HTTP or HTTPS URL, or a `Link` to one that's `text/html` or has no
-  `mediaType`. `published` is kept, and the time it arrived is used if it's missing. The first language in `contentMap`
-  other than `und` is used as its language. `inReplyTo` links it to its parent once the parent is stored here, even if the
-  parent arrives later. Tags other than `Mention`, `Hashtag`, and [`Emoji`](#receiving-custom-emoji) aren't read.
+- In `content`, Elysium keeps `p`, `br`, `span`, `a`, `del`, `s`, `pre`, `code`, `em`, `strong`, `b`, `i`, `u`, `ul`,
+  `ol`, `li`, and `blockquote`. Headings become bold paragraphs, and other elements become plain text.
+  Links keep only HTTP and HTTPS `href` values and get `rel="nofollow noopener noreferrer"`. Elysium keeps only
+  Mastodon’s `h-card`, `mention`, `hashtag`, `u-url`, `invisible`, and `ellipsis` classes and removes other
+  attributes.
+
+  Elysium displays `summary` as a plain-text content warning and marks the status sensitive.
+- **Other properties.** Elysium keeps an HTTP or HTTPS `url` or a `Link` to one with `text/html` or no `mediaType`. If
+  `published` is absent, it uses the arrival time. The status language is the first language other than `und` in
+  `contentMap`.
+
+  `inReplyTo` links the status to its parent once both are stored, even if the parent arrives later. Elysium reads
+  only `Mention`, `Hashtag`, and [`Emoji`](#receiving-custom-emoji) tags.
 - **Attachments:** each `Document`, `Image`, `Video`, or `Audio` in `attachment`, one object or an array, up to 16 in
   order, as Misskey allows. Its `url` is a string, a `Link`, or an array of them, and the first HTTP or HTTPS one is
   taken. One without such a URL is left out. Its `mediaType` decides whether it's shown as an image, video, or audio,
-  and its type does only when there's no `mediaType`. Anything else is shown as a link. `name` is the description, as
-  plain text, up to 1500 characters. `width`, `height`, `blurhash`, and a `focalPoint` of two numbers are kept when
-  they're valid. Each is then downloaded once, shortly afterward, with a `GET` from the same `User-Agent` as other
-  requests and no signature, over HTTPS only, following up to 3 redirects, within 2 minutes. The file's own bytes decide
-  what it is, whatever its `mediaType` says. One that's too large (16 MB for an image, 100 MB for video, and 40 MB for
-  audio by default), isn't an accepted format, or gets any other status than `200`, `5xx`, `408`, or `429` is linked to
-  instead and not fetched again. A `5xx`, `408`, or `429` is tried again later. Only one file is downloaded from a host
-  at a time. Each server's attachments can add up to only so much in an hour, 2 GB by default, counted by the author's
-  server rather than the file's host, and past that they're linked until they're viewed again with room to spare. Copies
-  are kept for 30 days by default. One that hasn't been downloaded yet, or whose copy was removed, is downloaded when
-  someone here views it, so a file can be fetched long after its `Note` arrived, more than once. A request for it that's
-  past the hourly limit, or that gets a `5xx`, `408`, or `429`, is linked for that view, and tried again on a later one.
+  and its type does only when there's no `mediaType`.
+
+  Other attachments appear as links. `name` is the plain-text description, up to 1500 characters. Elysium keeps valid
+  `width`, `height`, `blurhash`, and two-number `focalPoint` values.
+
+  Elysium attempts an unsigned HTTPS `GET` shortly after receipt, with its usual `User-Agent`. It follows up to 3
+  redirects within 2 minutes and determines the file type from its bytes. The default limits are 16 MB for images, 100
+  MB for video, and 40 MB for audio. Elysium leaves oversized or unsupported files as links and stops trying to fetch
+  them.
+
+  Elysium retries a `5xx`, `408`, or `429`. Any other result besides `200` leaves a link and ends retries. Only one
+  file is downloaded from a host at a time. Attachments count toward the author’s server’s hourly download budget, 2
+  GB by default, regardless of the file’s host.
+
+  Once a server reaches its budget, its attachments appear as links until the budget has room and someone views them
+  again. Copies are kept for 30 days by default.
+
+  One that hasn't been downloaded yet, or whose copy was removed, is downloaded when someone here views it, so a file
+  can be fetched long after its `Note` arrived, more than once. A request for it that's past the hourly limit, or that
+  gets a `5xx`, `408`, or `429`, is linked for that view, and tried again on a later one.
 - **Repeats:** a `Note` whose `id` is already stored is ignored, so it can't be changed by sending it again. An
   [`Update`](#receiving-updates) is how it's changed.
 - **Edits:** a `Note` that has an `updated` later than its `published`, and no more than an hour ahead of this server's
@@ -778,34 +834,39 @@ described with those.
 
 An `Update`'s `object` can be an ID, an embedded object, or an array of one of those.
 
-- **Actors:** an `Update` whose `object` has the `actor`'s own `id` makes this server fetch the actor's document again,
-  signed as the [instance actor](#instance-actor), however recently it was fetched, and again 5 minutes later, since
-  Mastodon serves actor documents from a cache for 3 minutes. The embedded object isn't read, since not every server
-  says when an actor changed, so the document's server is the only one that knows what's current.
-  What's stored is [what a `Follow` stores](#follows): the username, inboxes, `followers` collection, key, and
-  [profile](#profiles-from-other-servers). A key
-  that the new document has dropped, or has with a different value, isn't used for signatures from then on, and is
-  fetched again when it's next needed, as is a key on the actor's server that it now lists and that couldn't be found
-  before. This holds even if the rest of the new document can't be used. A server error or timeout is tried again later.
-  Other failures, including a `404` or `410`, keep the older copy, since only a [`Delete`](#receiving-deletes) removes
-  an actor. An `Update` of an actor that isn't stored, or of another actor, is ignored.
-- **Statuses:** an `Update` whose `object` is a `Note` is read with [the same checks as a `Create`](#receiving-statuses):
-  it has to be attributed to the `actor` alone, with an `id` on the same host and port, and one sent as an ID is fetched.
-  It's applied to a status that's stored here, by the same author. `content`, `summary`, `sensitive`, the language, the
-  `Hashtag` and `Emoji` tags, and the attachments are replaced, and read as they are for a `Create`. An attachment with the same
-  `url` as before is updated rather than replaced. Its visibility, `inReplyTo`, `url`, and `published` aren't
-  changed. A `Question` is read the same way, and its [poll](#receiving-polls) is replaced too. Other object types are
-  ignored.
+- **Actors:** an `Update` whose `object` has the `actor`'s own `id` makes this server fetch the actor's document
+  again, signed as the [instance actor](#instance-actor), however recently it was fetched, and again 5 minutes later,
+  since Mastodon serves actor documents from a cache for 3 minutes. The embedded object isn't read, since not every
+  server says when an actor changed, so the document's server is the only one that knows what's current. What's stored
+  is [what a `Follow` stores](#follows): the username, inboxes, `followers` collection, key, and
+  [profile](#profiles-from-other-servers). A key that the new document has dropped, or has with a different value,
+  isn't used for signatures from then on, and is fetched again when it's next needed, as is a key on the actor's
+  server that it now lists and that couldn't be found before.
+
+  This holds even if the rest of the new document can't be used. A server error or timeout is tried again later. Other
+  failures, including a `404` or `410`, keep the older copy, since only a [`Delete`](#receiving-deletes) removes an
+  actor. An `Update` of an actor that isn't stored, or of another actor, is ignored.
+- For an `Update` of a `Note`, Elysium applies [the same checks as for `Create`](#receiving-statuses).
+  The `Note` must be attributed to the `actor` alone and have an `id` on the same host and port. Elysium fetches an
+  object sent by ID. It applies the edit to a stored status by the same author.
+
+  It replaces `content`, `summary`, `sensitive`, language, `Hashtag` and `Emoji` tags, and attachments as for a
+  `Create`. Attachments with the same `url` are updated in place. The edit leaves visibility, `inReplyTo`, `url`, and
+  `published` intact.
+
+  A `Question` is read the same way, and its [poll](#receiving-polls) is replaced too. Other object types are ignored.
 - **Order:** the `Note` needs an `updated`, and is only applied if that's later than its `published` and the edit stored
   last. Activities are processed in no order, so one that's older is ignored, and one without `updated` is ignored too, as
   is one more than an hour ahead of this server's clock, which would keep later edits from being applied. One that changes
   none of what's replaced isn't kept as a version, so the status doesn't show as edited. What it
   [quotes](#receiving-quotes), and who can quote it, are applied whatever its `updated` says.
 - **Before its `Create`:** an `Update` of a `Note` that isn't stored is treated as its `Create`, with the same checks,
-  including who it's for. The `Create` is then ignored when it's processed. If its `published` is 3 days or more before
-  the `Update` arrived, it's ordered by its `published` instead of by when it arrived, nobody here is notified of it, and
-  a direct one is ignored, so that editing an old post doesn't make it look new here. A `Note` with no `published` is
-  ignored. Mastodon ignores an `Update` of a status it doesn't have if its `published` is more than a day old.
+  including who it's for. The `Create` is then ignored when it's processed. If its `published` is 3 days or more
+  before the `Update` arrived, it's ordered by its `published` instead of by when it arrived, nobody here is notified
+  of it, and a direct one is ignored, so that editing an old post doesn't make it look new here. A `Note` with no
+  `published` is ignored.
+
+  Mastodon ignores an `Update` of a status it doesn't have if its `published` is more than a day old.
 - **Forwarded:** an `Update` is [fetched from its origin](#forwarded-activities) like any forwarded activity. Mastodon's
   `Update` IDs have a fragment, so the status is fetched from its own server instead. A forwarded `Update` of an actor
   is only accepted if its origin serves it.
@@ -827,14 +888,16 @@ the same host and port as the `actor`, and anything else is dropped. Its `type` 
   its follows in both directions and likes. Nothing is sent back. This is for good: the actor's URI is refused from then on, with a
   `403` for deliveries signed with its key, even if its server later gives the URI to a new actor. A `Delete` of an actor
   that isn't stored is ignored.
-- **Checked with the object's server:** when a `Delete` can't be shown to come from its actor, its `object` is fetched,
-  signed as the [instance actor](#instance-actor), and it's only acted on if that serves a `Tombstone` with the same `id`,
-  or answers `404` or `410` for an actor, or for a public or unlisted status that's stored here. Servers give the same answer
-  for a followers-only status they won't show the instance actor, so a `404` or `410` doesn't remove one, or keep a status
-  that isn't stored yet from being stored. A server error or timeout is tried again later. This is done for a forwarded
-  `Delete` that its origin doesn't serve, and for a `Delete` of an actor by itself whose signature isn't accepted: because
-  its key now answers `404` or `410`, as Mastodon's do, or because the actor is [suspended](#suspended-and-deleted-accounts)
-  here. Such a `Delete` is answered with a `202`, but only if the actor is stored here and not already deleted. Otherwise it
+- **Checked with the object's server:** when a `Delete` can't be shown to come from its actor, its `object` is
+  fetched, signed as the [instance actor](#instance-actor), and it's only acted on if that serves a `Tombstone` with
+  the same `id`, or answers `404` or `410` for an actor, or for a public or unlisted status that's stored here.
+  Servers give the same answer for a followers-only status they won't show the instance actor, so a `404` or `410`
+  doesn't remove one, or keep a status that isn't stored yet from being stored. A server error or timeout is tried
+  again later. This is done for a forwarded `Delete` that its origin doesn't serve, and for a `Delete` of an actor by
+  itself whose signature isn't accepted: because its key now answers `404` or `410`, as Mastodon's do, or because the
+  actor is [suspended](#suspended-and-deleted-accounts) here.
+
+  Such a `Delete` is answered with a `202`, but only if the actor is stored here and not already deleted. Otherwise it
   gets the `401` or `403` it would have.
 
 #### Looking up statuses
@@ -863,15 +926,16 @@ fetched at most every 15 minutes. Nothing is fetched from this server or a [bloc
 - **Parents:** a status whose `inReplyTo` isn't stored has that fetched, and then that status's parent, and so on, until
   40 ancestors are stored. Each has to come back as a `Note` or `Question` with the `id` fetched, attributed to one actor on
   the same host and port. Fetching stops at the first that isn't stored.
-- **Replies:** for a status from another server, its `id` is fetched again, and has to come back with that `id`, attributed
-  to its author. Its `replies` can be embedded or an ID, and so can the collection's `first`, and each page's `next` is
-  followed, up to 10 pages, counting a collection fetched by its ID. The collection and its pages have to be on the same host and port as the status, and one
-  fetched by its ID has to be a `Collection`, `OrderedCollection`, `CollectionPage`, or `OrderedCollectionPage` with the
-  `id` fetched. Up to 20 of each one's `orderedItems`, or `items`, are read, as IDs or objects with one, and an embedded
-  reply is only read for its `id`. Each reply is fetched from its `id`, checked as a parent is, and kept only if its
-  `inReplyTo` is the status whose collection listed it. A reply's own `replies` are read the same way, down to 20 replies
-  deep, including for a reply that was already stored. Fetching stops once 60 replies to the status, and replies to
-  those, are stored.
+- **Replies:** for a status from another server, its `id` is fetched again, and has to come back with that `id`,
+  attributed to its author. Its `replies` can be embedded or an ID, and so can the collection's `first`, and each
+  page's `next` is followed, up to 10 pages, counting a collection fetched by its ID. The collection and its pages
+  have to be on the same host and port as the status, and one fetched by its ID has to be a `Collection`,
+  `OrderedCollection`, `CollectionPage`, or `OrderedCollectionPage` with the `id` fetched. Up to 20 of each one's
+  `orderedItems`, or `items`, are read, as IDs or objects with one, and an embedded reply is only read for its `id`.
+
+  Each reply is fetched from its `id`, checked as a parent is, and kept only if its `inReplyTo` is the status whose
+  collection listed it. A reply's own `replies` are read the same way, down to 20 replies deep, including for a reply
+  that was already stored. Fetching stops once 60 replies to the status, and replies to those, are stored.
 - **Storing:** only a public or unlisted status with a `published` is stored, read [as for a `Create`](#receiving-statuses).
   As with [backfill](#backfill), it's sorted by its `published` time, and local accounts it mentions aren't notified.
 - **Failures:** a `404`, `410`, or other refusal skips what was fetched, and what it would have led to. A server error or
@@ -917,19 +981,23 @@ is the status. Only the actor that signed the `Like` can undo it. As with [follo
 when they arrived here: an `Undo` covers that actor's likes of the status that arrived before it, but not a newer one, and
 stops a `Like` it names from counting if that's processed later, for about 34 days.
 
-A `Note`'s `likes` collection is an `OrderedCollection` with a `totalItems` and a `first` page, paged like
-[followers and following](#actors), with up to 40 `Like` activities a page, newest first. Each has the `id` it was received
-with. It's served with the same media types as the `Note`, and any origin can read it through CORS, but a request that
-accepts HTML is redirected to the status's page, and any signature is ignored unless [signed fetches are required](#authorized-fetch). Only public and unlisted statuses have one, and others get a 404, or a
-403 if the author is suspended. Likes from suspended actors aren't counted or listed, and come back if the suspension ends.
+A `Note`'s `likes` collection is an `OrderedCollection` with a `totalItems` and a `first` page, paged like [followers
+and following](#actors), with up to 40 `Like` activities a page, newest first. Each has the `id` it was received with.
+It's served with the same media types as the `Note`, and any origin can read it through CORS, but a request that
+accepts HTML is redirected to the status's page, and any signature is ignored unless [signed fetches are
+required](#authorized-fetch). Only public and unlisted statuses have one, and others get a 404, or a 403 if the author
+is suspended.
+
+Likes from suspended actors aren't counted or listed, and come back if the suspension ends.
 
 ### Emoji reactions
 
-When a local user reacts to a status from another server, an `EmojiReact` signed as the user is sent to the author's
-`inbox`, and addressed only to them, as Pleroma and Akkoma send it. Its `id` is `{actor-uri}#reactions/{uuid}`, which is
-new each time. `content` is the Unicode emoji, or a custom emoji's shortcode between colons, with an `Emoji` in `tag`
-[as a `Note` has one](#custom-emoji). The `@context` defines `EmojiReact` in LitePub's namespace. Reacting to a local
-status sends nothing.
+A local reaction to a remote status sends an `EmojiReact` signed by the user to the author’s `inbox`, addressed only
+to the author, as on Pleroma and Akkoma. Each reaction has a new `id` of the form `{actor-uri}#reactions/{uuid}`.
+Reacting to a local status sends no activity.
+
+`content` contains a Unicode emoji or a custom shortcode between colons. A custom emoji also appears in `tag` [as it
+does in a `Note`](#custom-emoji). The `@context` defines `EmojiReact` in LitePub’s namespace.
 
 ```json
 {
@@ -959,9 +1027,11 @@ Misskey names one from a third server as `:shortcode@host:`, which is matched wi
 `EmojiReact` whose emoji can't be read is ignored, and so is a reaction to anything but a local status. An actor's 20 first
 different emoji on a status are kept, and a repeat of one counts once.
 
-An `Undo` removes a reaction if its `object` names the `EmojiReact` or `Like` by `id`, or embeds it with one. Only the actor
-that signed it can undo it. An `Undo` that arrives first stops the reaction it names from counting if that's processed
-later, for about 34 days. A reaction can't be undone without its `id`, which every server that sends reactions includes.
+An `Undo` removes a reaction if its `object` names the `EmojiReact` or `Like` by `id`, or embeds it with one. Only the
+actor that signed it can undo it. An `Undo` that arrives first stops the reaction it names from counting if that's
+processed later, for about 34 days. A reaction can't be undone without its `id`, which every server that sends
+reactions includes.
+
 Reactions aren't listed in any collection.
 
 ### Boosts
@@ -984,18 +1054,23 @@ signed as the user goes to their followers and to the status's author. Its `obje
 
 It's addressed like a status of the same visibility, with the author in `cc`. A boost can be public, unlisted, or
 followers-only, and a boost of a followers-only status is always followers-only. Its `id` can't be fetched. Unboosting
-cancels the `Announce` if it hasn't been sent, and sends an `Undo` that embeds it, after any request with the `Announce` to
-the same server has ended. So does deleting the boosted status, here or on its server. The `Undo` goes to the status's author
-and to whoever follows the booster at the time, or for a followers-only boost, to the followers its `Announce` was sent to,
-including any who have unfollowed since, or unfollowed and followed again. A local status's `Delete` also
-goes to the followers of local users who boosted it.
+cancels the `Announce` if it hasn't been sent, and sends an `Undo` that embeds it, after any request with the
+`Announce` to the same server has ended.
 
-An `Announce` is only read for its `object`'s ID, and an embedded copy is never used. A boost of a local public or unlisted
-status is always kept. A boost of another server's status is only kept if it's addressed to the booster's `followers`
-collection and a local user follows the booster. Naming a local user isn't enough, as on Mastodon. If that status isn't stored here, it's fetched from its `id`, signed as the
-[instance actor](#instance-actor), once its host has a [turn](#forwarded-activities). It has to come back as a `Note` with
-exactly that `id`, attributed to one actor on the same host and port, and addressed to the public in `to` or `cc`. Anything
-else drops the boost, and a server error or timeout is tried again later. The `Note` is then stored as that actor's status.
+So does deleting the boosted status, here or on its server. The `Undo` goes to the status's author and to whoever
+follows the booster at the time, or for a followers-only boost, to the followers its `Announce` was sent to, including
+any who have unfollowed since, or unfollowed and followed again. A local status's `Delete` also goes to the followers
+of local users who boosted it.
+
+An `Announce` is only read for its `object`'s ID, and an embedded copy is never used. A boost of a local public or
+unlisted status is always kept. A boost of another server's status is only kept if it's addressed to the booster's
+`followers` collection and a local user follows the booster. Naming a local user isn't enough, as on Mastodon.
+
+If that status isn't stored here, it's fetched from its `id`, signed as the [instance actor](#instance-actor), once
+its host has a [turn](#forwarded-activities). It has to come back as a `Note` with exactly that `id`, attributed to
+one actor on the same host and port, and addressed to the public in `to` or `cc`. Anything else drops the boost, and a
+server error or timeout is tried again later. The `Note` is then stored as that actor's status.
+
 A followers-only or direct status can only be boosted by its author.
 
 The `Announce`'s visibility comes from its own `to` and `cc`, read as for a `Note`, and a direct one is ignored. A boost keeps
@@ -1049,24 +1124,28 @@ in an actor document is only used if it's an HTTPS URL on the same host and port
 without an `id`, as Mastodon and Misskey send them, is only accepted from the actor that signed it, and can't be
 [forwarded](#forwarded-activities).
 
-An `Add` pins the status if it's stored here and attributed to the actor. One that isn't stored is fetched from its `id`,
-signed as the local account that has followed the actor the longest, once its host has a [turn](#forwarded-activities),
-and pinned if it comes back as a public, unlisted, or followers-only `Note` with that `id`, attributed to the actor alone,
-with a `published`. A followers-only one is shown to the actor's followers here. It's stored as
-[backfill](#backfill) stores statuses. Nothing is fetched if no local account follows the actor. A `Remove` unpins the
-status whether or not it's stored. A repeat of either is processed again, since pinning a status a second time sends the same
-`Add` as the first time, and they're ordered by when they last arrived here: a `Remove` stops an `Add` that arrived before it
-from pinning the status if that's processed later, for about 34 days. At most 40 pins are kept for an actor.
+An `Add` pins the status if it's stored here and attributed to the actor. One that isn't stored is fetched from its
+`id`, signed as the local account that has followed the actor the longest, once its host has a
+[turn](#forwarded-activities), and pinned if it comes back as a public, unlisted, or followers-only `Note` with that
+`id`, attributed to the actor alone, with a `published`. A followers-only one is shown to the actor's followers here.
+It's stored as [backfill](#backfill) stores statuses.
 
-When a `Follow` from here is accepted, and when an actor sends an `Update` of itself, its `featured` collection is fetched,
-signed as the local account that has followed the actor the longest, as Mastodon signs it as one of its followers, with a
-turn of its own, and replaces the actor's pins. This is how pins from before a follow
-are learned, and the only way at all from servers that don't send `Add`s, such as GoToSocial. The collection is read like an
-outbox for [backfill](#backfill): it has to be an `OrderedCollection` or `Collection` with the `id` that was fetched, its
-`first` page can be embedded or fetched, and up to 40 items of `orderedItems` or `items` are read, the first as the most
-recently pinned. An item can be an embedded `Note` attributed to the actor, which is stored if an `Add` could pin it, or the
-ID of a status on the actor's host and port, which is fetched like a status an `Add` names if it isn't stored. Other items are skipped. An actor
-whose document has no `featured` has no pins.
+Nothing is fetched if no local account follows the actor. A `Remove` unpins the status whether or not it's stored. A
+repeat of either is processed again, since pinning a status a second time sends the same `Add` as the first time, and
+they're ordered by when they last arrived here: a `Remove` stops an `Add` that arrived before it from pinning the
+status if that's processed later, for about 34 days. At most 40 pins are kept for an actor.
+
+When a `Follow` from here is accepted, and when an actor sends an `Update` of itself, its `featured` collection is
+fetched, signed as the local account that has followed the actor the longest, as Mastodon signs it as one of its
+followers, with a turn of its own, and replaces the actor's pins. This is how pins from before a follow are learned,
+and the only way at all from servers that don't send `Add`s, such as GoToSocial. The collection is read like an outbox
+for [backfill](#backfill): it has to be an `OrderedCollection` or `Collection` with the `id` that was fetched, its
+`first` page can be embedded or fetched, and up to 40 items of `orderedItems` or `items` are read, the first as the
+most recently pinned. An item can be an embedded `Note` attributed to the actor, which is stored if an `Add` could pin
+it, or the ID of a status on the actor's host and port, which is fetched like a status an `Add` names if it isn't
+stored.
+
+Other items are skipped. An actor whose document has no `featured` has no pins.
 
 ### Quotes
 
@@ -1110,13 +1189,16 @@ user and sent to the quoted author's own `inbox`, with the quote embedded as its
 }
 ```
 
-The real `@context` and `instrument` have every term and property that a `Note` has. The `Create` is sent straight away, as
-on Mastodon, rather than after the answer. An `Accept` has to be signed by the quoted author, name the request by its `id`,
-alone or embedded, and have a `QuoteAuthorization` on the quoted author's host and port as its `result`, which isn't
-fetched. A `Reject` from the quoted author rejects the quote, and an `Accept` that follows it approves it. Either way, an
-`Update` of the quote follows, as below, unless a rejection only changes a quote that was never shown. A request whose status is deleted first isn't sent. A request
-that's still unanswered a minute after it was delivered is sent once more, under the same `id`, since Mastodon can drop
-one that it reads while it's still storing the `Create`.
+The real `@context` and `instrument` have every term and property that a `Note` has. The `Create` is sent straight
+away, as on Mastodon, rather than after the answer. An `Accept` has to be signed by the quoted author, name the
+request by its `id`, alone or embedded, and have a `QuoteAuthorization` on the quoted author's host and port as its
+`result`, which isn't fetched. A `Reject` from the quoted author rejects the quote, and an `Accept` that follows it
+approves it.
+
+Either way, an `Update` of the quote follows, as below, unless a rejection only changes a quote that was never shown.
+A request whose status is deleted first isn't sent. A request that's still unanswered a minute after it was delivered
+is sent once more, under the same `id`, since Mastodon can drop one that it reads while it's still storing the
+`Create`.
 
 A local user can ask again for a quote that's pending, rejected, or revoked, at most once an hour. That sends a new
 `QuoteRequest` under a new `id`, `{status-uri}#quote_request/{milliseconds}`, since a server answers a repeat of the
@@ -1145,11 +1227,13 @@ Each local `Note` says who can quote it in an `interactionPolicy`, as Mastodon s
 "interactionPolicy": {"canQuote": {"automaticApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}
 ```
 
-`automaticApproval` holds the public collection, the author's `followers` collection, or, when only the author's quotes
-are approved automatically, the author. A followers-only or direct status, or one posted before this server supported
-quotes, can only be quoted by its author. A local user can choose, for each status or for all of their new ones,
-whether the quotes that aren't approved automatically are rejected or wait for them to approve by hand. When they wait,
-`manualApproval` has the public collection. When nobody else's quotes are approved automatically:
+`automaticApproval` holds the public collection, the author's `followers` collection, or, when only the author's
+quotes are approved automatically, the author. A followers-only or direct status, or one posted before this server
+supported quotes, can only be quoted by its author. A local user can choose, for each status or for all of their new
+ones, whether the quotes that aren't approved automatically are rejected or wait for them to approve by hand. When
+they wait, `manualApproval` has the public collection.
+
+When nobody else's quotes are approved automatically:
 
 ```json
 "interactionPolicy": {"canQuote": {"automaticApproval": ["https://elysium.example/users/bob"], "manualApproval": ["https://www.w3.org/ns/activitystreams#Public"]}}
@@ -1172,16 +1256,19 @@ neither, or empty arrays, counts as none.
 #### Answering a `QuoteRequest`
 
 A `QuoteRequest` of a local status is answered by its author's policy. It has to have an `object` that's a public or
-unlisted local status, and an `instrument` that's the `actor`'s own `Note`, attributed to the `actor` alone, with an `id`
-on the same host and port, whose quote is that `object`. One sent as an ID is fetched. Anything else is ignored. A
-followers-only or direct status is only quoted by its author, so a request for one is ignored, as on Mastodon.
+unlisted local status, and an `instrument` that's the `actor`'s own `Note`, attributed to the `actor` alone, with an
+`id` on the same host and port, whose quote is that `object`. One sent as an ID is fetched. Anything else is ignored.
+
+A followers-only or direct status is only quoted by its author, so a request for one is ignored, as on Mastodon.
 
 A request that the policy refuses, including from an actor the author has blocked, gets a `Reject` that embeds it, and
-nothing is stored. One that it allows stores the `instrument` as the actor's status, if it isn't stored already, as long as
-it's public or unlisted, or names the quoted author in `to` or `cc`. A request the policy approves automatically then gets
-an `Accept`. One the author approves by hand gets nothing until they decide, which can be any time later, and then an
-`Accept` or a `Reject` as below. A repeat while it's waiting gets nothing either. The `Accept` is signed as the quoted
-author and sent to the actor's own `inbox`:
+nothing is stored. One that it allows stores the `instrument` as the actor's status, if it isn't stored already, as
+long as it's public or unlisted, or names the quoted author in `to` or `cc`. A request the policy approves
+automatically then gets an `Accept`. One the author approves by hand gets nothing until they decide, which can be any
+time later, and then an `Accept` or a `Reject` as below.
+
+A repeat while it's waiting gets nothing either. The `Accept` is signed as the quoted author and sent to the actor's
+own `inbox`:
 
 ```json
 {
@@ -1201,11 +1288,12 @@ author and sent to the actor's own `inbox`:
 }
 ```
 
-A `Reject` has the same shape, with `#rejects/` in its `id` and no `result`. A repeated request gets the same answer, with
-the same `id`. A quote that was rejected or revoked can be asked for again with a request under a new `id`, which waits
-for the author to decide by hand, whatever the policy says, so that asking again can't undo their decision. It can be
-asked for once an hour, and a request that comes sooner gets a `Reject`. An author can
-also approve a quote they rejected, which sends an `Accept` of the request after its `Reject`.
+A `Reject` has the same shape, with `#rejects/` in its `id` and no `result`. A repeated request gets the same answer,
+with the same `id`. A quote that was rejected or revoked can be asked for again with a request under a new `id`, which
+waits for the author to decide by hand, whatever the policy says, so that asking again can't undo their decision. It
+can be asked for once an hour, and a request that comes sooner gets a `Reject`.
+
+An author can also approve a quote they rejected, which sends an `Accept` of the request after its `Reject`.
 
 #### Approvals
 
@@ -1223,18 +1311,20 @@ or `application/ld+json` with any profile, and has `Vary: Signature`. It names b
 }
 ```
 
-One for a public or unlisted quote is served to anyone. One for a followers-only or direct quote is only served to a signer
-who can see the quote: its author, or an actor it mentions or was addressed to, and for a local quote, whoever its `Note`
-is served to. Everyone else gets a `404`, as does an approval that's been revoked, or whose statuses are gone. A suspended
-user's approvals get a `403`, and a deleted user's a `410`. Each approval has its own `id`, which is never served again
-once it's revoked.
+One for a public or unlisted quote is served to anyone. One for a followers-only or direct quote is only served to a
+signer who can see the quote: its author, or an actor it mentions or was addressed to, and for a local quote, whoever
+its `Note` is served to. Everyone else gets a `404`, as does an approval that's been revoked, or whose statuses are
+gone. A suspended user's approvals get a `403`, and a deleted user's a `410`.
 
-When a local user revokes an approval, a `Delete` of it, signed as the user, goes to the quote's author and to the user's
-followers, with the `QuoteAuthorization`'s `id` and `type` embedded and neither status. A local quote also gets an `Update`.
-A quote whose `QuoteRequest` is waiting for the user to review gets a `Reject` of it instead. Blocking someone revokes their
-accepted and pending quotes of the user's statuses in the same way. A remote actor's block of a local user doesn't change
-anything that was approved. A quote from a server that can't ask for approval has no `QuoteAuthorization`, so revoking it
-only hides it here.
+Each approval has its own `id`, which is never served again once it's revoked.
+
+When a local user revokes an approval, a `Delete` of it, signed as the user, goes to the quote's author and to the
+user's followers, with the `QuoteAuthorization`'s `id` and `type` embedded and neither status. A local quote also gets
+an `Update`. A quote whose `QuoteRequest` is waiting for the user to review gets a `Reject` of it instead. Blocking
+someone revokes their accepted and pending quotes of the user's statuses in the same way.
+
+A remote actor's block of a local user doesn't change anything that was approved. A quote from a server that can't ask
+for approval has no `QuoteAuthorization`, so revoking it only hides it here.
 
 #### Receiving quotes
 
@@ -1347,8 +1437,10 @@ sent back.
 
 About 3 minutes after a vote, an `Update` of the `Question` with its new counts goes to everyone its
 [`Create`](#statuses) went to, and to the servers of the actors that voted in it. Votes in those 3 minutes share one
-`Update`. Another is sent when the poll ends, with `closed`. Neither changes `updated`, since the status wasn't edited, and
-Mastodon reads them as new counts. Each has its own `id`, starting with the status's ID and `#updates/`, as an edit's does.
+`Update`. Another is sent when the poll ends, with `closed`. Neither changes `updated`, since the status wasn't
+edited, and Mastodon reads them as new counts.
+
+Each has its own `id`, starting with the status's ID and `#updates/`, as an edit's does.
 
 #### Votes from here
 
@@ -1359,19 +1451,22 @@ be fetched. A user can vote once, as on Mastodon.
 
 #### Receiving polls
 
-A `Question` is stored as a status with a poll, everywhere a `Note` is: from a `Create` or an `Update`, a boost, a quote, or
-backfill, with the same checks. Its options are read from `oneOf`, or from `anyOf` when that has any, which makes it
-multiple choice. Each needs a `name`, or a `nameMap`, and options without one are left out. Its votes are
-`replies.totalItems`, and it's stored as a plain status if no option is left. Up to 32 options are kept, of up to 1000
-characters each, and the rest are cut off. `endTime` is when it closes, `closed` as a time closes it then, and
-`closed: true` closes it now. `votersCount` is read too.
+A `Question` is stored as a status with a poll, everywhere a `Note` is: from a `Create` or an `Update`, a boost, a
+quote, or backfill, with the same checks. Its options are read from `oneOf`, or from `anyOf` when that has any, which
+makes it multiple choice. Each needs a `name`, or a `nameMap`, and options without one are left out. Its votes are
+`replies.totalItems`, and it's stored as a plain status if no option is left.
 
-Its counts are what its server last sent. A local vote adds to them until then. An `Update` of the `Question` replaces its
-counts, `endTime`, `closed`, and `votersCount` whatever its `updated` says, as long as its options and whether it's
-multiple choice are the same. One that changes those is an edit, with the [usual order](#receiving-updates), which drops
-the votes from here, as on Mastodon. The `Question` is also fetched again, signed as the
-[instance actor](#instance-actor), when it ends, and when a local user views it more than 5 minutes after it was last
-fetched, unless it had ended by then. What's fetched has to have the same `id`, attributed to the status's author.
+Up to 32 options are kept, of up to 1000 characters each, and the rest are cut off. `endTime` is when it closes,
+`closed` as a time closes it then, and `closed: true` closes it now. `votersCount` is read too.
+
+Its counts are what its server last sent. A local vote adds to them until then. An `Update` of the `Question` replaces
+its counts, `endTime`, `closed`, and `votersCount` whatever its `updated` says, as long as its options and whether
+it's multiple choice are the same. One that changes those is an edit, with the [usual order](#receiving-updates),
+which drops the votes from here, as on Mastodon.
+
+The `Question` is also fetched again, signed as the [instance actor](#instance-actor), when it ends, and when a local
+user views it more than 5 minutes after it was last fetched, unless it had ended by then. What's fetched has to have
+the same `id`, attributed to the status's author.
 
 ### Blocks
 
@@ -1401,10 +1496,12 @@ Unblocking cancels the `Block` if it hasn't been sent, and sends an `Undo` eithe
 `Block` embedded, after any request with the `Block` to the same server has ended. Follows don't come back.
 
 A `Block` from another server is stored if its `object` is a local user, and its actor's follow of the user is removed
-without an answer. The user's follow of the actor, or request to follow, is withdrawn with an `Undo`. While it stands, the
-user can't follow the actor. An `Undo` lifts it if its `object` names the `Block` by `id`, embeds it, or embeds a `Block` with
-no `id` whose `object` is the user. Only the actor that sent the `Block` can undo it, and activities are ordered by when they
-arrived here, as for [likes](#likes).
+without an answer. The user's follow of the actor, or request to follow, is withdrawn with an `Undo`. While it stands,
+the user can't follow the actor. An `Undo` lifts it if its `object` names the `Block` by `id`, embeds it, or embeds a
+`Block` with no `id` whose `object` is the user.
+
+Only the actor that sent the `Block` can undo it, and activities are ordered by when they arrived here, as for
+[likes](#likes).
 
 While either blocks the other, nothing new by the user goes straight to the actor's inbox: a status's `Create` and `Update`s
 leave out a blocked actor it mentions or replies to, though its `Delete` doesn't, since the actor can have it from before. A
@@ -1432,13 +1529,14 @@ text, empty for none. Its `id` is `{base-url}/reports/{uuid}`, which can't be fe
 }
 ```
 
-A `Flag` from another server is passed to this server's admins if its `object`, which can be one URI or an array of them, or
-of objects with an `id`, names a local account or a local status. Only the first 110 are read. A status names its author,
-so a `Flag` of statuses alone is a report of whoever wrote them, and a `Flag` naming several accounts here makes a report of
-each, with only that account's statuses. Anything else it names is ignored, and nothing is fetched for it except its
-`actor`, which can be any actor, such as an instance actor or a user. Its `content` or `contentMap` is read as plain text,
-and cut to 1000 characters. A `Flag` that's sent again with the same `id` is ignored. Nothing is sent back, and this server
-never says whether admins acted on it.
+A `Flag` from another server is passed to this server's admins if its `object`, which can be one URI or an array of
+them, or of objects with an `id`, names a local account or a local status. Only the first 110 are read. A status names
+its author, so a `Flag` of statuses alone is a report of whoever wrote them, and a `Flag` naming several accounts here
+makes a report of each, with only that account's statuses. Anything else it names is ignored, and nothing is fetched
+for it except its `actor`, which can be any actor, such as an instance actor or a user.
+
+Its `content` or `contentMap` is read as plain text, and cut to 1000 characters. A `Flag` that's sent again with the
+same `id` is ignored. Nothing is sent back, and this server never says whether admins acted on it.
 
 ### Differences from Mastodon
 
@@ -1544,35 +1642,44 @@ for good. A deleted account's `Note`s all get the same answer, whatever their ID
 
 A suspended account's actor document has no profile: no `name`, `summary`, `icon`, `image`, `attachment`, or `updated`.
 
-- **Suspending a local account:** Its followers' servers get an `Update` of the actor with `suspended: true`, and an `Update`
-  without it if the suspension ends, each signed by the actor, with its own ID. They aren't ordered, so if a server is down
-  through a quick suspension and its end, the older `Update` can arrive last, and that server has it wrong until it next
-  refreshes the actor. Followers are kept. A status's `Create` or `Update` still queued is dropped, and isn't sent if the suspension ends. Other
-  activities still queued, such as a status's `Delete` or a follow's `Accept`, wait and are sent within 10 minutes of the
-  suspension ending, unless that takes more than 33 days. A `Follow` of a suspended account gets no answer, and an `Undo`
-  of one works as usual.
-- **Deleting a local account:** Its followers' servers get a `Delete` signed by the actor, whose `object` is the actor's URI, with
-  the ID `{actor-uri}#delete`. No `Delete` is sent for each status. The actor document answers `410` straight away, so a server has
-  to verify the `Delete` with a key it already has. Deliveries can be retried for up to 34 days.
-  Who's told comes from who follows the account then, so a server whose followers have all left keeps its copy. Each account
-  on another server that it follows, or has asked to follow, also gets an `Undo` of the `Follow`, the same as for
-  [unfollowing](#following-other-actors).
-- **Suspending a remote actor:** A delivery signed with its key gets a `403`, and its activities are refused, including any
-  still queued, apart from its own `Delete` of itself, which is [checked with its server](#receiving-deletes). Its document isn't fetched or refreshed. Its follows are removed, and aren't restored if the suspension ends, so
-  it would have to follow again. Nothing more is sent to its personal inbox, but a shared inbox still gets activities for
-  other followers. Its stored statuses stop being shown, and come back if the suspension ends. Its own server isn't told. Only
-  an actor that's already stored can be suspended.
+- **Suspending a local account:** Its followers' servers get an `Update` of the actor with `suspended: true`, and an
+  `Update` without it if the suspension ends, each signed by the actor, with its own ID. They aren't ordered, so if a
+  server is down through a quick suspension and its end, the older `Update` can arrive last, and that server has it
+  wrong until it next refreshes the actor. Followers are kept. A status's `Create` or `Update` still queued is
+  dropped, and isn't sent if the suspension ends.
+
+  Other activities still queued, such as a status's `Delete` or a follow's `Accept`, wait and are sent within 10
+  minutes of the suspension ending, unless that takes more than 33 days. A `Follow` of a suspended account gets no
+  answer, and an `Undo` of one works as usual.
+- **Deleting a local account:** Its followers' servers get a `Delete` signed by the actor, whose `object` is the
+  actor's URI, with the ID `{actor-uri}#delete`. No `Delete` is sent for each status. The actor document answers `410`
+  straight away, so a server has to verify the `Delete` with a key it already has. Deliveries can be retried for up to
+  34 days.
+
+  Who's told comes from who follows the account then, so a server whose followers have all left keeps its copy. Each
+  account on another server that it follows, or has asked to follow, also gets an `Undo` of the `Follow`, the same as
+  for [unfollowing](#following-other-actors).
+- **Suspending a remote actor:** A delivery signed with its key gets a `403`, and its activities are refused,
+  including any still queued, apart from its own `Delete` of itself, which is [checked with its
+  server](#receiving-deletes). Its document isn't fetched or refreshed. Its follows are removed, and aren't restored
+  if the suspension ends, so it would have to follow again. Nothing more is sent to its personal inbox, but a shared
+  inbox still gets activities for other followers.
+
+  Its stored statuses stop being shown, and come back if the suspension ends. Its own server isn't told. Only an actor
+  that's already stored can be suspended.
 - **Deleting a remote actor:** this happens when its server [sends a `Delete`](#receiving-deletes) of it, and is treated
   like a suspension that can't end, except that its statuses are removed too.
 
 ### Domain blocks
 
-Admins can [block a domain](docs/accounts.md#domain-blocks), which also covers its subdomains and every port. Domains are
-compared in lowercase ASCII, without a trailing dot. A block is either a suspension, which is what the rest of this section
-describes, or a limit (Mastodon's `noop`), which only rejects what it says. A limited server federates as usual. If its
-media is rejected, its actors' attachments aren't downloaded, and are shown as links to their server, whatever the file's
-host is, and neither are its custom emoji. An admin can also reject the media of one account on another server, which
-doesn't cover emoji, since they belong to the server. A suspension rejects media too.
+Admins can [block a domain](docs/accounts.md#domain-blocks), which also covers its subdomains and every port. Domains
+are compared in lowercase ASCII, without a trailing dot. A block is either a suspension, which is what the rest of
+this section describes, or a limit (Mastodon's `noop`), which only rejects what it says. A limited server federates as
+usual.
+
+If its media is rejected, its actors' attachments aren't downloaded, and are shown as links to their server, whatever
+the file's host is, and neither are its custom emoji. An admin can also reject the media of one account on another
+server, which doesn't cover emoji, since they belong to the server. A suspension rejects media too.
 
 - **Inbound:** A delivery signed with a key on a blocked domain gets a `403`, before any key is fetched, so it doesn't use up
   any limits. This also applies to keys this server has already cached. A signature that's malformed or out of date still
@@ -1614,17 +1721,20 @@ and `Note`s, unsigned WebFinger lookups, and deliveries of `Follow`, `Undo`, `Ac
   - RFC 9421 signatures are labeled `sig1`, use `rsa-v1_5-sha256`, and cover `@method` and `@target-uri`, with
     `created`, `keyid`, and `alg` parameters, and no `expires`. Requests that need a `digest` above cover
     `content-digest` instead, sent as a SHA-256 `Content-Digest` header. No `Date` header is sent.
-- **Verifying:** A request with both `Signature-Input` and `Signature` headers is read as RFC 9421, and one with only
+- **Verifying.** Elysium reads requests with both `Signature-Input` and `Signature` as RFC 9421 and requests with only
   `Signature` as draft-cavage.
   - draft-cavage signatures have to cover `(request-target)`, `host`, and either `date` or `(created)`, plus `digest`
-    in the same cases as above. `rsa-sha256` and `hs2019` are both accepted, and both are checked as RSA with SHA-256.
-  - RFC 9421 signatures have to cover `@method`, and either `@target-uri`, or `@authority` with `@request-target` or
-    with both `@path` and `@query`. They also have to cover `content-digest` in the same cases as `digest` above, and
-    have `created` and `keyid` parameters. `alg` can be left out, and if it's there it has to be `rsa-v1_5-sha256`.
-    A `Content-Digest` can have `sha-256` or `sha-512`, and every one of these it has has to match. Components with
-    parameters, such as `;sf` or `;req`, aren't accepted, nor are `@query-param` and `@status`. If a request has several
-    signatures, the first one, in `Signature-Input` order, that meets all of this is checked, and the others are
-    ignored.
+    in the same cases as above. Both `rsa-sha256` and `hs2019` are verified as RSA with SHA-256. Only `hs2019`
+    supports `(created)`.
+  - RFC 9421 signatures must cover `@method` and either `@target-uri` or `@authority` with `@request-target` or both
+    `@path` and `@query`. They must cover `content-digest` under the same conditions as `digest` above and include
+    `created` and `keyid`. If present, `alg` must be `rsa-v1_5-sha256`.
+
+    Every `sha-256` or `sha-512` value in `Content-Digest` must match. Elysium rejects components with parameters such
+    as `;sf` or `;req`, as well as `@query-param` and `@status`.
+
+    If a request has several signatures, the first one, in `Signature-Input` order, that meets all of this is checked,
+    and the others are ignored.
   - In both formats, `host` and `@authority` are always this server's own name, whatever the `Host` header says.
     Signatures last 5 minutes unless they say otherwise, and at most 12 hours, with up to 1 hour of clock difference
     allowed.
@@ -1661,9 +1771,9 @@ server that's sent an activity by someone else can check it with the proof, with
 
 #### Proofs on activities that arrive
 
-A proof is only checked on a [forwarded activity](#forwarded-activities). An activity that its `actor` delivered is
-accepted or refused on its HTTP signature, whatever its proof says. A forwarded activity's proof is accepted if all of
-these are true, and otherwise the activity is fetched from its origin, as if it had no proof:
+Elysium verifies integrity proofs on [forwarded activities](#forwarded-activities). For a direct delivery from the
+`actor`, the HTTP signature decides whether Elysium accepts it. If a proof fails any of the following checks, Elysium
+fetches the activity from the origin.
 
 - `type` is `DataIntegrityProof`, `cryptosuite` is `eddsa-jcs-2022`, and `proofPurpose` is `assertionMethod`.
 - `verificationMethod` is an Ed25519 `Multikey` in the `assertionMethod` of the `actor`'s document, as FEP-521a describes,
@@ -1683,10 +1793,9 @@ since FEP-8b32 says an object shouldn't have more than one.
 
 ### Linked Data Signatures
 
-Linked Data Signatures aren't supported, and there are no plans to support them, since [integrity proofs](#integrity-proofs)
-do the same job. They aren't verified on activities that arrive, and aren't added to activities that are sent, so another server can't use one to have this server accept an
-activity it relays. A [forwarded activity](#forwarded-activities) is fetched from its origin instead, unless it has an
-integrity proof.
+Elysium neither adds nor verifies Linked Data Signatures and has no plans to support them. For relays, use an
+[integrity proof](#integrity-proofs). Elysium fetches [forwarded activities](#forwarded-activities) from their origin
+when it cannot verify a proof.
 
 ### Authorized fetch
 
@@ -1696,12 +1805,12 @@ off by default. When it's on, a `GET` or `HEAD` of these needs a signature, in e
 - A user's actor document, and their `followers`, `following`, `outbox`, and `featured` collections and their pages.
 - `Note`s and their `Tombstone`s, a `Note`'s `likes` and `shares`, and `QuoteAuthorization`s.
 
-An unsigned request for a user's actor document isn't refused, so that a server which fetches keys without signing can
-still check this server's deliveries. It gets a shorter document, as from Mastodon, with only `@context`, `id`, `type`,
-`preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`, `publicKey`, and `assertionMethod`, and
-`suspended` for a suspended user. So does a request whose signature can't be accepted, such as one whose key can't be fetched right now,
-unless the key is on a blocked domain or the signer is suspended or deleted, which gets a `403`, as Mastodon does. A
-deleted user's `Tombstone` is served to anyone apart from those.
+An unsigned request for a user’s actor document gets a shorter document so peers can fetch its signing keys. It
+includes only `@context`, `id`, `type`, `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`,
+`publicKey`, and `assertionMethod`, plus `suspended` for a suspended user.
+
+Requests with an invalid or unverifiable signature get the same document. Requests signed by a suspended or deleted
+actor, or a key on a blocked domain, get `403`. Other requests for a deleted user get its `Tombstone`.
 
 The [instance actor](#instance-actor) and its outbox, custom emoji, WebFinger, NodeInfo, and web pages, including those at
 the same URLs as the documents above, never need a signature.
@@ -1733,41 +1842,46 @@ other sites can read through CORS is the unsigned answer: a `401`, or the shorte
 are served as `application/jrd+json` or `application/json`, include a `self` link to the actor document and a
 `http://webfinger.net/rel/profile-page` link to the user's profile page, and can be read from any origin through CORS.
 
-A server can give its users addresses on another domain than its own, as Mastodon's `LOCAL_DOMAIN` does: actors are at
-`https://elysium.social.example/users/alice`, but the address is `alice@social.example`. Then `social.example` redirects
-its `/.well-known/webfinger` requests to the server. The server answers for `acct:` addresses on both domains, and the
-`subject` always has the account domain. So a server that starts from an actor's URI and looks up
-`acct:alice@elysium.social.example` gets `acct:alice@social.example` as the `subject`, and can confirm that address with
-a lookup to `social.example`. Mentions' `name`s and the actors' addresses shown elsewhere use the account domain too.
-Admins set it up as [Account domain](docs/configuration.md#account-domain) describes.
+An instance can use a separate account domain, as Mastodon does with `LOCAL_DOMAIN`. For example, the actor at
+`https://elysium.social.example/users/alice` may use the address `alice@social.example`. The account domain must
+redirect `/.well-known/webfinger` to Elysium. See [Account domain](docs/configuration.md#account-domain) for setup.
 
-A user's answer, but not the instance actor's, also has two `template` links for following from another server's pages, as
-Mastodon's does. `http://ostatus.org/schema/1.0/subscribe` is `{base-url}/authorize_interaction?uri={uri}`, and
-[FEP-3b86](https://codeberg.org/fediverse/fep/src/branch/main/fep/3b86/fep-3b86.md)'s `https://w3id.org/fep/3b86/Follow`
-is `{base-url}/authorize_interaction?uri={object}`. That page takes an `acct:` address, with or without the `acct:`, or an
-actor's `https` URL. After logging in, the user can follow the account from there. A status's URL is refused, since only
-following is supported there.
+Elysium answers for `acct:` addresses on both domains and always puts the account domain in `subject`. Looking up
+`acct:alice@elysium.social.example` returns `acct:alice@social.example`, which a peer can confirm through WebFinger on
+`social.example`. Mention `name` values and displayed account addresses also use the account domain.
+
+For users, WebFinger includes two remote-follow templates, as in Mastodon. The
+`http://ostatus.org/schema/1.0/subscribe` template is `{base-url}/authorize_interaction?uri={uri}`. The
+[FEP-3b86](https://codeberg.org/fediverse/fep/src/branch/main/fep/3b86/fep-3b86.md) `https://w3id.org/fep/3b86/Follow`
+template is `{base-url}/authorize_interaction?uri={object}`. The instance actor omits both.
+
+The page accepts an account address with or without `acct:`, or an HTTPS actor URL. After signing in, the visitor can
+follow the account. Status URLs are rejected.
 
 ### Remote follow from profile pages
 
 A visitor can enter their own `username@domain` on a user's profile page to follow from their own server. This server
-makes the same unsigned WebFinger request as [for following](#following-other-actors), and reads the template of the first
-`https://w3id.org/fep/3b86/Follow` link, or else of the first `http://ostatus.org/schema/1.0/subscribe` link. It fills
-`{object}` or `{uri}` with the user's actor URI, percent-encoded, and sends the visitor's browser there. The visitor's server
-is then expected to send the `Follow`. A template that doesn't give an `https` URL with a host is ignored. Servers whose
-domain is suspended aren't asked.
+makes the same unsigned WebFinger request as [for following](#following-other-actors), and reads the template of the
+first `https://w3id.org/fep/3b86/Follow` link, or else of the first `http://ostatus.org/schema/1.0/subscribe` link. It
+fills `{object}` or `{uri}` with the user's actor URI, percent-encoded, and sends the visitor's browser there. The
+visitor's server is then expected to send the `Follow`.
+
+A template that doesn't give an `https` URL with a host is ignored. Servers whose domain is suspended aren't asked.
 
 ## NodeInfo
 
-`/.well-known/nodeinfo` links to NodeInfo documents at `/nodeinfo/2.1` and `/nodeinfo/2.0`, and all of these can be read
-from any origin through CORS. The documents match, except that only 2.1 includes the software's repository. They report
-`activitypub` as the protocol, even though federation isn't complete yet. Their usage statistics include the total number
-of local users and `localPosts`, which counts replies but not direct messages. `activeMonth` and `activeHalfyear` count
-the local users who used the server, through an app or a login session, in the last 30 and 180 days, and can be up to
-an hour old. They're left out if the admin has turned them off with `elysium.usage.publish`. `localComments` isn't
-reported. `openRegistrations` is `true` when anyone can ask for an account, even if an admin has to approve it, as on
-Mastodon. `metadata.features` lists Pleroma's `pleroma_emoji_reactions` and `custom_emoji_reactions`, since some clients
-look for them before they offer [emoji reactions](#emoji-reactions).
+`/.well-known/nodeinfo` links to `/nodeinfo/2.1` and `/nodeinfo/2.0`. All three URLs allow CORS from any origin. The
+documents have the same fields except for the software repository, which only 2.1 includes. Both report `activitypub`
+as the protocol.
+
+Usage statistics include the total local user count and `localPosts`, which includes replies and excludes direct
+messages. Elysium omits `localComments`. `activeMonth` and `activeHalfyear` count local users active through an app or
+login session in the last 30 and 180 days. The counts can be up to an hour old and are omitted when
+`elysium.usage.publish` is off.
+
+`openRegistrations` is `true` when anyone can request an account, including when approval is required.
+`metadata.features` advertises Pleroma’s `pleroma_emoji_reactions` and `custom_emoji_reactions` for clients that check
+before offering [emoji reactions](#emoji-reactions).
 
 ## Additional documentation
 

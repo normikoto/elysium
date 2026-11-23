@@ -82,7 +82,7 @@ public class AdminReportsController {
                     @Parameter(name = "resolved", description = "Only resolved reports. " + ApiDocs.FLAG),
                     @Parameter(name = "account_id", description = "Only reports filed by this account."),
                     @Parameter(name = "target_account_id", description = "Only reports about this account."),
-                    @Parameter(name = "limit", description = "How many to return. Values outside 1 to "
+                    @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
                             + PageLimits.MAX_REPORTS + " are clamped to them.",
                             schema = @Schema(type = "integer", defaultValue = "" + PageLimits.REPORTS))
             },
@@ -146,7 +146,7 @@ public class AdminReportsController {
             summary = "Change a report's category",
             description = """
                     Differences from Mastodon: reports can't cite rules yet, so a `category` of `violation`, or any \
-                    `rule_ids`, gets a 422.""",
+                    `rule_ids`, gets 422.""",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "admin/reports/#update"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "The report."),
