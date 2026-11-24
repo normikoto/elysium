@@ -1,8 +1,5 @@
 package dev.biribiri.elysium.api.web;
 
-import dev.biribiri.elysium.actor.Actor;
-import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.content.AccountDirectory;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -18,9 +15,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @RestController
 @Tag(name = "Directory", description = "The accounts that choose to be listed.",
@@ -28,15 +22,10 @@ import java.util.stream.Collectors;
 public class DirectoryController {
 
     private final AccountDirectory directory;
-    private final ProfileService profiles;
-    private final ActorService actors;
     private final AccountResponses accounts;
 
-    DirectoryController(
-            AccountDirectory directory, ProfileService profiles, ActorService actors, AccountResponses accounts) {
+    DirectoryController(AccountDirectory directory, AccountResponses accounts) {
         this.directory = directory;
-        this.profiles = profiles;
-        this.actors = actors;
         this.accounts = accounts;
     }
 
@@ -80,16 +69,12 @@ public class DirectoryController {
             @RequestParam(required = false) String limit,
             @RequestParam(required = false) String order,
             @RequestParam(required = false) String local) {
-        if (!profiles.directoryShown()) {
-            throw new RecordNotFoundException();
-        }
         var pageSize = Math.clamp(RequestParameters.number("limit", limit, PageLimits.ACCOUNTS), 1,
                 PageLimits.MAX_ACCOUNTS);
         var skipped = Math.max(RequestParameters.number("offset", offset, 0), 0);
         var sort = AccountDirectory.Order.parse(order).orElseThrow(
                 () -> new InvalidRequestException("Validation failed: order must be active or new"));
-        var ids = directory.list(RequestParameters.viewer(token), sort, RequestParameters.flag(local), skipped, pageSize);
-        var found = actors.findByIds(ids).stream().collect(Collectors.toMap(Actor::id, Function.identity()));
-        return accounts.build(ids.stream().map(found::get).filter(Objects::nonNull).toList());
+        return accounts.build(directory.list(RequestParameters.viewer(token), sort, RequestParameters.flag(local), skipped,
+                pageSize).orElseThrow(RecordNotFoundException::new));
     }
 }

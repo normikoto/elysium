@@ -33,9 +33,13 @@ import java.util.regex.Pattern;
 record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuotePolicy quotePolicy,
                           OtherQuotes quoteOthers) {
 
-    private record Source(QuotePolicy quotePolicy, OtherQuotes quoteOthers) {
+    /**
+     * @param discoverable null to leave it as it is. It's read here too, since {@code source} returns it, and a client
+     *                     that sends back the {@code source} it was given shouldn't be refused
+     */
+    private record Source(QuotePolicy quotePolicy, OtherQuotes quoteOthers, Boolean discoverable) {
 
-        static final Source NONE = new Source(null, null);
+        static final Source NONE = new Source(null, null, null);
     }
 
     /**
@@ -151,13 +155,20 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                     removeBackground = value != null;
                 }
                 case "source" -> source = source(value);
-                default -> checkFixed(key, value, Map.of(), key);
+                default -> {
+                    if (!isEmpty(value)) {
+                        throw new InvalidRequestException("Validation failed: " + key + " can't be changed yet");
+                    }
+                }
             }
         }
         change = change.withAvatar(image(files.get("avatar"))).withHeader(image(files.get("header")));
         var background = image(files.get(BACKGROUND));
         change = change.withBackground(
                 background == ProfileChange.Image.KEEP && removeBackground ? ProfileChange.Image.REMOVE : background);
+        if (source.discoverable() != null && change.discoverable().isEmpty()) {
+            change = change.withDiscoverable(source.discoverable());
+        }
         return new CredentialsRequest(change, hide, source.quotePolicy(), source.quoteOthers());
     }
 
@@ -224,6 +235,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
         }
         QuotePolicy quotePolicy = null;
         OtherQuotes quoteOthers = null;
+        Boolean discoverable = null;
         for (var entry : source.entrySet()) {
             var key = String.valueOf(entry.getKey());
             if (key.equals("quote_others")) {
@@ -242,28 +254,30 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                                 "Validation failed: source[quote_policy] must be public, followers, or nobody");
                     }
                 }
+            } else if (key.equals("discoverable")) {
+                if (!isEmpty(entry.getValue())) {
+                    discoverable = RequestParameters.flag(Map.of("source[discoverable]", entry.getValue()),
+                            "source[discoverable]");
+                }
             } else {
-                checkFixed(key, entry.getValue(), FIXED_SOURCE, "source[" + key + "]");
+                checkFixedSource(key, entry.getValue());
             }
         }
-        return new Source(quotePolicy, quoteOthers);
+        return new Source(quotePolicy, quoteOthers, discoverable);
     }
 
-    /**
-     * @param name what to call the setting in an error
-     */
-    private static void checkFixed(String key, Object value, Map<String, Object> fixed, String name) {
+    private static void checkFixedSource(String key, Object value) {
         if (isEmpty(value)) {
             return;
         }
-        var expected = fixed.get(key);
+        var expected = FIXED_SOURCE.get(key);
         var matches = switch (expected) {
             case null -> false;
             case Boolean flag -> Objects.equals(flag, value instanceof String string ? RequestParameters.flag(string) : value);
             default -> expected.equals(value);
         };
         if (!matches) {
-            throw new InvalidRequestException("Validation failed: " + name + " can't be changed yet");
+            throw new InvalidRequestException("Validation failed: source[" + key + "] can't be changed yet");
         }
     }
 

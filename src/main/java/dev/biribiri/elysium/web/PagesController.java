@@ -44,7 +44,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.time.Instant;
@@ -82,6 +81,7 @@ class PagesController {
     private final PollService polls;
     private final StatusPinService pins;
     private final CustomEmojis emojis;
+    private final LocalEmojiUrls emojiUrls;
     private final Admins admins;
     private final FollowService follows;
     private final LikeService likes;
@@ -99,6 +99,7 @@ class PagesController {
             PollService polls,
             StatusPinService pins,
             CustomEmojis emojis,
+            LocalEmojiUrls emojiUrls,
             Admins admins,
             FollowService follows,
             LikeService likes,
@@ -111,6 +112,7 @@ class PagesController {
         this.follows = follows;
         this.pins = pins;
         this.emojis = emojis;
+        this.emojiUrls = emojiUrls;
         this.attachments = attachments;
         this.polls = polls;
         this.actors = actors;
@@ -185,9 +187,7 @@ class PagesController {
         model.addAttribute("followerCount", follows.countFollowers(actor.id()));
         model.addAttribute("follow", FollowControls.of(viewer(principal), actor, follows));
         model.addAttribute("profile", profile);
-        var profileEmojis = new HashMap<String, String>();
-        emojis.findLocalIn(profile.texts()).forEach((shortcode, emoji) ->
-                profileEmojis.put(shortcode, emoji.url(instance).toString()));
+        var profileEmojis = emojiUrls.in(profile.texts());
         model.addAttribute("bio", EmojiHtml.render(profile.noteHtml(instance.baseUrl()), profileEmojis));
         model.addAttribute("fields", profile.fields().stream().map(field -> new FieldView(
                 EmojiHtml.renderText(field.name(), profileEmojis),

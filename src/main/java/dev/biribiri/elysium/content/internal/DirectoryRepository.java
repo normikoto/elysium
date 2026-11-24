@@ -13,12 +13,6 @@ import java.util.UUID;
 @Repository
 public class DirectoryRepository {
 
-    /**
-     * What {@code last_status_at} is, in {@link StatusRepository#statsByAccount}, which reads it from the same index.
-     */
-    private static final String LAST_STATUS_AT = """
-            (SELECT max(s.published_at) FROM status s WHERE s.actor_id = a.id AND s.visibility <> 'direct')""";
-
     private final JdbcClient jdbc;
 
     DirectoryRepository(JdbcClient jdbc) {
@@ -40,7 +34,7 @@ public class DirectoryRepository {
             sql.append(" AND ").append(HiddenAccounts.visibleInTimelines("a"));
         }
         sql.append(switch (order) {
-            case ACTIVE -> " ORDER BY " + LAST_STATUS_AT + " DESC NULLS LAST, a.id DESC";
+            case ACTIVE -> " ORDER BY " + StatusRepository.lastStatusAt("a.id") + " DESC NULLS LAST, a.id DESC";
             // Actor IDs are random, unlike Mastodon's, which it orders by.
             case NEW -> " ORDER BY a.created_at DESC, a.id DESC";
         });

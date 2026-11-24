@@ -304,6 +304,15 @@ class ProfileIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.discoverable").value(false));
         assertThat(profiles.find(alice.id()).discoverable()).isFalse();
+
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"source\":{\"privacy\":\"public\",\"discoverable\":true}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source.discoverable").value(true));
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("source[discoverable]", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.discoverable").value(false));
     }
 
     @Test

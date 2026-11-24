@@ -996,6 +996,17 @@ public class StatusRepository {
     }
 
     /**
+     * When an account last posted, as its {@code last_status_at} says, read from {@code status_actor_published_idx}. The
+     * directory orders by it too, so that its order agrees with what apps show.
+     *
+     * @param actorId the account's ID, as SQL
+     */
+    static String lastStatusAt(String actorId) {
+        return "(SELECT max(s.published_at) FROM status s WHERE s.actor_id = " + actorId
+                + " AND s.visibility <> 'direct')";
+    }
+
+    /**
      * @return the stats of each account that has any counted statuses
      */
     public Map<UUID, AccountStats> statsByAccount(Collection<UUID> actorIds) {
@@ -1003,12 +1014,8 @@ public class StatusRepository {
             return Map.of();
         }
         var stats = new HashMap<UUID, AccountStats>();
-        jdbc.sql("""
-                        SELECT c.actor_id, c.statuses_count, (
-                            SELECT max(s.published_at)
-                            FROM status s
-                            WHERE s.actor_id = c.actor_id AND s.visibility <> 'direct'
-                        ) AS last_status_at
+        jdbc.sql("SELECT c.actor_id, c.statuses_count, " + lastStatusAt("c.actor_id") + """
+                         AS last_status_at
                         FROM actor_status_count c
                         WHERE c.actor_id IN (:actorIds) AND c.statuses_count > 0
                         """)

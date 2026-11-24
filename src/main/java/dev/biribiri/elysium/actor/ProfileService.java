@@ -82,9 +82,6 @@ public class ProfileService {
         return properties.maxFields();
     }
 
-    /**
-     * Whether the directory lists the accounts that choose to be in it, which the operator can turn off.
-     */
     public boolean directoryShown() {
         return properties.directory();
     }

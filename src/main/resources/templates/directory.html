@@ -9,10 +9,7 @@
         <div class="posts">
             <p class="posts-empty" th:if="${#lists.isEmpty(entries)}">No one is listed yet.</p>
             <article class="post" th:each="entry : ${entries}">
-                <img class="post-avatar" th:if="${entry.author().avatar() != null}" th:src="${entry.author().avatar()}"
-                     alt="" loading="lazy">
-                <div class="post-avatar" th:if="${entry.author().avatar() == null}" aria-hidden="true"
-                     th:text="${entry.author().initial()}"></div>
+                <th:block th:replace="~{status-card :: avatar(${entry.author()})}"></th:block>
                 <div>
                     <p class="post-head">
                         <a class="post-name" th:href="@{/users/{username}(username=${entry.username()})}"

@@ -243,7 +243,8 @@ public class AccountsController {
                     returned in `pleroma.background_image`, and isn't sent to other servers.
 
                     A `bot` is sent to other servers as a `Service` actor, and `is_cat` as Misskey's `isCat`. \
-                    `discoverable` lists the user in the directory, and is sent to other servers as it is.
+                    `discoverable` lists the user in the directory, and is sent to other servers as it is. \
+                    `source[discoverable]` changes it too, so that `source` can be sent back as it was returned.
 
                     Turning `locked` off approves the requests to follow the user that are still waiting, as on \
                     Mastodon. They're approved in the background, so they can still be waiting just after the \
@@ -1167,7 +1168,8 @@ public class AccountsController {
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")
             Boolean hide_collections,
-            @Schema(description = "Posting settings. Only `quote_policy` and `quote_others` can be changed.")
+            @Schema(description = """
+                    Posting settings. Only `quote_policy`, `quote_others`, and `discoverable` can be changed.""")
             SourceBody source) {
     }
 
@@ -1179,7 +1181,9 @@ public class AccountsController {
             @Schema(allowableValues = {"reject", "review"}, description = """
                     Not in Mastodon. Whether the quotes of the user's new statuses that aren't approved automatically \
                     are rejected, or wait for the user to review them, when the client doesn't say.""")
-            String quote_others) {
+            String quote_others,
+            @Schema(description = "The same as the top-level `discoverable`, which wins when both are given.")
+            Boolean discoverable) {
     }
 
     /**
