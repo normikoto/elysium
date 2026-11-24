@@ -9,6 +9,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Apps that still read the direct timeline, `GET /api/v1/timelines/direct`, such as pleroma-fe, can show direct
+  messages. Mastodon removed it, but Pleroma still has it. See [Using the API](docs/api.md#timelines).
 - People can feature up to 10 hashtags on their profile from an app, as on Mastodon, and apps can list an account's
   featured hashtags and its posts with one of them. Featured hashtags aren't sent to other servers. See [Using the
   API](docs/api.md#tags).

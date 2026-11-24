@@ -36,6 +36,7 @@ public class TimelinesController {
     private static final String HOME_PATH = "/api/v1/timelines/home";
     private static final String TAG_PATH = "/api/v1/timelines/tag/";
     private static final String LIST_PATH = "/api/v1/timelines/list/";
+    private static final String DIRECT_PATH = "/api/v1/timelines/direct";
 
     /**
      * How many tags each of {@code any[]}, {@code all[]} and {@code none[]} can name, as on Mastodon, which ignores the
@@ -97,6 +98,40 @@ public class TimelinesController {
         var page = RequestParameters.page(limit, maxId, sinceId, minId);
         return responses.page(HOME_PATH, Map.of(), page, timelines.homeTimeline(viewer, page), Optional.of(viewer),
                 Optional.of(PostFilter.Context.HOME));
+    }
+
+    @GetMapping("/direct")
+    @PreAuthorize("hasAuthority('SCOPE_read:statuses')")
+    @Operation(
+            operationId = "getDirectTimeline",
+            summary = "View direct statuses",
+            description = """
+                    Mastodon removed this in 3.0 in favour of conversations, but Pleroma still has it, and clients \
+                    such as pleroma-fe use it to show direct messages.
+
+                    Lists the direct statuses the user wrote or is mentioned in, from accounts they don't follow too, \
+                    but not from accounts they have blocked or muted, or whose server they've blocked. Filters don't \
+                    apply, as with conversations. Pleroma's extra parameters aren't supported.
+
+                    """ + ApiDocs.NEEDS_USER,
+            externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#direct"),
+            parameters = @Parameter(name = "limit", description = "Maximum number of results. Values outside 1 to "
+                    + PageLimits.MAX_STATUSES + " are clamped to them.",
+                    schema = @Schema(type = "integer", defaultValue = "" + PageLimits.STATUSES)),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
+                    @ApiResponse(responseCode = "422", description = "The token does not identify a user.")
+            })
+    public ResponseEntity<List<StatusResponse>> directTimeline(
+            @AuthenticationPrincipal TokenPrincipal token,
+            @RequestParam(required = false) String limit,
+            @RequestParam(name = "max_id", required = false) String maxId,
+            @RequestParam(name = "since_id", required = false) String sinceId,
+            @RequestParam(name = "min_id", required = false) String minId) {
+        var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
+        var page = RequestParameters.page(limit, maxId, sinceId, minId);
+        return responses.page(DIRECT_PATH, Map.of(), page, timelines.directTimeline(viewer, page), Optional.of(viewer),
+                Optional.empty());
     }
 
     @GetMapping("/list/{listId}")

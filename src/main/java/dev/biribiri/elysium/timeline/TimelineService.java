@@ -63,6 +63,13 @@ public class TimelineService {
     }
 
     /**
+     * Lists the direct statuses the viewer wrote or is mentioned in, for clients that predate Mastodon's conversations.
+     */
+    public List<Status> directTimeline(UUID viewerId, IdPage page) {
+        return load(timelines.findDirect(viewerId, page));
+    }
+
+    /**
      * Which of these lists' timelines would list the status, so that a stream shows only what the timeline would. Lists
      * that have since been deleted are left out.
      */

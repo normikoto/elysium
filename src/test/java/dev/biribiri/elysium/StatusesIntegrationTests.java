@@ -82,6 +82,7 @@ class StatusesIntegrationTests {
     private static final String PASSWORD = "correct horse battery staple";
     private static final String TIMELINE = "/api/v1/timelines/public";
     private static final String HOME = "/api/v1/timelines/home";
+    private static final String DIRECT = "/api/v1/timelines/direct";
     private static final String VERIFY_CREDENTIALS = "/api/v1/accounts/verify_credentials";
 
     /**
@@ -1145,6 +1146,49 @@ class StatusesIntegrationTests {
         mockMvc.perform(withToken(get(HOME), appToken()))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.error").value("This method requires an authenticated user"));
+    }
+
+    // Direct timeline
+
+    @Test
+    void directTimelineHasOwnAndAddressedDirectStatusesFromAnyone() throws Exception {
+        var own = create(alice(), "@bob psst", "direct");
+        var toAlice = create(bob(), "@alice hi", "direct");
+        create(bob(), "@carol not for alice", "direct");
+        create(bob(), "@alice followers only", "private");
+        create(alice(), "Public");
+
+        expectIds(withToken(get(DIRECT), alice()), toAlice, own);
+    }
+
+    @Test
+    void directTimelineLeavesOutBlockedAuthors() throws Exception {
+        create(bob(), "@alice hi", "direct");
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + bobId() + "/block"), alice()))
+                .andExpect(status().isOk());
+        try {
+            expectIds(withToken(get(DIRECT), alice()));
+        } finally {
+            mockMvc.perform(withToken(post("/api/v1/accounts/" + bobId() + "/unblock"), alice()))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Test
+    void directTimelinePagesAndLinks() throws Exception {
+        var first = create(alice(), "@bob 1", "direct");
+        var second = create(alice(), "@bob 2", "direct");
+
+        expectIds(withToken(get(DIRECT), alice()).param("max_id", second), first);
+        mockMvc.perform(withToken(get(DIRECT), alice()).param("limit", "1"))
+                .andExpect(header().string("Link", containsString(DIRECT + "?limit=1&max_id=" + second)));
+    }
+
+    @Test
+    void directTimelineNeedsAUser() throws Exception {
+        mockMvc.perform(get(DIRECT)).andExpect(status().isUnauthorized());
+        mockMvc.perform(withToken(get(DIRECT), appToken()))
+                .andExpect(status().isUnprocessableContent());
     }
 
     @Test
