@@ -242,7 +242,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
     Mastodon, and one to a status that isn't stored here is left out.
   - Direct messages addressed to the user are included only when they follow the author.
   - The user's own statuses and replies are always listed.
-  - Statuses and boosts by members of the user's exclusive lists are left out, as on Mastodon.
+  - Statuses and boosts by members of the user's exclusive lists are left out, as on Mastodon, unless a followed
+    hashtag adds them.
   - `local` has no effect.
   - [Followed hashtags](#tags) add public statuses with them, replies included, from accounts the user doesn't follow
     too. Boosts and unlisted statuses aren't added, and neither is anything from accounts the user has blocked or
@@ -685,7 +686,8 @@ Follow [Mastodon's lists API](https://docs.joinmastodon.org/methods/lists/), wit
     from a member whose follow request is still waiting.
   - A member's reply to themselves or to the user is always listed, and other replies by `replies_policy`.
   - Filters for `home` apply to it, as on Mastodon.
-- `exclusive` leaves the members' statuses and boosts out of the home timeline and the `user` stream.
+- `exclusive` leaves the members' statuses and boosts out of the home timeline and the `user` stream, apart from what a
+  followed hashtag adds.
 
 ## Streaming
 

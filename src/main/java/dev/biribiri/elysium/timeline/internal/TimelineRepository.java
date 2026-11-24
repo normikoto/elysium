@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 
 import static dev.biribiri.elysium.content.StatusSql.FROM_ACTIVE;
 import static dev.biribiri.elysium.content.StatusSql.HAS_MEDIA;
+import static dev.biribiri.elysium.content.StatusSql.hasTag;
 import static dev.biribiri.elysium.content.StatusSql.NOT_A_REPLY_TO_OTHERS;
 import static dev.biribiri.elysium.content.StatusSql.NOT_LOCAL_ONLY;
 import static dev.biribiri.elysium.content.StatusSql.mentions;
@@ -154,8 +155,8 @@ public class TimelineRepository {
      * @param withTags whether followed tags add statuses
      */
     private static String home(String viewer, Function<String, String> follows, boolean withTags) {
-        var tagged = !withTags ? "" : " OR (s.visibility = 'public' AND s.reblog_of_id IS NULL AND EXISTS (SELECT 1"
-                + " FROM status_tag ft WHERE ft.status_id = s.id AND " + TagFollows.follows(viewer, "ft.name") + "))";
+        var tagged = !withTags ? "" : " OR (s.visibility = 'public' AND s.reblog_of_id IS NULL AND "
+                + hasTag(name -> TagFollows.follows(viewer, name)) + ")";
         return "(s.actor_id = " + viewer + tagged
                 + " OR (" + follows.apply("s.actor_id") + " AND NOT " + ListMembers.inExclusiveList(viewer, "s.actor_id")
                 + " AND NOT " + Following.hidesFromFeeds(viewer, "s")
