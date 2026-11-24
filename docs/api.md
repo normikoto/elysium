@@ -264,13 +264,23 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `GET /api/v1/tags/:id` finds any valid tag name, even one that nothing uses, and gets a 404 for an invalid one. Any
   token works, or none.
 - `history` counts only public statuses stored here, over the last 7 days.
-- `following` is left out without a user token. Tags can't be featured, and the endpoints for featuring and trending
-  tags aren't implemented.
+- `following` and `featuring` are left out without a user token. The endpoints for trending tags aren't implemented.
 - `POST /api/v1/tags/:id/follow` and `/unfollow` take any valid tag name, even one that nothing uses, and get a 404 for
   an invalid one. Doing either again has no further effect. Other servers aren't told about tag follows, so they
   only bring in statuses that already reach this server.
 - `GET /api/v1/followed_tags` lists the most recently followed first, and pages by the IDs in its `Link` header, as on
   Mastodon.
+- `POST /api/v1/featured_tags` takes any valid tag name, with or without its `#`, even one the user hasn't used, and
+  gets a 422 for an invalid one. A user can feature up to 10 tags, which `configuration.accounts.max_featured_tags`
+  says, and an eleventh gets a 422. Featuring a tag again returns it unchanged.
+- A FeaturedTag's `statuses_count` and `last_status_at` count the account's public and unlisted statuses with the tag,
+  not boosts. As Mastodon actually sends them, `statuses_count` is a string and `last_status_at` is a date, such as
+  `2026-11-24`, though Mastodon's examples show a number and a time. `url` is the tag's page on this server, since
+  profile pages can't show one tag.
+- `GET /api/v1/featured_tags` and `GET /api/v1/accounts/:id/featured_tags` list the most used first, in one page.
+  Featured tags aren't sent to other servers or read from them, so an account on another server has none here.
+- `GET /api/v1/featured_tags/suggestions` suggests up to 10 tags from the user's recent public and unlisted statuses
+  that they don't feature, the most recently used first.
 
 ### Boosts
 
@@ -742,7 +752,7 @@ Follow [Mastodon's accounts API](https://docs.joinmastodon.org/methods/accounts/
 Only these exist:
 
 - `GET /api/v1/accounts/:id`, `verify_credentials`, `lookup`, `search`, `relationships`, `familiar_followers`,
-  `:id/statuses`, `:id/followers`, and `:id/following`
+  `:id/statuses`, `:id/followers`, `:id/following`, and `:id/featured_tags`
 - `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/remove_from_followers`, `/block`, `/unblock`, `/mute`, `/unmute`,
   `/note`, `/endorse`, `/unendorse`, `/pin`, and `/unpin`
 - `PATCH /api/v1/accounts/update_credentials`
@@ -766,7 +776,7 @@ Only these exist:
 - `followers_count` and `following_count` only count accounts on this server, and `hide_collections` is null.
 - `discoverable` is always false. `indexable` and `is_cat` are what the actor document said when this server last
   fetched it, and `bot` is true when its type is `Service` or `Application`.
-- `GET /api/v1/accounts/:id/statuses` only lists its statuses stored here.
+- `GET /api/v1/accounts/:id/statuses` only lists its statuses stored here, and `:id/featured_tags` is always empty.
 - `moved` is the account its actor document or `Move` last said it moved to. It's left out if that account isn't stored
   here, or is suspended, deleted, or on a blocked server.
 

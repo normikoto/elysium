@@ -1270,7 +1270,7 @@ public class StatusService {
      */
     public List<Status> findByAccount(
             UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, IdPage page) {
-        return findByAccount(actorId, viewer, excludeReplies, excludeReblogs, false, page);
+        return findByAccount(actorId, viewer, excludeReplies, excludeReblogs, false, Optional.empty(), page);
     }
 
     /**
@@ -1278,10 +1278,11 @@ public class StatusService {
      * the viewer are left out, as on Mastodon.
      *
      * @param onlyMedia whether to only list statuses with attachments, which leaves out boosts
+     * @param tag       a normalized name, to only list statuses with that hashtag, which leaves out boosts
      */
     public List<Status> findByAccount(
             UUID actorId, Optional<UUID> viewer, boolean excludeReplies, boolean excludeReblogs, boolean onlyMedia,
-            IdPage page) {
+            Optional<String> tag, IdPage page) {
         if (viewer.isPresent() && !blocks.refusing(viewer.get(), List.of(actorId)).isEmpty()) {
             return List.of();
         }
@@ -1290,8 +1291,8 @@ public class StatusService {
                 : viewer.filter(id -> follows.isFollowing(id, actorId)).isPresent()
                 ? Set.of(Visibility.PUBLIC, Visibility.UNLISTED, Visibility.PRIVATE)
                 : Set.of(Visibility.PUBLIC, Visibility.UNLISTED);
-        return statuses.findByAccount(
-                actorId, visibilities, viewer.orElse(null), excludeReplies, excludeReblogs, onlyMedia, page);
+        return statuses.findByAccount(actorId, visibilities, viewer.orElse(null), excludeReplies, excludeReblogs,
+                onlyMedia, tag.orElse(null), page);
     }
 
     /**

@@ -8,6 +8,7 @@ import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.actor.UsageProperties;
 import dev.biribiri.elysium.content.AttachmentProperties;
 import dev.biribiri.elysium.content.ContentType;
+import dev.biribiri.elysium.content.FeaturedTags;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.Poll;
 import dev.biribiri.elysium.content.StatusPinService;
@@ -120,7 +121,7 @@ public class InstanceController {
                 false,
                 maxCharacters,
                 new InstanceResponse.Configuration(
-                        new InstanceResponse.Accounts(0, StatusPinService.MAX_PER_ACCOUNT, profiles.maxFields()),
+                        new InstanceResponse.Accounts(FeaturedTags.MAX_PER_ACCOUNT, StatusPinService.MAX_PER_ACCOUNT, profiles.maxFields()),
                         new InstanceResponse.Statuses(
                                 maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl(),
                                 CONTENT_TYPES),
@@ -204,7 +205,7 @@ public class InstanceController {
                 List.of(),
                 new InstanceV2Response.Configuration(
                         Map.of("streaming", instance.baseUrl().toString().replaceFirst("^http", "ws")),
-                        new InstanceResponse.Accounts(0, StatusPinService.MAX_PER_ACCOUNT, profiles.maxFields()),
+                        new InstanceResponse.Accounts(FeaturedTags.MAX_PER_ACCOUNT, StatusPinService.MAX_PER_ACCOUNT, profiles.maxFields()),
                         new InstanceResponse.Statuses(
                                 maxCharacters, MediaAttachments.MAX_PER_STATUS, statuses.charactersReservedPerUrl(),
                                 CONTENT_TYPES),

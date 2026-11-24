@@ -38,6 +38,7 @@ import static dev.biribiri.elysium.content.StatusSql.FROM_ACTIVE;
 import static dev.biribiri.elysium.content.StatusSql.HAS_MEDIA;
 import static dev.biribiri.elysium.content.StatusSql.NOT_A_REPLY_TO_OTHERS;
 import static dev.biribiri.elysium.content.StatusSql.NOT_LOCAL_ONLY;
+import static dev.biribiri.elysium.content.StatusSql.hasTag;
 import static dev.biribiri.elysium.content.StatusSql.mentions;
 import static dev.biribiri.elysium.content.StatusSql.notHidden;
 import static dev.biribiri.elysium.content.StatusSql.visibleTo;
@@ -728,7 +729,7 @@ public class StatusRepository {
      */
     public List<Status> findByAccount(
             UUID actorId, Collection<Visibility> visibilities, UUID viewer, boolean excludeReplies,
-            boolean excludeReblogs, boolean onlyMedia, IdPage page) {
+            boolean excludeReblogs, boolean onlyMedia, String tag, IdPage page) {
         var parameters = new HashMap<String, Object>();
         parameters.put("actorId", actorId);
         parameters.put("visibilities", visibilities.stream().map(Visibility::value).toList());
@@ -747,6 +748,10 @@ public class StatusRepository {
         }
         if (onlyMedia) {
             filter.append(HAS_MEDIA);
+        }
+        if (tag != null) {
+            filter.append(" AND ").append(hasTag(name -> name + " = :tag"));
+            parameters.put("tag", tag);
         }
         return findPage(filter.toString(), parameters, page);
     }

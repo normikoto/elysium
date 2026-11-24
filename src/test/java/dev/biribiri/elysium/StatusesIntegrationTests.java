@@ -1330,7 +1330,7 @@ class StatusesIntegrationTests {
                         .value(contains("text/plain", "text/markdown")))
                 .andExpect(jsonPath("$.configuration.media_attachments.supported_mime_types", not(empty())))
                 .andExpect(jsonPath("$.configuration.polls.max_options").value(4))
-                .andExpect(jsonPath("$.configuration.accounts.max_featured_tags").value(0))
+                .andExpect(jsonPath("$.configuration.accounts.max_featured_tags").value(10))
                 .andExpect(jsonPath("$.stats.status_count").value(1))
                 .andExpect(jsonPath("$.stats.domain_count").value(0))
                 .andExpect(jsonPath("$.registrations").value(false))
