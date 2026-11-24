@@ -30,6 +30,7 @@ import java.util.Map;
         AsyncRefreshesController.class,
         BlocksController.class,
         BookmarksController.class,
+        DirectoryController.class,
         FavouritesController.class,
         FeaturedTagsController.class,
         FollowRequestsController.class,

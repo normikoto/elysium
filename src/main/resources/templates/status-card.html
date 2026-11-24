@@ -8,8 +8,7 @@
         </svg>
         <span><a th:href="@{/users/{username}(username=${view.boostedBy})}" th:text="|@${view.boostedBy}|"></a> boosted</span>
     </p>
-    <img class="post-avatar" th:if="${view.author.avatar != null}" th:src="${view.author.avatar}" alt="" loading="lazy">
-    <div class="post-avatar" th:if="${view.author.avatar == null}" aria-hidden="true" th:text="${view.author.initial()}"></div>
+    <th:block th:replace="~{status-card :: avatar(${view.author})}"></th:block>
     <div>
         <p class="post-head">
             <a class="post-name" th:href="@{${view.authorUrl}}" th:text="${view.author.displayName}"></a>
@@ -79,4 +78,8 @@
         <span th:if="${poll.closes != null}" th:text="${poll.ended} ? |Closed ${poll.closes}| : |Closes ${poll.closes}|"></span>
     </p>
 </div>
+<th:block th:fragment="avatar(author)">
+    <img class="post-avatar" th:if="${author.avatar != null}" th:src="${author.avatar}" alt="" loading="lazy">
+    <div class="post-avatar" th:if="${author.avatar == null}" aria-hidden="true" th:text="${author.initial()}"></div>
+</th:block>
 </html>

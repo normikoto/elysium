@@ -220,13 +220,12 @@ public class AccountsController {
             summary = "Change the user's profile and account settings",
             description = """
                     Differences from Mastodon: `display_name`, `note`, `fields_attributes`, `avatar`, `header`, \
-                    Pleroma's `pleroma_background_image`, `locked`, `bot`, `indexable`, `hide_collections`, \
-                    Elysium's `is_cat`, `source[quote_policy]`, and `source[quote_others]` can be changed. \
-                    `discoverable` and the rest of `source` are accepted only with the values the account already \
-                    has (false, and \
-                    `public` for `source[privacy]`), and any other value for them, or any other field with a value, \
-                    gets 422 naming it. Then nothing is changed. Empty values are ignored, except that an empty \
-                    `display_name` or `note` clears it.
+                    Pleroma's `pleroma_background_image`, `locked`, `bot`, `discoverable`, `indexable`, \
+                    `hide_collections`, Elysium's `is_cat`, `source[quote_policy]`, and `source[quote_others]` can \
+                    be changed. The rest of `source` is accepted only with the values the account already has \
+                    (`public` for `source[privacy]`, and false for `source[sensitive]`), and any other value for \
+                    them, or any other field with a value, gets 422 naming it. Then nothing is changed. Empty \
+                    values are ignored, except that an empty `display_name` or `note` clears it.
 
                     `fields_attributes` can be a list, or an object keyed by position, as can a form's \
                     `fields_attributes[0][name]` or `fields_attributes[][name]`. It replaces all of the fields, and \
@@ -243,7 +242,9 @@ public class AccountsController {
                     like the others, but only scaled down to fit 3840 × 2160 pixels in area, without cropping. It's \
                     returned in `pleroma.background_image`, and isn't sent to other servers.
 
-                    A `bot` is sent to other servers as a `Service` actor, and `is_cat` as Misskey's `isCat`.
+                    A `bot` is sent to other servers as a `Service` actor, and `is_cat` as Misskey's `isCat`. \
+                    `discoverable` lists the user in the directory, and is sent to other servers as it is. \
+                    `source[discoverable]` changes it too, so that `source` can be sent back as it was returned.
 
                     Turning `locked` off approves the requests to follow the user that are still waiting, as on \
                     Mastodon. They're approved in the background, so they can still be waiting just after the \
@@ -1153,6 +1154,10 @@ public class AccountsController {
                     Whether anyone's search can find the user's public statuses. Without it, only those who wrote, \
                     favourited, bookmarked, or are mentioned in a status can find it.""")
             Boolean indexable,
+            @Schema(description = """
+                    Whether the user's account is listed in the directory. Other servers see it as `discoverable`, \
+                    and may list it in theirs.""")
+            Boolean discoverable,
             @Schema(description = "Whether the user's account is automated. Other servers see it as a `Service`.")
             Boolean bot,
             @Schema(description = """
@@ -1163,7 +1168,8 @@ public class AccountsController {
                     Whether to hide who's in the user's followers and following from everyone else. The counts are \
                     still shown.""")
             Boolean hide_collections,
-            @Schema(description = "Posting settings. Only `quote_policy` and `quote_others` can be changed.")
+            @Schema(description = """
+                    Posting settings. Only `quote_policy`, `quote_others`, and `discoverable` can be changed.""")
             SourceBody source) {
     }
 
@@ -1175,7 +1181,9 @@ public class AccountsController {
             @Schema(allowableValues = {"reject", "review"}, description = """
                     Not in Mastodon. Whether the quotes of the user's new statuses that aren't approved automatically \
                     are rejected, or wait for the user to review them, when the client doesn't say.""")
-            String quote_others) {
+            String quote_others,
+            @Schema(description = "The same as the top-level `discoverable`, which wins when both are given.")
+            Boolean discoverable) {
     }
 
     /**

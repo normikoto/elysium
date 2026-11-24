@@ -803,8 +803,8 @@ token with `write:accounts`, including one from `client_credentials`. It follows
   HTML link, its text has to match its destination. The linked page has to link back with `rel="me"` to the actor URI
   or to the profile URL on the actor's origin, matching the case of its path and query.
 - `followers_count` and `following_count` only count accounts on this server, and `hide_collections` is null.
-- `discoverable` is always false. `indexable` and `is_cat` are what the actor document said when this server last
-  fetched it, and `bot` is true when its type is `Service` or `Application`.
+- `discoverable`, `indexable`, and `is_cat` are what the actor document said when this server last fetched it, and
+  `bot` is true when its type is `Service` or `Application`.
 - `GET /api/v1/accounts/:id/statuses` only lists its statuses stored here, and `:id/featured_tags` is always empty.
 - `moved` is the account its actor document or `Move` last said it moved to. It's left out if that account isn't stored
   here, or is suspended, deleted, or on a blocked server.
@@ -812,10 +812,11 @@ token with `write:accounts`, including one from `client_credentials`. It follows
 ### Profile
 
 - `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`, `bot`,
-  `indexable`, `hide_collections`, `is_cat`, `source[quote_policy]`, and `source[quote_others]`, which Mastodon doesn't
-  have, and which `source` has too.
-  - `discoverable` and the rest of `source` are accepted only with the values the account already has: false, and
-    `public` for `source[privacy]`.
+  `discoverable`, `indexable`, `hide_collections`, `is_cat`, `source[quote_policy]`, and `source[quote_others]`, which
+  Mastodon doesn't have, and which `source` has too. `source` also has `discoverable`, and `source[discoverable]` changes
+  it as `discoverable` does, so that a client can send back the `source` it was given.
+  - The rest of `source` is accepted only with the values the account already has: `public` for `source[privacy]`, and
+    false for `source[sensitive]`.
   - Any other value for them, or any other field with a value, gets a 422 naming it, and nothing is changed.
   - `is_cat` is Elysium's own field, which Mastodon doesn't have. It's true for an account that says it's a cat, as
     Misskey's `isCat` does, and Account entities include it for every account. Other servers see it as `isCat`.
@@ -931,6 +932,21 @@ token with `write:accounts`, including one from `client_credentials`. It follows
   - Only the first 200 statuses can be paged through with `offset`, and `max_id` and `min_id` page through the rest.
     They don't apply to accounts and hashtags. An `account_id` that isn't a valid ID finds no statuses.
   - An account on another server is only indexable once this server has fetched its actor since `indexable` was set.
+
+### Directory
+
+- `GET /api/v1/directory` lists accounts whose `discoverable` is true, from this server and others, without a token or
+  with `read:accounts`. It takes `offset`, `limit`, `order`, and `local` as on Mastodon, and returns up to 40 accounts by
+  default and at most 80.
+- It leaves out suspended, deleted, and moved accounts, and those on suspended servers. For a signed-in user, it also
+  leaves out accounts they've blocked or muted, or whose server they've blocked, and those that block them, as Mastodon
+  does.
+- `order=active`, the default, puts accounts that posted most recently first, and those that never have last. Unlike
+  Mastodon:
+  - `order=new` puts accounts on other servers by when this server first stored them, not by when they were created.
+  - An `order` other than `active` or `new` gets a 422.
+  - The server's operator can turn the directory off, and then it gets a 404.
+- An account on another server is only listed once this server has fetched its actor since `discoverable` was set.
 
 ## Reports
 

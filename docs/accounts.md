@@ -207,6 +207,12 @@ page, apps, and other servers show it as a bot. They can also say they're a cat,
 which Misskey and the servers based on it show as cat ears. Both are off by default, and other servers are told when
 either changes.
 
+People can choose to be listed in the directory, at `/settings` or from an app. Anyone can browse this server's listed
+accounts at `/directory`, and apps can list them along with the accounts on other servers that have chosen the same.
+Other servers are told about the choice, and Mastodon lists the account in its own directory. It's off by default. You can
+turn the directory off with [`elysium.profiles.directory`](configuration.md), which keeps everyone's choice, and other
+servers still see it.
+
 Signed-in users can follow an account from its profile page. A visitor from another server can enter their address,
 such as `@alice@mastodon.social`, to follow from their own server if it supports remote follow, as Mastodon, Akkoma,
 and Misskey do. Otherwise, Elysium directs them to search for the profile in their app. Local users who enter their

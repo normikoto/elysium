@@ -59,7 +59,7 @@ class SettingsController {
                 .toList();
         show(model, accountId, profile, profile.displayName(), profile.note(), rows, actors.hidesCollections(accountId),
                 profile.manuallyApprovesFollowers(), profiles.approvesFollowed(accountId), profile.indexable(),
-                profile.bot(), profile.cat());
+                profile.discoverable(), profile.bot(), profile.cat());
         model.addAttribute("saved", saved != null);
         return "settings";
     }
@@ -87,6 +87,7 @@ class SettingsController {
         var manuallyApprovesFollowers = "true".equals(form.getFirst("manuallyApprovesFollowers"));
         var approvesFollowed = "true".equals(form.getFirst("approvesFollowed"));
         var indexable = "true".equals(form.getFirst("indexable"));
+        var discoverable = "true".equals(form.getFirst("discoverable"));
         var bot = "true".equals(form.getFirst("bot"));
         var cat = "true".equals(form.getFirst("cat"));
         // Only what the form has a control for is changed, as a form with no rows for fields has none to send.
@@ -94,6 +95,7 @@ class SettingsController {
                 .withManuallyApprovesFollowers(manuallyApprovesFollowers)
                 .withApprovesFollowed(approvesFollowed)
                 .withIndexable(indexable)
+                .withDiscoverable(discoverable)
                 .withBot(bot)
                 .withCat(cat);
         if (displayName != null) {
@@ -128,7 +130,8 @@ class SettingsController {
             var rows = fields.stream().map(field -> new FieldRow(field.name(), field.value(), false)).toList();
             var saved = profiles.find(accountId);
             show(model, accountId, saved, change.displayName().orElse(saved.displayName()), change.note().orElse(saved.note()),
-                    rows, hideCollections, manuallyApprovesFollowers, approvesFollowed, indexable, bot, cat);
+                    rows, hideCollections, manuallyApprovesFollowers, approvesFollowed, indexable, discoverable, bot,
+                    cat);
             model.addAttribute("error", e.getMessage().replaceFirst("^Validation failed: ", ""));
             return "settings";
         }
@@ -153,6 +156,7 @@ class SettingsController {
             boolean manuallyApprovesFollowers,
             boolean approvesFollowed,
             boolean indexable,
+            boolean discoverable,
             boolean bot,
             boolean cat) {
         var rows = new ArrayList<>(fields);
@@ -176,6 +180,8 @@ class SettingsController {
         model.addAttribute("manuallyApprovesFollowers", manuallyApprovesFollowers);
         model.addAttribute("approvesFollowed", approvesFollowed);
         model.addAttribute("indexable", indexable);
+        model.addAttribute("discoverable", discoverable);
+        model.addAttribute("directoryShown", profiles.directoryShown());
         model.addAttribute("bot", bot);
         model.addAttribute("cat", cat);
         model.addAttribute("admin", admins.isAdmin(accountId));

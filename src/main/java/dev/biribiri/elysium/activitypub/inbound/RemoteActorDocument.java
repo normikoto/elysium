@@ -131,6 +131,7 @@ final class RemoteActorDocument {
                 fields(document.path("attachment")),
                 ActivityJson.flag(document.path("manuallyApprovesFollowers")),
                 ActivityJson.flag(document.path("indexable")),
+                ActivityJson.flag(document.path("discoverable")),
                 types.stream().anyMatch(BOT_TYPES::contains),
                 ActivityJson.flag(document.path("isCat")),
                 types.contains("Group"),

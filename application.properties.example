@@ -44,6 +44,9 @@ spring.datasource.password=
 #elysium.profiles.max-fields=4
 # The largest avatar or header that can be uploaded, or downloaded from another server.
 #elysium.profiles.max-image-size=8MB
+# Whether the directory lists the accounts that choose to be in it, at /directory and for apps. Turning it off keeps each
+# account's choice, which other servers still see.
+#elysium.profiles.directory=true
 
 # How many streaming connections clients can have open at once, all together. Past that, new ones are refused.
 #elysium.streaming.max-connections=1000

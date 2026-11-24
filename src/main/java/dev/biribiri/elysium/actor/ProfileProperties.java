@@ -9,11 +9,14 @@ import org.springframework.util.unit.DataSize;
  *                     save its fields again until it has few enough.
  * @param maxImageSize the largest avatar or header file that can be uploaded. Spring's limits on uploads follow the
  *                     largest of this and the limits on attachments.
+ * @param directory    whether the directory lists the accounts that choose to be in it. Turning it off keeps each
+ *                     account's choice, since it's part of the profile other servers see.
  */
 @ConfigurationProperties("elysium.profiles")
 public record ProfileProperties(
         @DefaultValue("" + ProfileProperties.DEFAULT_MAX_FIELDS) int maxFields,
-        @DefaultValue("8MB") DataSize maxImageSize) {
+        @DefaultValue("8MB") DataSize maxImageSize,
+        @DefaultValue("true") boolean directory) {
 
     public static final int DEFAULT_MAX_FIELDS = 4;
 

@@ -15,8 +15,8 @@ import java.util.List;
  */
 @Schema(name = "CredentialAccount", description = """
         Mastodon's CredentialAccount entity: an Account, plus `source`, which has the note and fields as they were \
-        written. The settings in `source` other than `quote_policy` and `quote_others` don't exist yet, so they have the values a new \
-        account would have.""")
+        written. The settings in `source` other than `discoverable`, `quote_policy`, and `quote_others` don't exist \
+        yet, so they have the values a new account would have.""")
 record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source source) {
 
     /**
@@ -27,8 +27,8 @@ record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source 
             OtherQuotes quoteOthers) {
         var fields = profile.fields().stream().map(field -> AccountResponse.Field.of(field, field.value())).toList();
         return new CredentialAccountResponse(
-                account, new Source("public", false, "", profile.note(), fields, followRequests, quotePolicy.value(),
-                quoteOthers.value()));
+                account, new Source("public", false, "", profile.note(), fields, followRequests, profile.discoverable(),
+                quotePolicy.value(), quoteOthers.value()));
     }
 
     /**
@@ -42,6 +42,8 @@ record CredentialAccountResponse(@JsonUnwrapped AccountResponse account, Source 
             String note,
             List<AccountResponse.Field> fields,
             @JsonProperty("follow_requests_count") long followRequestsCount,
+            @Schema(description = "Whether the account is listed in the directory.")
+            boolean discoverable,
             @Schema(allowableValues = {"public", "followers", "nobody"},
                     description = """
                             Whose quotes of the account's new statuses are approved automatically when the client \

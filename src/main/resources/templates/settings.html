@@ -98,6 +98,17 @@
                 them. Other servers are told about this setting, and decide for themselves what their search finds.
             </p>
             <label>
+                <input type="checkbox" name="discoverable" value="true" th:checked="${discoverable}">
+                List your profile in the directory
+            </label>
+            <p th:if="${directoryShown}">
+                Anyone can find your profile in <a th:href="@{/directory}">this server's directory</a>, and in apps.
+                Other servers are told about this setting, and may list you in theirs.
+            </p>
+            <p th:unless="${directoryShown}">
+                This server's directory is off, but other servers are told about this setting, and may list you in theirs.
+            </p>
+            <label>
                 <input type="checkbox" name="bot" value="true" th:checked="${bot}">
                 This is an automated account
             </label>
