@@ -17,6 +17,10 @@
                      th:text="${#strings.toUpperCase(#strings.substring(actor.username, 0, 1))}"></div>
                 <div class="profile-names">
                     <h1 id="profile-name" th:text="${name}"></h1>
+                    <p class="profile-labels" th:if="${bot || cat}">
+                        <span class="profile-label" th:if="${bot}">Bot</span>
+                        <span class="profile-label" th:if="${cat}">Cat</span>
+                    </p>
                     <p th:text="|@${actor.username}@${actor.domain}|"></p>
                 </div>
                 <th:block th:replace="~{follow-controls :: controls(${follow})}"></th:block>

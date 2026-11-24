@@ -6,6 +6,8 @@ import dev.biribiri.elysium.activitypub.signature.CavageRequestSigner;
 import dev.biribiri.elysium.activitypub.web.RemoteSigners.Signer;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.ProfileChange;
+import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
@@ -62,6 +64,8 @@ class AuthorizedFetchIntegrationTests {
     @Autowired
     private DomainBlocks blocks;
     @Autowired
+    private ProfileService profiles;
+    @Autowired
     private CavageRequestSigner signer;
     @Autowired
     private JsonMapper json;
@@ -113,6 +117,20 @@ class AuthorizedFetchIntegrationTests {
                 .andExpect(jsonPath("$.url").value(BASE + "/users/bob"))
                 .andExpect(jsonPath("$.manuallyApprovesFollowers").value(false))
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store, private"));
+    }
+
+    @Test
+    void aMinimalActorDocumentKeepsABotsType() throws Exception {
+        var bot = local("botty");
+        profiles.update(bot.id(), ProfileChange.NONE.withBot(true).withCat(true));
+
+        send(get("/users/botty").accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("Service"))
+                .andExpect(jsonPath("$.isCat").doesNotExist());
+        fetch("/users/botty", remote("someone"))
+                .andExpect(jsonPath("$.type").value("Service"))
+                .andExpect(jsonPath("$.isCat").value(true));
     }
 
     @Test

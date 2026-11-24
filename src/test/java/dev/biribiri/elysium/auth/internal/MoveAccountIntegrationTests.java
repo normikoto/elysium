@@ -288,7 +288,7 @@ class MoveAccountIntegrationTests {
     private Actor remote(List<URI> alsoKnownAs) {
         var domain = "r" + UUID.randomUUID() + ".test";
         var uri = URI.create("https://" + domain + "/users/bob");
-        var profile = new RemoteProfile("", "", "", null, null, List.of(), false, false, false, false, null, null,
+        var profile = new RemoteProfile("", "", "", null, null, List.of(), false, false, false, false, false, null, null,
                 alsoKnownAs, null);
         return actors.upsertRemote(new RemoteActorProfile(uri, "bob", domain, URI.create(uri + "/inbox"), null, null,
                 null, null, null, profile));

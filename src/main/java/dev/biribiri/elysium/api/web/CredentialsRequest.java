@@ -41,9 +41,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
     /**
      * Settings that don't exist here, with the value that's reported for them.
      */
-    private static final Map<String, Object> FIXED = Map.of(
-            "bot", false,
-            "discoverable", false);
+    private static final Map<String, Object> FIXED = Map.of("discoverable", false);
 
     private static final Map<String, Object> FIXED_SOURCE = Map.of(
             "privacy", "public",
@@ -125,6 +123,16 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                 case "indexable" -> {
                     if (!isEmpty(value)) {
                         change = change.withIndexable(RequestParameters.flag(values, key));
+                    }
+                }
+                case "bot" -> {
+                    if (!isEmpty(value)) {
+                        change = change.withBot(RequestParameters.flag(values, key));
+                    }
+                }
+                case "is_cat" -> {
+                    if (!isEmpty(value)) {
+                        change = change.withCat(RequestParameters.flag(values, key));
                     }
                 }
                 case "avatar", "header" -> {

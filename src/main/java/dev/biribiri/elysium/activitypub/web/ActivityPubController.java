@@ -137,13 +137,15 @@ public class ActivityPubController {
             operationId = "getActor",
             summary = "Fetch a user's actor document",
             description = """
-                    A `Person`, with an RSA 2048 `publicKey` identified as `{actor-uri}#main-key`, an Ed25519 \
+                    A `Person`, or a `Service` for a user who marks the account as a bot, with an RSA 2048 \
+                    `publicKey` identified as `{actor-uri}#main-key`, an Ed25519 \
                     `Multikey` in `assertionMethod` identified as `{actor-uri}#ed25519-key` (FEP-521a), and the \
                     shared inbox at `/inbox` as `endpoints.sharedInbox`. The profile is in `name`, `summary` \
                     (HTML), `icon` and `image` (WebP `Image`s), and `attachment` (`PropertyValue`s), each left out \
                     if it's empty. `alsoKnownAs` lists the accounts that can move to this one, and `movedTo` is the \
-                    account this one moved to, which it keeps working after. A suspended user's document has \
-                    `suspended: true`, the same key, and no profile.
+                    account this one moved to, which it keeps working after. Misskey's `isCat` is true when the user \
+                    says they're a cat. A suspended user's document is a `Person` with `suspended: true`, the same \
+                    key, and no profile.
 
                     With authorized fetch on, an unsigned request gets a minimal document so peers can still read \
                     the keys. It includes `@context`, `id`, `type`, `preferredUsername`, `inbox`, `outbox`, `followers`, \

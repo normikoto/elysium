@@ -79,7 +79,9 @@ public final class ActivityStreams {
                     Map.entry("movedTo", Map.of("@id", "as:movedTo", "@type", "@id")),
                     Map.entry("toot", "http://joinmastodon.org/ns#"),
                     Map.entry("featured", Map.of("@id", "toot:featured", "@type", "@id")),
-                    Map.entry("indexable", "toot:indexable")),
+                    Map.entry("indexable", "toot:indexable"),
+                    Map.entry("misskey", "https://misskey-hub.net/ns#"),
+                    Map.entry("isCat", "misskey:isCat")),
             MULTIKEY_TERMS);
 
     /**

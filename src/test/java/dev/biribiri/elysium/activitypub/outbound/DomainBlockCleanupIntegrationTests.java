@@ -143,7 +143,7 @@ class DomainBlockCleanupIntegrationTests {
         var uri = URI.create("https://" + domain + "/users/" + UUID.randomUUID());
         var avatar = URI.create("https://" + domain + "/avatar.png");
         var actor = actors.upsertRemote(new RemoteActorProfile(uri, "bob", domain, URI.create(uri + "/inbox"), null, null,
-                null, null, null, new RemoteProfile("Bob", "", "", avatar, null, List.of(), false, false, false, false, null,
+                null, null, null, new RemoteProfile("Bob", "", "", avatar, null, List.of(), false, false, false, false, false, null,
                 null)));
         assertThat(profiles.cacheRemoteImage(actor.id(), false, avatar, TestImages.png(10, 10))).isTrue();
         var path = profiles.find(actor.id()).avatar().path();

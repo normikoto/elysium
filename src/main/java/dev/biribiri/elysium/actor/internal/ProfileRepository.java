@@ -26,6 +26,8 @@ public class ProfileRepository {
      * @param avatar the copy kept here, or null if there isn't one
      * @param header the copy kept here, or null if there isn't one
      * @param background a local account's, or null if there isn't one. Other servers never see it
+     * @param bot        whether it's an automated account
+     * @param cat        Misskey's {@code isCat}
      * @param remote null for a local account's profile
      * @param movedTo null if it hasn't moved
      */
@@ -38,6 +40,8 @@ public class ProfileRepository {
             StoredImage background,
             boolean manuallyApprovesFollowers,
             boolean indexable,
+            boolean bot,
+            boolean cat,
             Instant updatedAt,
             Remote remote,
             List<URI> alsoKnownAs,
@@ -56,8 +60,8 @@ public class ProfileRepository {
                 boolean manuallyApprovesFollowers,
                 boolean indexable,
                 Instant updatedAt) {
-            this(actorId, displayName, note, avatar, header, null, manuallyApprovesFollowers, indexable, updatedAt, null,
-                    List.of(), null);
+            this(actorId, displayName, note, avatar, header, null, manuallyApprovesFollowers, indexable, false, false,
+                    updatedAt, null, List.of(), null);
         }
     }
 
@@ -74,7 +78,6 @@ public class ProfileRepository {
             URI headerUrl,
             boolean headerGivenUp,
             URI url,
-            boolean bot,
             boolean group,
             Instant published) {
     }
@@ -93,7 +96,7 @@ public class ProfileRepository {
             actor_id, display_name, note, avatar, avatar_static, header, header_static, background, background_static,
             manually_approves_followers,
             indexable, updated_at, note_html, avatar_remote_url, avatar_cache_given_up, header_remote_url, header_cache_given_up, url,
-            bot, group_actor, published, also_known_as, moved_to_uri""";
+            bot, cat, group_actor, published, also_known_as, moved_to_uri""";
 
     private final JdbcClient jdbc;
 
@@ -215,7 +218,8 @@ public class ProfileRepository {
                         UPDATE profile SET display_name = :displayName, note = :note, avatar = :avatar,
                             avatar_static = :avatarStatic, header = :header, header_static = :headerStatic,
                             background = :background, background_static = :backgroundStatic,
-                            manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, updated_at = clock_timestamp()
+                            manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, bot = :bot, cat = :cat,
+                            updated_at = clock_timestamp()
                         WHERE actor_id = :actorId
                         RETURNING updated_at
                         """)
@@ -230,6 +234,8 @@ public class ProfileRepository {
                 .param("backgroundStatic", row.background() == null ? null : row.background().staticName())
                 .param("manuallyApprovesFollowers", row.manuallyApprovesFollowers())
                 .param("indexable", row.indexable())
+                .param("bot", row.bot())
+                .param("cat", row.cat())
                 .query(OffsetDateTime.class)
                 .single()
                 .toInstant();
@@ -278,7 +284,7 @@ public class ProfileRepository {
                             manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, note_html = :noteHtml,
                             avatar_remote_url = :avatarUrl, avatar_cache_given_up = :avatarGivenUp,
                             header_remote_url = :headerUrl, header_cache_given_up = :headerGivenUp, url = :url, bot = :bot,
-                            group_actor = :group, published = :published, also_known_as = CAST(:alsoKnownAs AS text[]),
+                            cat = :cat, group_actor = :group, published = :published, also_known_as = CAST(:alsoKnownAs AS text[]),
                             moved_to_uri = :movedTo, updated_at = clock_timestamp(),
                             avatar_cached_at = CASE WHEN CAST(:avatar AS text) IS NULL THEN NULL ELSE avatar_cached_at END,
                             header_cached_at = CASE WHEN CAST(:header AS text) IS NULL THEN NULL ELSE header_cached_at END
@@ -299,7 +305,8 @@ public class ProfileRepository {
                 .param("headerUrl", string(remote.headerUrl()))
                 .param("headerGivenUp", remote.headerGivenUp())
                 .param("url", string(remote.url()))
-                .param("bot", remote.bot())
+                .param("bot", row.bot())
+                .param("cat", row.cat())
                 .param("group", remote.group())
                 .param("published", time(remote.published()))
                 .param("alsoKnownAs", strings(row.alsoKnownAs()))
@@ -583,7 +590,6 @@ public class ProfileRepository {
                 uri(rs.getString("header_remote_url")),
                 rs.getBoolean("header_cache_given_up"),
                 uri(rs.getString("url")),
-                rs.getBoolean("bot"),
                 rs.getBoolean("group_actor"),
                 instant(rs.getObject("published", OffsetDateTime.class)));
         return new Row(
@@ -595,6 +601,8 @@ public class ProfileRepository {
                 image(rs.getString("background"), rs.getString("background_static")),
                 rs.getBoolean("manually_approves_followers"),
                 rs.getBoolean("indexable"),
+                rs.getBoolean("bot"),
+                rs.getBoolean("cat"),
                 instant(rs.getObject("updated_at", OffsetDateTime.class)),
                 remote,
                 uris((String[]) rs.getArray("also_known_as").getArray()),

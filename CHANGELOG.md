@@ -9,6 +9,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- People can mark their account as a bot, or say they're a cat as Misskey has it, at `/settings` or in an app. Bots are
+  sent to other servers as `Service` actors, and cats with Misskey's `isCat`, which Elysium now reads from other servers
+  too. Profile pages show both. Apps get `bot`, and Elysium's own `is_cat`, through `update_credentials` and on
+  accounts. See [Profiles](docs/accounts.md#profiles), [Using the API](docs/api.md#profile), and
+  [Federation](FEDERATION.md#actors).
 - NodeInfo and the instance API now publish active account counts for server lists and apps. NodeInfo includes
   `activeMonth` and `activeHalfyear`, and `GET /api/v2/instance` reports accounts active in the past 30 days in
   `usage.users.active_month`. `GET /api/v1/instance/activity` reports 12 weeks of posts, logins, and sign-ups.

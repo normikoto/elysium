@@ -39,6 +39,9 @@ record AccountResponse(
         @JsonProperty("display_name") String displayName,
         @Schema(description = "Whether the account approves its followers by hand.")
         boolean locked,
+        @Schema(description = """
+                Whether the account is automated. A local account sets it itself, and an account on another server is \
+                one when its actor is a `Service` or `Application`.""")
         boolean bot,
         boolean group,
         boolean discoverable,
@@ -46,6 +49,10 @@ record AccountResponse(
                 Whether the account lets anyone's search find its public statuses. For an account on another server, \
                 it's what its server last said.""")
         boolean indexable,
+        @Schema(description = """
+                Whether the account is a cat, as Misskey's `isCat` says. Mastodon has no such field, so this is \
+                Elysium's own, and only clients that know it read it.""")
+        @JsonProperty("is_cat") boolean isCat,
         @JsonProperty("created_at") String createdAt,
         String note,
         String url,
@@ -135,10 +142,11 @@ record AccountResponse(
                 // An account on another server without one has always been shown with its username here.
                 !local && profile.displayName().isEmpty() ? actor.username() : profile.displayName(),
                 profile.manuallyApprovesFollowers(),
-                remote != null && remote.bot(),
+                profile.bot(),
                 remote != null && remote.group(),
                 false,
                 profile.indexable(),
+                profile.cat(),
                 createdAt(actor, remote),
                 profile.noteHtml(instance.baseUrl()),
                 remote != null && remote.url() != null ? remote.url().toString() : actor.uri().toString(),
@@ -161,8 +169,8 @@ record AccountResponse(
     }
 
     AccountResponse withMoved(AccountResponse moved) {
-        return new AccountResponse(id, username, acct, displayName, locked, bot, group, discoverable, indexable, createdAt,
-                note, url, uri, avatar, avatarStatic, header, headerStatic, followersCount, followingCount, statusesCount,
+        return new AccountResponse(id, username, acct, displayName, locked, bot, group, discoverable, indexable, isCat,
+                createdAt, note, url, uri, avatar, avatarStatic, header, headerStatic, followersCount, followingCount, statusesCount,
                 lastStatusAt, emojis, fields, hideCollections, moved, pleroma);
     }
 

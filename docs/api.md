@@ -718,19 +718,22 @@ Only these exist:
   HTML link, its text has to match its destination. The linked page has to link back with `rel="me"` to the actor URI
   or to the profile URL on the actor's origin, matching the case of its path and query.
 - `followers_count` and `following_count` only count accounts on this server, and `hide_collections` is null.
-- `discoverable` is always false. `indexable` is what the actor document said when this server last fetched it.
+- `discoverable` is always false. `indexable` and `is_cat` are what the actor document said when this server last
+  fetched it, and `bot` is true when its type is `Service` or `Application`.
 - `GET /api/v1/accounts/:id/statuses` only lists its statuses stored here.
 - `moved` is the account its actor document or `Move` last said it moved to. It's left out if that account isn't stored
   here, or is suspended, deleted, or on a blocked server.
 
 ### Profile
 
-- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`,
-  `indexable`, `hide_collections`, `source[quote_policy]`, and `source[quote_others]`, which Mastodon doesn't
+- `update_credentials` can change `display_name`, `note`, `fields_attributes`, `avatar`, `header`, `locked`, `bot`,
+  `indexable`, `hide_collections`, `is_cat`, `source[quote_policy]`, and `source[quote_others]`, which Mastodon doesn't
   have, and which `source` has too.
-  - `bot`, `discoverable`, and the rest of `source` are accepted only with the values the account already has: false,
-    and `public` for `source[privacy]`.
+  - `discoverable` and the rest of `source` are accepted only with the values the account already has: false, and
+    `public` for `source[privacy]`.
   - Any other value for them, or any other field with a value, gets a 422 naming it, and nothing is changed.
+  - `is_cat` is Elysium's own field, which Mastodon doesn't have. It's true for an account that says it's a cat, as
+    Misskey's `isCat` does, and Account entities include it for every account. Other servers see it as `isCat`.
   - Empty values are ignored, except that an empty `display_name` or `note` clears it, as on Mastodon.
 - `GET /api/v1/preferences` needs `read:accounts`, as on Mastodon. `posting:default:quote_policy` is
   `source[quote_policy]`. The other preferences can't be changed yet, so they have the values a new account would have

@@ -246,7 +246,6 @@ class ProfileIntegrationTests {
         mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("display_name", "Alice")
                         .param("locked", "false")
-                        .param("bot", "0")
                         .param("discoverable", "false")
                         .param("source[privacy]", "public")
                         .param("source[language]", ""))
@@ -257,9 +256,9 @@ class ProfileIntegrationTests {
 
         mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("display_name", "Changed")
-                        .param("bot", "true"))
+                        .param("discoverable", "true"))
                 .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.error").value(containsString("bot")));
+                .andExpect(jsonPath("$.error").value(containsString("discoverable")));
         mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"source\":{\"privacy\":\"private\"}}"))
                 .andExpect(status().isUnprocessableContent())
@@ -284,6 +283,63 @@ class ProfileIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.indexable").value(false));
         assertThat(profiles.find(alice.id()).indexable()).isFalse();
+    }
+
+    @Test
+    void marksTheAccountAsABotOrACat() throws Exception {
+        var alice = account("alice");
+        mockMvc.perform(get("/api/v1/accounts/" + alice.id()))
+                .andExpect(jsonPath("$.bot").value(false))
+                .andExpect(jsonPath("$.is_cat").value(false));
+        mockMvc.perform(get("/users/alice").accept("application/activity+json"))
+                .andExpect(jsonPath("$.type").value("Person"))
+                .andExpect(jsonPath("$.isCat").value(false));
+        events.clear();
+
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("bot", "true")
+                        .param("is_cat", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bot").value(true))
+                .andExpect(jsonPath("$.is_cat").value(true));
+        assertThat(events.stream(ProfileUpdated.class)).hasSize(1);
+        mockMvc.perform(get("/users/alice").accept("application/activity+json"))
+                .andExpect(jsonPath("$.type").value("Service"))
+                .andExpect(jsonPath("$.isCat").value(true))
+                .andExpect(jsonPath("$['@context'][2].isCat").value("misskey:isCat"))
+                .andExpect(jsonPath("$['@context'][2].misskey").value("https://misskey-hub.net/ns#"));
+        mockMvc.perform(get("/users/alice").accept(MediaType.TEXT_HTML))
+                .andExpect(content().string(containsString("<span class=\"profile-label\">Bot</span>")))
+                .andExpect(content().string(containsString("<span class=\"profile-label\">Cat</span>")));
+
+        mockMvc.perform(withToken(patch(UPDATE)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bot\":false,\"is_cat\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bot").value(false))
+                .andExpect(jsonPath("$.is_cat").value(false));
+        assertThat(profiles.find(alice.id()).bot()).isFalse();
+        assertThat(profiles.find(alice.id()).cat()).isFalse();
+        mockMvc.perform(get("/users/alice").accept(MediaType.TEXT_HTML))
+                .andExpect(content().string(not(containsString("profile-label"))));
+    }
+
+    @Test
+    void theSettingsPageMarksTheAccountAsABotOrACat() throws Exception {
+        var session = TestOAuth.logIn(mockMvc, "alice", PASSWORD);
+        mockMvc.perform(get("/settings").session(session))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("name=\"bot\"")))
+                .andExpect(content().string(containsString("name=\"cat\"")));
+
+        mockMvc.perform(post("/settings").session(session).with(csrf()).param("bot", "true").param("cat", "true"))
+                .andExpect(redirectedUrl("/settings?saved"));
+        assertThat(profiles.find(account("alice").id()).bot()).isTrue();
+        assertThat(profiles.find(account("alice").id()).cat()).isTrue();
+
+        mockMvc.perform(post("/settings").session(session).with(csrf()))
+                .andExpect(redirectedUrl("/settings?saved"));
+        assertThat(profiles.find(account("alice").id()).bot()).isFalse();
+        assertThat(profiles.find(account("alice").id()).cat()).isFalse();
     }
 
     @Test
@@ -463,7 +519,7 @@ class ProfileIntegrationTests {
         var profile = new RemoteProfile(
                 "Bob :blob:", "Hello", "<p>Hello</p>", avatar, header,
                 List.of(new RemoteProfile.Field("Site", "bob.test", "<a href=\"https://bob.test\">bob.test</a>")),
-                true, false, true, false, Instant.parse("2020-03-04T05:06:07Z"), URI.create("https://" + host + "/@bob"));
+                true, false, true, false, false, Instant.parse("2020-03-04T05:06:07Z"), URI.create("https://" + host + "/@bob"));
         var bob = transaction.execute(status -> {
             var stored = actors.upsertRemote(new RemoteActorProfile(uri, "bob", host, URI.create(uri + "/inbox"), null,
                     null, null, null, null, profile));
@@ -505,7 +561,7 @@ class ProfileIntegrationTests {
         var uri = URI.create("https://" + host + "/users/carol");
         var avatar = URI.create("https://media." + host + "/avatar.png");
         var header = URI.create("https://media." + host + "/header.png");
-        var profile = new RemoteProfile("Carol", "", "", avatar, header, List.of(), false, false, false, false, null,
+        var profile = new RemoteProfile("Carol", "", "", avatar, header, List.of(), false, false, false, false, false, null,
                 null);
         var carol = transaction.execute(status -> actors.upsertRemote(new RemoteActorProfile(
                 uri, "carol", host, URI.create(uri + "/inbox"), null, null, null, null, null, profile)));
@@ -555,7 +611,7 @@ class ProfileIntegrationTests {
     }
 
     private static RemoteProfile remoteProfile(URI avatar) {
-        return new RemoteProfile("Dave", "", "", avatar, null, List.of(), false, false, false, false, null, null);
+        return new RemoteProfile("Dave", "", "", avatar, null, List.of(), false, false, false, false, false, null, null);
     }
 
     private Optional<Instant> avatarCachedAt(UUID actorId) {
@@ -613,13 +669,17 @@ class ProfileIntegrationTests {
     @Test
     void aSuspendedAccountsDocumentLeavesOutItsProfile() throws Exception {
         var carol = account("carol");
-        profiles.update(carol.id(), ProfileChange.NONE.withDisplayName("Carol").withNote("Bio"));
+        profiles.update(carol.id(), ProfileChange.NONE.withDisplayName("Carol").withNote("Bio").withIndexable(true)
+                .withBot(true).withCat(true));
         actors.suspend(carol.id());
         try {
             mockMvc.perform(get("/users/carol").accept("application/activity+json"))
                     .andExpect(jsonPath("$.suspended").value(true))
+                    .andExpect(jsonPath("$.type").value("Person"))
                     .andExpect(jsonPath("$.name").doesNotExist())
-                    .andExpect(jsonPath("$.summary").doesNotExist());
+                    .andExpect(jsonPath("$.summary").doesNotExist())
+                    .andExpect(jsonPath("$.indexable").doesNotExist())
+                    .andExpect(jsonPath("$.isCat").doesNotExist());
         } finally {
             actors.unsuspend(carol.id());
         }

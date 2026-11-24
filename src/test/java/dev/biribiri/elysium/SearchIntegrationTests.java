@@ -302,7 +302,7 @@ class SearchIntegrationTests {
     private Actor remoteAuthor(boolean indexable) {
         var host = "h" + UUID.randomUUID() + ".test";
         var uri = URI.create("https://" + host + "/users/s");
-        var profile = new RemoteProfile("", "", "", null, null, List.of(), false, indexable, false, false, null, null);
+        var profile = new RemoteProfile("", "", "", null, null, List.of(), false, indexable, false, false, false, null, null);
         return actors.upsertRemote(new RemoteActorProfile(
                 uri, "s", host, URI.create(uri + "/inbox"), null, null, null, URI.create(uri + "/followers"), null,
                 profile));
@@ -311,7 +311,7 @@ class SearchIntegrationTests {
     private String remote(boolean indexable, String html) {
         var host = "h" + UUID.randomUUID() + ".test";
         var uri = URI.create("https://" + host + "/users/s");
-        var profile = new RemoteProfile("", "", "", null, null, List.of(), false, indexable, false, false, null, null);
+        var profile = new RemoteProfile("", "", "", null, null, List.of(), false, indexable, false, false, false, null, null);
         var author = actors.upsertRemote(new RemoteActorProfile(
                 uri, "s", host, URI.create(uri + "/inbox"), null, null, null, null, null, profile));
         return remoteStatuses.storeRemote(new RemoteStatus(
