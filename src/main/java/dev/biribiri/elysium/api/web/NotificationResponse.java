@@ -15,5 +15,14 @@ record NotificationResponse(
         @Schema(description = "For `pleroma:emoji_reaction` with a custom emoji, its image.")
         @JsonProperty("emoji_url") @JsonInclude(JsonInclude.Include.NON_NULL) String emojiUrl,
         @Schema(description = "For `move`, the account that `account` moved to.")
-        @JsonInclude(JsonInclude.Include.NON_NULL) AccountResponse target) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) AccountResponse target,
+        @Schema(description = "Pleroma's extensions, which only have `is_seen`.")
+        Pleroma pleroma) {
+
+    /**
+     * @param seen whether the notification is at or before the notifications marker, so it isn't counted as unread
+     */
+    @Schema(name = "PleromaNotification")
+    record Pleroma(@JsonProperty("is_seen") boolean seen) {
+    }
 }

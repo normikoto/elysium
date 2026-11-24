@@ -251,6 +251,20 @@ public class NotificationRepository {
         return page.newestFirst(jdbc.sql(sql).params(parameters).query(MAPPER).list());
     }
 
+    /**
+     * Newest first, from {@code upTo} itself down to just after {@code after}, or from the oldest if that's null.
+     */
+    public List<Notification> upTo(UUID viewer, UUID after, UUID upTo, int limit) {
+        var sql = new StringBuilder("SELECT n.*" + FROM + " AND n.id <= :upTo");
+        var parameters = new HashMap<String, Object>(Map.of("viewer", viewer, "upTo", upTo, "limit", limit));
+        if (after != null) {
+            sql.append(" AND n.id > :after");
+            parameters.put("after", after);
+        }
+        sql.append(" ORDER BY n.id DESC LIMIT :limit");
+        return jdbc.sql(sql.toString()).params(parameters).query(MAPPER).list();
+    }
+
     public Optional<Notification> find(UUID viewer, UUID id) {
         return jdbc.sql("SELECT n.*" + FROM + " AND n.id = :id").param("viewer", viewer).param("id", id)
                 .query(MAPPER).optional();

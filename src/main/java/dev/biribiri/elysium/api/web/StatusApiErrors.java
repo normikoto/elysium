@@ -41,6 +41,7 @@ import java.util.Map;
         ConversationsController.class,
         MarkersController.class,
         MediaController.class,
+        PleromaNotificationsController.class,
         PollsController.class,
         PushSubscriptionController.class,
         ReactionsController.class,
