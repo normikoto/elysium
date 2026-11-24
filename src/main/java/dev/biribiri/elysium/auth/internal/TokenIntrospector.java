@@ -27,16 +27,19 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
     private final ActorService actors;
     private final LocalAccounts accounts;
     private final ActiveAccounts activeAccounts;
+    private final SignUps signUps;
 
     TokenIntrospector(
             OAuth2AuthorizationService authorizations,
             ActorService actors,
             LocalAccounts accounts,
-            ActiveAccounts activeAccounts) {
+            ActiveAccounts activeAccounts,
+            SignUps signUps) {
         this.authorizations = authorizations;
         this.actors = actors;
         this.accounts = accounts;
         this.activeAccounts = activeAccounts;
+        this.signUps = signUps;
     }
 
     @Override
@@ -78,7 +81,8 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
     /**
      * App tokens record the client as their principal, so that name can only be read as an actor on a user token. Tokens
      * have no foreign key to their actor, so a user token can outlive its account, and checking that here means no
-     * endpoint has to.
+     * endpoint has to. A token can also come before its account, from {@link SignUpTokens}, and the sign-up it waits
+     * for is only looked up once no account is found, so that working tokens don't pay for it.
      */
     private Optional<UUID> actorId(OAuth2Authorization authorization) {
         if (!AuthorizationGrantType.AUTHORIZATION_CODE.equals(authorization.getAuthorizationGrantType())) {
@@ -86,7 +90,13 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
         }
         var actorId = UUID.fromString(authorization.getPrincipalName());
         if (actors.findLocalById(actorId).isEmpty()) {
-            throw new BadOpaqueTokenException("The account for this access token no longer exists");
+            signUps.waiting(actorId).ifPresent(waiting -> {
+                throw new PendingSignUpTokenException(waiting);
+            });
+            // The sign-up may have become the account between the two reads, and a 401 would log the app out.
+            if (actors.findLocalById(actorId).isEmpty()) {
+                throw new BadOpaqueTokenException("The account for this access token no longer exists");
+            }
         }
         return Optional.of(actorId);
     }

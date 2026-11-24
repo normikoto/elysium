@@ -1,6 +1,5 @@
 package dev.biribiri.elysium.auth.internal;
 
-import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.RegistrationProperties;
 import dev.biribiri.elysium.mail.MailNotSentException;
 import dev.biribiri.elysium.moderation.Rules;
@@ -224,23 +223,25 @@ class AccountPagesController {
 
     private static String validate(
             String username, String password, String confirmPassword, boolean invited, String email, String reason) {
-        if (!Actor.isValidLocalUsername(username)) {
+        // Problems come in the order the form shows its fields, so the first is the one to show.
+        var first = SignUpFields.check(username, password, invited, email, reason).stream().findFirst().orElse(null);
+        if (first == SignUpFields.Problem.USERNAME_BLANK || first == SignUpFields.Problem.USERNAME_INVALID) {
             return "Usernames must be 1 to 30 letters, digits, or underscores.";
         }
-        if (!LocalAccounts.isValidPassword(password)) {
+        if (first == SignUpFields.Problem.PASSWORD_BLANK || first == SignUpFields.Problem.PASSWORD_TOO_SHORT
+                || first == SignUpFields.Problem.PASSWORD_TOO_LONG) {
             return "Passwords must be %d to %d characters."
                     .formatted(LocalAccounts.MIN_PASSWORD_LENGTH, LocalAccounts.MAX_PASSWORD_LENGTH);
         }
         if (!password.equals(confirmPassword)) {
             return "The passwords don't match.";
         }
-        if (!invited && !SignUps.isValidEmail(email == null ? null : email.strip())) {
-            return "Enter a valid email address.";
+        if (first == null) {
+            return null;
         }
-        if (reason != null && reason.length() > SignUps.MAX_REASON_LENGTH) {
-            return "Keep the reason to %d characters.".formatted(SignUps.MAX_REASON_LENGTH);
-        }
-        return null;
+        return first == SignUpFields.Problem.REASON_TOO_LONG
+                ? "Keep the reason to %d characters.".formatted(SignUps.MAX_REASON_LENGTH)
+                : "Enter a valid email address.";
     }
 
     /**

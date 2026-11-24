@@ -118,6 +118,43 @@ public final class TestOAuth {
                 .andExpect(status().is3xxRedirection());
     }
 
+    /**
+     * Registers an application and gets a token for it with no user, through the {@code client_credentials} grant.
+     */
+    public static String appToken(MockMvc mockMvc, String scope) throws Exception {
+        var app = registerApp(mockMvc, scope);
+        var body = mockMvc.perform(post("/oauth/token")
+                        .param("grant_type", "client_credentials")
+                        .param("scope", scope)
+                        .param("client_id", app.get("client_id"))
+                        .param("client_secret", app.get("client_secret")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.access_token");
+    }
+
+    /**
+     * Signs someone up through {@code POST /api/v1/accounts}, with an address made from their username.
+     */
+    public static MockHttpServletRequestBuilder signUpRequest(String appToken, String username, String password) {
+        return signUpRequest(appToken, username, username + "@mail.example", password);
+    }
+
+    /**
+     * @param email the address to sign up with, or null to send none
+     */
+    public static MockHttpServletRequestBuilder signUpRequest(
+            String appToken, String username, String email, String password) {
+        var request = post("/api/v1/accounts")
+                .header("Authorization", "Bearer " + appToken)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("username", username)
+                .param("password", password)
+                .param("agreement", "true")
+                .param("locale", "en");
+        return email == null ? request : request.param("email", email);
+    }
+
     public static MockHttpServletRequestBuilder tokenRequest(Map<String, String> app, String callback) {
         return post("/oauth/token")
                 .param("grant_type", "authorization_code")

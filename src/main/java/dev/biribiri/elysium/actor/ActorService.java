@@ -411,6 +411,15 @@ public class ActorService {
      * @throws IllegalArgumentException if the username isn't valid
      */
     public Optional<Actor> createLocalIfAbsent(String username, Consumer<Actor> onCreated) {
+        return createLocalIfAbsent(UUID.randomUUID(), username, onCreated);
+    }
+
+    /**
+     * Creates a local actor with an ID chosen beforehand, as {@link #createLocalIfAbsent(String, Consumer)} does. A sign-up
+     * that waits for its email address to be confirmed chooses its account's ID when it's made, so that a token issued
+     * for it then starts working once the account exists.
+     */
+    public Optional<Actor> createLocalIfAbsent(UUID id, String username, Consumer<Actor> onCreated) {
         if (!Actor.isValidLocalUsername(username)) {
             throw new IllegalArgumentException("Local usernames must be 1 to 30 letters, digits, or underscores");
         }
@@ -426,7 +435,7 @@ public class ActorService {
         // PostgreSQL stores microseconds, so this matches what a later read returns.
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         var actor = new Actor(
-                UUID.randomUUID(),
+                id,
                 instance.resolve(actorPath),
                 username,
                 instance.accountDomain(),

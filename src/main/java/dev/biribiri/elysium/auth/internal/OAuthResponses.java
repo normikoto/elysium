@@ -169,6 +169,10 @@ class OAuthResponses {
         writeJson(response, HttpStatus.UNAUTHORIZED, Map.of("error", "The access token is invalid"));
     }
 
+    void pendingSignUp(HttpServletResponse response, String message) throws IOException {
+        writeJson(response, HttpStatus.FORBIDDEN, Map.of("error", message));
+    }
+
     void insufficientScope(HttpServletResponse response) throws IOException {
         writeJson(response, HttpStatus.FORBIDDEN, Map.of("error", "This action is outside the authorized scopes"));
     }

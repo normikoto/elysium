@@ -215,9 +215,28 @@ class SecurityConfig {
                 .oauth2ResourceServer(server -> server
                         .opaqueToken(token -> token.introspector(introspector))
                         .bearerTokenResolver(new StreamingTokenResolver())
-                        .authenticationEntryPoint((_, response, _) -> responses.invalidToken(response))
+                        .authenticationEntryPoint((_, response, failure) -> {
+                            var pending = pendingSignUp(failure);
+                            if (pending != null) {
+                                responses.pendingSignUp(response, pending.getMessage());
+                            } else {
+                                responses.invalidToken(response);
+                            }
+                        })
                         .accessDeniedHandler((_, response, _) -> responses.insufficientScope(response)))
                 .build();
+    }
+
+    /**
+     * Spring wraps what the introspector throws in its own exception, so the reason has to be found among the causes.
+     */
+    private static PendingSignUpTokenException pendingSignUp(Throwable failure) {
+        for (var cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof PendingSignUpTokenException pending) {
+                return pending;
+            }
+        }
+        return null;
     }
 
     /**
