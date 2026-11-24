@@ -105,7 +105,7 @@ public class FeaturedTagsController {
             throws IOException {
         var viewer = token.actorId().orElseThrow(InvalidRequestException::requiresUser);
         var given = RequestParameters.string(json.readAny(request, MAX_BODY_BYTES), "name");
-        if (given == null) {
+        if (given == null || given.isBlank()) {
             throw new InvalidRequestException("Validation failed: Name can't be blank");
         }
         var name = Hashtags.parse(given.strip())

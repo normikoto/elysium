@@ -264,7 +264,9 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `GET /api/v1/tags/:id` finds any valid tag name, even one that nothing uses, and gets a 404 for an invalid one. Any
   token works, or none.
 - `history` counts only public statuses stored here, over the last 7 days.
-- `following` and `featuring` are left out without a user token. The endpoints for trending tags aren't implemented.
+- `following` and `featuring` are left out without a user token. `POST /api/v1/tags/:id/feature` and `/unfeature`
+  aren't implemented, so tags are featured through `/api/v1/featured_tags`. The endpoints for trending tags aren't
+  implemented either.
 - `POST /api/v1/tags/:id/follow` and `/unfollow` take any valid tag name, even one that nothing uses, and get a 404 for
   an invalid one. Doing either again has no further effect. Other servers aren't told about tag follows, so they
   only bring in statuses that already reach this server.
