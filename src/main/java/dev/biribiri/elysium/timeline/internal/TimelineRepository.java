@@ -7,6 +7,7 @@ import dev.biribiri.elysium.graph.AccountList;
 import dev.biribiri.elysium.graph.Following;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 import dev.biribiri.elysium.graph.ListMembers;
+import dev.biribiri.elysium.graph.TagFollows;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -115,10 +116,21 @@ public class TimelineRepository {
      * have to be checked for everyone who's streaming their home timeline.
      */
     public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
+        return homeViewers(statusId, candidates, true);
+    }
+
+    /**
+     * Like {@link #homeViewers}, but as if nobody followed any tags.
+     */
+    public List<UUID> homeViewersByFollows(UUID statusId, Collection<UUID> candidates) {
+        return homeViewers(statusId, candidates, false);
+    }
+
+    private List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates, boolean withTags) {
         if (candidates.isEmpty()) {
             return List.of();
         }
-        var filter = home("v.id", followed -> Following.accepted("v.id", followed));
+        var filter = home("v.id", followed -> Following.accepted("v.id", followed), withTags);
         return jdbc.sql("SELECT v.id FROM unnest(CAST(:candidates AS uuid[])) AS v (id) WHERE EXISTS (SELECT 1 "
                         + FROM_ACTIVE + "WHERE s.id = :statusId AND " + filter + ")")
                 .param("candidates", array(candidates))
@@ -128,18 +140,23 @@ public class TimelineRepository {
     }
 
     private static Filter homeFilter(UUID viewerId, Collection<UUID> followedIds) {
-        var filter = home(":viewer", followed -> followed + " = ANY (CAST(:followed AS uuid[]))");
+        var filter = home(":viewer", followed -> followed + " = ANY (CAST(:followed AS uuid[]))", true);
         return new Filter(filter, Map.of("viewer", viewerId, "followed", array(followedIds)));
     }
 
     /**
-     * The home timeline's condition, for one viewer bound as a parameter or for each of several in one query.
+     * The home timeline's condition, for one viewer bound as a parameter or for each of several in one query. A followed
+     * tag adds public statuses with it, replies included, as the tag's timeline lists them. Exclusive lists and follow
+     * options don't keep these out, since they're about following the author, but blocks and mutes do.
      *
      * @param viewer   the viewer's ID, as SQL
      * @param follows  the condition that the viewer follows the account with the ID given as SQL
+     * @param withTags whether followed tags add statuses
      */
-    private static String home(String viewer, Function<String, String> follows) {
-        return "(s.actor_id = " + viewer
+    private static String home(String viewer, Function<String, String> follows, boolean withTags) {
+        var tagged = !withTags ? "" : " OR (s.visibility = 'public' AND s.reblog_of_id IS NULL AND EXISTS (SELECT 1"
+                + " FROM status_tag ft WHERE ft.status_id = s.id AND " + TagFollows.follows(viewer, "ft.name") + "))";
+        return "(s.actor_id = " + viewer + tagged
                 + " OR (" + follows.apply("s.actor_id") + " AND NOT " + ListMembers.inExclusiveList(viewer, "s.actor_id")
                 + " AND NOT " + Following.hidesFromFeeds(viewer, "s")
                 + " AND ((s.visibility IN ('public', 'unlisted', 'private')"

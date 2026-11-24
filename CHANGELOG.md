@@ -9,6 +9,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- People can follow hashtags from an app, as on Mastodon. Public posts with a followed hashtag appear in their home
+  timeline, including posts from accounts they don't follow, unless the author is blocked or muted. Only posts that
+  reach this server appear, because other servers aren't told about tag follows. See [Using the
+  API](docs/api.md#tags).
 - Notifications include Pleroma's `pleroma.is_seen`, so apps that use it can show which are new, and apps can mark
   them as seen with Pleroma's `POST /api/v1/pleroma/notifications/read`. A notification is seen once the notifications
   marker reaches it, as with unread counts. See [Using the API](docs/api.md#seen-notifications).

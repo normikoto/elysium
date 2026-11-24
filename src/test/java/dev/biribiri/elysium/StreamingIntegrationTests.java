@@ -24,6 +24,7 @@ import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.AccountLists;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.graph.TagFollows;
 import dev.biribiri.elysium.timeline.TimelineService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,6 +91,7 @@ class StreamingIntegrationTests {
     @Autowired PostFilters filters;
     @Autowired PostFilterCache filterCache;
     @Autowired AccountLists lists;
+    @Autowired TagFollows tagFollows;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final List<Client> clients = new ArrayList<>();
@@ -103,6 +105,7 @@ class StreamingIntegrationTests {
         settled();
         jdbc.sql("DELETE FROM status").update();
         jdbc.sql("DELETE FROM follow").update();
+        jdbc.sql("DELETE FROM tag_follow").update();
         jdbc.sql("DELETE FROM account_block").update();
         jdbc.sql("DELETE FROM notification").update();
         jdbc.sql("DELETE FROM conversation").update();
@@ -208,6 +211,19 @@ class StreamingIntegrationTests {
                 .isEqualTo("Missing list name parameter");
         assertThat(get("/api/v1/streaming/list?list=" + list.id() + "&access_token=" + bobToken).statusCode())
                 .isEqualTo(401);
+    }
+
+    @Test
+    void theUserStreamCarriesFollowedTags() throws Exception {
+        tagFollows.follow(alice.id(), "cats");
+        var stream = webSocket("?stream=user", aliceToken);
+
+        var status = post(bob, "#Cats", Visibility.PUBLIC);
+        var update = stream.next(event("update"));
+        assertThat(JsonPath.<String>read(JsonPath.<String>read(update, "$.payload"), "$.id"))
+                .isEqualTo(status.id().toString());
+        post(bob, "#cats quietly", Visibility.UNLISTED);
+        stream.expectNothing();
     }
 
     @Test
@@ -389,6 +405,8 @@ class StreamingIntegrationTests {
                 parent.id()));
         var direct = post(bob, "@streamalice psst", Visibility.DIRECT);
         var tagged = post(bob, "#dogs", Visibility.PUBLIC);
+        var cats = post(carol, "#cats", Visibility.PUBLIC);
+        tagFollows.follow(alice.id(), "cats");
 
         var home = timelines.homeViewers(reply.id(), List.of(alice.id()));
         assertThat(home).isEmpty();
@@ -402,7 +420,7 @@ class StreamingIntegrationTests {
 
         follows.follow(carol, bob);
         var everyone = List.of(alice.id(), bob.id(), carol.id());
-        for (var status : List.of(parent, reply, direct, tagged)) {
+        for (var status : List.of(parent, reply, direct, tagged, cats)) {
             var listing = everyone.stream().filter(viewer -> timelines.homeTimeline(viewer,
                     new IdPage(40, null, null, null)).stream().anyMatch(found -> found.id().equals(status.id()))).toList();
             assertThat(timelines.homeViewers(status.id(), everyone)).as(status.text())

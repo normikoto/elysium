@@ -170,7 +170,7 @@ public class SearchController {
         var shouldResolve = RequestParameters.flag(resolve);
         var query = q.strip();
 
-        var foundTags = searchTags ? tags(query, pageSize, requestedOffset, viewer.isPresent()) : List.<TagResponse>of();
+        var foundTags = searchTags ? tags(query, pageSize, requestedOffset, viewer) : List.<TagResponse>of();
         var onlyFollowed = RequestParameters.flag(following);
         if (AccountSearch.isUrl(query)) {
             return byUrl(query, viewer, shouldResolve, onlyFollowed, searchAccounts, searchStatuses, requestedOffset,
@@ -232,7 +232,7 @@ public class SearchController {
      * As on Mastodon, a query that names a tag finds it even when nothing uses it, so that a client can open its timeline
      * or offer it while someone's writing.
      */
-    private List<TagResponse> tags(String query, int pageSize, int skipped, boolean signedIn) {
+    private List<TagResponse> tags(String query, int pageSize, int skipped, Optional<UUID> viewer) {
         var exact = Hashtags.parse(query);
         if (exact.isEmpty() || skipped >= MAX_TAG_OFFSET) {
             return List.of();
@@ -244,7 +244,7 @@ public class SearchController {
                 names.removeLast();
             }
         }
-        return tags.build(names, signedIn);
+        return tags.build(names, viewer);
     }
 
     /**
