@@ -540,6 +540,16 @@ Only these types are generated: `mention`, `status`, `follow`, `follow_request`,
 - Notifications aren't suppressed by a per-domain quota.
 - Reads don't mark notifications as read, and dismissing a conversation doesn't dismiss its notifications.
 
+### Seen notifications
+
+- Each notification has Pleroma's `pleroma.is_seen`, which is true for one at or before the notifications marker's
+  `last_read_id`, the same marker that unread counts use. With no marker, nothing is seen.
+- Pleroma's `POST /api/v1/pleroma/notifications/read` with `max_id` moves the notifications marker forward to it, and
+  returns the notifications that it made seen, newest first, and at most 80. It never moves the marker back, and
+  returns none if the marker is already there. It needs `write:notifications`.
+- Notifications are only seen up to a position, so that endpoint's `id`, for marking a single notification, is refused.
+  Grouped notifications don't have `is_seen`.
+
 ## Push notifications
 
 Follow [Mastodon's push API](https://docs.joinmastodon.org/methods/push/): `POST`, `GET`, `PUT`, and

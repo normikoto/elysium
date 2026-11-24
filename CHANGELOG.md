@@ -9,6 +9,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Notifications include Pleroma's `pleroma.is_seen`, so apps that use it can show which are new, and apps can mark
+  them as seen with Pleroma's `POST /api/v1/pleroma/notifications/read`. A notification is seen once the notifications
+  marker reaches it, as with unread counts. See [Using the API](docs/api.md#seen-notifications).
 - Apps can send push notifications to phones and browsers through `/api/v1/push/subscription`, as on Mastodon,
   including Pleroma's `pleroma:emoji_reaction` for emoji reactions. The server creates its push key the first time
   it's needed, and nothing has to be configured. Elysium only sends to push services on public addresses. See [Using

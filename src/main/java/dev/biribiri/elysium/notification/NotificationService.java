@@ -14,6 +14,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 @Service
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -58,6 +59,33 @@ public class NotificationService {
 
     public long unreadGroupCount(UUID viewer, NotificationFilter filter, int limit, List<String> groupedTypes) {
         return notifications.countGroups(viewer, filter, Math.clamp(limit, 1, 1000), notificationPosition(viewer), groupedTypes);
+    }
+
+    /**
+     * Pleroma's {@code is_seen}, read from the marker that unread counts use, so that a notification counts as unread
+     * exactly when it isn't seen. The order is PostgreSQL's, which compares UUIDs as unsigned bytes.
+     */
+    public Predicate<Notification> seen(UUID viewer) {
+        var position = notificationPosition(viewer);
+        if (position == null) return notification -> false;
+        return notification -> compareUnsigned(notification.id(), position) <= 0;
+    }
+
+    /**
+     * Pleroma's way of marking notifications as seen, which moves the notifications marker, so that unread counts agree.
+     *
+     * @return the notifications this made seen, newest first, or none if the marker was already at or past {@code maxId}
+     */
+    @Transactional
+    public List<Notification> seeUpTo(UUID viewer, UUID maxId, int limit) {
+        var previous = notificationPosition(viewer);
+        if (!markers.advance(viewer, "notifications", maxId)) return List.of();
+        return notifications.upTo(viewer, previous, maxId, limit);
+    }
+
+    private static int compareUnsigned(UUID a, UUID b) {
+        var high = Long.compareUnsigned(a.getMostSignificantBits(), b.getMostSignificantBits());
+        return high != 0 ? high : Long.compareUnsigned(a.getLeastSignificantBits(), b.getLeastSignificantBits());
     }
 
     @Transactional

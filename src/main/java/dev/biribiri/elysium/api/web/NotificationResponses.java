@@ -14,6 +14,7 @@ import dev.biribiri.elysium.moderation.Reports;
 import dev.biribiri.elysium.notification.Conversation;
 import dev.biribiri.elysium.notification.Notification;
 import dev.biribiri.elysium.notification.NotificationGroup;
+import dev.biribiri.elysium.notification.NotificationService;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -42,10 +43,12 @@ class NotificationResponses {
     private final ReactionService reactions;
     private final CustomEmojis emojis;
     private final InstanceProperties instance;
+    private final NotificationService notifications;
 
     NotificationResponses(ActorService actors, AccountResponses accounts, StatusService statuses,
                           StatusResponses statusResponses, DomainBlocks blocks, Reports reports, ReactionService reactions,
-                          CustomEmojis emojis, InstanceProperties instance) {
+                          CustomEmojis emojis, InstanceProperties instance, NotificationService notifications) {
+        this.notifications = notifications;
         this.reactions = reactions;
         this.emojis = emojis;
         this.instance = instance;
@@ -67,6 +70,7 @@ class NotificationResponses {
         var reactionMap = reactions.findAll(found.stream().map(Notification::reactionId).filter(Objects::nonNull).toList());
         var emojiMap = emojis.findAll(reactionMap.values().stream().map(StatusReaction::emojiId).filter(Objects::nonNull)
                 .distinct().toList()).stream().collect(Collectors.toMap(CustomEmoji::id, Function.identity()));
+        var seen = notifications.seen(viewer);
         return found.stream().filter(n -> accountMap.containsKey(n.accountId()))
                 .filter(n -> n.statusId() == null || statusMap.containsKey(n.statusId()))
                 .filter(n -> n.reportId() == null || reportMap.containsKey(n.reportId()))
@@ -81,7 +85,8 @@ class NotificationResponses {
                             n.reportId() == null ? null : reportMap.get(n.reportId()),
                             reaction == null ? null : ReactionService.nameOf(reaction.name(), emoji),
                             emoji == null ? null : emoji.url(instance).toString(),
-                            n.targetId() == null ? null : accountMap.get(n.targetId()));
+                            n.targetId() == null ? null : accountMap.get(n.targetId()),
+                            new NotificationResponse.Pleroma(seen.test(n)));
                 }).toList();
     }
 

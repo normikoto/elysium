@@ -31,6 +31,16 @@ public class Markers {
         return markers.save(owner, positions);
     }
 
+    /**
+     * Moves a marker forward to a position, and never back, for APIs that only ever mark more as read.
+     *
+     * @return whether it moved
+     */
+    @Transactional
+    public boolean advance(UUID owner, String timeline, UUID position) {
+        return markers.advance(owner, timeline, position);
+    }
+
     @Transactional
     public void removeForActor(UUID owner) {
         markers.removeForOwner(owner);

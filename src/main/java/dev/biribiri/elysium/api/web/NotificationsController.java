@@ -64,6 +64,9 @@ public class NotificationsController {
                     unlike Mastodon. Notification policies and requests are unavailable. Pages default to 40 and \
                     allow up to 80 results.
 
+                    Pleroma's `pleroma.is_seen` is true for notifications at or before the notifications marker, \
+                    which unread counts also use.
+
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "notifications/#get-all"),
             parameters = {

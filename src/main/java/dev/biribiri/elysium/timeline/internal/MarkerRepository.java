@@ -53,6 +53,18 @@ public class MarkerRepository {
         return find(owner, timelines);
     }
 
+    /**
+     * One statement, so that a concurrent save can't be moved back: the update checks the row as it is once locked.
+     */
+    public boolean advance(UUID owner, String timeline, UUID position) {
+        return jdbc.sql("""
+                        INSERT INTO marker (owner_id, timeline, last_read_id) VALUES (:owner, :timeline, :last)
+                        ON CONFLICT (owner_id, timeline) DO UPDATE
+                        SET last_read_id = EXCLUDED.last_read_id, version = marker.version + 1, updated_at = clock_timestamp()
+                        WHERE marker.last_read_id < EXCLUDED.last_read_id
+                        """).param("owner", owner).param("timeline", timeline).param("last", position).update() != 0;
+    }
+
     public void removeForOwner(UUID owner) {
         jdbc.sql("DELETE FROM marker WHERE owner_id = :owner").param("owner", owner).update();
     }

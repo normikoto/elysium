@@ -67,6 +67,7 @@ class NotificationIntegrationTests {
     private static final String GROUPS = "/api/v2/notifications";
     private static final String CONVERSATIONS = "/api/v1/conversations";
     private static final String MARKERS = "/api/v1/markers";
+    private static final String PLEROMA_READ = "/api/v1/pleroma/notifications/read";
     private static final Set<String> SCOPES = Set.of("read:notifications", "write:notifications", "read:statuses",
             "write:statuses", "write:conversations");
     @Autowired MockMvc mvc;
@@ -391,6 +392,55 @@ class NotificationIntegrationTests {
                 .andExpect(jsonPath("$.notification_groups[1].type").value("mention"));
         mvc.perform(get(GROUPS).with(user(bob)).param("limit", "1").param("max_id", mentionNotification))
                 .andExpect(jsonPath("$.notification_groups[0].type").value("follow"));
+    }
+
+    @Test
+    void notificationsAreSeenUpToTheNotificationsMarker() throws Exception {
+        follows.follow(alice, bob);
+        follows.follow(carol, bob);
+        createStatus(alice, "@inboxbob hello", DIRECT, null);
+        settled();
+        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
+                .andExpect(jsonPath("$[*].pleroma.is_seen", contains(false, false, false)));
+        String middle = values(get(NOTIFICATIONS).with(user(bob)), "$[1].id");
+        mvc.perform(post(MARKERS).with(user(bob)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"notifications\":{\"last_read_id\":\"" + middle + "\"}}"))
+                .andExpect(status().isOk());
+        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
+                .andExpect(jsonPath("$[*].pleroma.is_seen", contains(false, true, true)));
+        mvc.perform(get(NOTIFICATIONS + "/" + middle).with(user(bob))).andExpect(jsonPath("$.pleroma.is_seen").value(true));
+        mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(1));
+    }
+
+    @Test
+    void pleromasReadEndpointOnlyMovesTheMarkerForward() throws Exception {
+        follows.follow(alice, bob);
+        follows.follow(carol, bob);
+        createStatus(alice, "@inboxbob hello", DIRECT, null);
+        settled();
+        List<String> ids = values(get(NOTIFICATIONS).with(user(bob)), "$[*].id");
+        mvc.perform(post(PLEROMA_READ).with(user(bob)).param("max_id", ids.get(1)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[*].id", contains(ids.get(1), ids.get(2))))
+                .andExpect(jsonPath("$[*].pleroma.is_seen", contains(true, true)));
+        mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(1));
+        mvc.perform(post(PLEROMA_READ).with(user(bob)).param("max_id", ids.get(2)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(0)));
+        mvc.perform(get(MARKERS).with(user(bob)).param("timeline[]", "notifications"))
+                .andExpect(jsonPath("$.notifications.last_read_id").value(ids.get(1)));
+        mvc.perform(post(PLEROMA_READ).with(user(bob)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"max_id\":\"" + ids.get(0) + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[*].id", contains(ids.get(0))));
+        mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(0));
+    }
+
+    @Test
+    void pleromasReadEndpointNeedsAMaxId() throws Exception {
+        mvc.perform(post(PLEROMA_READ).with(user(bob))).andExpect(status().isUnprocessableContent());
+        mvc.perform(post(PLEROMA_READ).with(user(bob)).param("id", UUID.randomUUID().toString()))
+                .andExpect(status().isUnprocessableContent());
+        mvc.perform(post(PLEROMA_READ).with(user(bob)).param("max_id", "nope"))
+                .andExpect(status().isUnprocessableContent());
+        mvc.perform(get(MARKERS).with(user(bob)).param("timeline[]", "notifications")).andExpect(content().json("{}"));
     }
 
     @Test
