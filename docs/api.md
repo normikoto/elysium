@@ -495,7 +495,7 @@ Follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/noti
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
 - Notification policies and notification requests aren't implemented. `include_filtered` has no effect, and
   `supported_types[]` has no effect because generated types have no fallback representations.
-- Push subscriptions aren't implemented, but [streaming](#streaming) is.
+- [Push subscriptions](#push-notifications) and [streaming](#streaming) both deliver new notifications.
 
 ### Types
 
@@ -539,6 +539,32 @@ Only these types are generated: `mention`, `status`, `follow`, `follow_request`,
   brings back only what came before the mute.
 - Notifications aren't suppressed by a per-domain quota.
 - Reads don't mark notifications as read, and dismissing a conversation doesn't dismiss its notifications.
+
+## Push notifications
+
+Follow [Mastodon's push API](https://docs.joinmastodon.org/methods/push/): `POST`, `GET`, `PUT`, and
+`DELETE /api/v1/push/subscription`, with a user token that has the `push` scope. App tokens get 422.
+
+- Each token has at most one subscription, and `POST` replaces it with a new one, as on Mastodon. Subscription IDs are
+  UUIDs rather than numbers. A subscription ends when its token is revoked, its app is revoked, or the user's password
+  changes.
+- The server's key is `server_key` on the subscription, `configuration.vapid.public_key` in `GET /api/v2/instance`,
+  and `vapid_key` on applications.
+- `subscription[standard]=true` encrypts messages as RFC 8291's `aes128gcm`. Without it they use the older `aesgcm`, as
+  on Mastodon. Keys can be base64url, with or without padding, or plain base64.
+- `subscription[endpoint]` has to be an HTTPS URL of at most 2048 characters, on a public address. Others get 422, as
+  do a `p256dh` that isn't a P-256 point and an `auth` that isn't 16 bytes.
+- `data[alerts]` takes Mastodon's types and `pleroma:emoji_reaction` for [emoji reactions](#emoji-reactions). Types that
+  aren't given aren't pushed, and other keys are ignored. `move` and `pending.quote` notifications are never pushed.
+- In a `PUT`, `data[alerts]` replaces every alert when it's given, as on Mastodon, and is kept when it isn't. A missing
+  `data[policy]` keeps the policy. `POST` defaults it to `all`.
+- `followed` pushes only notifications from accounts the user follows, and `follower` only those from accounts that
+  follow the user.
+- Messages have Mastodon's fields: `access_token`, `preferred_locale`, `notification_id`, `notification_type`, `icon`,
+  `title`, and `body`. The title and body are always in English. The body is a status's content warning if it has one,
+  otherwise its text, cut to 140 characters, or the sender's handle for notifications without a status.
+- A message that can't be sent is retried for up to 48 hours, which is also its `TTL`. A push service that answers 400,
+  404, or 410 ends the subscription.
 
 ## Conversations
 

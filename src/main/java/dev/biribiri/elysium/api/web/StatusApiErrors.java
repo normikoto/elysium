@@ -42,6 +42,7 @@ import java.util.Map;
         MarkersController.class,
         MediaController.class,
         PollsController.class,
+        PushSubscriptionController.class,
         ReactionsController.class,
         AdminAccountsController.class,
         AdminReportsController.class,

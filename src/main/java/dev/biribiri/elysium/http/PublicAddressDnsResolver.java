@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.http;
+package dev.biribiri.elysium.http;
 
 import org.apache.hc.client5.http.DnsResolver;
 import org.springframework.boot.http.client.InetAddressFilter;
@@ -16,25 +16,25 @@ import java.util.List;
  * sends IP literals through here, including forms like {@code 2130706433} and {@code 127.1}, so only the resolved
  * addresses are checked and never the hostname.
  */
-final class PublicAddressDnsResolver implements DnsResolver {
+public final class PublicAddressDnsResolver implements DnsResolver {
 
     /**
      * The exclusion covers IPv4-compatible addresses such as {@code ::10.0.0.1}, which the filter otherwise allows. It
      * can't overlap with real addresses, because that range is deprecated.
      */
-    static final InetAddressFilter PUBLIC_ADDRESSES = InetAddressFilter.externalAddresses().andNot("::/96");
+    public static final InetAddressFilter PUBLIC_ADDRESSES = InetAddressFilter.externalAddresses().andNot("::/96");
 
     /**
      * @param networks private networks to allow as well, in CIDR form
      */
-    static InetAddressFilter publicAddressesAnd(List<String> networks) {
+    public static InetAddressFilter publicAddressesAnd(List<String> networks) {
         return networks.isEmpty() ? PUBLIC_ADDRESSES : PUBLIC_ADDRESSES.or(networks.toArray(String[]::new));
     }
 
     private final DnsResolver delegate;
     private final InetAddressFilter filter;
 
-    PublicAddressDnsResolver(DnsResolver delegate, InetAddressFilter filter) {
+    public PublicAddressDnsResolver(DnsResolver delegate, InetAddressFilter filter) {
         this.delegate = delegate;
         this.filter = filter;
     }

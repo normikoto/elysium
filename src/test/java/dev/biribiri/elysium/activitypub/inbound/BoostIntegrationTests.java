@@ -507,7 +507,7 @@ class BoostIntegrationTests {
 
     private RequestPostProcessor scoped(UUID actor, Set<String> scopes) {
         return opaqueToken().principal(new TokenPrincipal("test", Optional.ofNullable(actor), scopes,
-                Instant.now(), Instant.now().plusSeconds(3600)));
+                Instant.now(), Instant.now().plusSeconds(3600), "test"));
     }
 
     private long boostCount(Status post) {

@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.http;
+package dev.biribiri.elysium.http;
 
 import org.apache.hc.client5.http.DnsResolver;
 import org.junit.jupiter.api.Test;

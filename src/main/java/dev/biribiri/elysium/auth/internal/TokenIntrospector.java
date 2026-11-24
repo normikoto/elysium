@@ -57,7 +57,8 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
                 actorId,
                 effectiveScopes(accessToken.getToken().getScopes(), actorId),
                 accessToken.getToken().getIssuedAt(),
-                accessToken.getToken().getExpiresAt());
+                accessToken.getToken().getExpiresAt(),
+                authorization.getId());
     }
 
     /**

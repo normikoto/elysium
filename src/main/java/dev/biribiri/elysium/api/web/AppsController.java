@@ -4,6 +4,7 @@ import dev.biribiri.elysium.auth.AppRegistrationLimitException;
 import dev.biribiri.elysium.auth.ClientRegistrations;
 import dev.biribiri.elysium.auth.InvalidClientRegistrationException;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.push.PushSubscriptions;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
@@ -40,9 +41,11 @@ import java.util.stream.Stream;
 class AppsController {
 
     private final ClientRegistrations registrations;
+    private final PushSubscriptions push;
 
-    AppsController(ClientRegistrations registrations) {
+    AppsController(ClientRegistrations registrations, PushSubscriptions push) {
         this.registrations = registrations;
+        this.push = push;
     }
 
     @PostMapping(consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE})
@@ -55,7 +58,7 @@ class AppsController {
                 form.getFirst("client_name"),
                 splitRedirectUris(redirectUris),
                 form.getFirst("scopes"),
-                form.getFirst("website")));
+                form.getFirst("website")), push.serverKey());
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -96,7 +99,7 @@ class AppsController {
                 string(body.get("client_name")),
                 splitRedirectUris(redirectUris),
                 string(body.get("scopes")),
-                string(body.get("website"))));
+                string(body.get("website"))), push.serverKey());
     }
 
     /**
@@ -111,7 +114,7 @@ class AppsController {
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "apps/#verify_credentials"),
             responses = @ApiResponse(responseCode = "200", description = "The application, without its credentials."))
     ResponseEntity<ApplicationResponse> verifyCredentials(@AuthenticationPrincipal TokenPrincipal token) {
-        return ResponseEntity.of(registrations.findById(token.applicationId()).map(ApplicationResponse::from));
+        return ResponseEntity.of(registrations.findById(token.applicationId()).map(app -> ApplicationResponse.from(app, push.serverKey())));
     }
 
     @ExceptionHandler

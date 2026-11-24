@@ -2,7 +2,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
-import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
+import dev.biribiri.elysium.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
 import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;

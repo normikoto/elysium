@@ -41,6 +41,7 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `mail`        | Sending email over SMTP                    | nothing                                        |
 | `text`        | Rendering plain text as HTML               | nothing                                        |
 | `jobs`        | Background jobs, and retrying event listeners | nothing                                     |
+| `http`        | Requests to untrusted servers that can't reach private addresses | nothing                     |
 | `actor`       | Local and remote actors, profiles, keys    | `jobs`, `media`, `text`                        |
 | `ratelimit`   | Counting attempts per client               | `actor`                                        |
 | `auth`        | Logins, sign-ups, OAuth, HTTP security     | `actor`, `mail`, `moderation`, `ratelimit`     |
@@ -50,9 +51,10 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 | `announcement` | Admins' announcements, and their dismissals and reactions | `actor`, `content`              |
 | `timeline`    | Home, list, and public feeds, and read markers | `actor`, `content`, `graph`                    |
 | `notification` | Notifications and direct-message conversations | `actor`, `auth`, `content`, `graph`, `moderation`, `timeline` |
-| `api`         | Mastodon-compatible REST API               | `actor`, `announcement`, `auth`, `content`, `graph`, `moderation`, `notification`, `text`, `timeline` |
+| `push`        | Web Push subscriptions, and sending notifications to push services | `actor`, `auth`, `content`, `graph`, `http`, `jobs`, `notification`, `text` |
+| `api`         | Mastodon-compatible REST API               | `actor`, `announcement`, `auth`, `content`, `graph`, `moderation`, `notification`, `push`, `text`, `timeline` |
 | `web`         | Public HTML pages (Thymeleaf)              | `actor`, `auth`, `content`, `graph`, `moderation`, `ratelimit`, `text`, `timeline` |
-| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `jobs`, `moderation`, `ratelimit`, `text` |
+| `activitypub` | Federation protocol adapter                | `actor`, `actor::signing`, `content`, `graph`, `http`, `jobs`, `moderation`, `ratelimit`, `text` |
 
 - Only a module's base package is visible to other modules. Subpackages such as `content.internal` and `api.web` aren't.
 - `actor.signing` exposes private keys as a named interface, so a module has to ask for it explicitly. Only `activitypub`

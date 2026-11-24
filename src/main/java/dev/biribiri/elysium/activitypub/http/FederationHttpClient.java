@@ -1,5 +1,7 @@
 package dev.biribiri.elysium.activitypub.http;
 
+import dev.biribiri.elysium.http.BlockedTargetException;
+import dev.biribiri.elysium.http.PublicAddressDnsResolver;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.apache.hc.client5.http.DnsResolver;

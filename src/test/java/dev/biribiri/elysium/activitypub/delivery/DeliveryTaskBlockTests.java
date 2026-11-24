@@ -1,6 +1,6 @@
 package dev.biribiri.elysium.activitypub.delivery;
 
-import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
+import dev.biribiri.elysium.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.signature.SignedSender;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
