@@ -82,6 +82,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The Mastodon API now accepts trailing slashes, as Mastodon does. Apps such as Brutaldon can connect using paths like
   `/api/v1/instance/` or `/api/v2/instance/`, which previously returned 401.
+- The settings page is wider, and the avatar and header previews fit within the page instead of being shown at the
+  uploaded image's full size.
 
 ## [0.3.0] - 2026-11-20
 

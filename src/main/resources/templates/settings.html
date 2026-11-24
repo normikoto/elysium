@@ -1,126 +1,128 @@
 <!doctype html>
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Settings', ~{::content})}">
 <th:block th:fragment="content">
-    <p class="notice" role="status" th:if="${saved}">Your settings are saved.</p>
-    <p class="error" role="alert" th:if="${error != null}">
-        Nothing was saved: <span th:text="${error}"></span>. Any image you chose has to be chosen again.
-    </p>
-    <p><a th:href="@{/users/{username}(username=${username})}">See your profile</a></p>
-    <form method="post" enctype="multipart/form-data" th:action="@{/settings}">
-        <h2>Profile</h2>
-        <label>
-            Display name
-            <input type="text" name="displayName" th:value="${displayName}" th:maxlength="${maxDisplayName}">
-        </label>
-        <label>
-            Bio
-            <textarea name="note" rows="5" th:maxlength="${maxNote}" th:text="${note}"></textarea>
-        </label>
-        <fieldset th:if="${!fields.isEmpty()}">
-            <legend th:text="|Fields (up to ${maxFields})|"></legend>
-            <p>
-                A field whose value is only a link that starts with https:// is marked as verified if that page links
-                back to your profile with <code>rel="me"</code>.
-            </p>
-            <th:block th:each="field, row : ${fields}">
-                <label>
-                    <span th:text="|Name ${row.count}|"></span>
-                    <input type="text" name="fieldName" th:value="${field.name()}" th:maxlength="${maxFieldName}">
-                </label>
-                <label>
-                    <span th:text="|Value ${row.count}|"></span>
-                    <span th:if="${field.verified()}">(verified)</span>
-                    <input type="text" name="fieldValue" th:value="${field.value()}" th:maxlength="${maxFieldValue}">
-                </label>
+    <div class="settings">
+        <p class="notice" role="status" th:if="${saved}">Your settings are saved.</p>
+        <p class="error" role="alert" th:if="${error != null}">
+            Nothing was saved: <span th:text="${error}"></span>. Any image you chose has to be chosen again.
+        </p>
+        <p><a th:href="@{/users/{username}(username=${username})}">See your profile</a></p>
+        <form method="post" enctype="multipart/form-data" th:action="@{/settings}">
+            <h2>Profile</h2>
+            <label>
+                Display name
+                <input type="text" name="displayName" th:value="${displayName}" th:maxlength="${maxDisplayName}">
+            </label>
+            <label>
+                Bio
+                <textarea name="note" rows="5" th:maxlength="${maxNote}" th:text="${note}"></textarea>
+            </label>
+            <fieldset th:if="${!fields.isEmpty()}">
+                <legend th:text="|Fields (up to ${maxFields})|"></legend>
+                <p>
+                    A field whose value is only a link that starts with https:// is marked as verified if that page links
+                    back to your profile with <code>rel="me"</code>.
+                </p>
+                <th:block th:each="field, row : ${fields}">
+                    <label>
+                        <span th:text="|Name ${row.count}|"></span>
+                        <input type="text" name="fieldName" th:value="${field.name()}" th:maxlength="${maxFieldName}">
+                    </label>
+                    <label>
+                        <span th:text="|Value ${row.count}|"></span>
+                        <span th:if="${field.verified()}">(verified)</span>
+                        <input type="text" name="fieldValue" th:value="${field.value()}" th:maxlength="${maxFieldValue}">
+                    </label>
+                </th:block>
+            </fieldset>
+            <label>
+                Avatar
+                <input type="file" name="avatar" accept="image/png, image/jpeg, image/gif, image/webp">
+            </label>
+            <th:block th:if="${avatar != null}">
+                <img class="profile-avatar-preview" th:src="${avatar}" alt="Your avatar">
+                <label><input type="checkbox" name="removeAvatar" value="true"> Remove your avatar</label>
             </th:block>
-        </fieldset>
-        <label>
-            Avatar
-            <input type="file" name="avatar" accept="image/png, image/jpeg, image/gif, image/webp">
-        </label>
-        <th:block th:if="${avatar != null}">
-            <img class="avatar" th:src="${avatar}" alt="Your avatar">
-            <label><input type="checkbox" name="removeAvatar" value="true"> Remove your avatar</label>
-        </th:block>
-        <label>
-            Header
-            <input type="file" name="header" accept="image/png, image/jpeg, image/gif, image/webp">
-        </label>
-        <th:block th:if="${header != null}">
-            <img class="profile-header" th:src="${header}" alt="Your header">
-            <label><input type="checkbox" name="removeHeader" value="true"> Remove your header</label>
-        </th:block>
-        <label>
-            Background
-            <input type="file" name="background" accept="image/png, image/jpeg, image/gif, image/webp">
-        </label>
-        <th:block th:if="${background != null}">
-            <img class="profile-background-preview" th:src="${background}" alt="Your background">
-            <label><input type="checkbox" name="removeBackground" value="true"> Remove your background</label>
-        </th:block>
-        <p>
-            Images can be PNG, JPEG, GIF, or WebP. Avatars are cropped to a square, and headers to three times as wide
-            as they are tall. Backgrounds aren't cropped, and are shown behind your profile here and in apps that support
-            them, but not on other servers.
-        </p>
-        <h2>Privacy</h2>
-        <label>
-            <input type="checkbox" name="hideCollections" value="true" th:checked="${hideCollections}">
-            Hide who follows you and who you follow
-        </label>
-        <p>
-            Other people and servers still see how many there are. You can always see your own lists.
-        </p>
-        <label>
-            <input type="checkbox" name="manuallyApprovesFollowers" value="true"
-                   th:checked="${manuallyApprovesFollowers}">
-            Approve followers by hand
-        </label>
-        <p>
-            Requests to follow you wait until you approve or refuse them in your app. Turning this off approves those
-            still waiting.
-        </p>
-        <label>
-            <input type="checkbox" name="approvesFollowed" value="true" th:checked="${approvesFollowed}">
-            Approve requests from people you follow straight away
-        </label>
-        <p>
-            Only matters while you approve followers by hand. Turning this on approves the requests still waiting from
-            people you follow.
-        </p>
-        <label>
-            <input type="checkbox" name="indexable" value="true" th:checked="${indexable}">
-            Let anyone find your public posts by searching
-        </label>
-        <p>
-            Even with this off, people here can find your posts that they've favourited or bookmarked, or that mention
-            them. Other servers are told about this setting, and decide for themselves what their search finds.
-        </p>
-        <label>
-            <input type="checkbox" name="bot" value="true" th:checked="${bot}">
-            This is an automated account
-        </label>
-        <p>
-            For an account that posts by itself, or mostly doesn't read replies. It's marked as a bot on your profile,
-            in apps, and on other servers.
-        </p>
-        <label>
-            <input type="checkbox" name="cat" value="true" th:checked="${cat}">
-            I'm a cat
-        </label>
-        <p>
-            Misskey and the servers based on it show cat ears on your avatar. Your profile here says so too.
-        </p>
-        <button type="submit">Save</button>
-    </form>
-    <p><a href="/settings/password">Change your password</a></p>
-    <p><a href="/settings/two-factor">Two-factor login</a></p>
-    <p><a href="/oauth/authorized_applications">Authorized apps</a></p>
-    <p><a href="/settings/aliases">Account aliases</a></p>
-    <p><a href="/settings/post-cleanup">Automated post deletion</a></p>
-    <p><a href="/settings/imports">Import and export follows, blocks, and mutes</a></p>
-    <p><a href="/settings/move">Move your account</a></p>
-    <p><a href="/settings/delete-account">Delete your account</a></p>
-    <p th:if="${admin}"><a href="/admin">Admin</a></p>
+            <label>
+                Header
+                <input type="file" name="header" accept="image/png, image/jpeg, image/gif, image/webp">
+            </label>
+            <th:block th:if="${header != null}">
+                <img class="profile-header-preview" th:src="${header}" alt="Your header">
+                <label><input type="checkbox" name="removeHeader" value="true"> Remove your header</label>
+            </th:block>
+            <label>
+                Background
+                <input type="file" name="background" accept="image/png, image/jpeg, image/gif, image/webp">
+            </label>
+            <th:block th:if="${background != null}">
+                <img class="profile-background-preview" th:src="${background}" alt="Your background">
+                <label><input type="checkbox" name="removeBackground" value="true"> Remove your background</label>
+            </th:block>
+            <p>
+                Images can be PNG, JPEG, GIF, or WebP. Avatars are cropped to a square, and headers to three times as wide
+                as they are tall. Backgrounds aren't cropped, and are shown behind your profile here and in apps that support
+                them, but not on other servers.
+            </p>
+            <h2>Privacy</h2>
+            <label>
+                <input type="checkbox" name="hideCollections" value="true" th:checked="${hideCollections}">
+                Hide who follows you and who you follow
+            </label>
+            <p>
+                Other people and servers still see how many there are. You can always see your own lists.
+            </p>
+            <label>
+                <input type="checkbox" name="manuallyApprovesFollowers" value="true"
+                       th:checked="${manuallyApprovesFollowers}">
+                Approve followers by hand
+            </label>
+            <p>
+                Requests to follow you wait until you approve or refuse them in your app. Turning this off approves those
+                still waiting.
+            </p>
+            <label>
+                <input type="checkbox" name="approvesFollowed" value="true" th:checked="${approvesFollowed}">
+                Approve requests from people you follow straight away
+            </label>
+            <p>
+                Only matters while you approve followers by hand. Turning this on approves the requests still waiting from
+                people you follow.
+            </p>
+            <label>
+                <input type="checkbox" name="indexable" value="true" th:checked="${indexable}">
+                Let anyone find your public posts by searching
+            </label>
+            <p>
+                Even with this off, people here can find your posts that they've favourited or bookmarked, or that mention
+                them. Other servers are told about this setting, and decide for themselves what their search finds.
+            </p>
+            <label>
+                <input type="checkbox" name="bot" value="true" th:checked="${bot}">
+                This is an automated account
+            </label>
+            <p>
+                For an account that posts by itself, or mostly doesn't read replies. It's marked as a bot on your profile,
+                in apps, and on other servers.
+            </p>
+            <label>
+                <input type="checkbox" name="cat" value="true" th:checked="${cat}">
+                I'm a cat
+            </label>
+            <p>
+                Misskey and the servers based on it show cat ears on your avatar. Your profile here says so too.
+            </p>
+            <button type="submit">Save</button>
+        </form>
+        <p><a href="/settings/password">Change your password</a></p>
+        <p><a href="/settings/two-factor">Two-factor login</a></p>
+        <p><a href="/oauth/authorized_applications">Authorized apps</a></p>
+        <p><a href="/settings/aliases">Account aliases</a></p>
+        <p><a href="/settings/post-cleanup">Automated post deletion</a></p>
+        <p><a href="/settings/imports">Import and export follows, blocks, and mutes</a></p>
+        <p><a href="/settings/move">Move your account</a></p>
+        <p><a href="/settings/delete-account">Delete your account</a></p>
+        <p th:if="${admin}"><a href="/admin">Admin</a></p>
+    </div>
 </th:block>
 </html>
