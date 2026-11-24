@@ -171,9 +171,13 @@ public class TimelineRepository {
      * Unlike the home timeline, this lists direct statuses from accounts the viewer doesn't follow too, since the clients
      * that still read it, such as Pleroma's, show it as their inbox of direct messages. Silent mentions count, since
      * they're who can see the status.
+     *
+     * <p>The candidates come from the author and mention indexes, since direct statuses are few, and an {@code OR} with
+     * the mention check would walk every status newest first to fill a page.
      */
     public List<UUID> findDirect(UUID viewerId, IdPage page) {
-        return findPage(new Filter("s.visibility = 'direct' AND (s.actor_id = :viewer OR" + mentions(":viewer") + ")"
+        return findPage(new Filter("s.visibility = 'direct' AND s.id IN (SELECT id FROM status WHERE actor_id = :viewer"
+                + " AND visibility = 'direct' UNION ALL SELECT status_id FROM status_mention WHERE actor_id = :viewer)"
                 + NOT_HIDDEN, Map.of("viewer", viewerId)), page);
     }
 

@@ -724,7 +724,8 @@ Follows [Mastodon's streaming API](https://docs.joinmastodon.org/methods/streami
 ### Streams
 
 - Streams follow the same visibility and filters as their timelines. `user` follows the home timeline, `list` follows
-  the selected list, and `public` and `hashtag` follow their respective timelines. Remote statuses appear once Elysium
+  the selected list, and `public` and `hashtag` follow their respective timelines. `direct` carries conversations, as
+  on Mastodon, rather than the direct timeline's statuses. Remote statuses appear once Elysium
   stores them.
 - `public`, `public:local`, `public:remote`, their `:media` forms, `hashtag`, and `hashtag:local` work without a token,
   as their timelines do. With one, they need `read:statuses`.
