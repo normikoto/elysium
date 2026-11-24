@@ -93,7 +93,10 @@ class TokenIntrospector implements OpaqueTokenIntrospector {
             signUps.waiting(actorId).ifPresent(waiting -> {
                 throw new PendingSignUpTokenException(waiting);
             });
-            throw new BadOpaqueTokenException("The account for this access token no longer exists");
+            // The sign-up may have become the account between the two reads, and a 401 would log the app out.
+            if (actors.findLocalById(actorId).isEmpty()) {
+                throw new BadOpaqueTokenException("The account for this access token no longer exists");
+            }
         }
         return Optional.of(actorId);
     }

@@ -70,7 +70,8 @@ class SignUpController {
             description = """
                     Signs someone up, and returns a token for the new account, with the application's scopes. Any \
                     token works, including one from the `client_credentials` grant. The sign-up page's limit on \
-                    sign-ups from one address applies, and requests that get 422 for an invalid field don't count.
+                    sign-ups from one address applies. Requests that get 422 for a missing or malformed field don't \
+                    count, but ones refused for a taken username or address, or an invite that doesn't work, do.
 
                     Differences from Mastodon:
 
@@ -86,7 +87,8 @@ class SignUpController {
             responses = {
                     @ApiResponse(responseCode = "200", description = "The new account's token."),
                     @ApiResponse(responseCode = "403", description = """
-                            Sign-ups need an invite, or the server's first account hasn't been created yet."""),
+                            The token has none of the scopes listed, sign-ups need an invite, or the server's first \
+                            account hasn't been created yet."""),
                     @ApiResponse(responseCode = "422", description = """
                             A field is missing or invalid, the username or email address is taken, `agreement` isn't \
                             true, or the invite doesn't work. `details` says which, by field, with Mastodon's codes."""),
