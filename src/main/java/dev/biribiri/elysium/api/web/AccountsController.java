@@ -23,6 +23,7 @@ import dev.biribiri.elysium.graph.FollowOptions;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.graph.MuteService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
+import dev.biribiri.elysium.text.Hashtags;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -1025,8 +1026,7 @@ public class AccountsController {
     }
 
     /**
-     * Statuses can't be tagged yet, so that filter has nothing to return. An account has few enough pins that they're
-     * never paged.
+     * An account has few enough pins that they're never paged.
      */
     @GetMapping("/{id}/statuses")
     @PreAuthorize("isAnonymous() or hasAuthority('SCOPE_read:statuses')")
@@ -1036,8 +1036,8 @@ public class AccountsController {
             description = """
                     Differences from Mastodon: for an account on another server, only the statuses it has sent here \
                     are listed, and older ones aren't fetched. Its boosts of other servers' statuses are only \
-                    stored while someone here follows it, so others aren't listed. Statuses can't be tagged, so \
-                    `tagged` returns an empty list. `only_media` leaves out boosts.
+                    stored while someone here follows it, so others aren't listed. `only_media` and `tagged` leave \
+                    out boosts, and a `tagged` that isn't a valid tag name returns an empty list.
 
                     With `pinned`, the pins are listed the most recently pinned first, with no `Link` header, since \
                     they all fit in one page. Only `limit` applies to them, and `max_id`, `since_id` and `min_id` \
@@ -1054,7 +1054,7 @@ public class AccountsController {
                     @Parameter(name = "exclude_reblogs", description = "Leave out boosts. " + ApiDocs.FLAG),
                     @Parameter(name = "only_media", description = "Only list statuses with media. " + ApiDocs.FLAG),
                     @Parameter(name = "pinned", description = "Only list pinned statuses. " + ApiDocs.FLAG),
-                    @Parameter(name = "tagged", description = "Returns an empty list if not empty.")
+                    @Parameter(name = "tagged", description = "Only list statuses with this hashtag, given without its `#`.")
             },
             responses = {
                     @ApiResponse(responseCode = "200", description = "The statuses, newest first."),
@@ -1082,11 +1082,13 @@ public class AccountsController {
                     : pins.findPinned(actorId, viewer).stream().limit(page.limit()).toList();
             return ResponseEntity.ok(responses.list(listed, viewer, Optional.of(PostFilter.Context.ACCOUNT)));
         }
-        var nothingToReturn = tagged != null && !tagged.isEmpty();
-        List<Status> found = nothingToReturn
+        var onlyTagged = tagged != null && !tagged.isEmpty();
+        var tag = onlyTagged ? Hashtags.parse(tagged) : Optional.<String>empty();
+        // As on Mastodon, a name that isn't a tag matches nothing.
+        List<Status> found = onlyTagged && tag.isEmpty()
                 ? List.of()
                 : statuses.findByAccount(actorId, RequestParameters.viewer(token), withoutReplies,
-                RequestParameters.flag(excludeReblogs), RequestParameters.flag(onlyMedia), page);
+                RequestParameters.flag(excludeReblogs), RequestParameters.flag(onlyMedia), tag, page);
 
         var filters = new LinkedHashMap<String, String>();
         if (withoutReplies) {
@@ -1098,6 +1100,7 @@ public class AccountsController {
         if (RequestParameters.flag(onlyMedia)) {
             filters.put("only_media", "true");
         }
+        tag.ifPresent(name -> filters.put("tagged", name));
         return responses.page("/api/v1/accounts/" + actorId + "/statuses", filters, page, found,
                 RequestParameters.viewer(token), Optional.of(PostFilter.Context.ACCOUNT));
     }

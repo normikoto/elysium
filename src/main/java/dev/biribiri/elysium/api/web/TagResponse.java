@@ -13,15 +13,17 @@ import java.util.List;
  * Mastodon's Tag entity.
  *
  * @param following whether the viewer follows the tag, or null when there's no user, as Mastodon leaves it out
+ * @param featuring whether the viewer features the tag on their profile, or null when there's no user
  */
 @Schema(name = "Tag", description = """
         Mastodon's Tag entity. `name` is normalized: lowercase, and in Unicode's NFKC form. `history` only counts \
-        public statuses stored on this server. `following` is omitted when there's no user token.""")
+        public statuses stored on this server. `following` and `featuring` are omitted when there's no user token.""")
 record TagResponse(
         String name,
         String url,
         List<History> history,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean following) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean following,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean featuring) {
 
     /**
      * @param day      the start of the day in UTC, as seconds since the epoch, which Mastodon sends as a string
@@ -39,11 +41,13 @@ record TagResponse(
         }
     }
 
-    static TagResponse of(String name, List<TagDay> days, Boolean following, InstanceProperties instance) {
+    static TagResponse of(String name, List<TagDay> days, Boolean following, Boolean featuring,
+                          InstanceProperties instance) {
         return new TagResponse(
                 name,
                 Hashtags.url(instance.baseUrl(), name).toString(),
                 days.stream().map(History::from).toList(),
-                following);
+                following,
+                featuring);
     }
 }

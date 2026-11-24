@@ -2,6 +2,7 @@ package dev.biribiri.elysium.api.web;
 
 import dev.biribiri.elysium.actor.InvalidProfileException;
 import dev.biribiri.elysium.actor.RemoteActorResolver;
+import dev.biribiri.elysium.content.InvalidFeaturedTagException;
 import dev.biribiri.elysium.content.InvalidMediaAttachmentException;
 import dev.biribiri.elysium.content.InvalidPostFilterException;
 import dev.biribiri.elysium.content.InvalidStatusException;
@@ -30,6 +31,7 @@ import java.util.Map;
         BlocksController.class,
         BookmarksController.class,
         FavouritesController.class,
+        FeaturedTagsController.class,
         FollowRequestsController.class,
         FollowedTagsController.class,
         InstanceController.class,
@@ -80,6 +82,12 @@ class StatusApiErrors {
 
     @ExceptionHandler
     ResponseEntity<Map<String, String>> invalidFilter(InvalidPostFilterException e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(Map.of("error", "Validation failed: " + e.getMessage()));
+    }
+
+    @ExceptionHandler
+    ResponseEntity<Map<String, String>> invalidFeaturedTag(InvalidFeaturedTagException e) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .body(Map.of("error", "Validation failed: " + e.getMessage()));
     }

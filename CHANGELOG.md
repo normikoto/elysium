@@ -9,6 +9,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- People can feature up to 10 hashtags on their profile from an app, as on Mastodon, and apps can list an account's
+  featured hashtags and its posts with one of them. Featured hashtags aren't sent to other servers. See [Using the
+  API](docs/api.md#tags).
 - People can follow hashtags from an app, as on Mastodon. Public posts with a followed hashtag appear in their home
   timeline, including posts from accounts they don't follow, unless the author is blocked or muted. Only posts that
   reach this server appear, because other servers aren't told about tag follows. See [Using the

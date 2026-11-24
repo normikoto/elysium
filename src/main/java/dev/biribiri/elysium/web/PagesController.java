@@ -173,7 +173,8 @@ class PagesController {
         requireHtmlAccepted(request);
         var actor = actors.findLocalByUsername(username).orElseThrow(PagesController::notFound);
         var page = firstPage(maxId == null ? null : Ids.parse(maxId).orElseThrow(PagesController::notFound));
-        var found = statuses.findByAccount(actor.id(), ANONYMOUS, tab.excludeReplies, false, tab.onlyMedia, page);
+        var found = statuses.findByAccount(actor.id(), ANONYMOUS, tab.excludeReplies, false, tab.onlyMedia,
+                Optional.empty(), page);
 
         var profile = profiles.find(actor.id());
         model.addAttribute("actor", actor);

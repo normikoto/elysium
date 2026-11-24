@@ -22,12 +22,13 @@ class ContentRemoval implements ActorDataRemoval {
     private final PostFilters filters;
     private final CustomEmojis emojis;
     private final PostCleanups postCleanups;
+    private final FeaturedTags featuredTags;
 
     ContentRemoval(LikeService likes, ReactionService reactions, StatusPinService pins, BookmarkService bookmarks,
                    ThreadMuteService threadMutes, PollService polls, ScheduledStatusService scheduled,
                    StatusService statuses, MediaAttachments attachments, FollowersOnlyRecipients followersOnly,
                    PostingDefaults postingDefaults, PostFilters filters, CustomEmojis emojis,
-                   PostCleanups postCleanups) {
+                   PostCleanups postCleanups, FeaturedTags featuredTags) {
         this.likes = likes;
         this.reactions = reactions;
         this.pins = pins;
@@ -42,6 +43,7 @@ class ContentRemoval implements ActorDataRemoval {
         this.filters = filters;
         this.emojis = emojis;
         this.postCleanups = postCleanups;
+        this.featuredTags = featuredTags;
     }
 
     @Override
@@ -62,6 +64,7 @@ class ContentRemoval implements ActorDataRemoval {
         followersOnly.removeForActor(actorId);
         postingDefaults.removeFor(actorId);
         filters.removeForActor(actorId);
+        featuredTags.removeForAccount(actorId);
     }
 
     @Override
