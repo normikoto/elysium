@@ -39,10 +39,8 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
     }
 
     /**
-     * Settings that don't exist here, with the value that's reported for them.
+     * Settings in {@code source} that don't exist here, with the value that's reported for them.
      */
-    private static final Map<String, Object> FIXED = Map.of("discoverable", false);
-
     private static final Map<String, Object> FIXED_SOURCE = Map.of(
             "privacy", "public",
             "sensitive", false);
@@ -125,6 +123,11 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                         change = change.withIndexable(RequestParameters.flag(values, key));
                     }
                 }
+                case "discoverable" -> {
+                    if (!isEmpty(value)) {
+                        change = change.withDiscoverable(RequestParameters.flag(values, key));
+                    }
+                }
                 case "bot" -> {
                     if (!isEmpty(value)) {
                         change = change.withBot(RequestParameters.flag(values, key));
@@ -148,7 +151,7 @@ record CredentialsRequest(ProfileChange profile, Boolean hideCollections, QuoteP
                     removeBackground = value != null;
                 }
                 case "source" -> source = source(value);
-                default -> checkFixed(key, value, FIXED, key);
+                default -> checkFixed(key, value, Map.of(), key);
             }
         }
         change = change.withAvatar(image(files.get("avatar"))).withHeader(image(files.get("header")));

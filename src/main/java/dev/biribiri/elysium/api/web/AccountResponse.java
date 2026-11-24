@@ -27,7 +27,7 @@ import java.util.List;
  */
 @Schema(name = "Account", description = """
         Mastodon's Account entity. Remote profiles reflect the last fetched actor document. When an account has no \
-        name, `display_name` uses its username. `discoverable` is always false.
+        name, `display_name` uses its username.
 
         The `/media_proxy/` URLs download remote avatars and headers on demand. If Elysium cannot cache them or their \
         media is rejected, the URLs point to the original files. Pleroma's `pleroma.background_image` is only available \
@@ -44,6 +44,9 @@ record AccountResponse(
                 one when its actor is a `Service` or `Application`.""")
         boolean bot,
         boolean group,
+        @Schema(description = """
+                Whether the account is listed in the directory. For an account on another server, it's what its \
+                server last said.""")
         boolean discoverable,
         @Schema(description = """
                 Whether the account lets anyone's search find its public statuses. For an account on another server, \
@@ -144,7 +147,7 @@ record AccountResponse(
                 profile.manuallyApprovesFollowers(),
                 profile.bot(),
                 remote != null && remote.group(),
-                false,
+                profile.discoverable(),
                 profile.indexable(),
                 profile.cat(),
                 createdAt(actor, remote),

@@ -82,6 +82,13 @@ public class ProfileService {
         return properties.maxFields();
     }
 
+    /**
+     * Whether the directory lists the accounts that choose to be in it, which the operator can turn off.
+     */
+    public boolean directoryShown() {
+        return properties.directory();
+    }
+
     public Profile find(UUID actorId) {
         return findAll(List.of(actorId)).getOrDefault(actorId, Profile.EMPTY);
     }
@@ -107,6 +114,7 @@ public class ProfileService {
                     fields.getOrDefault(row.actorId(), List.of()),
                     row.manuallyApprovesFollowers(),
                     row.indexable(),
+                    row.discoverable(),
                     row.bot(),
                     row.cat(),
                     row.updatedAt(),
@@ -144,6 +152,7 @@ public class ProfileService {
                 old.background(),
                 profile.manuallyApprovesFollowers(),
                 profile.indexable(),
+                profile.discoverable(),
                 profile.bot(),
                 profile.cat(),
                 old.updatedAt(),
@@ -402,6 +411,7 @@ public class ProfileService {
                         choose(change.background(), background, old.background(), removed),
                         change.manuallyApprovesFollowers().orElse(old.manuallyApprovesFollowers()),
                         change.indexable().orElse(old.indexable()),
+                        change.discoverable().orElse(old.discoverable()),
                         change.bot().orElse(old.bot()),
                         change.cat().orElse(old.cat()),
                         old.updatedAt(),
@@ -479,8 +489,8 @@ public class ProfileService {
      */
     private static boolean sameButBackground(ProfileRepository.Row row, ProfileRepository.Row old) {
         return new ProfileRepository.Row(row.actorId(), row.displayName(), row.note(), row.avatar(), row.header(),
-                old.background(), row.manuallyApprovesFollowers(), row.indexable(), row.bot(), row.cat(), row.updatedAt(),
-                row.remote(), row.alsoKnownAs(), row.movedTo()).equals(old);
+                old.background(), row.manuallyApprovesFollowers(), row.indexable(), row.discoverable(), row.bot(),
+                row.cat(), row.updatedAt(), row.remote(), row.alsoKnownAs(), row.movedTo()).equals(old);
     }
 
     /**

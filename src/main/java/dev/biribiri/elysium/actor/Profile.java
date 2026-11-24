@@ -21,6 +21,7 @@ import java.util.SequencedSet;
  *                   Other servers never see it
  * @param manuallyApprovesFollowers whether requests to follow the account wait for its approval
  * @param indexable whether anyone's search can find its public statuses
+ * @param discoverable whether it's listed in the directory
  * @param bot       whether it's an automated account. A local one's actor document is a {@code Service} then, and one on
  *                  another server is a bot when its document is a {@code Service} or {@code Application}
  * @param cat       Misskey's {@code isCat}, which clients that know it show with cat ears
@@ -38,6 +39,7 @@ public record Profile(
         List<ProfileField> fields,
         boolean manuallyApprovesFollowers,
         boolean indexable,
+        boolean discoverable,
         boolean bot,
         boolean cat,
         Instant updatedAt,
@@ -45,7 +47,8 @@ public record Profile(
         List<URI> alsoKnownAs,
         URI movedTo) {
 
-    public static final Profile EMPTY = new Profile("", "", null, null, null, List.of(), false, false, false, false, null);
+    public static final Profile EMPTY =
+            new Profile("", "", null, null, null, List.of(), false, false, false, false, false, null);
 
     /**
      * What an account on another server's actor document says that a local profile doesn't need.
@@ -75,11 +78,12 @@ public record Profile(
             List<ProfileField> fields,
             boolean manuallyApprovesFollowers,
             boolean indexable,
+            boolean discoverable,
             boolean bot,
             boolean cat,
             Instant updatedAt) {
-        this(displayName, note, avatar, header, background, fields, manuallyApprovesFollowers, indexable, bot, cat,
-                updatedAt, null, List.of(), null);
+        this(displayName, note, avatar, header, background, fields, manuallyApprovesFollowers, indexable, discoverable,
+                bot, cat, updatedAt, null, List.of(), null);
     }
 
     /**

@@ -8,6 +8,7 @@
         </p>
         <p>
             <a class="button" href="/signup" th:if="${registrationEnabled}">Create an account</a>
+            <a class="button button-quiet" href="/directory" th:if="${directoryShown}">Directory</a>
             <a class="button button-quiet" href="/admin" th:if="${showAdmin}">Admin</a>
         </p>
         <section class="posts" aria-labelledby="recent-heading">

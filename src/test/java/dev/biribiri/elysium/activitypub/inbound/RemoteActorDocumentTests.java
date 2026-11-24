@@ -242,6 +242,20 @@ class RemoteActorDocumentTests {
     }
 
     @Test
+    void readsWhetherTheActorIsDiscoverable() {
+        var discoverable = RemoteActorDocument.read(ACTOR, json("""
+                {"id":"%s","type":"Person","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox",
+                 "discoverable":true}
+                """.formatted(ACTOR))).profile();
+        var unsaid = RemoteActorDocument.read(ACTOR, json("""
+                {"id":"%s","type":"Person","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox"}
+                """.formatted(ACTOR))).profile();
+
+        assertThat(discoverable.discoverable()).isTrue();
+        assertThat(unsaid.discoverable()).isFalse();
+    }
+
+    @Test
     void readsGroupsFromTheirType() {
         var profile = RemoteActorDocument.read(ACTOR, json("""
                 {"id":"%s","type":"Group","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox"}

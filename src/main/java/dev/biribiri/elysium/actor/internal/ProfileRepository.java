@@ -40,6 +40,7 @@ public class ProfileRepository {
             StoredImage background,
             boolean manuallyApprovesFollowers,
             boolean indexable,
+            boolean discoverable,
             boolean bot,
             boolean cat,
             Instant updatedAt,
@@ -61,7 +62,7 @@ public class ProfileRepository {
                 boolean indexable,
                 Instant updatedAt) {
             this(actorId, displayName, note, avatar, header, null, manuallyApprovesFollowers, indexable, false, false,
-                    updatedAt, null, List.of(), null);
+                    false, updatedAt, null, List.of(), null);
         }
     }
 
@@ -96,7 +97,7 @@ public class ProfileRepository {
             actor_id, display_name, note, avatar, avatar_static, header, header_static, background, background_static,
             manually_approves_followers,
             indexable, updated_at, note_html, avatar_remote_url, avatar_cache_given_up, header_remote_url, header_cache_given_up, url,
-            bot, cat, group_actor, published, also_known_as, moved_to_uri""";
+            discoverable, bot, cat, group_actor, published, also_known_as, moved_to_uri""";
 
     private final JdbcClient jdbc;
 
@@ -218,7 +219,8 @@ public class ProfileRepository {
                         UPDATE profile SET display_name = :displayName, note = :note, avatar = :avatar,
                             avatar_static = :avatarStatic, header = :header, header_static = :headerStatic,
                             background = :background, background_static = :backgroundStatic,
-                            manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, bot = :bot, cat = :cat,
+                            manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable,
+                            discoverable = :discoverable, bot = :bot, cat = :cat,
                             updated_at = clock_timestamp()
                         WHERE actor_id = :actorId
                         RETURNING updated_at
@@ -234,6 +236,7 @@ public class ProfileRepository {
                 .param("backgroundStatic", row.background() == null ? null : row.background().staticName())
                 .param("manuallyApprovesFollowers", row.manuallyApprovesFollowers())
                 .param("indexable", row.indexable())
+                .param("discoverable", row.discoverable())
                 .param("bot", row.bot())
                 .param("cat", row.cat())
                 .query(OffsetDateTime.class)
@@ -281,7 +284,8 @@ public class ProfileRepository {
         jdbc.sql("""
                         UPDATE profile SET display_name = :displayName, note = :note, avatar = :avatar,
                             avatar_static = :avatarStatic, header = :header, header_static = :headerStatic,
-                            manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable, note_html = :noteHtml,
+                            manually_approves_followers = :manuallyApprovesFollowers, indexable = :indexable,
+                            discoverable = :discoverable, note_html = :noteHtml,
                             avatar_remote_url = :avatarUrl, avatar_cache_given_up = :avatarGivenUp,
                             header_remote_url = :headerUrl, header_cache_given_up = :headerGivenUp, url = :url, bot = :bot,
                             cat = :cat, group_actor = :group, published = :published, also_known_as = CAST(:alsoKnownAs AS text[]),
@@ -299,6 +303,7 @@ public class ProfileRepository {
                 .param("headerStatic", row.header() == null ? null : row.header().staticName())
                 .param("manuallyApprovesFollowers", row.manuallyApprovesFollowers())
                 .param("indexable", row.indexable())
+                .param("discoverable", row.discoverable())
                 .param("noteHtml", remote.noteHtml())
                 .param("avatarUrl", string(remote.avatarUrl()))
                 .param("avatarGivenUp", remote.avatarGivenUp())
@@ -601,6 +606,7 @@ public class ProfileRepository {
                 image(rs.getString("background"), rs.getString("background_static")),
                 rs.getBoolean("manually_approves_followers"),
                 rs.getBoolean("indexable"),
+                rs.getBoolean("discoverable"),
                 rs.getBoolean("bot"),
                 rs.getBoolean("cat"),
                 instant(rs.getObject("updated_at", OffsetDateTime.class)),

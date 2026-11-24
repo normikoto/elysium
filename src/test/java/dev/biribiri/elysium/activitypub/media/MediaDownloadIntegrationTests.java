@@ -338,7 +338,7 @@ class MediaDownloadIntegrationTests {
     }
 
     private void withImages(URI avatar, URI header) {
-        var profile = new RemoteProfile("", "", "", avatar, header, List.of(), false, false, false, false, false, null, null);
+        var profile = new RemoteProfile("", "", "", avatar, header, List.of(), false, false, false, false, false, false, null, null);
         actors.upsertRemote(new RemoteActorProfile(author.uri(), "s", host, author.inboxUri(), null, null, null, null, null,
                 profile));
     }

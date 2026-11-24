@@ -92,6 +92,18 @@ class ProfileDeliveryIntegrationTests {
     }
 
     @Test
+    void tellsFollowersWhenTheAccountJoinsTheDirectory() {
+        follow(remote(), local);
+
+        profiles.update(local.id(), ProfileChange.NONE.withDiscoverable(true));
+
+        await().atMost(WAIT).until(() -> !activities(local, "%#profile/%").isEmpty());
+        var update = json.readTree(activities(local, "%#profile/%").getFirst());
+        assertThat(update.get("@context").get(2).get("discoverable").asString()).isEqualTo("toot:discoverable");
+        assertThat(update.get("object").get("discoverable").asBoolean()).isTrue();
+    }
+
+    @Test
     void sendsNothingWhenNothingChanged() {
         follow(remote(), local);
         profiles.update(local.id(), ProfileChange.NONE.withDisplayName("Same"));

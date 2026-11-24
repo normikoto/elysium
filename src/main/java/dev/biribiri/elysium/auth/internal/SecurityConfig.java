@@ -100,7 +100,7 @@ class SecurityConfig {
 
     private static final String[] PUBLIC_PATHS = {
             "/", "/.well-known/webfinger", "/.well-known/nodeinfo", "/nodeinfo/2.0", "/nodeinfo/2.1", "/users/*",
-            "/users/*/with_replies", "/users/*/media", "/users/*/followers", "/users/*/following", "/tags/*",
+            "/users/*/with_replies", "/users/*/media", "/users/*/followers", "/users/*/following", "/tags/*", "/directory",
             "/users/*/outbox", "/users/*/collections/featured",
             "/users/*/statuses/*", "/users/*/statuses/*/likes", "/users/*/statuses/*/shares",
             "/users/*/quote_authorizations/*", "/emojis/*", "/actor", "/actor/outbox", "/actuator/health", "/actuator/health/**",
@@ -122,7 +122,7 @@ class SecurityConfig {
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}", "/api/v1/accounts/{id:[0-9a-fA-F-]+}/followers",
             "/api/v1/accounts/{id:[0-9a-fA-F-]+}/following", "/api/v1/accounts/{id:[0-9a-fA-F-]+}/featured_tags",
             "/api/v1/accounts/lookup", "/api/v1/accounts/search",
-            "/api/v2/search",
+            "/api/v2/search", "/api/v1/directory",
             // The WebSocket decides what each subscription needs, and the other streams need what their timelines do.
             "/api/v1/streaming", "/api/v1/streaming/health", "/api/v1/streaming/public", "/api/v1/streaming/public/*",
             "/api/v1/streaming/hashtag", "/api/v1/streaming/hashtag/local"

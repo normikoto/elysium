@@ -128,6 +128,7 @@ class PagesController {
         model.addAttribute("statusCount", statuses.countLocal());
         model.addAttribute("showAdmin", viewer(principal).filter(admins::isAdmin).isPresent());
         model.addAttribute("registrationEnabled", registration.acceptsUninvited());
+        model.addAttribute("directoryShown", profiles.directoryShown());
         model.addAttribute("statuses", views(timelines.publicTimeline(StatusOrigin.LOCAL, firstPage(null), false, ANONYMOUS)));
         return "home";
     }

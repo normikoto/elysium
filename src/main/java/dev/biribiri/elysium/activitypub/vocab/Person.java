@@ -31,6 +31,8 @@ import java.util.List;
  *                   {@linkplain #minimal minimal} document, since a false one would say the actor isn't locked
  * @param indexable  whether any server's search may find the actor's public statuses, left out of a minimal or suspended
  *                   actor's document, whose context doesn't define it
+ * @param discoverable whether the actor is listed in directories, as Mastodon's {@code discoverable} says, left out of a
+ *                   minimal or suspended actor's document, as {@code indexable} is
  * @param isCat      Misskey's flag for an account that's a cat, always sent as Misskey sends it, but left out of a minimal or
  *                   suspended actor's document, as {@code indexable} is
  * @param updated    when the profile last changed, which tells a server that gets two {@code Update}s which is newer
@@ -63,6 +65,7 @@ public record Person(
         List<Tag> tag,
         Boolean manuallyApprovesFollowers,
         Boolean indexable,
+        Boolean discoverable,
         Boolean isCat,
         String published,
         String updated,
@@ -143,6 +146,7 @@ public record Person(
                 tags.isEmpty() ? null : List.copyOf(tags),
                 profile.manuallyApprovesFollowers(),
                 profile.indexable(),
+                profile.discoverable(),
                 profile.cat(),
                 ActivityStreams.time(actor.createdAt()),
                 ActivityStreams.time(profile.updatedAt()),
@@ -157,7 +161,7 @@ public record Person(
      */
     public static Person suspended(Actor actor, String proofKeyPem, InstanceProperties instance) {
         return from(actor, Profile.EMPTY, List.of(), proofKeyPem, instance)
-                .with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, null, null, true);
+                .with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, null, null, null, true);
     }
 
     /**
@@ -198,6 +202,7 @@ public record Person(
                 null,
                 null,
                 null,
+                null,
                 actor.isSuspended() ? true : null);
     }
 
@@ -213,14 +218,15 @@ public record Person(
      * This document as part of an activity, which has the {@code @context} for both.
      */
     Person withoutContext() {
-        return with(null, featured, indexable, isCat, suspended);
+        return with(null, featured, indexable, discoverable, isCat, suspended);
     }
 
-    private Person with(List<?> context, URI featured, Boolean indexable, Boolean isCat, Boolean suspended) {
+    private Person with(
+            List<?> context, URI featured, Boolean indexable, Boolean discoverable, Boolean isCat, Boolean suspended) {
         return new Person(
                 context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, featured,
                 endpoints,
-                publicKey, assertionMethod, icon, image, attachment, tag, manuallyApprovesFollowers, indexable, isCat,
-                published, updated, alsoKnownAs, movedTo, suspended);
+                publicKey, assertionMethod, icon, image, attachment, tag, manuallyApprovesFollowers, indexable,
+                discoverable, isCat, published, updated, alsoKnownAs, movedTo, suspended);
     }
 }
