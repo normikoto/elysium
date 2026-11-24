@@ -564,7 +564,7 @@ Follow [Mastodon's push API](https://docs.joinmastodon.org/methods/push/): `POST
   `title`, and `body`. The title and body are always in English. The body is a status's content warning if it has one,
   otherwise its text, cut to 140 characters, or the sender's handle for notifications without a status.
 - A message that can't be sent is retried for up to 48 hours, which is also its `TTL`. A push service that answers 400,
-  404, or 410 ends the subscription.
+  404, or 410 ends the subscription, and so does an endpoint whose host stops having a public address.
 
 ## Conversations
 

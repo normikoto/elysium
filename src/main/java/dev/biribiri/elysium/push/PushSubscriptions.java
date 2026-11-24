@@ -55,7 +55,7 @@ public class PushSubscriptions {
      * @param policy null for {@link PushPolicy#ALL}
      * @throws InvalidPushSubscriptionException if anything is missing or malformed
      */
-    @Transactional
+    // Not transactional, since checking the endpoint looks up its host, and the write is a single statement.
     public PushSubscription subscribe(UUID actorId, String authorizationId, String endpoint, String p256dh, String auth,
                                       boolean standard, Map<String, Boolean> alerts, String policy) {
         var uri = endpoint(endpoint);
@@ -113,6 +113,9 @@ public class PushSubscriptions {
             var uri = new URI(value);
             if (!uri.isAbsolute() || uri.getHost() == null || !client.accepts(uri)) {
                 throw new InvalidPushSubscriptionException("subscription[endpoint] must be an HTTPS URL");
+            }
+            if (client.isBlocked(uri)) {
+                throw new InvalidPushSubscriptionException("subscription[endpoint] must be on a public address");
             }
             return uri;
         } catch (URISyntaxException e) {

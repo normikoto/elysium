@@ -162,7 +162,9 @@ class PushDeliveries {
         try {
             response = client.post(subscription.endpoint(), body, headers);
         } catch (BlockedTargetException e) {
-            throw new PermanentJobFailure("The push service's address isn't public");
+            // It would fail the same way for every notification after this one.
+            subscriptions.remove(subscription.id());
+            return Jobs.done();
         } catch (IOException e) {
             throw new UncheckedIOException("Couldn't reach the push service", e);
         }

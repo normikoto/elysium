@@ -7,6 +7,7 @@ import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestOAuth;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.http.BlockedTargetException;
 import dev.biribiri.elysium.push.internal.P256;
 import dev.biribiri.elysium.push.internal.PushHttpClient;
 import dev.biribiri.elysium.push.internal.WebPushDecryption;
@@ -73,6 +74,11 @@ class PushIntegrationTests {
      */
     private static final Map<String, MockHttpSession> SESSIONS = new HashMap<>();
 
+    /**
+     * Hosts the test resolver treats as having only private addresses.
+     */
+    private static final Set<String> BLOCKED_HOSTS = ConcurrentHashMap.newKeySet();
+
     @Autowired
     private MockMvc mockMvc;
     @Autowired
@@ -97,14 +103,17 @@ class PushIntegrationTests {
     static class Config {
 
         /**
-         * Sends every endpoint's host to the test server, which only speaks HTTP.
+         * Sends every endpoint's host to the test server, which only speaks HTTP, except the blocked hosts.
          */
         @Bean
         @Primary
         PushHttpClient loopbackPushClient() {
             return new PushHttpClient(new DnsResolver() {
                 @Override
-                public InetAddress[] resolve(String host) {
+                public InetAddress[] resolve(String host) throws BlockedTargetException {
+                    if (BLOCKED_HOSTS.contains(host)) {
+                        throw new BlockedTargetException("Blocked in this test");
+                    }
                     return new InetAddress[]{InetAddress.getLoopbackAddress()};
                 }
 
@@ -122,6 +131,7 @@ class PushIntegrationTests {
         // Each test's push server stops after it, so jobs left for earlier subscriptions would only fail and wait.
         jdbc.sql("DELETE FROM push_subscription").update();
         jdbc.sql("DELETE FROM scheduled_tasks WHERE task_name = 'push'").update();
+        BLOCKED_HOSTS.clear();
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/", this::answer);
@@ -232,6 +242,16 @@ class PushIntegrationTests {
         invalid(token, subscriber.endpoint(), "!!!", auth, "all");
         invalid(token, subscriber.endpoint(), key, BASE64URL.encodeToString(new byte[8]), "all");
         invalid(token, subscriber.endpoint(), key, auth, "everyone");
+    }
+
+    @Test
+    void refusesAnEndpointWithoutAPublicAddress() throws Exception {
+        var token = token("pushalice", "push");
+        var subscriber = subscriber("private.example");
+        BLOCKED_HOSTS.add("private.example");
+
+        invalid(token, subscriber.endpoint(), publicKey(subscriber), BASE64URL.encodeToString(subscriber.authSecret()),
+                "all");
     }
 
     @Test
@@ -369,6 +389,20 @@ class PushIntegrationTests {
     }
 
     @Test
+    void aSubscriptionWhoseHostIsNoLongerPublicIsRemoved() throws Exception {
+        var alice = token("pushalice", "read write push");
+        var subscriber = subscriber("moved.example");
+        var id = subscribe(alice, subscriber, true, Map.of("mention", true), null);
+        BLOCKED_HOSTS.add("moved.example");
+
+        postStatus(token("pushbob", "read write"), "@pushalice moved");
+
+        await().atMost(WAIT).until(() -> subscriptionCount(id) == 0);
+        settle();
+        assertThat(receivedAt(subscriber)).isEmpty();
+    }
+
+    @Test
     void aRevokedTokensSubscriptionStops() throws Exception {
         var app = TestOAuth.registerApp(mockMvc, "read write push");
         var alice = TestOAuth.userToken(mockMvc, app, session("pushalice"), "read write push");
@@ -414,10 +448,14 @@ class PushIntegrationTests {
     }
 
     private Subscriber subscriber() {
+        return subscriber("push.example");
+    }
+
+    private Subscriber subscriber(String host) {
         var path = "/push/" + ENDPOINTS.incrementAndGet();
         var secret = new byte[16];
         new SecureRandom().nextBytes(secret);
-        return new Subscriber("http://push.example:" + server.getAddress().getPort() + path, path, P256.generate(), secret);
+        return new Subscriber("http://" + host + ":" + server.getAddress().getPort() + path, path, P256.generate(), secret);
     }
 
     private static String publicKey(Subscriber subscriber) {

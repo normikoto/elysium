@@ -8,6 +8,7 @@ import java.security.Signature;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Locale;
 
 /**
  * RFC 8292's tokens, which tell a push service which server sent a message. The service checks them against the public
@@ -48,6 +49,7 @@ public final class VapidTokens {
 
     static String origin(URI endpoint) {
         var port = endpoint.getPort() == -1 ? "" : ":" + endpoint.getPort();
-        return endpoint.getScheme() + "://" + endpoint.getHost() + port;
+        // Push services compare it with the endpoint's origin, which is lowercase however the client wrote the URL.
+        return endpoint.getScheme().toLowerCase(Locale.ROOT) + "://" + endpoint.getHost().toLowerCase(Locale.ROOT) + port;
     }
 }

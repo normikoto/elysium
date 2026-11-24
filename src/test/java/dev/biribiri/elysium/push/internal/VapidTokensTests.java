@@ -38,4 +38,9 @@ class VapidTokensTests {
         verifier.update((parts[0] + "." + parts[1]).getBytes(StandardCharsets.US_ASCII));
         assertThat(verifier.verify(signature)).isTrue();
     }
+
+    @Test
+    void theAudienceIsLowercaseHoweverTheEndpointWasWritten() {
+        assertThat(VapidTokens.origin(URI.create("HTTPS://Push.Example/send/ABC"))).isEqualTo("https://push.example");
+    }
 }

@@ -51,6 +51,7 @@ public class PushHttpClient implements AutoCloseable {
     private static final int MAX_RESPONSE_BYTES = 16 * 1024;
 
     private final CloseableHttpClient client;
+    private final DnsResolver resolver;
     private final Set<String> allowedSchemes;
 
     @Autowired
@@ -61,6 +62,7 @@ public class PushHttpClient implements AutoCloseable {
     }
 
     public PushHttpClient(DnsResolver resolver, Set<String> allowedSchemes, String userAgent) {
+        this.resolver = resolver;
         this.allowedSchemes = allowedSchemes;
         this.client = HttpClients.custom()
                 .setUserAgent(userAgent)
@@ -93,6 +95,22 @@ public class PushHttpClient implements AutoCloseable {
     public boolean accepts(URI endpoint) {
         var scheme = endpoint.getScheme() == null ? "" : endpoint.getScheme().toLowerCase(Locale.ROOT);
         return allowedSchemes.contains(scheme) && endpoint.getHost() != null;
+    }
+
+    /**
+     * Whether the endpoint's host is only on addresses this client won't reach, so that a subscription it never could
+     * send to is refused when it's made. A host that can't be looked up right now isn't refused, since that can be a
+     * passing DNS failure, and sending checks again anyway.
+     */
+    public boolean isBlocked(URI endpoint) {
+        try {
+            resolver.resolve(endpoint.getHost());
+            return false;
+        } catch (BlockedTargetException e) {
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /**
