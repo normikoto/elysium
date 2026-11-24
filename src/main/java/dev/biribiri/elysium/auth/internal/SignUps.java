@@ -92,8 +92,15 @@ class SignUps {
      * @throws PasswordHashingBusyException if too many passwords are being hashed already
      */
     boolean signUpWithInvite(String invite, String username, String password) {
+        return signUpWithInvite(UUID.randomUUID(), invite, username, password);
+    }
+
+    /**
+     * Creates an account with an invite, under an ID chosen beforehand: see {@link LocalAccounts#create}.
+     */
+    boolean signUpWithInvite(UUID actorId, String invite, String username, String password) {
         var hash = accounts.hash(password);
-        return accounts.create(username, hash, null, false, () -> invites.use(invite)).isPresent();
+        return accounts.create(actorId, username, hash, null, false, () -> invites.use(invite)).isPresent();
     }
 
     /**
@@ -104,9 +111,15 @@ class SignUps {
      * @throws PasswordHashingBusyException if too many passwords are being hashed already
      */
     Requested request(String username, String email, String password, String reason) {
+        return request(UUID.randomUUID(), username, email, password, reason);
+    }
+
+    /**
+     * Stores a sign-up as {@link #request(String, String, String, String)} does, under the ID its account will get.
+     */
+    Requested request(UUID id, String username, String email, String password, String reason) {
         var hash = accounts.hash(password);
         var token = SecretCodes.generate();
-        var id = UUID.randomUUID();
         var result = transaction.execute(status -> {
             accounts.lockAccountCreation();
             accounts.removeExpiredSignUps();
@@ -186,6 +199,20 @@ class SignUps {
     }
 
     /**
+     * Whether a sign-up with this ID is still waiting, and for what.
+     */
+    Optional<Waiting> waiting(UUID id) {
+        var cutoff = cutoff().toInstant();
+        return pendingById(id).flatMap(pending -> {
+            if (pending.confirmed()) {
+                return Optional.of(Waiting.FOR_APPROVAL);
+            }
+            // An expired one stays until the next cleanup, but its link no longer works, so nothing is waiting.
+            return pending.createdAt().isAfter(cutoff) ? Optional.of(Waiting.FOR_CONFIRMATION) : Optional.empty();
+        });
+    }
+
+    /**
      * @return the sign-ups that have confirmed their address and are waiting for an admin, oldest first
      */
     List<Pending> awaitingApproval() {
@@ -221,8 +248,13 @@ class SignUps {
      */
     boolean reject(UUID id) {
         var removed = jdbc.sql("""
-                        DELETE FROM pending_sign_up WHERE id = :id AND verified_at IS NOT NULL
-                        RETURNING username, email
+                        WITH removed AS (
+                            DELETE FROM pending_sign_up WHERE id = :id AND verified_at IS NOT NULL
+                            RETURNING id, username, email
+                        ), tokens AS (
+                        """ + LocalAccounts.REMOVE_SIGN_UP_TOKENS + """
+                        )
+                        SELECT username, email FROM removed
                         """)
                 .param("id", id)
                 .query((rs, rowNum) -> new String[]{rs.getString("username"), rs.getString("email")})
@@ -236,7 +268,8 @@ class SignUps {
     private boolean complete(Pending pending, boolean approved) {
         Optional<AccountRole> created;
         try {
-            created = accounts.create(pending.username(), pending.passwordHash(), pending.email(), false, () -> {
+            // The account takes the sign-up's ID, which an app that signed them up already holds a token for.
+            created = accounts.create(pending.id(), pending.username(), pending.passwordHash(), pending.email(), false, () -> {
                 // Removing it first frees its username and address for the account. Nothing removed means another
                 // request completed or rejected it first.
                 var removed = jdbc.sql("DELETE FROM pending_sign_up WHERE id = :id")
@@ -330,6 +363,10 @@ class SignUps {
 
     enum Confirmed {
         CREATED, AWAITING_APPROVAL, NOT_FOUND
+    }
+
+    enum Waiting {
+        FOR_CONFIRMATION, FOR_APPROVAL
     }
 
     record Pending(

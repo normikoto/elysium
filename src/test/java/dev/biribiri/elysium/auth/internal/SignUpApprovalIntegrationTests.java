@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.auth.internal;
 
+import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.RecordingMailer;
 import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestOAuth;
@@ -178,6 +179,54 @@ class SignUpApprovalIntegrationTests {
         assertThat(signUps.findAwaitingApproval("rejectedbycommand")).isEmpty();
         assertThat(run(reject, "nobodyatall")).isOne();
         assertThat(err.toString()).contains("No sign-up for nobodyatall");
+    }
+
+    @Test
+    void anAppsTokenWaitsForApproval() throws Exception {
+        var token = appSignUp("approvedfromapp");
+        confirmAddress("approvedfromapp");
+
+        verifyCredentials(token)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Your login is currently pending approval"));
+        assertThat(signUps.approve(pendingId("approvedfromapp"))).isTrue();
+
+        verifyCredentials(token)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("approvedfromapp"));
+    }
+
+    @Test
+    void anAppsTokenGoesWithARejectedSignUp() throws Exception {
+        var token = appSignUp("rejectedfromapp");
+        confirmAddress("rejectedfromapp");
+        var id = pendingId("rejectedfromapp");
+
+        assertThat(signUps.reject(id)).isTrue();
+
+        assertThat(jdbc.sql("SELECT count(*) FROM oauth2_authorization WHERE principal_name = :id")
+                .param("id", id.toString())
+                .query(Long.class)
+                .single()).isZero();
+        verifyCredentials(token).andExpect(status().isUnauthorized());
+    }
+
+    private String appSignUp(String username) throws Exception {
+        var body = mockMvc.perform(TestOAuth.signUpRequest(TestOAuth.appToken(mockMvc, "read write"), username, PASSWORD)
+                        .param("reason", "From an app"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.access_token");
+    }
+
+    private void confirmAddress(String username) throws Exception {
+        mockMvc.perform(post("/signup/verify").with(csrf())
+                        .param("token", mailer.lastTokenSentTo(username + "@mail.example")))
+                .andExpect(status().isOk());
+    }
+
+    private ResultActions verifyCredentials(String token) throws Exception {
+        return mockMvc.perform(get("/api/v1/accounts/verify_credentials").header("Authorization", "Bearer " + token));
     }
 
     private void confirmedSignUp(String username, String reason) throws Exception {

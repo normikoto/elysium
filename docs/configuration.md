@@ -10,7 +10,7 @@ Set these in your `application.properties`:
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `elysium.instance.base-url`        | Required. The server's public HTTPS URL, with no path, such as `https://social.example`. Other servers know your users by it, so don't change it after federating. |
 | `elysium.instance.account-domain`  | Optional. Domain in users’ addresses, such as `social.example`. Defaults to the base URL’s host. See [Account domain](#account-domain) for setup and WebFinger redirects. |
-| `elysium.registration.mode`        | Optional. Who can create an account at `/signup`: `open`, `approval`, or `closed`. Defaults to `closed`. See [Sign-ups](accounts.md#sign-ups) for what each allows and what it needs. |
+| `elysium.registration.mode`        | Optional. Who can create an account at `/signup` or in an app: `open`, `approval`, or `closed`. Defaults to `closed`. See [Sign-ups](accounts.md#sign-ups) for what each allows and what it needs. |
 | `spring.mail.host`                 | Optional. The SMTP host for sign-up emails. Unset by default, which disables email. See [Email](#email). |
 | `elysium.mail.from`                | Required once `spring.mail.host` is set. The address that email comes from, which your SMTP server has to allow. |
 | `elysium.rate-limit.enabled`       | Optional. Set to `false` to turn off the limits on logins, sign-ups, and app registrations, if you enforce your own elsewhere. Defaults to `true`. See [Rate limits](accounts.md#rate-limits). |

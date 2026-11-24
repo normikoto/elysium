@@ -16,7 +16,7 @@ Follows [Mastodon's OAuth API](https://docs.joinmastodon.org/methods/oauth/): `P
 `GET /oauth/authorize`, `POST /oauth/token`, and `POST /oauth/revoke`, with discovery at
 `/.well-known/oauth-authorization-server`.
 
-- `force_login`, `prompt`, `lang`, `/oauth/userinfo`, and `POST /api/v1/accounts` aren't implemented.
+- `force_login`, `prompt`, `lang`, and `/oauth/userinfo` aren't implemented.
 - Each authorization issues a new token rather than reusing the application's existing one.
 - Revoking an unknown token succeeds, rather than returning Mastodon's 403.
 - JSON bodies for `/oauth/token` and `/oauth/revoke` have a 64 KB limit. Larger bodies get 413. Repeated keys in JSON,
@@ -125,8 +125,8 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   the media limits in `configuration.media_attachments`, where `video_size_limit` is the larger of the video and audio
   limits. `video_frame_rate_limit` and `video_matrix_limit` aren't enforced, since video isn't decoded.
 - `version` is a Mastodon version followed by `(compatible; Elysium)`.
-- `invites_enabled` is always `false`, since only admins can make invites, from the command line. People sign up on the
-  server's `/signup` page, since `POST /api/v1/accounts` isn't implemented.
+- `invites_enabled` is always `false`, since only admins can make invites. Apps can still use an invite to [sign
+  someone up](#signing-up).
 - `GET /api/v2/instance` has the same limits in `configuration`, and `api_versions.mastodon` is 7, which is what clients
   look for before they offer quotes. Not everything Mastodon added up to that version is here, as this page lists, and
   what's missing gets a 404.
@@ -763,12 +763,33 @@ Only these exist:
   `:id/statuses`, `:id/followers`, `:id/following`, and `:id/featured_tags`
 - `POST /api/v1/accounts/:id/follow`, `/unfollow`, `/remove_from_followers`, `/block`, `/unblock`, `/mute`, `/unmute`,
   `/note`, `/endorse`, `/unendorse`, `/pin`, and `/unpin`
+- `POST /api/v1/accounts`, to [sign up](#signing-up)
 - `PATCH /api/v1/accounts/update_credentials`
 - `DELETE /api/v1/profile/avatar` and `/api/v1/profile/header`
 - `GET /api/v1/follow_requests`, and `POST /api/v1/follow_requests/:account_id/authorize` and `/reject`
 - `GET /api/v1/blocks`, `/api/v1/mutes`, and `/api/v1/endorsements`
 - `GET`, `POST`, and `DELETE /api/v1/domain_blocks`
 - `GET /api/v2/search`
+
+### Signing up
+
+`POST /api/v1/accounts` follows [Mastodon's](https://docs.joinmastodon.org/methods/accounts/#create), and takes any
+token with `write:accounts`, including one from `client_credentials`. It follows the server's sign-up mode, as the
+`/signup` page does, and shares its limit of 5 sign-ups an hour from one address.
+
+- With `invite_code`, the account is created straight away, and `email` isn't needed or kept. Without one, sign-ups on
+  a server that only takes invites get 403 `This action is not allowed`. So do all sign-ups while the server has no
+  accounts.
+- The returned token is like Mastodon's for an account that's waiting. Until the person opens the emailed link and
+  confirms, it gets 403 `Your login is missing a confirmed e-mail address`. If the server approves sign-ups, it gets 403
+  `Your login is currently pending approval` until an admin approves. If the link expires after a day, or the sign-up is
+  rejected, the token gets 401.
+- The token has the application's scopes, except admin ones.
+- `locale`, `time_zone`, and `date_of_birth` are ignored, and emails are in English. `reason` is optional, even when
+  sign-ups need approval.
+- Passwords are 8 to 128 characters, and usernames 1 to 30 letters, digits, or underscores.
+- `POST /api/v1/emails/confirmations` isn't implemented, so an app can't resend the email. Once the link expires, the
+  person can sign up again.
 
 ### Accounts on other servers
 

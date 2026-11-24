@@ -68,6 +68,14 @@ class InviteIntegrationTests {
     }
 
     @Test
+    void appsCantSignUpWithoutAnInvite() throws Exception {
+        mockMvc.perform(TestOAuth.signUpRequest(TestOAuth.appToken(mockMvc, "write"), "closedfromapp", PASSWORD))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("This action is not allowed"));
+        assertThat(actors.findAnyLocalByUsername("closedfromapp")).isEmpty();
+    }
+
+    @Test
     void signUpsWithoutAnInviteAreClosed() throws Exception {
         mockMvc.perform(get("/signup")).andExpect(status().isNotFound());
         mockMvc.perform(get("/signup/verify").param("token", "anything")).andExpect(status().isNotFound());

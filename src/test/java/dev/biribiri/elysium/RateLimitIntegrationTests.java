@@ -205,6 +205,21 @@ class RateLimitIntegrationTests {
     }
 
     @Test
+    void appsShareTheSignUpLimit() throws Exception {
+        var address = newAddress();
+        var appToken = TestOAuth.appToken(mockMvc, "write");
+        for (var i = 0; i < 5; i++) {
+            signUp("sharedlimit" + i, PASSWORD, address).andExpect(redirectedUrl("/login?registered"));
+        }
+
+        mockMvc.perform(from(address, TestOAuth.signUpRequest(appToken, "sharedlimitapp", PASSWORD))
+                        .param("invite_code", TestAccounts.invite(jdbc)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"));
+        assertThat(actors.findAnyLocalByUsername("sharedlimitapp")).isEmpty();
+    }
+
+    @Test
     void takenUsernamesCountAsSignUpAttempts() throws Exception {
         createAccount("probedname");
         var address = newAddress();

@@ -36,7 +36,8 @@ other browser and revokes app access until they authorize the apps again. Admins
 replace the password, revoke app access, and sign out every browser.
 
 ## Sign-ups
-Once the first account exists, people can create their own at `/signup`. Who can depends on
+Once the first account exists, people can create their own at `/signup`, or in apps that offer sign-up, which follow
+the same rules. Who can depends on
 [`elysium.registration.mode`](configuration.md):
 
 | Mode               | Who can sign up                                                                     |

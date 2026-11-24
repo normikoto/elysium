@@ -45,6 +45,15 @@ class LocalAccounts implements UserDetailsService, Admins {
      */
     private static final long LAST_ADMIN_LOCK = 7_391_046_216L;
 
+    /**
+     * Follows a {@code removed} query that returns the IDs of removed pending sign-ups. An app that signed someone up holds a
+     * token for the account the sign-up would have become, and tokens have no foreign key to anything. Left behind, a
+     * removed sign-up's token would only ever be refused, but it would stay listed among the authorizations forever.
+     */
+    static final String REMOVE_SIGN_UP_TOKENS = """
+            DELETE FROM oauth2_authorization WHERE principal_name IN (SELECT id::text FROM removed)
+            """;
+
     private static final String ACTIVE_ADMINS = """
             account_credential c
             JOIN actor a ON a.id = c.actor_id
@@ -93,7 +102,7 @@ class LocalAccounts implements UserDetailsService, Admins {
      * @throws FirstAccountRefusedException if no other account exists yet, in which case nothing is created
      */
     boolean signUp(String username, String password) {
-        return create(username, hash(password), null, false, () -> {
+        return create(UUID.randomUUID(), username, hash(password), null, false, () -> {
         }).isPresent();
     }
 
@@ -103,7 +112,7 @@ class LocalAccounts implements UserDetailsService, Admins {
      * @return the new account's role, or empty if the username is taken
      */
     Optional<AccountRole> createAccount(String username, String password) {
-        return create(username, hash(password), null, true, () -> {
+        return create(UUID.randomUUID(), username, hash(password), null, true, () -> {
         });
     }
 
@@ -190,6 +199,7 @@ class LocalAccounts implements UserDetailsService, Admins {
     /**
      * Creates an account.
      *
+     * @param actorId       the new account's ID, which a token may already have been issued for: see {@link SignUpTokens}
      * @param passwordHash  from {@link #hash}
      * @param email         a confirmed address, or null
      * @param inTransaction runs in the same transaction, once the lock is held and before the username and email address are
@@ -199,10 +209,10 @@ class LocalAccounts implements UserDetailsService, Admins {
      * @throws FirstAccountRefusedException if no other account exists yet and {@code mayBeFirst} is false
      */
     Optional<AccountRole> create(
-            String username, String passwordHash, String email, boolean mayBeFirst, Runnable inTransaction) {
+            UUID actorId, String username, String passwordHash, String email, boolean mayBeFirst, Runnable inTransaction) {
         var role = new AtomicReference<AccountRole>();
         try {
-            var created = actors.createLocalIfAbsent(username, actor -> {
+            var created = actors.createLocalIfAbsent(actorId, username, actor -> {
                 // It's not a table lock because this transaction has already written to the actor table, so two of them
                 // upgrading their locks could deadlock.
                 lockAccountCreation();
@@ -240,10 +250,15 @@ class LocalAccounts implements UserDetailsService, Admins {
     /**
      * Frees the usernames and addresses of sign-ups whose links have expired. Callers that then check those hold
      * {@link #lockAccountCreation}, so that the answer is current. {@link SignUpCleanupTask} doesn't need it, since removing
-     * expired sign-ups can only free a name, never take one.
+     * expired sign-ups can only free a name, never take one. Tokens that apps were given for them go too: see
+     * {@link #REMOVE_SIGN_UP_TOKENS}.
      */
     void removeExpiredSignUps() {
-        jdbc.sql("DELETE FROM pending_sign_up WHERE verified_at IS NULL AND created_at <= :cutoff")
+        jdbc.sql("""
+                        WITH removed AS (
+                            DELETE FROM pending_sign_up WHERE verified_at IS NULL AND created_at <= :cutoff RETURNING id
+                        )
+                        """ + REMOVE_SIGN_UP_TOKENS)
                 .param("cutoff", Instant.now().minus(SignUps.CONFIRMATION_EXPIRY).atOffset(ZoneOffset.UTC))
                 .update();
     }
