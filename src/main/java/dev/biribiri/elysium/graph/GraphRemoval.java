@@ -19,9 +19,11 @@ class GraphRemoval implements ActorDataRemoval {
     private final AccountDomainBlockService domainBlocks;
     private final AccountLists lists;
     private final RelationshipFileRepository imports;
+    private final TagFollows tagFollows;
 
     GraphRemoval(FollowService follows, BlockService blocks, MuteService mutes, AccountMemos memos,
-                 AccountDomainBlockService domainBlocks, AccountLists lists, RelationshipFileRepository imports) {
+                 AccountDomainBlockService domainBlocks, AccountLists lists, RelationshipFileRepository imports,
+                 TagFollows tagFollows) {
         this.follows = follows;
         this.blocks = blocks;
         this.mutes = mutes;
@@ -29,6 +31,7 @@ class GraphRemoval implements ActorDataRemoval {
         this.domainBlocks = domainBlocks;
         this.lists = lists;
         this.imports = imports;
+        this.tagFollows = tagFollows;
     }
 
     @Override
@@ -40,6 +43,7 @@ class GraphRemoval implements ActorDataRemoval {
         domainBlocks.removeForAccount(actorId);
         lists.removeForActor(actorId);
         imports.deleteForAccount(actorId);
+        tagFollows.removeForAccount(actorId);
     }
 
     /**

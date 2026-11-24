@@ -24,6 +24,9 @@ final class PageLimits {
     static final int DOMAIN_BLOCKS = 100;
     static final int MAX_DOMAIN_BLOCKS = 200;
 
+    static final int FOLLOWED_TAGS = 100;
+    static final int MAX_FOLLOWED_TAGS = 200;
+
     static final int REPORTS = 100;
     static final int MAX_REPORTS = 200;
 

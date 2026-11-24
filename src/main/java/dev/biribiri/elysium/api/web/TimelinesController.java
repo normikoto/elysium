@@ -67,7 +67,12 @@ public class TimelinesController {
                     Lists all of the user's own statuses, visible statuses of accounts they follow, and direct \
                     statuses from followed accounts that address the user. A followed account's reply is only \
                     listed when it's to its author, to the user, or to an account they follow. Statuses by members \
-                    of the user's exclusive lists are excluded, other than the user's own.
+                    of the user's exclusive lists are excluded, other than the user's own, unless a followed tag \
+                    adds them.
+
+                    Followed hashtags add public statuses with them, replies included, from accounts the user \
+                    doesn't follow too, but not boosts, unlisted statuses, or anything from accounts the user has \
+                    blocked or muted, or whose server they've blocked.
 
                     """ + ApiDocs.NEEDS_USER,
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "timelines/#home"),

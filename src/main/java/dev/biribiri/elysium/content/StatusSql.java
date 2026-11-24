@@ -5,6 +5,7 @@ import dev.biribiri.elysium.graph.Following;
 import dev.biribiri.elysium.graph.HiddenAccounts;
 
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * SQL for choosing statuses, for queries that page through them in their own way, such as timelines, which then load what
@@ -72,6 +73,15 @@ public final class StatusSql {
         return " AND " + HiddenAccounts.visibleInTimelines("author", viewer)
                 + " AND (s.reblog_of_id IS NULL OR EXISTS (SELECT 1 FROM status ho JOIN actor hoa ON hoa.id = ho.actor_id"
                 + " WHERE ho.id = s.reblog_of_id AND " + HiddenAccounts.visibleInTimelines("hoa", viewer) + "))";
+    }
+
+    /**
+     * Whether the status has a hashtag that meets the condition, for other modules that choose tags by their own tables.
+     *
+     * @param named the condition on a normalized tag name, given that name as SQL
+     */
+    public static String hasTag(Function<String, String> named) {
+        return "EXISTS (SELECT 1 FROM status_tag st WHERE st.status_id = s.id AND " + named.apply("st.name") + ")";
     }
 
     /**

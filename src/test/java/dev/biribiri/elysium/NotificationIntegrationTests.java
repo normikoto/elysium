@@ -18,6 +18,7 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.StatusStored;
 import dev.biribiri.elysium.graph.FollowOptions;
 import dev.biribiri.elysium.graph.FollowService;
+import dev.biribiri.elysium.graph.TagFollows;
 import dev.biribiri.elysium.notification.NotificationService;
 import dev.biribiri.elysium.notification.Notifier;
 import dev.biribiri.elysium.timeline.Markers;
@@ -78,6 +79,7 @@ class NotificationIntegrationTests {
     @Autowired FollowService follows;
     @Autowired ProfileService profiles;
     @Autowired NotificationService notifications;
+    @Autowired TagFollows tagFollows;
     @Autowired Notifier notifier;
     @Autowired Markers markers;
     @Autowired DomainBlocks blocks;
@@ -99,6 +101,7 @@ class NotificationIntegrationTests {
         jdbc.sql("DELETE FROM status").update();
         jdbc.sql("DELETE FROM status_thread_alias").update();
         jdbc.sql("DELETE FROM follow").update();
+        jdbc.sql("DELETE FROM tag_follow").update();
         jdbc.sql("DELETE FROM domain_block").update();
         jdbc.sql("UPDATE profile SET manually_approves_followers = false").update();
         alice = local("inboxalice");
@@ -175,6 +178,18 @@ class NotificationIntegrationTests {
 
         boosts.unreblog(status.id(), bob.id());
         mvc.perform(get(updates).with(user(bob))).andExpect(jsonPath("$", empty()));
+    }
+
+    @Test
+    void aFollowedTagDoesntNotifyOfWhatTheFollowLeavesOut() throws Exception {
+        follows.follow(bob, alice, new FollowOptions(Optional.empty(), Optional.of(true), Optional.of(List.of("en"))));
+        tagFollows.follow(bob.id(), "cats");
+        var status = statuses.create(alice.id(), new NewStatus("hallo #cats", null, "de", PUBLIC, false, null));
+        settled();
+
+        mvc.perform(get("/api/v1/timelines/home").with(user(bob)))
+                .andExpect(jsonPath("$[*].id", contains(status.id().toString())));
+        mvc.perform(get(NOTIFICATIONS + "?types[]=status").with(user(bob))).andExpect(jsonPath("$", empty()));
     }
 
     @Test

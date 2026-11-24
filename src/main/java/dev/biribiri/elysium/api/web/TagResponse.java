@@ -12,13 +12,11 @@ import java.util.List;
 /**
  * Mastodon's Tag entity.
  *
- * @param following whether the viewer follows the tag, which nobody can yet, or null when there's no viewer, as Mastodon
- *                  leaves it out
+ * @param following whether the viewer follows the tag, or null when there's no user, as Mastodon leaves it out
  */
 @Schema(name = "Tag", description = """
         Mastodon's Tag entity. `name` is normalized: lowercase, and in Unicode's NFKC form. `history` only counts \
-        public statuses stored on this server. Tags can't be followed or featured, so `following` is always false, \
-        and is omitted when there's no token.""")
+        public statuses stored on this server. `following` is omitted when there's no user token.""")
 record TagResponse(
         String name,
         String url,
@@ -41,11 +39,11 @@ record TagResponse(
         }
     }
 
-    static TagResponse of(String name, List<TagDay> days, boolean signedIn, InstanceProperties instance) {
+    static TagResponse of(String name, List<TagDay> days, Boolean following, InstanceProperties instance) {
         return new TagResponse(
                 name,
                 Hashtags.url(instance.baseUrl(), name).toString(),
                 days.stream().map(History::from).toList(),
-                signedIn ? false : null);
+                following);
     }
 }

@@ -93,6 +93,10 @@ final class RequestParameters {
         return page(limit, maxId, sinceId, minId, PageLimits.ACCOUNTS, PageLimits.MAX_ACCOUNTS);
     }
 
+    static IdPage followedTagPage(String limit, String maxId, String sinceId, String minId) {
+        return page(limit, maxId, sinceId, minId, PageLimits.FOLLOWED_TAGS, PageLimits.MAX_FOLLOWED_TAGS);
+    }
+
     static IdPage domainBlockPage(String limit, String maxId, String sinceId, String minId) {
         return page(limit, maxId, sinceId, minId, PageLimits.DOMAIN_BLOCKS, PageLimits.MAX_DOMAIN_BLOCKS);
     }

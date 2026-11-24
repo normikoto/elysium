@@ -113,8 +113,9 @@ public class Notifier {
         var authorId = preview.get().authorId();
         if (follows.notifiedFollowerIds(authorId).isEmpty()) return;
         notifications.lock();
-        // Read again under the lock, as project does, since a domain block's cleanup can have finished since.
-        var recipients = timelines.homeViewers(statusId, follows.notifiedFollowerIds(authorId));
+        // Read again under the lock, as project does, since a domain block's cleanup can have finished since. Only what
+        // following the author puts in the home timeline notifies, as on Mastodon, and not what a followed tag adds.
+        var recipients = timelines.homeViewersByFollows(statusId, follows.notifiedFollowerIds(authorId));
         if (recipients.isEmpty()) return;
         conversations.holdActors(people(recipients, authorId));
         conversations.holdSource(statusId).ifPresent(source -> {

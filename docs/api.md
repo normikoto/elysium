@@ -242,8 +242,13 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
     Mastodon, and one to a status that isn't stored here is left out.
   - Direct messages addressed to the user are included only when they follow the author.
   - The user's own statuses and replies are always listed.
-  - Statuses and boosts by members of the user's exclusive lists are left out, as on Mastodon.
-  - `local` has no effect, and followed hashtags don't add statuses to it.
+  - Statuses and boosts by members of the user's exclusive lists are left out, as on Mastodon, unless a followed
+    hashtag adds them.
+  - `local` has no effect.
+  - [Followed hashtags](#tags) add public statuses with them, replies included, from accounts the user doesn't follow
+    too. Boosts and unlisted statuses aren't added, and neither is anything from accounts the user has blocked or
+    muted, or whose server they've blocked. Following a tag includes the statuses with it that are already stored
+    here, and unfollowing it removes them.
   - It lists every boost from the accounts the user follows, even of a status that's already there.
 - `GET /api/v1/timelines/public` lists public statuses from other servers too, as on Mastodon. With both `local` and
   `remote`, `local` wins. Boosts aren't listed there, as on Mastodon.
@@ -259,9 +264,13 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `GET /api/v1/tags/:id` finds any valid tag name, even one that nothing uses, and gets a 404 for an invalid one. Any
   token works, or none.
 - `history` counts only public statuses stored here, over the last 7 days.
-- Tags can't be followed or featured, so `following` is always false, and is left out without a user token. The
-  endpoints for following, unfollowing, featuring, and trending tags, and `GET /api/v1/followed_tags`, aren't
-  implemented.
+- `following` is left out without a user token. Tags can't be featured, and the endpoints for featuring and trending
+  tags aren't implemented.
+- `POST /api/v1/tags/:id/follow` and `/unfollow` take any valid tag name, even one that nothing uses, and get a 404 for
+  an invalid one. Doing either again has no further effect. Other servers aren't told about tag follows, so they
+  only bring in statuses that already reach this server.
+- `GET /api/v1/followed_tags` lists the most recently followed first, and pages by the IDs in its `Link` header, as on
+  Mastodon.
 
 ### Boosts
 
@@ -677,7 +686,8 @@ Follow [Mastodon's lists API](https://docs.joinmastodon.org/methods/lists/), wit
     from a member whose follow request is still waiting.
   - A member's reply to themselves or to the user is always listed, and other replies by `replies_policy`.
   - Filters for `home` apply to it, as on Mastodon.
-- `exclusive` leaves the members' statuses and boosts out of the home timeline and the `user` stream.
+- `exclusive` leaves the members' statuses and boosts out of the home timeline and the `user` stream, apart from what a
+  followed hashtag adds.
 
 ## Streaming
 

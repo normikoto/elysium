@@ -46,10 +46,10 @@ public class TimelineService {
      * Lists the viewer's own statuses and visible statuses from followed accounts, including direct mentions. As on
      * Mastodon, a followed account's reply is only listed when it's to its author, to the viewer, or to someone they follow,
      * so that following one person doesn't show their side of every conversation. A reply to a status that isn't stored
-     * here has no known parent author, so it's left out too.
+     * here has no known parent author, so it's left out too. Followed tags add public statuses with them, from anyone.
      *
      * <p>Read from the statuses stored here each time, rather than from a feed kept for each account, so following or
-     * unfollowing someone changes it straight away, with nothing to fill or clean up.
+     * unfollowing someone or a tag changes it straight away, with nothing to fill or clean up.
      */
     public List<Status> homeTimeline(UUID viewerId, IdPage page) {
         return load(timelines.findHome(viewerId, follows.followedIds(viewerId), page));
@@ -98,6 +98,14 @@ public class TimelineService {
      */
     public List<UUID> homeViewers(UUID statusId, Collection<UUID> candidates) {
         return timelines.homeViewers(statusId, candidates);
+    }
+
+    /**
+     * Like {@link #homeViewers}, but only for what following the author puts there, leaving out what a followed tag
+     * adds.
+     */
+    public List<UUID> homeViewersByFollows(UUID statusId, Collection<UUID> candidates) {
+        return timelines.homeViewersByFollows(statusId, candidates);
     }
 
     /**
