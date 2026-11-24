@@ -14,6 +14,7 @@ import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusProperties;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.moderation.Rules;
+import dev.biribiri.elysium.push.PushSubscriptions;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -57,6 +58,7 @@ public class InstanceController {
     private final UsageProperties usage;
     private final ActiveAccounts activeAccounts;
     private final WeeklyCounts weeklyCounts;
+    private final PushSubscriptions push;
 
     InstanceController(
             InstanceProperties instance,
@@ -69,7 +71,9 @@ public class InstanceController {
             Rules rules,
             UsageProperties usage,
             ActiveAccounts activeAccounts,
-            WeeklyCounts weeklyCounts) {
+            WeeklyCounts weeklyCounts,
+            PushSubscriptions push) {
+        this.push = push;
         this.usage = usage;
         this.activeAccounts = activeAccounts;
         this.weeklyCounts = weeklyCounts;
@@ -177,8 +181,7 @@ public class InstanceController {
                     and defaults to\s""" + StatusProperties.DEFAULT_MAX_CHARACTERS + """
                     \srather than 500. `api_versions.mastodon` is\s""" + MASTODON_API_VERSION + """
                     , which is when Mastodon added quotes, though some of what Mastodon added in the versions before it \
-                    isn't here, as `docs/api.md` lists. Elysium omits the thumbnail, icon, and contact account. \
-                    Push notifications are unavailable.
+                    isn't here, as `docs/api.md` lists. Elysium omits the thumbnail, icon, and contact account.
 
                     `usage.users.active_month` counts the local accounts active in the last\s"""
                     + ActiveAccounts.MONTH_DAYS + """
@@ -208,7 +211,8 @@ public class InstanceController {
                         mediaAttachments(),
                         new InstanceResponse.Polls(Poll.MAX_OPTIONS, Poll.MAX_OPTION_CHARACTERS, Poll.MIN_EXPIRATION,
                                 Poll.MAX_EXPIRATION),
-                        Map.of("enabled", false)),
+                        Map.of("enabled", false),
+                        new InstanceV2Response.Vapid(push.serverKey())),
                 new InstanceV2Response.Registrations(
                         registration.acceptsUninvited(), registration.approvalRequired(), null),
                 Map.of("mastodon", MASTODON_API_VERSION),

@@ -145,7 +145,7 @@ class OAuthApiDocs {
         }
         switch (scope) {
             case "profile" -> sentences.add("Only `GET /api/v1/accounts/verify_credentials`.");
-            case "push" -> sentences.add("Accepted, but nothing uses it yet.");
+            case "push" -> sentences.add("Only `/api/v1/push/subscription`.");
             case "follow" -> sentences.add("Deprecated.");
             default -> {
             }

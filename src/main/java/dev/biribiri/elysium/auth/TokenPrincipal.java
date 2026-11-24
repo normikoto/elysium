@@ -21,13 +21,15 @@ import java.util.stream.Collectors;
  * @param scopes        everything the token grants, including the granular scopes of any broad ones
  * @param issuedAt      when the token was issued
  * @param expiresAt     when the token expires
+ * @param authorizationId the grant that holds the token, which other modules can store instead of the token itself
  */
 public record TokenPrincipal(
         String applicationId,
         Optional<UUID> actorId,
         Set<String> scopes,
         Instant issuedAt,
-        Instant expiresAt
+        Instant expiresAt,
+        String authorizationId
 ) implements OAuth2AuthenticatedPrincipal {
 
     @Override

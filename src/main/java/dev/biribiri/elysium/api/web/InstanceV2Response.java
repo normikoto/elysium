@@ -42,7 +42,14 @@ record InstanceV2Response(
             InstanceResponse.Statuses statuses,
             @JsonProperty("media_attachments") InstanceResponse.MediaAttachments mediaAttachments,
             InstanceResponse.Polls polls,
-            Map<String, Boolean> translation) {
+            Map<String, Boolean> translation,
+            Vapid vapid) {
+    }
+
+    /**
+     * @param publicKey the server's key, which clients give the push service when they subscribe
+     */
+    record Vapid(@JsonProperty("public_key") String publicKey) {
     }
 
     record Registrations(boolean enabled, @JsonProperty("approval_required") boolean approvalRequired, String message) {

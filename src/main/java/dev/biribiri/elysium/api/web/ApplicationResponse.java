@@ -27,10 +27,13 @@ record ApplicationResponse(
         @JsonProperty("redirect_uris") List<String> redirectUris,
         @JsonProperty("client_id") String clientId,
         @JsonProperty("client_secret") String clientSecret,
-        @JsonProperty("client_secret_expires_at") Integer clientSecretExpiresAt
+        @JsonProperty("client_secret_expires_at") Integer clientSecretExpiresAt,
+        @Schema(description = "The server's key for push subscriptions, which Mastodon has deprecated in favour of "
+                + "`configuration.vapid.public_key` in the v2 instance.")
+        @JsonProperty("vapid_key") String vapidKey
 ) {
 
-    static ApplicationResponse from(ClientApplication application) {
+    static ApplicationResponse from(ClientApplication application, String vapidKey) {
         return new ApplicationResponse(
                 application.id(),
                 application.name(),
@@ -40,10 +43,11 @@ record ApplicationResponse(
                 application.redirectUris(),
                 null,
                 null,
-                null);
+                null,
+                vapidKey);
     }
 
-    static ApplicationResponse withCredentials(NewClient client) {
+    static ApplicationResponse withCredentials(NewClient client, String vapidKey) {
         var application = client.application();
         return new ApplicationResponse(
                 application.id(),
@@ -54,6 +58,7 @@ record ApplicationResponse(
                 application.redirectUris(),
                 application.clientId(),
                 client.clientSecret(),
-                0);
+                0,
+                vapidKey);
     }
 }

@@ -9,6 +9,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Apps can send push notifications to phones and browsers through `/api/v1/push/subscription`, as on Mastodon,
+  including Pleroma's `pleroma:emoji_reaction` for emoji reactions. The server creates its push key the first time
+  it's needed, and nothing has to be configured. Elysium only sends to push services on public addresses. See [Using
+  the API](docs/api.md#push-notifications).
 - People can mark their account as a bot, or say they're a cat as Misskey has it, at `/settings` or in an app. Bots are
   sent to other servers as `Service` actors, and cats with Misskey's `isCat`, which Elysium now reads from other servers
   too. Profile pages show both. Apps get `bot`, and Elysium's own `is_cat`, through `update_credentials` and on

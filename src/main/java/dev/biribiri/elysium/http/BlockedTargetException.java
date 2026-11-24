@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.activitypub.http;
+package dev.biribiri.elysium.http;
 
 import java.net.UnknownHostException;
 
@@ -8,7 +8,7 @@ import java.net.UnknownHostException;
  */
 public class BlockedTargetException extends UnknownHostException {
 
-    BlockedTargetException(String message) {
+    public BlockedTargetException(String message) {
         super(message);
     }
 }

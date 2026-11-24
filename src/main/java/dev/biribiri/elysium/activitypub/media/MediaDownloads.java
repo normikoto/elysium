@@ -7,7 +7,7 @@ import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
-import dev.biribiri.elysium.activitypub.http.BlockedTargetException;
+import dev.biribiri.elysium.http.BlockedTargetException;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.HostRequests;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;

@@ -18,7 +18,7 @@ class ModularityTests {
     void detectsEveryModule() {
         assertThat(modules.stream().map(module -> module.getIdentifier().toString()))
                 .containsExactlyInAnyOrder(
-                        "activitypub", "actor", "announcement", "api", "auth", "content", "graph", "jobs", "mail", "media", "moderation", "notification",
+                        "activitypub", "actor", "announcement", "api", "auth", "content", "graph", "http", "jobs", "mail", "media", "moderation", "notification", "push",
                         "ratelimit", "text", "timeline", "web");
     }
 }
