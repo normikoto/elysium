@@ -256,6 +256,11 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   others, as on Mastodon, with the same `local`, `remote`, and `only_media` as the public timeline.
   - `any[]`, `all[]`, and `none[]` each use their first 4 names, as on Mastodon.
   - A `:hashtag` that isn't a valid name, or a name in `all[]` that isn't one, gives an empty list.
+- `GET /api/v1/timelines/direct`, which Mastodon removed in 3.0 but Pleroma still has, is kept for clients such as
+  pleroma-fe. It lists the direct statuses the user wrote or is mentioned in, including from accounts they don't
+  follow, unlike the home timeline. Statuses from accounts the user has blocked or muted, or whose server they've
+  blocked, are left out. Filters don't apply, as with conversations, and Pleroma's extra parameters aren't supported.
+  It pages like the home timeline.
 - `only_media` works on the public and hashtag timelines and on `GET /api/v1/accounts/:id/statuses`, and leaves out
   boosts.
 

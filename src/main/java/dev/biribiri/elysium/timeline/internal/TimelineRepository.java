@@ -168,6 +168,16 @@ public class TimelineRepository {
     }
 
     /**
+     * Unlike the home timeline, this lists direct statuses from accounts the viewer doesn't follow too, since the clients
+     * that still read it, such as Pleroma's, show it as their inbox of direct messages. Silent mentions count, since
+     * they're who can see the status.
+     */
+    public List<UUID> findDirect(UUID viewerId, IdPage page) {
+        return findPage(new Filter("s.visibility = 'direct' AND (s.actor_id = :viewer OR" + mentions(":viewer") + ")"
+                + NOT_HIDDEN, Map.of("viewer", viewerId)), page);
+    }
+
+    /**
      * Lists what the home timeline would of the list's members, as on Mastodon, except for direct statuses, which
      * Mastodon doesn't add to lists, and with replies chosen by the list's policy. Members whose follow request hasn't
      * been accepted are left out, since the owner couldn't see their followers-only statuses.
