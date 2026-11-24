@@ -76,11 +76,11 @@ public class NotificationService {
      *
      * @return the notifications this made seen, newest first, or none if the marker was already at or past {@code maxId}
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public List<Notification> seeUpTo(UUID viewer, UUID maxId, int limit) {
-        var previous = notificationPosition(viewer);
-        if (!markers.advance(viewer, "notifications", maxId)) return List.of();
-        return notifications.upTo(viewer, previous, maxId, limit);
+        var advance = markers.advance(viewer, "notifications", maxId);
+        if (!advance.moved()) return List.of();
+        return notifications.upTo(viewer, advance.from(), maxId, limit);
     }
 
     private static int compareUnsigned(UUID a, UUID b) {

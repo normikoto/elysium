@@ -434,6 +434,22 @@ class NotificationIntegrationTests {
     }
 
     @Test
+    void concurrentPleromaReadsEachReturnOnlyWhatTheyMadeSeen() throws Exception {
+        for (var i = 0; i < 12; i++) createStatus(alice, "@inboxbob read " + i, PUBLIC, null);
+        settled();
+        List<String> ids = values(get(NOTIFICATIONS).with(user(bob)), "$[*].id");
+        var returned = new ArrayList<UUID>();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var jobs = ids.stream().<java.util.concurrent.Callable<List<UUID>>>map(id -> () -> notifications
+                    .seeUpTo(bob.id(), UUID.fromString(id), 80).stream().map(n -> n.id()).toList()).toList();
+            for (var result : executor.invokeAll(jobs)) returned.addAll(result.get());
+        }
+        assertThat(returned).doesNotHaveDuplicates()
+                .containsExactlyInAnyOrderElementsOf(ids.stream().map(UUID::fromString).toList());
+        assertThat(markers.lastRead(bob.id(), "notifications")).contains(UUID.fromString(ids.getFirst()));
+    }
+
+    @Test
     void pleromasReadEndpointNeedsAMaxId() throws Exception {
         mvc.perform(post(PLEROMA_READ).with(user(bob))).andExpect(status().isUnprocessableContent());
         mvc.perform(post(PLEROMA_READ).with(user(bob)).param("id", UUID.randomUUID().toString()))
