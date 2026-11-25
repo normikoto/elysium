@@ -111,8 +111,12 @@ class InviteIntegrationTests {
     }
 
     @Test
-    void anInviteCanBeUsedUp() throws Exception {
+    void anInviteCanBeUsedUpButNotByASignUpThatFails() throws Exception {
         var invite = invites.create(1, null);
+        assertThat(accounts.signUp("alreadyhere", PASSWORD)).isTrue();
+
+        signUp(invite.code(), "alreadyhere").andExpect(status().isUnprocessableContent());
+        assertThat(invites.isUsable(invite.code())).as("after a taken username").isTrue();
 
         signUp(invite.code(), "usedonce").andExpect(redirectedUrl("/login?registered"));
         signUp(invite.code(), "usedtwice")
@@ -121,16 +125,6 @@ class InviteIntegrationTests {
         mockMvc.perform(get("/signup").param("invite", invite.code())).andExpect(status().isNotFound());
 
         assertThat(actors.findAnyLocalByUsername("usedtwice")).isEmpty();
-    }
-
-    @Test
-    void aTakenUsernameDoesntUseUpTheInvite() throws Exception {
-        var invite = invites.create(1, null);
-        assertThat(accounts.signUp("alreadyhere", PASSWORD)).isTrue();
-
-        signUp(invite.code(), "alreadyhere").andExpect(status().isUnprocessableContent());
-
-        assertThat(invites.isUsable(invite.code())).isTrue();
     }
 
     @Test
@@ -185,7 +179,7 @@ class InviteIntegrationTests {
     }
 
     @Test
-    void anAdminCanCreateAnInviteFromTheAdminPage() throws Exception {
+    void anAdminCanCreateAndRevokeAnInviteFromTheAdminPage() throws Exception {
         var admin = adminSession();
 
         var page = mockMvc.perform(post("/admin/invites").session(admin).with(csrf())
@@ -204,6 +198,18 @@ class InviteIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("0 of 3 uses")))
                 .andExpect(content().string(not(containsString(code))));
+
+        mockMvc.perform(post("/admin/invites/" + created.id() + "/revoke").session(admin).with(csrf()))
+                .andExpect(redirectedUrl("/admin/invites"));
+        assertThat(invites.isUsable(code)).as("after revoking").isFalse();
+
+        mockMvc.perform(post("/admin/invites/" + created.id() + "/revoke").session(admin).with(csrf()))
+                .andExpect(redirectedUrl("/admin/invites"));
+        mockMvc.perform(post("/admin/invites/not-an-id/revoke").session(admin).with(csrf()))
+                .andExpect(redirectedUrl("/admin/invites"));
+        mockMvc.perform(get("/admin/invites").session(admin))
+                .andExpect(content().string(containsString("Revoked")))
+                .andExpect(content().string(not(containsString("/admin/invites/" + created.id() + "/revoke"))));
     }
 
     @Test
@@ -220,24 +226,6 @@ class InviteIntegrationTests {
                 .andExpect(status().isUnprocessableContent());
 
         assertThat(invites.list()).hasSize(before);
-    }
-
-    @Test
-    void anAdminCanRevokeAnInviteFromTheAdminPage() throws Exception {
-        var admin = adminSession();
-        var invite = invites.create(null, null);
-
-        mockMvc.perform(post("/admin/invites/" + invite.id() + "/revoke").session(admin).with(csrf()))
-                .andExpect(redirectedUrl("/admin/invites"));
-        assertThat(invites.isUsable(invite.code())).isFalse();
-
-        mockMvc.perform(post("/admin/invites/" + invite.id() + "/revoke").session(admin).with(csrf()))
-                .andExpect(redirectedUrl("/admin/invites"));
-        mockMvc.perform(post("/admin/invites/not-an-id/revoke").session(admin).with(csrf()))
-                .andExpect(redirectedUrl("/admin/invites"));
-        mockMvc.perform(get("/admin/invites").session(admin))
-                .andExpect(content().string(containsString("Revoked")))
-                .andExpect(content().string(not(containsString("/admin/invites/" + invite.id() + "/revoke"))));
     }
 
     @Test

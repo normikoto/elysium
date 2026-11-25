@@ -90,7 +90,7 @@ class RelationshipFilesIntegrationTests {
     }
 
     @Test
-    void exportsWhatAnAccountFollowsBlocksAndMutesAsMastodonDoes() throws Exception {
+    void exportsWhatAnAccountFollowsBlocksAndMutesAsMastodonDoesForAnotherAccountToImport() throws Exception {
         var alice = signUp();
         var bob = account();
         var carol = account();
@@ -105,20 +105,28 @@ class RelationshipFilesIntegrationTests {
         mutes.mute(alice.actor().id(), erin.id(), false, Optional.empty());
         mutes.mute(alice.actor().id(), carol.id(), true, Optional.of(Instant.now().minus(Duration.ofMinutes(1))));
 
-        mockMvc.perform(get("/settings/exports/follows.csv").session(alice.session()))
+        var exported = mockMvc.perform(get("/settings/exports/follows.csv").session(alice.session()))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Disposition", containsString("following_accounts.csv")))
                 .andExpect(content().string("""
                         Account address,Show boosts,Notify on new posts,Languages
                         %s,false,true,"en, de"
                         %s,true,false,
-                        """.formatted(address(bob), address(carol))));
+                        """.formatted(address(bob), address(carol))))
+                .andReturn().getResponse().getContentAsString();
         mockMvc.perform(get("/settings/exports/blocks.csv").session(alice.session()))
                 // A suspended account stays blocked, so that it is on the new server too.
                 .andExpect(content().string(address(dave) + "\n" + address(frank) + "\n"));
         // The expired mute of carol is left out.
         mockMvc.perform(get("/settings/exports/mutes.csv").session(alice.session()))
                 .andExpect(content().string("Account address,Hide notifications\n" + address(erin) + ",false\n"));
+
+        var other = signUp();
+        upload(other, "follows", exported);
+        runImport(other.actor());
+        assertThat(follows.options(other.actor().id(), bob.id())).as("after importing the export")
+                .contains(FollowOptions.of(false, true, List.of("en", "de")));
+        assertThat(follows.options(other.actor().id(), carol.id())).isEqualTo(follows.options(alice.actor().id(), carol.id()));
     }
 
     @Test
@@ -185,21 +193,6 @@ class RelationshipFilesIntegrationTests {
         actors.unsuspend(alice.actor().id());
         runImport(alice.actor());
         assertThat(relationship(alice.actor(), bob).blocking()).isTrue();
-    }
-
-    @Test
-    void anExportImportsIntoAnotherAccount() throws Exception {
-        var alice = signUp();
-        var bob = signUp();
-        var carol = account();
-        follows.follow(alice.actor(), carol, FollowOptions.of(true, true, List.of()));
-
-        var exported = mockMvc.perform(get("/settings/exports/follows.csv").session(alice.session()))
-                .andReturn().getResponse().getContentAsString();
-        upload(bob, "follows", exported);
-        runImport(bob.actor());
-
-        assertThat(follows.options(bob.actor().id(), carol.id())).contains(FollowOptions.of(true, true, List.of()));
     }
 
     @Test
