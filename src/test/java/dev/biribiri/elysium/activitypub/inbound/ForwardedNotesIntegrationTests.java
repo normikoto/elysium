@@ -115,12 +115,15 @@ class ForwardedNotesIntegrationTests {
     }
 
     @Test
-    void storesTheNoteItsServerServes() throws Exception {
+    void storesTheNoteItsServerServesButNothingUnderTheForwardedId() throws Exception {
         serveNote(noteDocument(note, actor, recipient.uri().toString(), Instant.now()));
 
         storeNote();
 
         assertThat(statusCount(note)).isOne();
+        assertThat(stored.exists(id)).isFalse();
+        var real = "{\"id\":\"%s\",\"type\":\"Create\",\"actor\":\"%s\",\"object\":\"%s\"}".formatted(id, actor, note);
+        assertThat(inbound.accept(new InboundActivity(id, actor, "Create", real))).isTrue();
     }
 
     @Test
@@ -136,72 +139,32 @@ class ForwardedNotesIntegrationTests {
     }
 
     @Test
-    void storesNothingUnderTheForwardedId() throws Exception {
-        serveNote(noteDocument(note, actor, recipient.uri().toString(), Instant.now()));
-
-        storeNote();
-
-        assertThat(stored.exists(id)).isFalse();
-        var real = "{\"id\":\"%s\",\"type\":\"Create\",\"actor\":\"%s\",\"object\":\"%s\"}".formatted(id, actor, note);
-        assertThat(inbound.accept(new InboundActivity(id, actor, "Create", real))).isTrue();
-    }
-
-    @Test
-    void storesForwardsOfTheSameNoteOnce() throws Exception {
-        serveNote(noteDocument(note, actor, recipient.uri().toString(), Instant.now()));
-
-        notes.run(noteJob(now()));
-        notes.run(noteJob(now()));
-
-        verify(documents, times(1)).fetch(URI.create(note));
-        assertThat(stored.exists(createId())).isTrue();
-    }
-
-    @Test
-    void storesTheCreateAsArrivingWhenTheForwardedCopyDid() throws Exception {
+    void storesForwardsOfTheSameNoteOnceAsArrivingWhenTheFirstDid() throws Exception {
         var arrivedAt = now().minusSeconds(60);
         serveNote(noteDocument(note, actor, recipient.uri().toString(), Instant.now()));
 
         notes.run(noteJob(arrivedAt));
+        notes.run(noteJob(now()));
 
+        verify(documents, times(1)).fetch(URI.create(note));
         assertThat(stored.find(createId()).orElseThrow().firstReceivedAt()).isEqualTo(arrivedAt);
     }
 
     @Test
-    void dropsANoteAttributedToSomeoneElse() throws Exception {
-        serveNote(noteDocument(note, "https://" + origin + "/users/b", recipient.uri().toString(), Instant.now()));
+    void dropsWhatIsntANewNoteOfTheActorsOwn() throws Exception {
+        var old = now().minus(ForwardedNotes.NEW_FOR).minusSeconds(60);
+        var to = recipient.uri().toString();
+        for (var served : List.of(
+                noteDocument(note, "https://" + origin + "/users/b", to, Instant.now()),
+                noteDocument(note + "/other", actor, to, Instant.now()),
+                noteDocument(note, actor, to, old),
+                noteDocument(note, actor, to, null))) {
+            serveNote(served);
 
-        notes.run(noteJob(now()));
+            notes.run(noteJob(now()));
 
-        assertThat(stored.exists(createId())).isFalse();
-    }
-
-    @Test
-    void dropsWhatItsServerServesUnderAnotherId() throws Exception {
-        serveNote(noteDocument(note + "/other", actor, recipient.uri().toString(), Instant.now()));
-
-        notes.run(noteJob(now()));
-
-        assertThat(stored.exists(createId())).isFalse();
-    }
-
-    @Test
-    void dropsAnOldNote() throws Exception {
-        var published = now().minus(ForwardedNotes.NEW_FOR).minusSeconds(60);
-        serveNote(noteDocument(note, actor, recipient.uri().toString(), published));
-
-        notes.run(noteJob(now()));
-
-        assertThat(stored.exists(createId())).isFalse();
-    }
-
-    @Test
-    void dropsANoteThatDoesNotSayWhenItWasPublished() throws Exception {
-        serveNote(noteDocument(note, actor, recipient.uri().toString(), null));
-
-        notes.run(noteJob(now()));
-
-        assertThat(stored.exists(createId())).isFalse();
+            assertThat(stored.exists(createId())).as(served).isFalse();
+        }
     }
 
     @Test
@@ -377,11 +340,13 @@ class ForwardedNotesIntegrationTests {
     }
 
     @Test
-    void storesEachVersionServedForAForwardedUpdateOnce() throws Exception {
+    void storesEachVersionServedForAForwardedUpdateOnceButNotUnderTheForwardedId() throws Exception {
         var published = now().minusSeconds(600);
         serveNote(editedNote(published, published.plusSeconds(60), "First"));
         notes.run(updateJob());
         notes.run(updateJob());
+        assertThat(storedUpdates()).hasSize(1);
+        assertThat(stored.exists(id)).isFalse();
         serveNote(editedNote(published, published.plusSeconds(120), "Second"));
         notes.run(updateJob());
 
@@ -403,17 +368,6 @@ class ForwardedNotesIntegrationTests {
 
         assertThat(storedUpdates()).hasSize(1);
         assertThat(jobs("inbound-activity", storedUpdates().getFirst())).isEqualTo(2);
-    }
-
-    @Test
-    void doesNotStoreAnUpdateUnderTheForwardedId() throws Exception {
-        var published = now().minusSeconds(600);
-        serveNote(editedNote(published, published.plusSeconds(60), "Edited"));
-
-        notes.run(updateJob());
-
-        assertThat(stored.exists(id)).isFalse();
-        assertThat(storedUpdates()).hasSize(1);
     }
 
     @Test

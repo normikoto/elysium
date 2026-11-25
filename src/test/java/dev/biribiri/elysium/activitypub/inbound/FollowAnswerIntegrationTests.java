@@ -7,6 +7,8 @@ import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.graph.FollowService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -47,50 +49,14 @@ class FollowAnswerIntegrationTests {
         remote = remote();
     }
 
-    @Test
-    void anAcceptNamingTheFollowMakesItActive() {
+    @ParameterizedTest
+    @EnumSource
+    void anAcceptMakesTheFollowActive(FollowNamed named) {
         follows.follow(local, remote);
-        var followId = followId();
 
-        acceptHandler.handle(answer("Accept", remote, "\"" + followId + "\""));
+        acceptHandler.handle(answer("Accept", remote, named.in(followId(), local, remote)));
 
         assertThat(state()).containsExactly("accepted");
-    }
-
-    @Test
-    void anAcceptEmbeddingTheFollowMakesItActive() {
-        follows.follow(local, remote);
-
-        acceptHandler.handle(answer("Accept", remote, embedded(followId(), local, remote)));
-
-        assertThat(state()).containsExactly("accepted");
-    }
-
-    @Test
-    void anAcceptEmbeddingTheFollowWithoutItsIdGoesByTheActors() {
-        follows.follow(local, remote);
-
-        acceptHandler.handle(answer("Accept", remote, embedded(null, local, remote)));
-
-        assertThat(state()).containsExactly("accepted");
-    }
-
-    @Test
-    void anAcceptEmbeddingTheFollowWithAnIdOfItsOwnGoesByTheActors() {
-        follows.follow(local, remote);
-
-        acceptHandler.handle(answer("Accept", remote, embedded(remote.uri() + "#follows/77", local, remote)));
-
-        assertThat(state()).containsExactly("accepted");
-    }
-
-    @Test
-    void aRejectEmbeddingTheFollowWithAnIdOfItsOwnGoesByTheActors() {
-        follows.follow(local, remote);
-
-        rejectHandler.handle(answer("Reject", remote, embedded(remote.uri() + "#follows/77", local, remote)));
-
-        assertThat(state()).isEmpty();
     }
 
     @Test
@@ -127,11 +93,12 @@ class FollowAnswerIntegrationTests {
         assertThat(state()).containsExactly("pending");
     }
 
-    @Test
-    void aRejectRemovesTheRequest() {
+    @ParameterizedTest
+    @EnumSource
+    void aRejectRemovesTheRequest(FollowNamed named) {
         follows.follow(local, remote);
 
-        rejectHandler.handle(answer("Reject", remote, "\"" + followId() + "\""));
+        rejectHandler.handle(answer("Reject", remote, named.in(followId(), local, remote)));
 
         assertThat(state()).isEmpty();
     }
@@ -178,6 +145,22 @@ class FollowAnswerIntegrationTests {
         var id = from.uri() + "#answers/" + UUID.randomUUID();
         var body = "{\"id\":\"%s\",\"type\":\"%s\",\"actor\":\"%s\",\"object\":%s}".formatted(id, type, from.uri(), object);
         return new InboundActivity(id, from.uri().toString(), type, body);
+    }
+
+    /**
+     * Without an ID of ours, the answer goes by the two actors.
+     */
+    enum FollowNamed {
+        BY_ID, EMBEDDED, EMBEDDED_WITHOUT_ITS_ID, EMBEDDED_WITH_AN_ID_OF_ITS_OWN;
+
+        String in(String followId, Actor follower, Actor followed) {
+            return switch (this) {
+                case BY_ID -> "\"" + followId + "\"";
+                case EMBEDDED -> embedded(followId, follower, followed);
+                case EMBEDDED_WITHOUT_ITS_ID -> embedded(null, follower, followed);
+                case EMBEDDED_WITH_AN_ID_OF_ITS_OWN -> embedded(followed.uri() + "#follows/77", follower, followed);
+            };
+        }
     }
 
     private static String embedded(String id, Actor follower, Actor followed) {

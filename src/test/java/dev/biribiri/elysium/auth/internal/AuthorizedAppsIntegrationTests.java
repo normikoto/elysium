@@ -72,29 +72,20 @@ class AuthorizedAppsIntegrationTests {
     }
 
     @Test
-    void listsAnApprovedApp() throws Exception {
+    void listsAnApprovedAppEscapingItsName() throws Exception {
         var name = uniqueName();
-        var app = register(name, "https://app.example/home", "read write");
+        var app = register(name + " <script>alert(1)</script>", "https://app.example/home", "read write");
         TestOAuth.userToken(mockMvc, app, session, "read");
 
         mockMvc.perform(get(PAGE).session(session))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString(name)))
+                .andExpect(content().string(containsString(name + " &lt;script&gt;alert(1)&lt;/script&gt;")))
+                .andExpect(content().string(not(containsString("<script>alert(1)</script>"))))
                 .andExpect(content().string(containsString("href=\"https://app.example/home\"")))
                 .andExpect(content().string(containsString("Can use: <span>read</span>")))
                 .andExpect(content().string(matchesPattern(
                         "(?s).*<time datetime=\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z\">.*")))
                 .andExpect(content().string(containsString("name=\"_csrf\"")));
-    }
-
-    @Test
-    void escapesAppNames() throws Exception {
-        var app = register("<script>alert(1)</script>", null, "read");
-        TestOAuth.userToken(mockMvc, app, session, "read");
-
-        mockMvc.perform(get(PAGE).session(session))
-                .andExpect(content().string(not(containsString("<script>alert(1)</script>"))))
-                .andExpect(content().string(containsString("&lt;script&gt;alert(1)&lt;/script&gt;")));
     }
 
     @Test

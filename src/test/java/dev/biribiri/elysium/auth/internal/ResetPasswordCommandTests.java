@@ -54,26 +54,17 @@ class ResetPasswordCommandTests {
     }
 
     @Test
-    void replacesThePassword() {
+    void replacesThePasswordOfTheAccountNamedInAnyCase() {
         var actorId = account("replaced");
         var updatedBefore = updatedAt(actorId);
 
-        assertThat(run(() -> NEW_PASSWORD, "replaced")).isZero();
+        assertThat(run(() -> NEW_PASSWORD, "RePlaced")).isZero();
 
         assertThat(passwordWorks("replaced", NEW_PASSWORD)).isTrue();
         assertThat(passwordWorks("replaced", OLD_PASSWORD)).isFalse();
         assertThat(updatedAt(actorId)).isAfter(updatedBefore);
         assertThat(out.toString()).contains("logged it out of every browser").doesNotContain(NEW_PASSWORD);
         assertThat(err.toString()).doesNotContain(NEW_PASSWORD);
-    }
-
-    @Test
-    void findsTheAccountRegardlessOfCase() {
-        account("mixedcase");
-
-        assertThat(run(() -> NEW_PASSWORD, "MixedCase")).isZero();
-
-        assertThat(passwordWorks("mixedcase", NEW_PASSWORD)).isTrue();
     }
 
     @Test
@@ -106,14 +97,10 @@ class ResetPasswordCommandTests {
     }
 
     @Test
-    void refusesAnUnknownUsernameWithoutReadingAPassword() {
+    void refusesAnUnknownUsernameOrANonLocalActorWithoutReadingAPassword() {
         assertThat(run(MUST_NOT_READ, "nobody")).isOne();
+        assertThat(err.toString()).contains("no local account named nobody");
 
-        assertThat(err.toString()).contains("no local account");
-    }
-
-    @Test
-    void refusesANonLocalActorWithoutReadingAPassword() {
         var uri = instance.resolve("/users/notlocal").toString();
         jdbc.sql("""
                         INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, public_key_pem)
@@ -125,8 +112,7 @@ class ResetPasswordCommandTests {
                 .update();
 
         assertThat(run(MUST_NOT_READ, "notlocal")).isOne();
-
-        assertThat(err.toString()).contains("no local account");
+        assertThat(err.toString()).contains("no local account named notlocal");
     }
 
     @Test

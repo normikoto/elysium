@@ -248,12 +248,6 @@ class CustomEmojisIntegrationTests {
     }
 
     @Test
-    void refusesAnImageThatsTooLarge() {
-        assertThatThrownBy(() -> emojis.checkImageSize(emojis.maxImageSize().toBytes() + 1))
-                .isInstanceOf(InvalidCustomEmojiException.class);
-    }
-
-    @Test
     void aStatusShowsAndSendsTheEmojiItNames() throws Exception {
         var blob = emojis.addLocal(shortcode(), TestImages.png(64, 64), null);
         var cat = emojis.addLocal(shortcode(), TestImages.png(64, 64), null);

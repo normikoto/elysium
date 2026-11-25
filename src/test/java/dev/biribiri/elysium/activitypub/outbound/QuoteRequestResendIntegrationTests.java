@@ -95,13 +95,14 @@ class QuoteRequestResendIntegrationTests {
     }
 
     @Test
-    void anUnansweredRequestIsSentAgainAfterAWhile() {
+    void anUnansweredRequestIsSentAgainAfterAWhileOnceTheFirstHasBeenSent() {
         assertThat(resendScheduledAt()).isBetween(Instant.now().plus(QuoteDeliveries.RESEND_AFTER).minus(WAIT),
                 Instant.now().plus(QuoteDeliveries.RESEND_AFTER));
         delivered();
 
+        assertThat(resend(job(true))).hasValueSatisfying(next -> assertThat(next.waitedForSending()).isFalse());
+        assertThat(deliveries()).isZero();
         assertThat(resend(job(false))).isEmpty();
-
         assertThat(deliveries()).isEqualTo(1);
     }
 
@@ -109,16 +110,6 @@ class QuoteRequestResendIntegrationTests {
     void waitsWhileTheRequestIsStillBeingSent() {
         assertThat(resend(job(false))).hasValueSatisfying(next -> assertThat(next.waitedForSending()).isTrue());
 
-        assertThat(deliveries()).isEqualTo(1);
-    }
-
-    @Test
-    void waitsAgainOnceARequestThatWasBeingSentHasBeenSent() {
-        delivered();
-
-        assertThat(resend(job(true))).hasValueSatisfying(next -> assertThat(next.waitedForSending()).isFalse());
-        assertThat(deliveries()).isZero();
-        assertThat(resend(job(false))).isEmpty();
         assertThat(deliveries()).isEqualTo(1);
     }
 

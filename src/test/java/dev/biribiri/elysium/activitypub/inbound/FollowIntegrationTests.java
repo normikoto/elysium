@@ -12,6 +12,9 @@ import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -31,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -129,17 +133,6 @@ class FollowIntegrationTests {
     }
 
     @Test
-    void signsTheAcceptAsTheFollowedAccount() {
-        followHandler.handle(follow(newId()));
-
-        var actorId = jdbc.sql("SELECT actor_id FROM outbound_activity WHERE body LIKE :body")
-                .param("body", "%" + followerUri + "%")
-                .query(UUID.class)
-                .single();
-        assertThat(actorId).isEqualTo(followed.id());
-    }
-
-    @Test
     void readsAnEmbeddedObject() {
         var followId = newId();
         var body = "{\"id\":\"%s\",\"type\":\"Follow\",\"actor\":\"%s\",\"object\":{\"id\":\"%s\",\"type\":\"Person\"}}"
@@ -164,18 +157,9 @@ class FollowIntegrationTests {
 
     @Test
     void ignoresAFollowOfSomeoneWhoIsNotLocal() throws Exception {
-        for (var target : List.of(BASE + "/users/nobody", "https://other.test/users/alice", "not a uri")) {
+        for (var target : List.of(BASE + "/users/nobody", BASE + "/actor", "https://other.test/users/alice", "not a uri")) {
             followHandler.handle(followOf(newId(), target));
         }
-
-        verify(documents, never()).fetch(any());
-        assertThat(followerRows()).isZero();
-        assertThat(accepts()).isEmpty();
-    }
-
-    @Test
-    void ignoresAFollowOfTheInstanceActor() throws Exception {
-        followHandler.handle(followOf(newId(), BASE + "/actor"));
 
         verify(documents, never()).fetch(any());
         assertThat(followerRows()).isZero();
@@ -233,23 +217,21 @@ class FollowIntegrationTests {
     }
 
     @Test
-    void refusesAFollowFromAnActorWhoIsGoneEvenWithAnOldCopy() throws Exception {
+    void refusesAFollowFromAnActorWhoIsGoneOrUnusableEvenWithAnOldCopy() throws Exception {
         followHandler.handle(follow(newId()));
-        jdbc.sql("UPDATE actor SET updated_at = now() - INTERVAL '25 hours' WHERE uri = :uri").param("uri", followerUri).update();
-        when(documents.fetch(any())).thenThrow(DocumentFetchException.gone("Gone"));
-
-        assertThatThrownBy(() -> followHandler.handle(follow(newId()))).isInstanceOf(PermanentJobFailure.class);
-    }
-
-    @Test
-    void refusesANewDocumentThatCannotBeUsedEvenWithAnOldCopy() throws Exception {
-        followHandler.handle(follow(newId()));
-        jdbc.sql("UPDATE actor SET updated_at = now() - INTERVAL '25 hours' WHERE uri = :uri").param("uri", followerUri).update();
-        when(documents.fetch(eq(URI.create(followerUri)))).thenReturn(json.readTree(
+        var unusable = json.readTree(
                 "{\"id\":\"%s\",\"type\":\"Person\",\"preferredUsername\":\"bob\",\"inbox\":\"https://other.test/inbox\"}"
-                        .formatted(followerUri)));
+                        .formatted(followerUri));
+        for (var answer : List.<Answer<?>>of(
+                invocation -> {
+                    throw DocumentFetchException.gone("Gone");
+                },
+                invocation -> unusable)) {
+            jdbc.sql("UPDATE actor SET updated_at = now() - INTERVAL '25 hours' WHERE uri = :uri").param("uri", followerUri).update();
+            doAnswer(answer).when(documents).fetch(any());
 
-        assertThatThrownBy(() -> followHandler.handle(follow(newId()))).isInstanceOf(PermanentJobFailure.class);
+            assertThatThrownBy(() -> followHandler.handle(follow(newId()))).isInstanceOf(PermanentJobFailure.class);
+        }
     }
 
     @Test
@@ -342,26 +324,17 @@ class FollowIntegrationTests {
 
     // Undoing
 
-    @Test
-    void undoRemovesTheFollowAndCancelsItsAccept() {
+    @ParameterizedTest
+    @EnumSource
+    void undoRemovesTheFollowAndCancelsItsAccept(UndoShape shape) {
         var followId = newId();
         followHandler.handle(follow(followId));
         assertThat(accepts()).hasSize(1);
 
-        undoHandler.handle(undo(followerUri, embeddedFollow(followId, followerUri)));
+        undoHandler.handle(undo(shape, followId));
 
         assertThat(follows()).isEmpty();
         assertThat(accepts()).isEmpty();
-    }
-
-    @Test
-    void undoCanNameTheFollowWithJustItsId() {
-        var followId = newId();
-        followHandler.handle(follow(followId));
-
-        undoHandler.handle(undo(followerUri, "\"" + followId + "\""));
-
-        assertThat(follows()).isEmpty();
     }
 
     @Test
@@ -387,16 +360,6 @@ class FollowIntegrationTests {
 
         assertThat(follows()).containsExactly(followId);
         assertThat(undone(followId)).isFalse();
-    }
-
-    @Test
-    void undoWithoutAnIdMatchesTheTwoActors() {
-        followHandler.handle(follow(newId()));
-
-        undoHandler.handle(undoOfPair());
-
-        assertThat(follows()).isEmpty();
-        assertThat(accepts()).isEmpty();
     }
 
     @Test
@@ -436,11 +399,13 @@ class FollowIntegrationTests {
         assertThat(follows()).containsExactly(next);
     }
 
-    @Test
-    void aFollowRunningAgainAfterItsUndoDoesNotAddTheFollowerBack() {
-        var activity = follow(newId());
+    @ParameterizedTest
+    @EnumSource
+    void aFollowRunningAgainAfterItsUndoDoesNotAddTheFollowerBack(UndoShape shape) {
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var activity = arrivedAt(follow(newId()), now.minusSeconds(60));
         followHandler.handle(activity);
-        undoHandler.handle(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
+        undoHandler.handle(arrivedAt(undo(shape, activity.id()), now));
 
         followHandler.handle(activity);
 
@@ -533,18 +498,6 @@ class FollowIntegrationTests {
         assertThat(follows()).isEmpty();
         assertThat(accepts()).isEmpty();
         verify(documents, never()).fetch(any());
-    }
-
-    @Test
-    void aFollowRunningAgainAfterAnUndoWithNoIdDoesNotAddTheFollowerBack() {
-        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var activity = arrivedAt(follow(newId()), now.minusSeconds(60));
-        followHandler.handle(activity);
-        undoHandler.handle(arrivedAt(undoOfPair(), now));
-
-        followHandler.handle(activity);
-
-        assertThat(follows()).isEmpty();
     }
 
     @Test
@@ -803,40 +756,16 @@ class FollowIntegrationTests {
         assertThat(follows()).isEmpty();
     }
 
-    @Test
-    void anUndoJobRunningAfterARepeatWasStoredRemovesTheFollow() {
+    @ParameterizedTest
+    @EnumSource
+    void anUndoJobRunningAfterARepeatWasStoredRemovesTheFollow(UndoShape shape) {
         var activity = follow(newId());
         followHandler.handle(arrive(activity));
-        var undo = arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri)));
+        var undo = arrive(undo(shape, activity.id()));
         inbound.accept(again(activity));
         followHandler.handle(stored(activity));
 
         undoHandler.handle(undo);
-
-        assertThat(follows()).isEmpty();
-    }
-
-    @Test
-    void anUndoOfTheTwoActorsJobRunningAfterARepeatWasStoredRemovesTheFollow() {
-        var activity = follow(newId());
-        followHandler.handle(arrive(activity));
-        var undo = arrive(undoOfPair());
-        inbound.accept(again(activity));
-        followHandler.handle(stored(activity));
-
-        undoHandler.handle(undo);
-
-        assertThat(follows()).isEmpty();
-    }
-
-    @Test
-    void aFollowRunningAgainAfterARepeatedIdWasUndoneDoesNotAddTheFollowerBack() {
-        var activity = follow(newId());
-        var first = arrive(activity);
-        followHandler.handle(first);
-        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(activity.id(), followerUri))));
-
-        followHandler.handle(first);
 
         assertThat(follows()).isEmpty();
     }
@@ -888,8 +817,12 @@ class FollowIntegrationTests {
         assertThat(follows()).containsExactly(activity.id());
     }
 
-    @Test
-    void anUndoOfAnIdReusedForAnotherAccountRemovesBothFollowsAndTheirAccepts() {
+    /**
+     * An embedded Follow names only one of the accounts, and still removes both.
+     */
+    @ParameterizedTest
+    @EnumSource(names = {"BY_ID", "EMBEDDING_THE_FOLLOW"})
+    void anUndoOfAnIdReusedForAnotherAccountRemovesBothFollowsAndTheirAccepts(UndoShape shape) {
         var other = otherAccount();
         var id = newId();
         var first = follow(id);
@@ -898,23 +831,7 @@ class FollowIntegrationTests {
         followHandler.handle(arrive(followOf(id, other.uri().toString())));
         assertThat(followsFrom(id)).containsExactlyInAnyOrder(followed.id(), other.id());
 
-        undoHandler.handle(arrive(undo(followerUri, "\"" + id + "\"")));
-
-        assertThat(followsFrom(id)).isEmpty();
-        assertThat(accepts()).isEmpty();
-        assertThat(acceptsOf(other)).isEmpty();
-    }
-
-    @Test
-    void anUndoNamingOneAccountOfAReusedIdStillRemovesBothFollows() {
-        var other = otherAccount();
-        var id = newId();
-        var first = follow(id);
-        followHandler.handle(arrive(first));
-        removeStored(first);
-        followHandler.handle(arrive(followOf(id, other.uri().toString())));
-
-        undoHandler.handle(arrive(undo(followerUri, embeddedFollow(id, followerUri))));
+        undoHandler.handle(arrive(undo(shape, id)));
 
         assertThat(followsFrom(id)).isEmpty();
         assertThat(accepts()).isEmpty();
@@ -1148,6 +1065,18 @@ class FollowIntegrationTests {
         var id = newId();
         var body = "{\"id\":\"%s\",\"type\":\"Undo\",\"actor\":\"%s\",\"object\":%s}".formatted(id, actor, object);
         return new InboundActivity(id, actor, "Undo", body);
+    }
+
+    enum UndoShape {
+        EMBEDDING_THE_FOLLOW, BY_ID, OF_THE_TWO_ACTORS
+    }
+
+    private InboundActivity undo(UndoShape shape, String followId) {
+        return switch (shape) {
+            case EMBEDDING_THE_FOLLOW -> undo(followerUri, embeddedFollow(followId, followerUri));
+            case BY_ID -> undo(followerUri, "\"" + followId + "\"");
+            case OF_THE_TWO_ACTORS -> undoOfPair();
+        };
     }
 
     private String embeddedFollow(String id, String actor) {

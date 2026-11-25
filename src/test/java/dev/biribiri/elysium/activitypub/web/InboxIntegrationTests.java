@@ -115,11 +115,6 @@ class InboxIntegrationTests {
     }
 
     @Test
-    void refusesAnUnsignedRequestToTheInstanceActorsInbox() throws Exception {
-        send(post("/actor/inbox").contentType(ACTIVITY_JSON).content("{}")).andExpect(status().isUnauthorized());
-    }
-
-    @Test
     void doesNotCreateASession() throws Exception {
         var alice = alice();
 
@@ -143,12 +138,13 @@ class InboxIntegrationTests {
         assertThat(stored(id)).isEqualTo(1);
     }
 
-    @Test
-    void refusesAnUnsignedRequest() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"/inbox", "/actor/inbox"})
+    void refusesAnUnsignedRequest(String path) throws Exception {
         var alice = alice();
         var id = newId(alice);
 
-        send(post("/inbox").contentType(ACTIVITY_JSON).content(activity(id, alice.uri().toString())))
+        send(post(path).contentType(ACTIVITY_JSON).content(activity(id, alice.uri().toString())))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(""));
 
@@ -209,18 +205,15 @@ class InboxIntegrationTests {
         assertThat(stored(id)).isEqualTo(1);
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"not json", "{\"id\":\"https://elysium.example/has space\",\"type\":\"Test\",\"actor\":\"https://elysium.example/users/alice\"}"})
-    void refusesASignedBodyThatIsNotAnActivity(String body) throws Exception {
-        signed("/inbox", alice(), body).andExpect(status().isBadRequest());
-    }
-
     @Test
-    void refusesAnIdTooLongToStore() throws Exception {
+    void refusesASignedBodyThatIsNotAnActivityItCanStore() throws Exception {
         var alice = alice();
-
-        signed("/inbox", alice, activity(BASE + "/" + "x".repeat(2048), alice.uri().toString()))
-                .andExpect(status().isBadRequest());
+        for (var body : List.of(
+                "not json",
+                activity(BASE + "/has space", alice.uri().toString()),
+                activity(BASE + "/" + "x".repeat(2048), alice.uri().toString()))) {
+            signed("/inbox", alice, body).andExpect(status().isBadRequest());
+        }
     }
 
     @Test
@@ -236,29 +229,23 @@ class InboxIntegrationTests {
     }
 
     @Test
-    void refusesAnActivityFromABlockedServerThatGetsPastTheSignatureCheck() {
+    void refusesAnActivityFromABlockedServerOrSuspendedActorThatGetsPastTheSignatureCheck() {
         blocks.create("blocked-actor.example", null);
-        var actor = "https://blocked-actor.example/users/bob";
-        var id = "https://blocked-actor.example/activities/" + UUID.randomUUID();
-
-        var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", URI.create(actor)), bytes(activity(id, actor)), TestBudgets.UNLIMITED);
-
-        assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.FORBIDDEN);
-        assertThat(stored(id)).isZero();
-    }
-
-    @Test
-    void refusesAnActivityFromASuspendedActorThatGetsPastTheSignatureCheck() {
+        var blocked = URI.create("https://blocked-actor.example/users/bob");
         var domain = "suspended-" + UUID.randomUUID() + ".example";
-        var actor = URI.create("https://" + domain + "/users/bob");
-        var stored = actors.upsertRemote(new RemoteActorProfile(actor, "bob", domain, URI.create(actor + "/inbox"), null, null, null));
-        actors.suspend(stored.id());
-        var id = "https://" + domain + "/activities/" + UUID.randomUUID();
+        var suspended = URI.create("https://" + domain + "/users/bob");
+        actors.suspend(actors.upsertRemote(new RemoteActorProfile(suspended, "bob", domain, URI.create(suspended + "/inbox"),
+                null, null, null)).id());
 
-        var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", actor), bytes(activity(id, actor.toString())), TestBudgets.UNLIMITED);
+        for (var actor : List.of(blocked, suspended)) {
+            var id = "https://" + actor.getHost() + "/activities/" + UUID.randomUUID();
 
-        assertThat(outcome.outcome()).isEqualTo(Inbox.Outcome.FORBIDDEN);
-        assertThat(stored(id)).isZero();
+            var outcome = inbox.receive(new VerifiedSignature(actor + "#main-key", actor), bytes(activity(id, actor.toString())),
+                    TestBudgets.UNLIMITED);
+
+            assertThat(outcome.outcome()).as(actor.toString()).isEqualTo(Inbox.Outcome.FORBIDDEN);
+            assertThat(stored(id)).isZero();
+        }
     }
 
     @Test

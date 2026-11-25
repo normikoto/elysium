@@ -45,11 +45,12 @@ class LocalRecipientsIntegrationTests {
 
     @Test
     void findsLocalAccountsAddressedInAnyProperty() {
+        var carol = local();
         var body = """
-                {"type":"Create","to":"%s","object":{"cc":[{"id":"%s"}],"bcc":"https://elsewhere.test/users/x"}}"""
-                .formatted(alice.uri(), bob.uri());
+                {"type":"Create","to":"%s","bcc":["%s"],"object":{"cc":[{"id":"%s"}],"bcc":"https://elsewhere.test/users/x"}}"""
+                .formatted(alice.uri(), carol.uri(), bob.uri());
 
-        assertThat(recipients.of(activity("Create", body))).containsExactlyInAnyOrder(alice.id(), bob.id());
+        assertThat(recipients.of(activity("Create", body))).containsExactlyInAnyOrder(alice.id(), bob.id(), carol.id());
     }
 
     @Test
@@ -65,13 +66,6 @@ class LocalRecipientsIntegrationTests {
                 .formatted(alice.uri().getPath(), bob.uri());
 
         assertThat(recipients.of(activity("Create", body))).containsExactly(bob.id());
-    }
-
-    @Test
-    void findsAnAccountAddressedOnlyInBcc() {
-        var body = "{\"to\":\"as:Public\",\"bcc\":[\"%s\"]}".formatted(alice.uri());
-
-        assertThat(recipients.of(activity("Create", body))).containsExactly(alice.id());
     }
 
     @Test

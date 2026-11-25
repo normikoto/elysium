@@ -91,23 +91,18 @@ class BookmarksIntegrationTests {
     }
 
     @Test
-    void refusesWhatTheUserCantSee() throws Exception {
+    void refusesWhatTheUserCantSeeAndNeedsTheScopesAndAUser() throws Exception {
         var direct = create(bob(), "direct");
+        var id = create(bob(), "public");
 
         bookmark(alice(), direct).andExpect(status().isNotFound());
         bookmark(alice(), UUID.randomUUID().toString()).andExpect(status().isNotFound());
         bookmark(alice(), "nope").andExpect(status().isNotFound());
-        assertThat(bookmarkCount()).isZero();
-    }
-
-    @Test
-    void needsTheScopesAndAUser() throws Exception {
-        var id = create(bob(), "public");
-
         bookmark(readOnly(), id).andExpect(status().isForbidden());
         mockMvc.perform(withToken(get(BOOKMARKS), token("dave", "write"))).andExpect(status().isForbidden());
         bookmark(appToken(), id).andExpect(status().isUnprocessableEntity());
         mockMvc.perform(withToken(get(BOOKMARKS), appToken())).andExpect(status().isUnprocessableEntity());
+        assertThat(bookmarkCount()).isZero();
     }
 
     @Test

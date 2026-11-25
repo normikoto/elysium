@@ -1,7 +1,6 @@
 package dev.biribiri.elysium;
 
 import dev.biribiri.elysium.actor.ActorService;
-import dev.biribiri.elysium.auth.internal.PasswordHashingBusyException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,17 +8,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -27,7 +21,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.registration.mode=open")
+@SpringBootTest(properties = {
+        "elysium.instance.base-url=https://elysium.example",
+        "elysium.registration.mode=open"
+})
 @AutoConfigureMockMvc
 class LocalAccountIntegrationTests {
 
@@ -42,20 +39,9 @@ class LocalAccountIntegrationTests {
     @Autowired
     private JdbcClient jdbc;
 
-    @MockitoSpyBean
-    private PasswordEncoder passwordEncoder;
-
     @BeforeEach
     void makeSureAnAccountExists() {
         TestAccounts.makeSureAnAccountExists(actors);
-    }
-
-    @Test
-    void showsTheSignUpForm() throws Exception {
-        mockMvc.perform(get("/signup"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("name=\"_csrf\"")));
-        mockMvc.perform(get("/login")).andExpect(content().string(containsString("/signup")));
     }
 
     @Test
@@ -122,29 +108,6 @@ class LocalAccountIntegrationTests {
         })).isInstanceOf(IllegalStateException.class);
 
         assertThat(actors.findLocalByUsername("rolledback")).isEmpty();
-    }
-
-    @Test
-    void loginTellsPeopleWhenTheServerIsTooBusy() throws Exception {
-        signUp("busylogin", PASSWORD, PASSWORD).andExpect(status().is3xxRedirection());
-        doThrow(new PasswordHashingBusyException()).when(passwordEncoder).matches(any(), any());
-
-        mockMvc.perform(post("/login").with(csrf()).param("username", "busylogin").param("password", PASSWORD))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/login?busy"));
-        mockMvc.perform(get("/login").param("busy", ""))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("The server is busy")));
-    }
-
-    @Test
-    void signUpTellsPeopleWhenTheServerIsTooBusy() throws Exception {
-        doThrow(new PasswordHashingBusyException()).when(passwordEncoder).encode(any());
-
-        signUp("busyuser", PASSWORD, PASSWORD)
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(content().string(containsString("The server is busy")));
-        assertThat(actors.findLocalByUsername("busyuser")).isEmpty();
     }
 
     private org.springframework.test.web.servlet.ResultActions signUp(

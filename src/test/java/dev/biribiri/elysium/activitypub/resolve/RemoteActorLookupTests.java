@@ -176,19 +176,7 @@ class RemoteActorLookupTests {
     }
 
     @Test
-    void limitsHowOftenAnAccountCanAsk() throws Exception {
-        when(http.get(any(), anyString(), any())).thenReturn(new FederationHttpClient.Response(404, null, null, new byte[0], null));
-        for (var i = 0; i < 30; i++) {
-            lookup.resolveAcct(REQUESTER, "bob" + i, "remote.example");
-        }
-
-        assertThatThrownBy(() -> lookup.resolveAcct(REQUESTER, "bob", "remote.example"))
-                .isInstanceOf(ResolveLimitException.class);
-        assertThat(lookup.resolveAcct(UUID.randomUUID(), "bob", "remote.example")).isEmpty();
-    }
-
-    @Test
-    void importsAndSearchesHaveSeparateLimits() throws Exception {
+    void limitsHowOftenAnAccountCanAskWithSeparateLimitsForImportsAndSearches() throws Exception {
         when(http.get(any(), anyString(), any())).thenReturn(new FederationHttpClient.Response(404, null, null, new byte[0], null));
         for (var i = 0; i < 30; i++) {
             lookup.resolveAcctForImport(REQUESTER, "bob" + i, "remote.example");
@@ -202,6 +190,7 @@ class RemoteActorLookupTests {
         }
         assertThatThrownBy(() -> lookup.resolveAcct(REQUESTER, "carol", "remote.example"))
                 .isInstanceOf(ResolveLimitException.class);
+        assertThat(lookup.resolveAcct(UUID.randomUUID(), "carol", "remote.example")).isEmpty();
     }
 
     private void answerWebFinger(String body) throws IOException {

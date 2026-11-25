@@ -4,6 +4,7 @@ import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.actor.RemoteProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -45,6 +46,7 @@ class RemoteActorDocumentTests {
         assertThat(profile.sharedInboxUri()).isNull();
         assertThat(profile.publicKeyPem()).isNull();
         assertThat(profile.followersUri()).isNull();
+        assertThat(profile.profile()).isEqualTo(RemoteProfile.EMPTY);
     }
 
     @Test
@@ -78,24 +80,15 @@ class RemoteActorDocumentTests {
         assertThat(profile.outboxUri()).isNull();
     }
 
-    @Test
-    void refusesADocumentWithADifferentId() {
-        var document = json("""
-                {"id":"https://remote.test/ap/users/2","type":"Person","preferredUsername":"bob",
-                 "inbox":"https://remote.test/inbox"}
-                """);
-
-        assertRefused(document);
-    }
-
-    @Test
-    void refusesWhatIsNotAnActor() {
-        var document = json("""
-                {"id":"https://remote.test/ap/users/1","type":"Note","preferredUsername":"bob",
-                 "inbox":"https://remote.test/inbox"}
-                """);
-
-        assertRefused(document);
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"id\":\"https://remote.test/ap/users/2\",\"type\":\"Person\",\"preferredUsername\":\"bob\","
+                    + "\"inbox\":\"https://remote.test/inbox\"}",
+            "{\"id\":\"https://remote.test/ap/users/1\",\"type\":\"Note\",\"preferredUsername\":\"bob\","
+                    + "\"inbox\":\"https://remote.test/inbox\"}"
+    })
+    void refusesADocumentWithADifferentIdOrThatIsNotAnActor(String document) {
+        assertRefused(json(document));
     }
 
     @Test
@@ -208,21 +201,15 @@ class RemoteActorDocumentTests {
         assertThat(profile.group()).isFalse();
     }
 
-    @Test
-    void readsAnEmptyProfileFromAMinimalDocument() {
-        var profile = RemoteActorDocument.read(ACTOR, document("")).profile();
-
-        assertThat(profile).isEqualTo(RemoteProfile.EMPTY);
-    }
-
     @ParameterizedTest
-    @ValueSource(strings = {"Service", "Application"})
-    void readsBotsFromTheirType(String type) {
+    @CsvSource({"Service, true, false", "Application, true, false", "Group, false, true"})
+    void readsBotsAndGroupsFromTheirType(String type, boolean bot, boolean group) {
         var profile = RemoteActorDocument.read(ACTOR, json("""
                 {"id":"%s","type":"%s","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox"}
                 """.formatted(ACTOR, type))).profile();
 
-        assertThat(profile.bot()).isTrue();
+        assertThat(profile.bot()).isEqualTo(bot);
+        assertThat(profile.group()).isEqualTo(group);
     }
 
     @Test
@@ -253,16 +240,6 @@ class RemoteActorDocumentTests {
 
         assertThat(discoverable.discoverable()).isTrue();
         assertThat(unsaid.discoverable()).isFalse();
-    }
-
-    @Test
-    void readsGroupsFromTheirType() {
-        var profile = RemoteActorDocument.read(ACTOR, json("""
-                {"id":"%s","type":"Group","preferredUsername":"bob","inbox":"https://remote.test/ap/users/1/inbox"}
-                """.formatted(ACTOR))).profile();
-
-        assertThat(profile.group()).isTrue();
-        assertThat(profile.bot()).isFalse();
     }
 
     @Test
@@ -360,19 +337,7 @@ class RemoteActorDocumentTests {
     }
 
     @Test
-    void keepsAtMostTwentyAliases() {
-        var aliases = new StringBuilder();
-        for (var i = 0; i < 30; i++) {
-            aliases.append(i == 0 ? "" : ",").append("\"https://old.test/users/").append(i).append('"');
-        }
-
-        var profile = RemoteActorDocument.read(ACTOR, document(",\"alsoKnownAs\":[" + aliases + "]")).profile();
-
-        assertThat(profile.alsoKnownAs()).hasSize(RemoteActorDocument.MAX_ALIASES);
-    }
-
-    @Test
-    void keepsTheAliasAMoveIsCheckedForPastTheCap() {
+    void keepsAtMostTwentyAliasesButAlwaysTheOneAMoveIsCheckedFor() {
         var aliases = new StringBuilder();
         for (var i = 0; i < 30; i++) {
             aliases.append(i == 0 ? "" : ",").append("\"https://old.test/users/").append(i).append('"');
@@ -384,6 +349,7 @@ class RemoteActorDocumentTests {
         assertThat(profile.alsoKnownAs()).hasSize(RemoteActorDocument.MAX_ALIASES).contains(checked);
         assertThat(RemoteActorDocument.read(ACTOR, document(",\"alsoKnownAs\":[" + aliases + "]"),
                 URI.create("https://old.test/users/99")).profile().alsoKnownAs())
+                .hasSize(RemoteActorDocument.MAX_ALIASES)
                 .doesNotContain(URI.create("https://old.test/users/99"));
     }
 

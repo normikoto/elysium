@@ -77,21 +77,15 @@ class DeleteIntegrationTests {
     }
 
     @Test
-    void deletesAStatusSentAsAnId() {
-        var status = stored(author);
+    void deletesAStatusSentAsAnIdOrATombstone() {
+        var byId = stored(author);
+        var byTombstone = stored(author);
 
-        handler.handle(delete(author, "\"" + status + "\""));
+        handler.handle(delete(author, "\"" + byId + "\""));
+        handler.handle(delete(author, json.writeValueAsString(Map.of("id", byTombstone, "type", "Tombstone"))));
 
-        assertThat(exists(status)).isFalse();
-    }
-
-    @Test
-    void deletesAStatusSentAsATombstone() {
-        var status = stored(author);
-
-        handler.handle(delete(author, json.writeValueAsString(Map.of("id", status, "type", "Tombstone"))));
-
-        assertThat(exists(status)).isFalse();
+        assertThat(exists(byId)).isFalse();
+        assertThat(exists(byTombstone)).isFalse();
     }
 
     @Test

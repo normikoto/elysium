@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -83,41 +84,30 @@ class LoginSessionsIntegrationTests {
     }
 
     @Test
-    void aLoginCheckingTheOldPasswordDuringAResetDoesNotSurviveIt() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        Mockito.doAnswer(invocation -> {
-            var matches = invocation.callRealMethod();
-            // Only the first check, because resetting doesn't check a password.
-            Mockito.doCallRealMethod().when(passwordEncoder).matches(any(), any());
-            accounts.resetPassword(actorId, NEW_PASSWORD);
-            return matches;
-        }).when(passwordEncoder).matches(any(), any());
+    void aLoginCheckingThePasswordDuringAResetOrSuspensionDoesNotSurviveIt() throws Exception {
+        List<Consumer<UUID>> interruptions = List.of(
+                actorId -> accounts.resetPassword(actorId, NEW_PASSWORD),
+                actorId -> {
+                    moderation.suspend(actorId, Optional.empty());
+                    moderation.unsuspend(actorId);
+                });
+        for (var interruption : interruptions) {
+            var username = newUsername();
+            var actorId = account(username);
+            Mockito.doAnswer(invocation -> {
+                var matches = invocation.callRealMethod();
+                // Only the first check, because resetting doesn't check a password.
+                Mockito.doCallRealMethod().when(passwordEncoder).matches(any(), any());
+                interruption.accept(actorId);
+                return matches;
+            }).when(passwordEncoder).matches(any(), any());
 
-        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
+            var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
 
-        assertThat(sessions(actorId)).isOne();
-        assertLoggedOut(session);
-        assertThat(sessions(actorId)).isZero();
-    }
-
-    @Test
-    void aLoginCheckingThePasswordDuringASuspensionDoesNotSurviveIt() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        Mockito.doAnswer(invocation -> {
-            var matches = invocation.callRealMethod();
-            Mockito.doCallRealMethod().when(passwordEncoder).matches(any(), any());
-            moderation.suspend(actorId, Optional.empty());
-            moderation.unsuspend(actorId);
-            return matches;
-        }).when(passwordEncoder).matches(any(), any());
-
-        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
-
-        assertThat(sessions(actorId)).isOne();
-        assertLoggedOut(session);
-        assertThat(sessions(actorId)).isZero();
+            assertThat(sessions(actorId)).isOne();
+            assertLoggedOut(session);
+            assertThat(sessions(actorId)).isZero();
+        }
     }
 
     @Test

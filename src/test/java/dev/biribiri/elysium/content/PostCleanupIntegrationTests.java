@@ -7,6 +7,8 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.Ids;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -143,32 +145,22 @@ class PostCleanupIntegrationTests {
         assertThat(List.of(pinned, direct, favourited)).noneMatch(this::exists);
     }
 
-    @Test
-    void undoesOldBoosts() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void undoesOldBoostsEvenOfSuspendedAuthors(boolean authorSuspended) {
         var author = account();
         var booster = account();
         var status = newStatus(author, Visibility.PUBLIC);
         var boost = boosts.reblog(status, booster, Visibility.PUBLIC).orElseThrow().id();
+        if (authorSuspended) {
+            actors.suspend(author);
+        }
         enable(booster, PostCleanupPolicy.DEFAULT);
 
         cleanups.run(Instant.now().plus(LATER));
 
         assertThat(exists(boost)).isFalse();
         assertThat(exists(status)).isTrue();
-    }
-
-    @Test
-    void undoesOldBoostsOfSuspendedAuthors() {
-        var author = account();
-        var booster = account();
-        var status = newStatus(author, Visibility.PUBLIC);
-        var boost = boosts.reblog(status, booster, Visibility.PUBLIC).orElseThrow().id();
-        actors.suspend(author);
-        enable(booster, PostCleanupPolicy.DEFAULT);
-
-        cleanups.run(Instant.now().plus(LATER));
-
-        assertThat(exists(boost)).isFalse();
     }
 
     @Test
@@ -263,7 +255,7 @@ class PostCleanupIntegrationTests {
     }
 
     @Test
-    void thePageRefusesAnAgeMastodonDoesNotOffer() throws Exception {
+    void thePageRefusesWhatMastodonDoesNotOfferAndShowsWhatWasSent() throws Exception {
         var username = signUp();
         var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
         var actorId = actors.findLocalByUsername(username).orElseThrow().id();
@@ -273,15 +265,6 @@ class PostCleanupIntegrationTests {
                         .param("minAgeDays", "1"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(content().string(containsString("Nothing was saved")));
-
-        assertThat(cleanups.find(actorId)).isEqualTo(PostCleanupPolicy.DEFAULT);
-    }
-
-    @Test
-    void aRefusedSaveShowsWhatWasSent() throws Exception {
-        var username = signUp();
-        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
-
         var page = mockMvc.perform(post(PAGE).session(session).with(csrf())
                         .param("enabled", "true")
                         .param("minAgeDays", "90")
@@ -291,6 +274,7 @@ class PostCleanupIntegrationTests {
                 .andExpect(status().isUnprocessableContent())
                 .andReturn().getResponse().getContentAsString();
 
+        assertThat(cleanups.find(actorId)).isEqualTo(PostCleanupPolicy.DEFAULT);
         assertThat(page)
                 .containsPattern("name=\"enabled\" value=\"true\" checked")
                 .containsPattern("value=\"90\" selected")

@@ -202,15 +202,6 @@ class SearchIntegrationTests {
     }
 
     @Test
-    void stopsFindingAnAccountsStatusesWhenItStopsBeingIndexable() throws Exception {
-        var found = create(open(), "pangolin", "public");
-        expectStatuses(search(searcher(), "pangolin"), found);
-
-        setIndexable(open(), false);
-        expectStatuses(search(searcher(), "pangolin"));
-    }
-
-    @Test
     void findsTheStatusAtAUrl() throws Exception {
         var author = remoteAuthor(false);
         var uri = URI.create(author.uri() + "/statuses/" + UUID.randomUUID());

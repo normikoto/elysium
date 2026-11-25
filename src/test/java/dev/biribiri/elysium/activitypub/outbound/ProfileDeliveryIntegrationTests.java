@@ -80,26 +80,16 @@ class ProfileDeliveryIntegrationTests {
     }
 
     @Test
-    void tellsFollowersWhenTheAccountBecomesIndexable() {
+    void tellsFollowersWhenTheAccountBecomesIndexableAndJoinsTheDirectory() {
         follow(remote(), local);
 
-        profiles.update(local.id(), ProfileChange.NONE.withIndexable(true));
+        profiles.update(local.id(), ProfileChange.NONE.withIndexable(true).withDiscoverable(true));
 
         await().atMost(WAIT).until(() -> !activities(local, "%#profile/%").isEmpty());
         var update = json.readTree(activities(local, "%#profile/%").getFirst());
         assertThat(update.get("@context").get(2).get("indexable").asString()).isEqualTo("toot:indexable");
-        assertThat(update.get("object").get("indexable").asBoolean()).isTrue();
-    }
-
-    @Test
-    void tellsFollowersWhenTheAccountJoinsTheDirectory() {
-        follow(remote(), local);
-
-        profiles.update(local.id(), ProfileChange.NONE.withDiscoverable(true));
-
-        await().atMost(WAIT).until(() -> !activities(local, "%#profile/%").isEmpty());
-        var update = json.readTree(activities(local, "%#profile/%").getFirst());
         assertThat(update.get("@context").get(2).get("discoverable").asString()).isEqualTo("toot:discoverable");
+        assertThat(update.get("object").get("indexable").asBoolean()).isTrue();
         assertThat(update.get("object").get("discoverable").asBoolean()).isTrue();
     }
 

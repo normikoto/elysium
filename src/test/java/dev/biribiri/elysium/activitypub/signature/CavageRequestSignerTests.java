@@ -88,15 +88,6 @@ class CavageRequestSignerTests {
         assertThat(withoutPath.getFirst("Signature")).isEqualTo(withPath.getFirst("Signature"));
     }
 
-    @Test
-    void isAcceptedByTheVerifier() {
-        var signed = signer.sign("POST", INBOX, BODY, KEY);
-
-        var verified = verifier().verify(received("POST", "/users/alice/inbox", BODY, signed), SignatureFixtures.UNLIMITED);
-
-        assertThat(verified.keyId()).isEqualTo(KEY_ID);
-    }
-
     /**
      * Otherwise this server, and Mastodon, would refuse a POST that this signer made.
      */

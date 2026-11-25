@@ -15,6 +15,9 @@ import dev.biribiri.elysium.actor.RemoteActorProfile;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -52,6 +55,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -447,7 +451,7 @@ class ActivityDeliveryIntegrationTests {
     // Retries
 
     @Test
-    void retriesATemporaryFailureAndSignsTheRetryAgain() throws Exception {
+    void retriesATemporaryFailureWithTheSameBodySignedAgainAndEndsTheServersBackoff() throws Exception {
         var activity = activity();
         var host = newHost();
         answer(host, new Answer(500, null));
@@ -458,6 +462,7 @@ class ActivityDeliveryIntegrationTests {
         var delay = Duration.between(Instant.now(), executionTime(activity));
         assertThat(delay).isBetween(Duration.ofSeconds(30), Duration.ofSeconds(80));
         assertThat(failureMessages(activity)).contains("The inbox answered with a 500");
+        assertThat(hostRows(host)).isOne();
 
         // Dates in signatures have a resolution of one second.
         Thread.sleep(1100);
@@ -466,12 +471,14 @@ class ActivityDeliveryIntegrationTests {
         await().atMost(WAIT).until(() -> jobs(activity) == 0);
         var requests = receivedBy(host);
         assertThat(requests).hasSize(2);
+        assertThat(requests.get(1).body()).isEqualTo(requests.get(0).body());
         assertThat(requests.get(1).header("Date")).isNotEqualTo(requests.get(0).header("Date"));
         assertThat(requests.get(1).header("Signature")).isNotEqualTo(requests.get(0).header("Signature"));
+        assertThat(hostRows(host)).isZero();
     }
 
     @Test
-    void parksAPermanentFailureWithItsReason() {
+    void parksAPermanentFailureWithItsReasonAndDropsItIfNobodyTouchesIt() {
         var activity = activity();
         var host = newHost();
         answer(host, new Answer(410, null));
@@ -481,6 +488,16 @@ class ActivityDeliveryIntegrationTests {
 
         assertThat(executionTime(activity)).isCloseTo(Instant.now().plus(Duration.ofDays(30)), within(Duration.ofMinutes(1)));
         assertThat(failureMessages(activity)).contains("The inbox answered with a 410");
+        assertThat(receivedBy(host)).hasSize(1);
+
+        jdbc.sql("""
+                        UPDATE scheduled_tasks SET last_failure = now() - INTERVAL '31 days', execution_time = now()
+                        WHERE task_instance = :instance
+                        """)
+                .param("instance", instanceOf(activity))
+                .update();
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
         assertThat(receivedBy(host)).hasSize(1);
     }
 
@@ -513,41 +530,7 @@ class ActivityDeliveryIntegrationTests {
     // Parked jobs
 
     @Test
-    void aParkedJobThatNobodyTouchedIsDroppedWithoutRunning() {
-        var activity = activity();
-        var host = newHost();
-        answer(host, new Answer(410, null));
-        enqueue(activity, inboxOn(host));
-        await().atMost(WAIT).until(() -> failures(activity) == 1);
-
-        jdbc.sql("""
-                        UPDATE scheduled_tasks SET last_failure = now() - INTERVAL '31 days', execution_time = now()
-                        WHERE task_instance = :instance
-                        """)
-                .param("instance", instanceOf(activity))
-                .update();
-
-        await().atMost(WAIT).until(() -> jobs(activity) == 0);
-        assertThat(receivedBy(host)).hasSize(1);
-    }
-
-    @Test
-    void anAdminCanRetryAParkedJobTheWayTheUiDoes() {
-        var activity = activity();
-        var host = newHost();
-        answer(host, new Answer(410, null));
-        enqueue(activity, inboxOn(host));
-        await().atMost(WAIT).until(() -> failures(activity) == 1);
-
-        // db-scheduler-ui's rerun button calls this.
-        scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instanceOf(activity)), Instant.now());
-
-        await().atMost(WAIT).until(() -> jobs(activity) == 0);
-        assertThat(receivedBy(host)).hasSize(2);
-    }
-
-    @Test
-    void aRetriedParkedJobThatFailsAgainIsParkedAgain() {
+    void anAdminCanRetryAParkedJobTheWayTheUiDoesAndItIsParkedAgainIfItFailsAgain() {
         var activity = activity();
         var host = newHost();
         answer(host, new Answer(410, null));
@@ -556,10 +539,16 @@ class ActivityDeliveryIntegrationTests {
         await().atMost(WAIT).until(() -> failures(activity) == 1);
         var firstTime = executionTime(activity);
 
+        // db-scheduler-ui's rerun button calls this.
         scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instanceOf(activity)), Instant.now());
 
         await().atMost(WAIT).until(() -> receivedBy(host).size() == 2 && executionTime(activity).isAfter(firstTime));
         assertThat(executionTime(activity)).isAfter(Instant.now().plus(Duration.ofDays(29)));
+
+        scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instanceOf(activity)), Instant.now());
+
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(3);
     }
 
     @Test
@@ -815,59 +804,27 @@ class ActivityDeliveryIntegrationTests {
         assertThat(receivedBy(host)).hasSize(HostGate.FAILURES_BEFORE_BACKOFF);
     }
 
-    @Test
-    void aServerThatAnswersEndsItsBackoff() {
-        var host = newHost();
-        answer(host, new Answer(500, null));
-        var activity = activity();
-        enqueue(activity, inboxOn(host));
-        await().atMost(WAIT).until(() -> failures(activity) == 1);
-        assertThat(jdbc.sql("SELECT count(*) FROM federation_host WHERE host = :host").param("host", host)
-                .query(Long.class).single()).isOne();
-
-        runNow(activity);
-
-        await().atMost(WAIT).until(() -> jobs(activity) == 0);
-        assertThat(jdbc.sql("SELECT count(*) FROM federation_host WHERE host = :host").param("host", host)
-                .query(Long.class).single()).isZero();
-    }
-
-    @Test
-    void honoursRetryAfterInSeconds() {
-        var host = newHost();
-        answer(host, new Answer(429, "3600"));
-        var activity = activity();
-
-        enqueue(activity, inboxOn(host));
-
-        await().atMost(WAIT).until(() -> failures(activity) == 1);
-        assertThat(retryAfter(host)).isCloseTo(Instant.now().plus(Duration.ofHours(1)), within(Duration.ofMinutes(1)));
-    }
-
-    @Test
-    void honoursRetryAfterAsADate() {
-        var host = newHost();
+    static Stream<Arguments> retryAfterAnswers() {
         var date = java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
                 .format(OffsetDateTime.now(java.time.ZoneOffset.UTC).plusHours(2));
-        answer(host, new Answer(503, date));
-        var activity = activity();
-
-        enqueue(activity, inboxOn(host));
-
-        await().atMost(WAIT).until(() -> failures(activity) == 1);
-        assertThat(retryAfter(host)).isCloseTo(Instant.now().plus(Duration.ofHours(2)), within(Duration.ofMinutes(1)));
+        return Stream.of(
+                Arguments.of(429, "3600", Duration.ofHours(1)),
+                Arguments.of(503, date, Duration.ofHours(2)),
+                // Asked for years, and held to the most a server can ask for.
+                Arguments.of(429, "99999999", Duration.ofHours(6)));
     }
 
-    @Test
-    void limitsHowLongAServerCanAskToWait() {
+    @ParameterizedTest
+    @MethodSource("retryAfterAnswers")
+    void honoursRetryAfterInSecondsOrAsADateUpToALimit(int status, String retryAfter, Duration expected) {
         var host = newHost();
-        answer(host, new Answer(429, "99999999"));
+        answer(host, new Answer(status, retryAfter));
         var activity = activity();
 
         enqueue(activity, inboxOn(host));
 
         await().atMost(WAIT).until(() -> failures(activity) == 1);
-        assertThat(retryAfter(host)).isBefore(Instant.now().plus(Duration.ofHours(7)));
+        assertThat(retryAfter(host)).isCloseTo(Instant.now().plus(expected), within(Duration.ofMinutes(1)));
     }
 
     @Test

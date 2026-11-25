@@ -107,7 +107,7 @@ class PollDeliveryIntegrationTests {
     }
 
     @Test
-    void sendsALocalPollAsAQuestion() {
+    void sendsALocalPollAsAQuestionAndItsFinalCountsWhenItEnds() {
         var host = newHost();
         follow(host, "bob");
 
@@ -122,6 +122,13 @@ class PollDeliveryIntegrationTests {
         assertThat(question.path("endTime").isString()).isTrue();
         assertThat(question.has("closed")).isFalse();
         assertThat(question.path("votersCount").asInt()).isZero();
+
+        jdbc.sql("UPDATE poll SET expires_at = now() - interval '1 second' WHERE status_id = :id")
+                .param("id", status.id()).update();
+        polls.endDue();
+
+        var update = awaitActivity(host, status.uri() + "#updates/");
+        assertThat(update.path("object").path("closed").isString()).isTrue();
     }
 
     @Test
@@ -167,21 +174,6 @@ class PollDeliveryIntegrationTests {
         assertThat(note.has("content")).isFalse();
         assertThat(received.stream().filter(request -> request.body().contains("#votes/")))
                 .allMatch(request -> request.host().equals(host) && request.path().equals("/users/dave/inbox"));
-    }
-
-    @Test
-    void sendsTheFinalCountsWhenALocalPollEnds() {
-        var host = newHost();
-        follow(host, "bob");
-        var status = poll(false);
-        awaitActivity(host, status.uri() + "#create");
-        jdbc.sql("UPDATE poll SET expires_at = now() - interval '1 second' WHERE status_id = :id")
-                .param("id", status.id()).update();
-
-        polls.endDue();
-
-        var update = awaitActivity(host, status.uri() + "#updates/");
-        assertThat(update.path("object").path("closed").isString()).isTrue();
     }
 
     private Status poll(boolean multiple) {

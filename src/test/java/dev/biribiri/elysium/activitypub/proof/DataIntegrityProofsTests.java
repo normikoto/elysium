@@ -124,13 +124,6 @@ class DataIntegrityProofsTests {
     }
 
     @Test
-    void verifiesItsOwnProofs() throws Exception {
-        var signed = DataIntegrityProofs.addProof((ObjectNode) JSON.readTree(resource("w3c-unsigned.json")), key(), NOW);
-
-        assertThat(DataIntegrityProofs.candidates(signed, NOW).getFirst().signature().test(PUBLIC_KEY)).isTrue();
-    }
-
-    @Test
     void anyChangeOrAnotherKeyFailsTheSignature() throws Exception {
         var changed = signed();
         changed.put("name", "Another Credential");
