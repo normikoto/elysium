@@ -224,7 +224,7 @@ class ReportsIntegrationTests {
     // Admins hearing about it
 
     @Test
-    void tellsAdminsWithANotification() throws Exception {
+    void tellsAdminsWithANotificationThatStopsShowingOnceTheyAreNoLongerAdmins() throws Exception {
         var report = fileReport();
 
         await().atMost(WAIT).untilAsserted(() ->
@@ -238,15 +238,8 @@ class ReportsIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.notification_groups[0].type").value("admin.report"))
                 .andExpect(jsonPath("$.notification_groups[0].report.id").value(report));
-
         mockMvc.perform(withToken(get("/api/v1/notifications"), token(USER, "read")))
                 .andExpect(jsonPath("$", hasSize(0)));
-    }
-
-    @Test
-    void anAdminWhoIsNoLongerOneStopsSeeingReports() throws Exception {
-        fileReport();
-        await().atMost(WAIT).until(() -> notificationRows(admin) == 1);
 
         jdbc.sql("UPDATE account_credential SET role = 'USER' WHERE actor_id = :id").param("id", admin.id()).update();
         try {

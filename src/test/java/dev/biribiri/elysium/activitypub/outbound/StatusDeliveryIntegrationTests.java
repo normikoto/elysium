@@ -201,6 +201,9 @@ class StatusDeliveryIntegrationTests {
         assertThat(updatedNote.path("content").stringValue()).isEqualTo("<p>Hello again</p>");
         assertThat(Instant.parse(updatedNote.path("updated").stringValue()))
                 .isAfter(Instant.parse(updatedNote.path("published").stringValue()));
+        assertThat(jdbc.sql("SELECT while_suspended FROM outbound_activity WHERE activity_id = :id")
+                .param("id", updateBody.path("id").stringValue()).query(String.class).single())
+                .as("what happens to the edit if its author is suspended before it's sent").isEqualTo("DROP");
 
         statuses.delete(status.id(), author.id());
 
@@ -619,22 +622,6 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void cancelsAnUnsentCreateEvenWithNoFollowersLeft() {
-        var status = post(Visibility.PUBLIC, null);
-        awaitNothingLeftFor(status);
-        jdbc.sql("INSERT INTO outbound_activity (activity_id, actor_id, body) VALUES (:id, :actorId, '{}')")
-                .param("id", status.uri() + "#create")
-                .param("actorId", author.id())
-                .update();
-
-        statuses.delete(status.id(), author.id());
-
-        awaitNothingLeftFor(status);
-        assertThat(stored(status)).isZero();
-        assertThat(storedDelete(status)).isZero();
-    }
-
-    @Test
     void sendsNothingForARolledBackDelete() {
         var host = newHost();
         follow(host, "bob", false);
@@ -865,7 +852,7 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void aQueuedCreateCarriesTheEdit() {
+    void aQueuedCreateCarriesAnEditAndADeleteCancelsItEvenWithNoFollowersLeft() {
         var status = post(Visibility.PUBLIC, null);
         awaitNothingLeftFor(status);
         // As if its Create were still waiting to be sent.
@@ -880,6 +867,12 @@ class StatusDeliveryIntegrationTests {
         var create = json.readTree(createBody(status));
         assertThat(create.path("type").stringValue()).isEqualTo("Create");
         assertThat(create.path("object").path("updated").isString()).isTrue();
+
+        statuses.delete(status.id(), author.id());
+
+        awaitNothingLeftFor(status);
+        assertThat(stored(status)).isZero();
+        assertThat(storedDelete(status)).isZero();
     }
 
     @Test
@@ -902,21 +895,6 @@ class StatusDeliveryIntegrationTests {
             hold.countDown();
         }
         awaitDelete(host, status);
-    }
-
-    @Test
-    void anEditIsDroppedIfItsAuthorIsSuspendedBeforeItsSent() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var status = post(Visibility.PUBLIC, null);
-        awaitCreate(host, status);
-
-        var edited = edit(status, "Hello again");
-
-        var update = status.uri() + "#updates/" + edited.editedAt().toEpochMilli();
-        await().atMost(WAIT).until(() -> jdbc.sql(
-                        "SELECT count(*) FROM outbound_activity WHERE activity_id = :id AND while_suspended = 'DROP'")
-                .param("id", update).query(Long.class).single() == 1);
     }
 
     @Test

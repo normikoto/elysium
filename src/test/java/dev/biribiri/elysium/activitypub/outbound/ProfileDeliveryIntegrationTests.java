@@ -62,7 +62,7 @@ class ProfileDeliveryIntegrationTests {
     }
 
     @Test
-    void tellsFollowersAboutAChange() {
+    void tellsFollowersAboutAChangeButNotAboutOneThatChangesNothing() {
         follow(remote(), local);
 
         profiles.update(local.id(), ProfileChange.NONE
@@ -77,6 +77,11 @@ class ProfileDeliveryIntegrationTests {
         assertThat(person.get("name").asString()).isEqualTo("Changed");
         assertThat(person.get("attachment").get(0).get("name").asString()).isEqualTo("Site");
         assertThat(person.has("updated")).isTrue();
+
+        profiles.update(local.id(), ProfileChange.NONE.withDisplayName("Changed").withAvatar(ProfileChange.Image.REMOVE));
+
+        await().atMost(WAIT).until(() -> publications() == 0);
+        assertThat(activities(local, "%#profile/%")).as("Updates after a change that changed nothing").hasSize(1);
     }
 
     @Test
@@ -91,18 +96,6 @@ class ProfileDeliveryIntegrationTests {
         assertThat(update.get("@context").get(2).get("discoverable").asString()).isEqualTo("toot:discoverable");
         assertThat(update.get("object").get("indexable").asBoolean()).isTrue();
         assertThat(update.get("object").get("discoverable").asBoolean()).isTrue();
-    }
-
-    @Test
-    void sendsNothingWhenNothingChanged() {
-        follow(remote(), local);
-        profiles.update(local.id(), ProfileChange.NONE.withDisplayName("Same"));
-        await().atMost(WAIT).until(() -> activities(local, "%#profile/%").size() == 1);
-
-        profiles.update(local.id(), ProfileChange.NONE.withDisplayName("Same").withAvatar(ProfileChange.Image.REMOVE));
-
-        await().atMost(WAIT).until(() -> publications() == 0);
-        assertThat(activities(local, "%#profile/%")).hasSize(1);
     }
 
     @Test

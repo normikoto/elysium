@@ -373,15 +373,20 @@ class ActivityDeliveryIntegrationTests {
     }
 
     @Test
-    void storesNothingWhenEveryInboxIsOnABlockedServer() {
-        var activity = activity();
+    void storesNothingWhileEveryInboxIsOnABlockedServerAndSendsAgainOnceTheBlockIsRemoved() {
+        var blocked = activity();
         var host = newHost();
-        blocks.create(host, null);
+        var block = blocks.create(host, null);
 
-        enqueue(activity, inboxOn("sub." + host), inboxOn(host));
+        enqueue(blocked, inboxOn("sub." + host), inboxOn(host));
 
-        assertThat(jobs(activity)).isZero();
-        assertThat(activities(activity)).isZero();
+        assertThat(jobs(blocked)).isZero();
+        assertThat(activities(blocked)).isZero();
+
+        blocks.delete(block.id());
+        enqueue(activity(), inboxOn(host));
+
+        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1);
     }
 
     @Test
@@ -412,18 +417,6 @@ class ActivityDeliveryIntegrationTests {
 
         await().atMost(WAIT).until(() -> jobs(activity) == 0);
         assertThat(receivedBy(host)).hasSize(attempts);
-    }
-
-    @Test
-    void sendsAgainOnceABlockIsRemoved() {
-        var host = newHost();
-        var block = blocks.create(host, null);
-        enqueue(activity(), inboxOn(host));
-
-        blocks.delete(block.id());
-        enqueue(activity(), inboxOn(host));
-
-        await().atMost(WAIT).until(() -> receivedBy(host).size() == 1);
     }
 
     @Test
@@ -613,7 +606,7 @@ class ActivityDeliveryIntegrationTests {
     }
 
     @Test
-    void parksAJobThatHasWaitedTooLongForABusyServer() {
+    void parksAJobThatHasWaitedTooLongForABusyServerAndAnAdminCanRetryIt() {
         var host = newHost();
         var activity = activity();
         whileBusy(host, () -> {
@@ -621,12 +614,17 @@ class ActivityDeliveryIntegrationTests {
                 deliveries.enqueue(activity, List.of(inboxOn(host)));
                 ageJob(activity, Duration.ofDays(3), Duration.ofDays(3));
             });
-
             await().atMost(WAIT).until(() -> failures(activity) == 1);
+            assertThat(failureMessages(activity)).anyMatch(message -> message.contains("has been too busy for too long"));
+            assertThat(receivedBy(host)).isEmpty();
+
+            scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instanceOf(activity)), Instant.now());
+            waitForTurns(activity, 3);
+            assertThat(failures(activity)).as("failures while waiting again after the retry").isZero();
         });
 
-        assertThat(failureMessages(activity)).anyMatch(message -> message.contains("has been too busy for too long"));
-        assertThat(receivedBy(host)).isEmpty();
+        await().atMost(WAIT).until(() -> jobs(activity) == 0);
+        assertThat(receivedBy(host)).hasSize(1);
     }
 
     @Test
@@ -644,26 +642,6 @@ class ActivityDeliveryIntegrationTests {
         await().atMost(WAIT).until(() -> jobs(activity) == 0);
         assertThat(receivedBy(host)).hasSize(1);
         assertThat(history(activity, false)).isZero();
-    }
-
-    @Test
-    void anAdminCanRetryAJobThatGaveUpOnABusyServer() {
-        var host = newHost();
-        var activity = activity();
-        whileBusy(host, () -> {
-            transactions.executeWithoutResult(status -> {
-                deliveries.enqueue(activity, List.of(inboxOn(host)));
-                ageJob(activity, Duration.ofDays(3), Duration.ofDays(3));
-            });
-            await().atMost(WAIT).until(() -> failures(activity) == 1);
-
-            scheduler.reschedule(ActivityDeliveries.TASK.instanceId(instanceOf(activity)), Instant.now());
-            waitForTurns(activity, 3);
-            assertThat(failures(activity)).isZero();
-        });
-
-        await().atMost(WAIT).until(() -> jobs(activity) == 0);
-        assertThat(receivedBy(host)).hasSize(1);
     }
 
     @Test
