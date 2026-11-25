@@ -127,8 +127,8 @@ class ThreadFetches implements RemoteThreadFetcher {
      * Fetches the parents of a note that was just delivered and stored, if what it replies to isn't stored. Its replies
      * aren't fetched, since it's new enough to have none. This counts as a fetch of its thread, so viewing it within
      * {@link #REFETCH_AFTER} doesn't fetch its replies either, which would find nothing yet. If the parent's own
-     * {@code Create} is still waiting for its job, the parents job finds it stored by then and fetches nothing. This makes
-     * no request itself.
+     * {@code Create} is still waiting for its job, the parents job finds it stored if that job runs first, and otherwise
+     * fetches it, which leaves the {@code Create} finding it taken. This makes no request itself.
      *
      * @param author the note's author, which has to be the activity's actor
      */
