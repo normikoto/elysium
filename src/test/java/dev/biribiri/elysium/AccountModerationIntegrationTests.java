@@ -158,7 +158,7 @@ class AccountModerationIntegrationTests {
     // Suspending
 
     @Test
-    void suspendingRefusesTokensAndUnsuspendingRestoresThem() throws Exception {
+    void suspendingRefusesTokensAndLoginsAndUnsuspendingRestoresThemOnlyOnce() throws Exception {
         var user = newAccount();
         var token = TestOAuth.userToken(mockMvc, user.username(), PASSWORD, "read");
         verifyCredentials(token).andExpect(status().isOk());
@@ -169,11 +169,16 @@ class AccountModerationIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().json("{}"));
         verifyCredentials(token).andExpect(status().isUnauthorized());
+        logIn(user.username()).andExpect(redirectedUrl("/login?error"));
 
         mockMvc.perform(withToken(post(PATH + "/" + user.id() + "/unsuspend"), write()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.suspended").value(false));
         verifyCredentials(token).andExpect(status().isOk());
+        logIn(user.username()).andExpect(redirectedUrl("/"));
+
+        mockMvc.perform(withToken(post(PATH + "/" + user.id() + "/unsuspend"), write()))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -211,25 +216,6 @@ class AccountModerationIntegrationTests {
         assertThat(accounts.suspend(user.id(), Optional.empty())).isTrue();
 
         assertThat(actors.findById(user.id()).orElseThrow().suspendedAt()).isEqualTo(suspendedAt);
-    }
-
-    @Test
-    void unsuspendingAnAccountThatIsNotSuspendedIsRefused() throws Exception {
-        var user = newAccount();
-
-        mockMvc.perform(withToken(post(PATH + "/" + user.id() + "/unsuspend"), write()))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void refusesLoginsWhileSuspended() throws Exception {
-        var user = newAccount();
-        accounts.suspend(user.id(), Optional.empty());
-
-        logIn(user.username()).andExpect(redirectedUrl("/login?error"));
-
-        accounts.unsuspend(user.id());
-        logIn(user.username()).andExpect(redirectedUrl("/"));
     }
 
     @Test

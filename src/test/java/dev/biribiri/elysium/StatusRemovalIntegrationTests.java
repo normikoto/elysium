@@ -137,7 +137,7 @@ class StatusRemovalIntegrationTests {
     }
 
     @Test
-    void asksBeforeRemoving() throws Exception {
+    void asksBeforeRemovingALocalStatusAndRemembersWhoRemovedIt() throws Exception {
         var status = publish(Visibility.PUBLIC, "Not removed yet");
         var session = logIn(ADMIN);
 
@@ -148,15 +148,9 @@ class StatusRemovalIntegrationTests {
         mockMvc.perform(get(PAGE + "/not-an-id/remove").session(session)).andExpect(status().isNotFound());
         mockMvc.perform(post(PAGE + "/not-an-id/remove").session(session).with(csrf()))
                 .andExpect(status().isNotFound());
+        assertThat(statuses.findVisible(status.id(), Optional.empty())).as("the status before it's removed").isPresent();
 
-        assertThat(statuses.findVisible(status.id(), Optional.empty())).isPresent();
-    }
-
-    @Test
-    void removesALocalStatusAndRemembersWhoDid() throws Exception {
-        var status = publish(Visibility.PUBLIC, "Against the rules");
-
-        mockMvc.perform(post(PAGE + "/" + status.id() + "/remove").session(logIn(ADMIN)).with(csrf()))
+        mockMvc.perform(post(PAGE + "/" + status.id() + "/remove").session(session).with(csrf()))
                 .andExpect(redirectedUrl(PAGE + "?removed"));
 
         assertThat(jdbc.sql("SELECT count(*) FROM status WHERE id = :id").param("id", status.id())
