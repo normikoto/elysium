@@ -285,7 +285,7 @@ class UpdateIntegrationTests {
     }
 
     @Test
-    void aLateUpdateOfAReplyWhoseParentIsntStoredHasItsParentsFetched() {
+    void aLateUpdateOfAReplyWhoseParentIsntStoredHasItsParentsFetchedEvenOnARetry() {
         var noteId = noteId();
         var edited = new HashMap<>(note(noteId, null));
         var published = Instant.now().minus(Duration.ofHours(1)).truncatedTo(ChronoUnit.SECONDS);
@@ -294,8 +294,15 @@ class UpdateIntegrationTests {
         edited.put("inReplyTo", noteId());
 
         handler.handle(update(edited));
-
         var statusId = (UUID) status(noteId).orElseThrow().get("id");
+        // As if the try that stored it had failed before queuing the fetch, so that its retry has to.
+        jdbc.sql("DELETE FROM thread_refresh WHERE status_id = :id").param("id", statusId).update();
+        scheduler.getScheduledExecutionsForTask(ThreadFetches.TASK_NAME, ThreadFetchJob.class).stream()
+                .filter(execution -> execution.getData().statusId().equals(statusId))
+                .forEach(execution -> scheduler.cancel(execution.getTaskInstance()));
+
+        handler.handle(update(edited));
+
         assertThat(scheduler.getScheduledExecutionsForTask(ThreadFetches.TASK_NAME, ThreadFetchJob.class).stream()
                 .map(execution -> execution.getData())
                 .filter(job -> job.statusId().equals(statusId))

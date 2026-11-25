@@ -39,7 +39,9 @@ class CreateHandler implements InboundActivityHandler {
         if (read.isEmpty() || votes.receive(activity, read.get().note())) {
             return;
         }
-        if (storage.store(activity, document, read.get()) == NoteStorage.Result.STORED) {
+        // Also when it's stored already, since a retry of this activity finds it so, and the try that stored it could have
+        // failed before queuing the fetch.
+        if (storage.store(activity, document, read.get()) != NoteStorage.Result.IGNORED) {
             threads.fetchParentsOf(read.get().note(), URI.create(activity.actorUri()));
         }
     }

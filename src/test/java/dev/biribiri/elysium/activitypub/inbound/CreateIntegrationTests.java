@@ -630,6 +630,20 @@ class CreateIntegrationTests {
         assertThat(threadFetches(statusId((String) topLevel.get("id")))).isEmpty();
     }
 
+    @Test
+    void aRetriedCreateFetchesTheParentsThatTheTryThatStoredItDidnt() {
+        var reply = new HashMap<>(note(noteId(), List.of(PUBLIC), List.of(followers)));
+        reply.put("inReplyTo", noteId());
+        handler.handle(create(reply));
+        var statusId = statusId((String) reply.get("id"));
+        // As if the try that stored it had failed before queuing the fetch.
+        forgetThreadFetches(statusId);
+
+        handler.handle(create(reply));
+
+        assertThat(threadFetches(statusId)).containsExactly(ThreadFetchJob.Step.PARENTS);
+    }
+
     // Helpers
 
     private String noteId() {
@@ -652,6 +666,13 @@ class CreateIntegrationTests {
                 .map(uri -> Map.of("type", "Mention", "href", uri.toString(), "name", "@x@" + uri.getHost()))
                 .toList());
         return tagged;
+    }
+
+    private void forgetThreadFetches(UUID statusId) {
+        jdbc.sql("DELETE FROM thread_refresh WHERE status_id = :id").param("id", statusId).update();
+        scheduler.getScheduledExecutionsForTask(ThreadFetches.TASK_NAME, ThreadFetchJob.class).stream()
+                .filter(execution -> execution.getData().statusId().equals(statusId))
+                .forEach(execution -> scheduler.cancel(execution.getTaskInstance()));
     }
 
     private List<ThreadFetchJob.Step> threadFetches(UUID statusId) {

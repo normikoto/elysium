@@ -156,8 +156,13 @@ class UpdateHandler implements InboundActivityHandler {
         switch (outcome) {
             case EDITED -> {
             }
-            case UNCHANGED -> log.debug("Not editing for Update {}, whose Note has a newer version, is the same, or is "
-                    + "someone else's", activity.id());
+            case UNCHANGED -> {
+                log.debug("Not editing for Update {}, whose Note has a newer version, is the same, or is someone else's",
+                        activity.id());
+                // A retry of an Update that stored the note finds it unchanged, and the try that stored it could have
+                // failed before queuing the fetch.
+                threads.fetchParentsOf(note, actorUri);
+            }
             case NOT_STORED -> storeLate(activity, document, read);
         }
     }
@@ -177,9 +182,10 @@ class UpdateHandler implements InboundActivityHandler {
         var stored = published.isBefore(activity.firstReceivedAt().minus(NEW_FOR))
                 ? storage.storeOld(activity, document, read)
                 : storage.store(activity, document, read);
-        if (stored == NoteStorage.Result.STORED) {
+        if (stored != NoteStorage.Result.IGNORED) {
             threads.fetchParentsOf(read.note(), URI.create(activity.actorUri()));
-        } else if (stored == NoteStorage.Result.TAKEN) {
+        }
+        if (stored == NoteStorage.Result.TAKEN) {
             // Its Create was stored in between, with an older version, which can still be edited. Or it was deleted, which
             // this finds nothing to edit for.
             storedAuthor(URI.create(activity.actorUri())).ifPresent(author -> edit(read.note(), author));
