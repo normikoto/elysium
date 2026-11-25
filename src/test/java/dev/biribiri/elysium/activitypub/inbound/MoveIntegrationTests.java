@@ -93,11 +93,12 @@ class MoveIntegrationTests {
     }
 
     @Test
-    void movesLocalFollowersToTheNewAccount() {
+    void movesLocalFollowersToTheNewAccountOnceAWeek() {
         var list = lists.create(follower.id(), "Friends", AccountList.RepliesPolicy.LIST, false);
         assertThat(lists.addMembers(follower.id(), list.id(), List.of(old.id()))).isTrue();
 
-        handler.handle(move(newId(), oldUri, newUri));
+        var id = newId();
+        handler.handle(move(id, oldUri, newUri));
 
         await().atMost(WAIT).until(() -> follows(follower.id(), newUri).isPresent());
         assertThat(follows(follower.id(), newUri)).contains("pending");
@@ -110,6 +111,19 @@ class MoveIntegrationTests {
         await().atMost(WAIT).until(() -> outbound(follower.id()).stream().anyMatch(body -> body.contains("\"Follow\"")
                 && body.contains(newUri)));
         assertThat(outbound(follower.id())).anyMatch(body -> body.contains("\"Undo\"") && body.contains(oldUri));
+        await().atMost(WAIT).until(() -> moves() == 1);
+
+        // Another move within the week, and the same one again, change nothing.
+        var otherUri = "https://other" + UUID.randomUUID() + ".test/users/bob";
+        stub(otherUri, List.of(oldUri));
+        followAccepted(follower, old);
+        var second = newId();
+        handler.handle(move(second, oldUri, otherUri));
+        handler.handle(move(id, oldUri, newUri));
+
+        await().atMost(WAIT).until(() -> !checkQueued(second) && !checkQueued(id) && !isQueued("follower-move"));
+        assertThat(moves()).isOne();
+        assertThat(follows(follower.id(), otherUri)).isEmpty();
     }
 
     @Test
@@ -163,24 +177,6 @@ class MoveIntegrationTests {
 
         assertThat(checkQueued(id)).isFalse();
         verify(documents, never()).fetch(URI.create(newUri));
-    }
-
-    @Test
-    void actsOnOneMoveAWeekAndOnTheSameMoveOnce() {
-        var id = newId();
-        handler.handle(move(id, oldUri, newUri));
-        await().atMost(WAIT).until(() -> moves() == 1);
-
-        var otherUri = "https://other" + UUID.randomUUID() + ".test/users/bob";
-        stub(otherUri, List.of(oldUri));
-        followAccepted(follower, old);
-        var second = newId();
-        handler.handle(move(second, oldUri, otherUri));
-        handler.handle(move(id, oldUri, newUri));
-
-        await().atMost(WAIT).until(() -> !checkQueued(second) && !checkQueued(id) && !isQueued("follower-move"));
-        assertThat(moves()).isOne();
-        assertThat(follows(follower.id(), otherUri)).isEmpty();
     }
 
     @Test

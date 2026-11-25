@@ -91,7 +91,7 @@ class ProfileLinksIntegrationTests {
     }
 
     @Test
-    void verifiesAFieldWhosePageLinksBack() throws IOException {
+    void verifiesAFieldWhosePageLinksBackAndKeepsItWhileTheValueStaysTheSame() throws IOException {
         page("https://mine.test/", "<a rel=\"me noopener\" href=\"" + local.uri() + "\">me</a>");
         page("https://other.test/", "<a href=\"" + local.uri() + "\">not rel=me</a>");
         redirect("https://moved.test/", "https://www.moved.test/about");
@@ -107,21 +107,14 @@ class ProfileLinksIntegrationTests {
         verify(http, timeout(WAIT.toMillis())).get(eq(URI.create("https://other.test/")), anyString(), any());
         assertThat(fields().get(1).verifiedAt()).isNull();
         assertThat(fields().get(3).verifiedAt()).isNull();
-    }
-
-    @Test
-    void keepsAVerificationWhileTheValueStaysTheSame() throws IOException {
-        page("https://kept.test/", "<a rel=\"me\" href=\"" + local.uri() + "\">me</a>");
-        profiles.update(local.id(), ProfileChange.NONE.withFields(List.of(new ProfileChange.NewField("Site", "https://kept.test/"))));
-        await().atMost(WAIT).until(() -> fields().getFirst().verifiedAt() != null);
-        var verifiedAt = fields().getFirst().verifiedAt();
+        var verifiedAt = fields().get(0).verifiedAt();
 
         profiles.update(local.id(), ProfileChange.NONE.withFields(List.of(
-                new ProfileChange.NewField("Renamed", "https://kept.test/"),
+                new ProfileChange.NewField("Renamed", "https://mine.test/"),
                 new ProfileChange.NewField("New", "https://new.test/"))));
 
-        assertThat(fields().getFirst().verifiedAt()).isEqualTo(verifiedAt);
-        assertThat(fields().get(1).verifiedAt()).isNull();
+        assertThat(fields().getFirst().verifiedAt()).as("the renamed field with the same value").isEqualTo(verifiedAt);
+        assertThat(fields().get(1).verifiedAt()).as("the new field").isNull();
     }
 
     @Test

@@ -77,7 +77,7 @@ class PollIntegrationTests {
     }
 
     @Test
-    void storesAQuestionAsAPoll() {
+    void storesAQuestionAsAPollAndRefreshesItsCounts() throws Exception {
         var id = noteId();
         create.handle(activity("Create", id, question(id, "oneOf", List.of("Yes", "No"), List.of(3, 4))));
 
@@ -89,6 +89,20 @@ class PollIntegrationTests {
         assertThat(poll.votersCount()).isEqualTo(7);
         assertThat(poll.expiresAt()).isEqualTo(Instant.parse("2030-01-01T00:00:00Z"));
         assertThat(poll.closedAt()).isNull();
+
+        update.handle(activity("Update", id, question(id, "oneOf", List.of("Yes", "No"), List.of(5, 9))));
+
+        assertThat(poll(id).options()).as("counts from an Update").extracting(Poll.Option::votesCount).containsExactly(5, 9);
+        assertThat(jdbc.sql("SELECT count(*) FROM status_edit WHERE status_id = :id").param("id", statusId(id))
+                .query(Long.class).single()).as("edits").isZero();
+
+        when(documents.fetch(URI.create(id)))
+                .thenReturn(json.valueToTree(question(id, "oneOf", List.of("Yes", "No"), List.of(10, 20))));
+        refreshes.run(new PollRefreshJob(statusId(id), Instant.now()));
+
+        assertThat(poll(id).options()).as("counts from its server").extracting(Poll.Option::votesCount)
+                .containsExactly(10, 20);
+        assertThat(poll(id).isStale(Instant.now())).isFalse();
     }
 
     @Test
@@ -103,18 +117,6 @@ class PollIntegrationTests {
         assertThat(poll.multiple()).isTrue();
         assertThat(poll.votersCount()).isEqualTo(4);
         assertThat(poll.isExpired(Instant.now())).isTrue();
-    }
-
-    @Test
-    void refreshesCountsFromAnUpdateThatIsNotAnEdit() {
-        var id = noteId();
-        create.handle(activity("Create", id, question(id, "oneOf", List.of("Yes", "No"), List.of(3, 4))));
-
-        update.handle(activity("Update", id, question(id, "oneOf", List.of("Yes", "No"), List.of(5, 9))));
-
-        assertThat(poll(id).options()).extracting(Poll.Option::votesCount).containsExactly(5, 9);
-        assertThat(jdbc.sql("SELECT count(*) FROM status_edit WHERE status_id = :id").param("id", statusId(id))
-                .query(Long.class).single()).isZero();
     }
 
     @Test
@@ -134,19 +136,6 @@ class PollIntegrationTests {
                 .query(Long.class).single()).isZero();
         assertThat(statuses.findHistory(statuses.findStored(statusId).orElseThrow()).getFirst().pollOptions())
                 .containsExactly("Yes", "No");
-    }
-
-    @Test
-    void refreshesAPollFromItsServer() throws Exception {
-        var id = noteId();
-        create.handle(activity("Create", id, question(id, "oneOf", List.of("Yes", "No"), List.of(3, 4))));
-        when(documents.fetch(URI.create(id)))
-                .thenReturn(json.valueToTree(question(id, "oneOf", List.of("Yes", "No"), List.of(10, 20))));
-
-        refreshes.run(new PollRefreshJob(statusId(id), Instant.now()));
-
-        assertThat(poll(id).options()).extracting(Poll.Option::votesCount).containsExactly(10, 20);
-        assertThat(poll(id).isStale(Instant.now())).isFalse();
     }
 
     @Test

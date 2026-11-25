@@ -106,18 +106,13 @@ class ForwardedNotesIntegrationTests {
     }
 
     @Test
-    void queuesAFetchOfTheNoteWhenTheOriginDoesNotServeTheCreate() {
+    void fetchesTheNoteWhenTheOriginDoesNotServeTheCreateAndStoresNothingUnderTheForwardedId() throws Exception {
         receive(create(id, note, recipient.uri().toString()));
 
         forwarded.fetch(forwardedJob());
-
         assertThat(noteJobs()).isOne();
-    }
 
-    @Test
-    void storesTheNoteItsServerServesButNothingUnderTheForwardedId() throws Exception {
         serveNote(noteDocument(note, actor, recipient.uri().toString(), Instant.now()));
-
         storeNote();
 
         assertThat(statusCount(note)).isOne();
@@ -262,9 +257,15 @@ class ForwardedNotesIntegrationTests {
         assertThat(jobs("forwarded-note", elsewhere)).isZero();
     }
 
+    /**
+     * The second can arrive while the first's fetch is running, after it got the first edit.
+     */
     @Test
-    void queuesAFetchOfTheNoteWhenTheOriginDoesNotServeTheUpdate() {
+    void queuesAFetchOfTheNoteForEachForwardedUpdateTheOriginDoesNotServe() throws Exception {
+        var second = "https://" + origin + "/activities/" + UUID.randomUUID();
+        when(documents.fetch(URI.create(second))).thenThrow(DocumentFetchException.gone("not served"));
         receive(update(id, note));
+        receive(update(second, note));
 
         forwarded.fetch(forwardedJob());
 
@@ -276,19 +277,7 @@ class ForwardedNotesIntegrationTests {
                 .param("note", "%" + note + "%")
                 .query(String.class)
                 .single()).contains("\"type\":\"Update\"");
-    }
 
-    /**
-     * The second can arrive while the first's fetch is running, after it got the first edit.
-     */
-    @Test
-    void queuesAFetchForEachForwardedUpdateOfTheSameNote() throws Exception {
-        var second = "https://" + origin + "/activities/" + UUID.randomUUID();
-        when(documents.fetch(URI.create(second))).thenThrow(DocumentFetchException.gone("not served"));
-        receive(update(id, note));
-        receive(update(second, note));
-
-        forwarded.fetch(forwardedJob());
         forwarded.fetch(forwardedJob(second));
 
         assertThat(noteJobs()).isEqualTo(2);

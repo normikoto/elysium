@@ -207,8 +207,9 @@ class MediaIntegrationTests {
     // Viewing, changing, and deleting uploads
 
     @Test
-    void onlyItsOwnerSeesAndChangesAnUpload() throws Exception {
-        var id = uploadImage("mia");
+    void onlyItsOwnerSeesChangesAndDeletesAnUploadUntilItsAttached() throws Exception {
+        var response = uploadResponse("mia");
+        var id = JsonPath.<String>read(response, "$.id");
 
         mockMvc.perform(withToken(get("/api/v1/media/" + id), "mia"))
                 .andExpect(status().isOk())
@@ -229,12 +230,6 @@ class MediaIntegrationTests {
         mockMvc.perform(withToken(put("/api/v1/media/" + id), "max").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"description\":\"Mine now\"}"))
                 .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void deletesAnUploadAndItsFilesButNotOnceItsAttached() throws Exception {
-        var response = uploadResponse("mia");
-        var id = JsonPath.<String>read(response, "$.id");
 
         mockMvc.perform(withToken(delete("/api/v1/media/" + id), "max")).andExpect(status().isNotFound());
         mockMvc.perform(withToken(delete("/api/v1/media/" + id), "mia")).andExpect(status().isOk());

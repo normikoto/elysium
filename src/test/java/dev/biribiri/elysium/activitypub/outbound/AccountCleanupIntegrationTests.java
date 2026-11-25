@@ -284,7 +284,7 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
-    void suspendingALocalAccountKeepsEverythingAndTellsFollowers() {
+    void suspendingALocalAccountKeepsEverythingAndTellsFollowersAndDeletingItCancelsThoseUpdates() {
         var follower = remote();
         follow(follower, local);
         var status = statuses.create(local.id(), draft());
@@ -308,6 +308,12 @@ class AccountCleanupIntegrationTests {
         var back = json.readTree(activities(local, "%#unsuspended/%").getFirst());
         assertThat(back.get("object").has("suspended")).isFalse();
         assertThat(statuses.findVisible(status.id(), Optional.empty())).isPresent();
+
+        actors.markDeleted(local.id());
+
+        await().atMost(WAIT).until(() -> !activities(local, local.uri() + "#delete").isEmpty());
+        assertThat(activities(local, "%#suspended/%")).as("the Update about the suspension").isEmpty();
+        assertThat(activities(local, "%#unsuspended/%")).as("the Update about its end").isEmpty();
     }
 
     @Test
@@ -468,18 +474,6 @@ class AccountCleanupIntegrationTests {
         assertThat(activities(local, "%")).isEmpty();
         assertThat(actors.markRemoteDeleted(deleted.id())).isFalse();
         assertThat(actors.markRemoteDeleted(local.id())).isFalse();
-    }
-
-    @Test
-    void deletingAnAccountCancelsAnUpdateAboutIt() {
-        follow(remote(), local);
-        actors.suspend(local.id());
-        await().atMost(WAIT).until(() -> !activities(local, "%#suspended/%").isEmpty());
-
-        actors.markDeleted(local.id());
-
-        await().atMost(WAIT).until(() -> !activities(local, local.uri() + "#delete").isEmpty());
-        assertThat(activities(local, "%#suspended/%")).isEmpty();
     }
 
     /**

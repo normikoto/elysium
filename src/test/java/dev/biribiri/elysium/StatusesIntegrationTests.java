@@ -713,17 +713,6 @@ class StatusesIntegrationTests {
         assertThat(deletedEvents(id)).isEqualTo(1);
     }
 
-    @Test
-    void deleteReportsTheRepliesCount() throws Exception {
-        var parent = create(alice(), "Parent");
-        create(bob(), "Reply", "public", parent);
-        create(bob(), "Another reply", "unlisted", parent);
-        create(bob(), "Hidden reply", "private", parent);
-        mockMvc.perform(withToken(delete("/api/v1/statuses/" + parent), alice()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.replies_count").value(2));
-    }
-
     private long tombstones(String id) {
         return jdbc.sql("SELECT count(*) FROM status_tombstone WHERE status_id = :id::uuid")
                 .param("id", id)
@@ -776,27 +765,31 @@ class StatusesIntegrationTests {
     // Replies
 
     @Test
-    void repliesRecordTheirParentAndAreCounted() throws Exception {
+    void aReplyJoinsItsParentsThreadIsCountedAndStaysAReplyOnceItsParentIsDeleted() throws Exception {
         var parent = create(alice(), "Parent");
         var reply = create(bob(), "Reply", "public", parent);
 
         mockMvc.perform(get("/api/v1/statuses/" + reply))
                 .andExpect(jsonPath("$.in_reply_to_id").value(parent))
                 .andExpect(jsonPath("$.in_reply_to_account_id").value(aliceId()));
-        mockMvc.perform(get("/api/v1/statuses/" + parent)).andExpect(jsonPath("$.replies_count").value(1));
-
-        create(bob(), "Hidden reply", "private", parent);
-        mockMvc.perform(get("/api/v1/statuses/" + parent)).andExpect(jsonPath("$.replies_count").value(1));
-    }
-
-    @Test
-    void aReplyToAStoredStatusJoinsItsThreadWithoutMerging() throws Exception {
-        var parent = create(alice(), "Parent");
-        var reply = create(bob(), "Reply", "public", parent);
-
         assertThat(jdbc.sql("SELECT count(DISTINCT thread_id) FROM status WHERE id IN (:ids)")
-                .param("ids", List.of(UUID.fromString(parent), UUID.fromString(reply))).query(Long.class).single()).isEqualTo(1);
+                .param("ids", List.of(UUID.fromString(parent), UUID.fromString(reply))).query(Long.class).single())
+                .as("threads of the parent and its reply").isEqualTo(1);
         assertThat(events.stream(StatusThreadsMerged.class)).isEmpty();
+        mockMvc.perform(get("/api/v1/statuses/" + parent)).andExpect(jsonPath("$.replies_count").value(1));
+
+        create(bob(), "Another reply", "unlisted", parent);
+        create(bob(), "Hidden reply", "private", parent);
+        mockMvc.perform(get("/api/v1/statuses/" + parent)).andExpect(jsonPath("$.replies_count").value(2));
+
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + parent), alice()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.replies_count").value(2));
+        mockMvc.perform(get("/api/v1/statuses/" + reply))
+                .andExpect(jsonPath("$.in_reply_to_id").value(nullValue()))
+                .andExpect(jsonPath("$.in_reply_to_account_id").value(aliceId()));
+        mockMvc.perform(get("/api/v1/accounts/" + bobId() + "/statuses").param("exclude_replies", "true"))
+                .andExpect(jsonPath("$", empty()));
     }
 
     @Test
@@ -808,19 +801,6 @@ class StatusesIntegrationTests {
                     .andExpect(jsonPath("$.error").value("Record not found"));
         }
         expectCreated(createRequest(alice(), "Own reply").param("in_reply_to_id", hidden));
-    }
-
-    @Test
-    void aReplyStaysAReplyAfterItsParentIsDeleted() throws Exception {
-        var parent = create(alice(), "Parent");
-        var reply = create(bob(), "Reply", "public", parent);
-        mockMvc.perform(withToken(delete("/api/v1/statuses/" + parent), alice())).andExpect(status().isOk());
-
-        mockMvc.perform(get("/api/v1/statuses/" + reply))
-                .andExpect(jsonPath("$.in_reply_to_id").value(nullValue()))
-                .andExpect(jsonPath("$.in_reply_to_account_id").value(aliceId()));
-        mockMvc.perform(get("/api/v1/accounts/" + bobId() + "/statuses").param("exclude_replies", "true"))
-                .andExpect(jsonPath("$", empty()));
     }
 
     @Test

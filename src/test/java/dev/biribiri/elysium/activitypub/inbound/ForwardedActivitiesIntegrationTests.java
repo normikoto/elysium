@@ -111,7 +111,7 @@ class ForwardedActivitiesIntegrationTests {
     }
 
     @Test
-    void queuesOneFetchAndStoresNothingUntilTheOriginAnswers() {
+    void queuesOneFetchAndStoresTheOriginsCopyAsArrivingWhenTheForwardedCopyDid() throws Exception {
         var before = now();
 
         var result = receive(activity(id, actor, "forwarded"));
@@ -129,14 +129,9 @@ class ForwardedActivitiesIntegrationTests {
                 .single();
         var queuedAt = Instant.parse(json.readTree(data).path("queuedAt").stringValue());
         assertThat(queuedAt).isBetween(before, now());
-    }
 
-    @Test
-    void storesTheOriginsCopyAsArrivingWhenTheForwardedCopyDid() throws Exception {
         var arrivedAt = now().minusSeconds(60);
-        receive(activity(id, actor, "forwarded"));
         serve(activity(id, actor, "origin"));
-
         forwarded.fetch(new ForwardedJob(id, arrivedAt, null, null, null, null, null));
 
         assertThat(storedBody()).contains("origin").doesNotContain("forwarded");

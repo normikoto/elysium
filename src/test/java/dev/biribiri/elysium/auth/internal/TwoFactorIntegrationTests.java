@@ -288,54 +288,35 @@ class TwoFactorIntegrationTests {
     }
 
     @Test
-    void settingUpAgainIsRefusedOnceItsOn() throws Exception {
+    void onceItsOnItCantBeSetUpAgainButItsRecoveryCodesCanBeReplacedAndThePasswordTurnsItOff() throws Exception {
         var username = newUsername();
         var actorId = account(username);
-        var secret = enable(actorId);
+        var old = enableWithRecoveryCodes(actorId);
+        var secret = twoFactor.enabledSecret(actorId).orElseThrow();
         var session = loggedIn(username, secret);
 
         mockMvc.perform(post("/settings/two-factor/setup").with(csrf()).session(session).param("password", PASSWORD))
                 .andExpect(status().isConflict());
-
-        assertThat(twoFactor.enabledSecret(actorId)).hasValue(secret);
-    }
-
-    @Test
-    void turningItOffNeedsThePassword() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        var secret = enable(actorId);
-        var session = loggedIn(username, secret);
-
-        mockMvc.perform(post("/settings/two-factor/disable").with(csrf()).session(session).param("password", NEW_PASSWORD))
-                .andExpect(status().isUnprocessableContent());
-        assertThat(twoFactor.isEnabled(actorId)).isTrue();
-
-        mockMvc.perform(post("/settings/two-factor/disable").with(csrf()).session(session).param("password", PASSWORD))
-                .andExpect(redirectedUrl("/settings/two-factor?disabled"));
-
-        assertThat(twoFactor.isEnabled(actorId)).isFalse();
-        assertThat(twoFactor.recoveryCodesLeft(actorId)).isZero();
-        assertLoggedIn(TestOAuth.logIn(mockMvc, username, PASSWORD));
-    }
-
-    @Test
-    void newRecoveryCodesReplaceTheOldOnes() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        var old = enableWithRecoveryCodes(actorId);
-        var session = loggedIn(username, twoFactor.enabledSecret(actorId).orElseThrow());
+        assertThat(twoFactor.enabledSecret(actorId)).as("after setting up again").hasValue(secret);
 
         var page = mockMvc.perform(post("/settings/two-factor/recovery-codes").with(csrf()).session(session)
                         .param("password", PASSWORD))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andReturn().getResponse().getContentAsString();
-
         var codes = RECOVERY_CODE.matcher(page).results().map(match -> match.group()).toList();
         assertThat(codes).hasSize(TwoFactorAccounts.RECOVERY_CODE_COUNT).doesNotContainAnyElementsOf(old);
         assertThat(twoFactor.useRecoveryCode(actorId, old.getFirst())).isFalse();
         assertThat(twoFactor.useRecoveryCode(actorId, codes.getFirst())).isTrue();
+
+        mockMvc.perform(post("/settings/two-factor/disable").with(csrf()).session(session).param("password", NEW_PASSWORD))
+                .andExpect(status().isUnprocessableContent());
+        assertThat(twoFactor.isEnabled(actorId)).as("after a wrong password").isTrue();
+        mockMvc.perform(post("/settings/two-factor/disable").with(csrf()).session(session).param("password", PASSWORD))
+                .andExpect(redirectedUrl("/settings/two-factor?disabled"));
+        assertThat(twoFactor.isEnabled(actorId)).isFalse();
+        assertThat(twoFactor.recoveryCodesLeft(actorId)).isZero();
+        assertLoggedIn(TestOAuth.logIn(mockMvc, username, PASSWORD));
     }
 
     @Test

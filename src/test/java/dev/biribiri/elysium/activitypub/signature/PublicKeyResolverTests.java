@@ -127,16 +127,22 @@ class PublicKeyResolverTests {
     }
 
     @Test
-    void doesNotRememberBeingOverTheLimit() throws Exception {
+    void neitherChargesTheSenderNorRemembersAFetchOverTheHostsLimit() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
         for (var i = 0; i < 60; i++) {
             resolver.resolve(keyId("https://remote.example/users/u" + i + "#main-key"), UNLIMITED);
         }
-        assertFails(KEY_ID, Failure.KEY_UNAVAILABLE);
+        var budget = new CountingBudget(1);
+
+        assertThatThrownBy(() -> resolver.resolve(keyId(KEY_ID), budget))
+                .isInstanceOfSatisfying(SignatureVerificationException.class,
+                        e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
+        assertThat(budget.cancelled).as("cancelled reservations").isEqualTo(1);
+        assertThat(budget.finished).as("finished reservations").isZero();
 
         advance(Duration.ofMinutes(1));
 
-        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).isEqualTo(KEY);
+        assertThat(resolver.resolve(keyId(KEY_ID), UNLIMITED)).as("in the next window").isEqualTo(KEY);
     }
 
     /**
@@ -214,27 +220,20 @@ class PublicKeyResolverTests {
         assertThat(concurrent.resolve(keyId("https://slow.example/over"), UNLIMITED)).isEqualTo(KEY);
     }
 
-    @Test
-    void chargesTheSenderOnlyForAFetchItStarts() throws Exception {
-        when(documents.fetch(any())).thenReturn(KEY);
-        var budget = new CountingBudget(1);
-
-        assertThat(resolver.resolve(keyId(KEY_ID), budget)).isEqualTo(KEY);
-        assertThat(resolver.resolve(keyId(KEY_ID), budget)).isEqualTo(KEY);
-
-        assertThat(budget.reserved).isEqualTo(1);
-        assertThat(budget.finished).isEqualTo(1);
-    }
-
     /**
      * A server with many actors can use up its budget after a restart, and its keys that are cached have to keep working.
      */
     @Test
-    void servesACachedKeyToASenderWithNoBudgetLeft() throws Exception {
+    void chargesTheSenderOnlyForAFetchItStartsAndServesTheCachedKeyWithNoBudgetLeft() throws Exception {
         when(documents.fetch(any())).thenReturn(KEY);
-        resolver.resolve(keyId(KEY_ID), UNLIMITED);
+        var budget = new CountingBudget(1);
 
-        assertThat(resolver.resolve(keyId(KEY_ID), new CountingBudget(0))).isEqualTo(KEY);
+        assertThat(resolver.resolve(keyId(KEY_ID), budget)).isEqualTo(KEY);
+        assertThat(budget.reserved).as("reserved by the fetch").isEqualTo(1);
+        assertThat(budget.finished).as("finished by the fetch").isEqualTo(1);
+
+        assertThat(resolver.resolve(keyId(KEY_ID), budget)).as("cached, with the budget spent").isEqualTo(KEY);
+        assertThat(budget.reserved).as("reserved after the cached lookup").isEqualTo(1);
     }
 
     @Test
@@ -281,22 +280,6 @@ class PublicKeyResolverTests {
 
         // It isn't remembered either, and the host still has its whole budget.
         assertThat(resolver.resolve(keyId("https://remote.example/users/u0#main-key"), UNLIMITED)).isEqualTo(KEY);
-    }
-
-    @Test
-    void doesNotChargeTheSenderForAFetchThatsOverTheHostsLimit() throws Exception {
-        when(documents.fetch(any())).thenReturn(KEY);
-        for (var i = 0; i < 60; i++) {
-            resolver.resolve(keyId("https://remote.example/users/u" + i + "#main-key"), UNLIMITED);
-        }
-        var budget = new CountingBudget(1);
-
-        assertThatThrownBy(() -> resolver.resolve(keyId("https://remote.example/users/over#main-key"), budget))
-                .isInstanceOfSatisfying(SignatureVerificationException.class,
-                        e -> assertThat(e.failure()).isEqualTo(Failure.KEY_UNAVAILABLE));
-
-        assertThat(budget.cancelled).isEqualTo(1);
-        assertThat(budget.finished).isZero();
     }
 
     @Test

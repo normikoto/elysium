@@ -315,7 +315,7 @@ class OAuthIntegrationTests {
     // Authorization code
 
     @Test
-    void completesTheCodeFlow() throws Exception {
+    void completesTheCodeFlowWithACodeThatOnlyWorksOnce() throws Exception {
         var app = registerApp("read write", REDIRECT_URI);
         var session = loggedInSession();
 
@@ -334,6 +334,9 @@ class OAuthIntegrationTests {
                 .andExpect(jsonPath("$.created_at").isNumber())
                 .andExpect(jsonPath("$.expires_in").doesNotExist())
                 .andExpect(jsonPath("$.refresh_token").doesNotExist());
+        mockMvc.perform(tokenRequest(app, parameters.getFirst("code"), REDIRECT_URI))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_grant"));
     }
 
     @Test
@@ -379,17 +382,6 @@ class OAuthIntegrationTests {
                 .queryParam("code_challenge_method", "plain");
         var redirect = mockMvc.perform(request).andReturn().getResponse().getRedirectedUrl();
         assertThat(redirect).contains("error=invalid_request");
-    }
-
-    @Test
-    void aCodeCanOnlyBeUsedOnce() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
-        var code = authorizationCode(app, "read");
-
-        mockMvc.perform(tokenRequest(app, code, REDIRECT_URI)).andExpect(status().isOk());
-        mockMvc.perform(tokenRequest(app, code, REDIRECT_URI))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("invalid_grant"));
     }
 
     @Test

@@ -89,17 +89,6 @@ class SignUpApprovalIntegrationTests {
     }
 
     @Test
-    void aConfirmedSignUpWaitsForAnAdmin() throws Exception {
-        confirmedSignUp("waiting", "I'd like to join");
-
-        assertThat(actors.findAnyLocalByUsername("waiting")).isEmpty();
-        mockMvc.perform(post("/login").with(csrf()).param("username", "waiting").param("password", PASSWORD))
-                .andExpect(redirectedUrl("/login?error"));
-        var pending = signUps.findAwaitingApproval("waiting").orElseThrow();
-        assertThat(pending.reason()).isEqualTo("I'd like to join");
-    }
-
-    @Test
     void anUnconfirmedSignUpIsntListed() throws Exception {
         signUp("unconfirmed", "").andExpect(status().isOk());
 
@@ -109,8 +98,14 @@ class SignUpApprovalIntegrationTests {
     }
 
     @Test
-    void anAdminCanApproveFromTheAdminPage() throws Exception {
+    void aConfirmedSignUpWaitsForAnAdminToApproveItFromTheAdminPage() throws Exception {
         confirmedSignUp("approvable", "Because <b>reasons</b>");
+
+        assertThat(actors.findAnyLocalByUsername("approvable")).isEmpty();
+        mockMvc.perform(post("/login").with(csrf()).param("username", "approvable").param("password", PASSWORD))
+                .andExpect(redirectedUrl("/login?error"));
+        assertThat(signUps.findAwaitingApproval("approvable").orElseThrow().reason()).isEqualTo("Because <b>reasons</b>");
+
         var admin = adminSession();
 
         mockMvc.perform(get("/admin/sign-ups").session(admin))
