@@ -58,6 +58,7 @@ class UpdateHandler implements InboundActivityHandler {
     private final JsonMapper json;
     private final FeaturedFetch featured;
     private final ActorRefetch refetch;
+    private final ThreadFetches threads;
 
     UpdateHandler(
             ActorService actors,
@@ -70,7 +71,9 @@ class UpdateHandler implements InboundActivityHandler {
             PollService polls,
             JsonMapper json,
             FeaturedFetch featured,
-            ActorRefetch refetch) {
+            ActorRefetch refetch,
+            ThreadFetches threads) {
+        this.threads = threads;
         this.featured = featured;
         this.refetch = refetch;
         this.polls = polls;
@@ -153,8 +156,13 @@ class UpdateHandler implements InboundActivityHandler {
         switch (outcome) {
             case EDITED -> {
             }
-            case UNCHANGED -> log.debug("Not editing for Update {}, whose Note has a newer version, is the same, or is "
-                    + "someone else's", activity.id());
+            case UNCHANGED -> {
+                log.debug("Not editing for Update {}, whose Note has a newer version, is the same, or is someone else's",
+                        activity.id());
+                // A retry of an Update that stored the note finds it unchanged, and the try that stored it could have
+                // failed before queuing the fetch.
+                threads.fetchParentsOf(note, actorUri);
+            }
             case NOT_STORED -> storeLate(activity, document, read);
         }
     }
@@ -174,6 +182,9 @@ class UpdateHandler implements InboundActivityHandler {
         var stored = published.isBefore(activity.firstReceivedAt().minus(NEW_FOR))
                 ? storage.storeOld(activity, document, read)
                 : storage.store(activity, document, read);
+        if (stored != NoteStorage.Result.IGNORED) {
+            threads.fetchParentsOf(read.note(), URI.create(activity.actorUri()));
+        }
         if (stored == NoteStorage.Result.TAKEN) {
             // Its Create was stored in between, with an older version, which can still be edited. Or it was deleted, which
             // this finds nothing to edit for.

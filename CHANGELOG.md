@@ -9,6 +9,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- When a reply from another server arrives before the post it answers, Elysium now fetches that post and the ones
+  above it in the background, so the conversation shows without anyone opening it first. See
+  [Federation](FEDERATION.md#fetching-threads).
 - People can choose to be listed in the directory, at `/settings` or from an app, as on Mastodon. Anyone can browse
   this server's listed accounts at `/directory`, linked from the front page, and apps can list them with Mastodon's
   `GET /api/v1/directory`, along with the accounts on other servers that chose the same. Other servers are told about
