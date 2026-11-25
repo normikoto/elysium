@@ -17,6 +17,10 @@ import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.timeline.internal.TimelineRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -49,6 +53,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.hamcrest.Matchers.contains;
@@ -174,7 +179,7 @@ class StatusesIntegrationTests {
     }
 
     @Test
-    void treatsEmptyFormFieldsAsMissing() throws Exception {
+    void treatsEmptyFormFieldsAndNullJsonValuesAsMissing() throws Exception {
         mockMvc.perform(withToken(post("/api/v1/statuses"), alice())
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("status", "Hello")
@@ -184,12 +189,16 @@ class StatusesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.visibility").value("public"))
                 .andExpect(jsonPath("$.language").value(nullValue()));
+        mockMvc.perform(jsonCreateRequest(alice(), """
+                        {"status": "Hello", "visibility": null, "sensitive": null, "spoiler_text": null,
+                         "language": "", "in_reply_to_id": null}
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.visibility").value("public"));
     }
 
     @Test
-    void rejectsAVisibilityThatIsEmptyOrAmbiguous() throws Exception {
-        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Secret\", \"visibility\": \"\"}"))
-                .andExpect(status().isUnprocessableContent());
+    void rejectsAFormVisibilityThatIsEmptyOrAmbiguous() throws Exception {
         for (var request : List.of(
                 createRequest(alice(), "Secret").param("visibility", ""),
                 createRequest(alice(), "Secret").param("visibility", "", "direct"),
@@ -236,46 +245,40 @@ class StatusesIntegrationTests {
                 .andExpect(status().isUnprocessableContent());
     }
 
-    @Test
-    void rejectsInvalidStatuses() throws Exception {
-        for (var body : List.of(
-                "{\"status\": \"\"}",
-                "{\"status\": \"a\\u0000b\"}",
-                "{\"status\": \"a\\ud800b\"}",
-                "{\"status\": \"Hello\", \"visibility\": \"everyone\"}",
-                "{\"status\": \"Hello\", \"language\": \"not a language\"}")) {
-            mockMvc.perform(jsonCreateRequest(alice(), body))
-                    .andExpect(status().isUnprocessableContent())
-                    .andExpect(jsonPath("$.error").value(containsString("Validation failed")));
-        }
+    @ParameterizedTest
+    @MethodSource("invalidJsonStatuses")
+    void rejectsJsonThatIsNotAValidStatus(String body, String error) throws Exception {
+        mockMvc.perform(jsonCreateRequest(alice(), body))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error").value(containsString(error)));
         assertThat(jdbc.sql("SELECT count(*) FROM status").query(Long.class).single()).isZero();
     }
 
-    @Test
-    void rejectsValuesOfTheWrongTypeRatherThanIgnoringThem() throws Exception {
-        for (var field : List.of(
-                "\"visibility\": 1",
-                "\"visibility\": {\"value\": \"direct\"}",
-                "\"visibility\": [\"direct\"]",
-                "\"in_reply_to_id\": 123",
-                "\"sensitive\": 1",
-                "\"spoiler_text\": []",
-                "\"language\": true")) {
-            mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Hello\", " + field + "}"))
-                    .andExpect(status().isUnprocessableContent())
-                    .andExpect(jsonPath("$.error").value(containsString("Validation failed")));
-        }
-        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": 5}")).andExpect(status().isUnprocessableContent());
-        assertThat(jdbc.sql("SELECT count(*) FROM status").query(Long.class).single()).isZero();
-    }
-
-    @Test
-    void rejectsJsonThatIsNotAnObject() throws Exception {
-        for (var body : List.of("", "null", "[]", "\"Hello\"", "{\"status\": ")) {
-            mockMvc.perform(jsonCreateRequest(alice(), body))
-                    .andExpect(status().isUnprocessableContent())
-                    .andExpect(jsonPath("$.error").value(containsString("JSON object")));
-        }
+    /**
+     * Text the service refuses is covered by {@code StatusServiceTests}, so these are what depends on reading JSON. A
+     * value of the wrong type is refused rather than ignored, since ignoring a visibility would post it publicly.
+     */
+    static Stream<Arguments> invalidJsonStatuses() {
+        return Stream.of(
+                arguments("{\"status\": \"\"}", "Validation failed"),
+                arguments("{\"status\": \"a\\ud800b\"}", "Validation failed"),
+                arguments("{\"status\": 5}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"visibility\": \"everyone\"}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"visibility\": \"\"}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"visibility\": 1}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"visibility\": {\"value\": \"direct\"}}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"visibility\": [\"direct\"]}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"in_reply_to_id\": 123}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"sensitive\": 1}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"spoiler_text\": []}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"language\": true}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"content_type\": 1}", "Validation failed"),
+                arguments("{\"status\": \"Hello\", \"scheduled_at\": true}", "Validation failed"),
+                arguments("", "JSON object"),
+                arguments("null", "JSON object"),
+                arguments("[]", "JSON object"),
+                arguments("\"Hello\"", "JSON object"),
+                arguments("{\"status\": ", "JSON object"));
     }
 
     @Test
@@ -302,25 +305,6 @@ class StatusesIntegrationTests {
         var url = "https://a.example/" + "&".repeat(2000);
         mockMvc.perform(createRequest(alice(), (url + " ").repeat(208)))
                 .andExpect(status().isUnprocessableContent());
-    }
-
-    @Test
-    void acceptsMissingValuesInJson() throws Exception {
-        mockMvc.perform(jsonCreateRequest(alice(), """
-                        {"status": "Hello", "visibility": null, "sensitive": null, "spoiler_text": null,
-                         "language": "", "in_reply_to_id": null}
-                        """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.visibility").value("public"));
-    }
-
-    @Test
-    void rejectsAScheduledAtThatIsNotATime() throws Exception {
-        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Hello\", \"scheduled_at\": true}"))
-                .andExpect(status().isUnprocessableContent());
-        mockMvc.perform(createRequest(alice(), "Hello").param("scheduled_at", "x"))
-                .andExpect(status().isUnprocessableContent());
-        assertThat(jdbc.sql("SELECT count(*) FROM status").query(Long.class).single()).isZero();
     }
 
     @Test
@@ -417,6 +401,9 @@ class StatusesIntegrationTests {
             mockMvc.perform(withToken(get(path), bob())).andExpect(status().isNotFound());
             mockMvc.perform(withToken(get(path), appToken())).andExpect(status().isNotFound());
             mockMvc.perform(withToken(get(path), alice())).andExpect(status().isOk());
+            mockMvc.perform(get(path + "/history")).andExpect(status().isNotFound());
+            mockMvc.perform(withToken(get(path + "/history"), bob())).andExpect(status().isNotFound());
+            mockMvc.perform(withToken(get(path + "/history"), alice())).andExpect(status().isOk());
         }
     }
 
@@ -446,31 +433,20 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.mentions[?(@.acct == 's@" + remote.domain() + "')].username").value("s"));
     }
 
-    @Test
-    void showsADirectStatusOnlyToItsAuthorAndTheAccountsItMentions() throws Exception {
-        var id = create(alice(), "@bob psst", "direct");
+    @ParameterizedTest
+    @ValueSource(strings = {"direct", "private"})
+    void showsADirectOrFollowersOnlyStatusToTheAccountsItMentions(String visibility) throws Exception {
+        // The mention only links an account that exists when the status is written.
+        var bob = bob();
+        var id = create(alice(), "@bob psst", visibility);
         var path = "/api/v1/statuses/" + id;
-        mockMvc.perform(withToken(get(path), bob())).andExpect(status().isOk());
+        mockMvc.perform(withToken(get(path), bob)).andExpect(status().isOk());
         mockMvc.perform(withToken(get(path), carol())).andExpect(status().isNotFound());
         mockMvc.perform(get(path)).andExpect(status().isNotFound());
         expectIds(withToken(get(HOME), bob()));
         expectIds(withToken(get(HOME), carol()));
         expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), bob()), id);
         expectIds(withToken(get("/api/v1/accounts/" + aliceId() + "/statuses"), carol()));
-    }
-
-    @Test
-    void showsAFollowersOnlyStatusToTheAccountsItMentions() throws Exception {
-        var id = create(alice(), "@bob only followers and you", "private");
-        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), bob())).andExpect(status().isOk());
-        mockMvc.perform(withToken(get("/api/v1/statuses/" + id), carol())).andExpect(status().isNotFound());
-        expectIds(withToken(get(HOME), bob()));
-    }
-
-    @Test
-    void leavesPublicMentionsFromUnfollowedAccountsOutOfTheHomeTimeline() throws Exception {
-        create(alice(), "@bob in public");
-        expectIds(withToken(get(HOME), bob()));
     }
 
     @Test
@@ -654,8 +630,6 @@ class StatusesIntegrationTests {
     void refusesAContentTypeItCanNotRender() throws Exception {
         mockMvc.perform(createRequest(alice(), "<b>Hi</b>").param("content_type", "text/html"))
                 .andExpect(status().isUnprocessableContent());
-        mockMvc.perform(jsonCreateRequest(alice(), "{\"status\": \"Hi\", \"content_type\": 1}"))
-                .andExpect(status().isUnprocessableContent());
         var id = expectCreated(createRequest(alice(), "*Hi*").param("content_type", ""));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/source"), alice()))
                 .andExpect(jsonPath("$.content_type").value("text/plain"));
@@ -679,14 +653,6 @@ class StatusesIntegrationTests {
         assertThat(times).isSorted().doesNotHaveDuplicates();
         var current = mockMvc.perform(get("/api/v1/statuses/" + id)).andReturn().getResponse().getContentAsString();
         assertThat(times.getLast()).isEqualTo(JsonPath.read(current, "$.edited_at"));
-    }
-
-    @Test
-    void onlyShowsTheHistoryToThoseWhoCanSeeTheStatus() throws Exception {
-        var id = create(alice(), "Secret", "private");
-        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/history"), alice())).andExpect(status().isOk());
-        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/history"), carol())).andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/v1/statuses/" + id + "/history")).andExpect(status().isNotFound());
     }
 
     @Test
@@ -730,13 +696,21 @@ class StatusesIntegrationTests {
     // Deleting
 
     @Test
-    void deletesAndReturnsTheSourceText() throws Exception {
+    void onlyTheAuthorDeletesAStatusAndOnlyOnceReturningTheSourceText() throws Exception {
         var id = create(alice(), "See https://a.example & more");
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), bob())).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/statuses/" + id)).andExpect(status().isOk());
+        assertThat(tombstones(id)).isZero();
+        assertThat(deletedEvents(id)).isZero();
+
         mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.text").value("See https://a.example & more"));
         mockMvc.perform(get("/api/v1/statuses/" + id)).andExpect(status().isNotFound());
+        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice())).andExpect(status().isNotFound());
+        assertThat(tombstones(id)).isEqualTo(1);
+        assertThat(deletedEvents(id)).isEqualTo(1);
     }
 
     @Test
@@ -748,24 +722,6 @@ class StatusesIntegrationTests {
         mockMvc.perform(withToken(delete("/api/v1/statuses/" + parent), alice()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.replies_count").value(2));
-    }
-
-    @Test
-    void cannotDeleteAnotherUsersStatus() throws Exception {
-        var id = create(alice(), "Hello");
-        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), bob())).andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/v1/statuses/" + id)).andExpect(status().isOk());
-        assertThat(tombstones(id)).isZero();
-        assertThat(deletedEvents(id)).isZero();
-    }
-
-    @Test
-    void deletingTwiceOnlyHappensOnce() throws Exception {
-        var id = create(alice(), "Hello");
-        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice())).andExpect(status().isOk());
-        mockMvc.perform(withToken(delete("/api/v1/statuses/" + id), alice())).andExpect(status().isNotFound());
-        assertThat(tombstones(id)).isEqualTo(1);
-        assertThat(deletedEvents(id)).isEqualTo(1);
     }
 
     private long tombstones(String id) {
@@ -785,19 +741,12 @@ class StatusesIntegrationTests {
     // Authorization
 
     @Test
-    void anInvalidTokenIsRejectedEvenOnPublicPaths() throws Exception {
+    void aTokenOnAPublicPathHasToBeValidAndAllowReading() throws Exception {
         var id = create(alice(), "Hello");
-        for (var path : List.of("/api/v1/statuses/" + id, TIMELINE, "/api/v1/instance",
-                "/api/v1/accounts/" + aliceId() + "/statuses")) {
-            mockMvc.perform(withToken(get(path), "not-a-token")).andExpect(status().isUnauthorized());
-        }
-    }
-
-    @Test
-    void readingWithATokenRequiresTheReadScope() throws Exception {
-        var id = create(alice(), "Hello");
+        mockMvc.perform(withToken(get("/api/v1/instance"), "not-a-token")).andExpect(status().isUnauthorized());
         var writeOnly = token("alice", "write");
         for (var path : List.of("/api/v1/statuses/" + id, TIMELINE, "/api/v1/accounts/" + aliceId() + "/statuses")) {
+            mockMvc.perform(withToken(get(path), "not-a-token")).andExpect(status().isUnauthorized());
             mockMvc.perform(withToken(get(path), writeOnly))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.error").value("This action is outside the authorized scopes"));
@@ -969,7 +918,7 @@ class StatusesIntegrationTests {
     }
 
     @Test
-    void showsAStatusFromAnotherServer() throws Exception {
+    void showsAStatusFromAnotherServerAndListsItUnderItsAuthor() throws Exception {
         var id = remote(Visibility.PUBLIC);
 
         mockMvc.perform(get("/api/v1/statuses/" + id))
@@ -978,22 +927,9 @@ class StatusesIntegrationTests {
                 .andExpect(jsonPath("$.uri").value(containsString("/notes/")))
                 .andExpect(jsonPath("$.url").value(containsString("/@s/")))
                 .andExpect(jsonPath("$.account.acct").value(containsString("s@")));
-    }
-
-    @Test
-    void listsTheStatusesOfAnAccountOnAnotherServer() throws Exception {
-        var id = remote(Visibility.PUBLIC);
         var authorId = jdbc.sql("SELECT actor_id FROM status WHERE id = :id").param("id", id).query(UUID.class).single();
 
         expectIds(get("/api/v1/accounts/" + authorId + "/statuses"), id.toString());
-    }
-
-    @Test
-    void doesNotCountStatusesFromOtherServersAsLocal() throws Exception {
-        create(alice(), "Public");
-        remote(Visibility.PUBLIC);
-
-        mockMvc.perform(get("/api/v1/instance")).andExpect(jsonPath("$.stats.status_count").value(1));
     }
 
     // Context
@@ -1127,23 +1063,28 @@ class StatusesIntegrationTests {
                 .containsExactly(UUID.fromString(bobStatus));
     }
 
-    @Test
-    void homeTimelinePagesAndLinks() throws Exception {
-        var first = create(alice(), "1");
-        var second = create(alice(), "2");
-        var third = create(alice(), "3");
+    /**
+     * The author's own direct statuses are in both timelines, so the same statuses page through each.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {HOME, DIRECT})
+    void homeAndDirectTimelinesPageAndLink(String timeline) throws Exception {
+        var first = create(alice(), "@bob 1", "direct");
+        var second = create(alice(), "@bob 2", "direct");
+        var third = create(alice(), "@bob 3", "direct");
 
-        expectIds(withToken(get(HOME), alice()).param("limit", "2"), third, second);
-        expectIds(withToken(get(HOME), alice()).param("max_id", second), first);
-        expectIds(withToken(get(HOME), alice()).param("min_id", first).param("limit", "1"), second);
-        mockMvc.perform(withToken(get(HOME), alice()).param("limit", "2"))
-                .andExpect(header().string("Link", containsString("/api/v1/timelines/home?limit=2&max_id=" + second)));
+        expectIds(withToken(get(timeline), alice()).param("limit", "2"), third, second);
+        expectIds(withToken(get(timeline), alice()).param("max_id", second), first);
+        expectIds(withToken(get(timeline), alice()).param("min_id", first).param("limit", "1"), second);
+        mockMvc.perform(withToken(get(timeline), alice()).param("limit", "2"))
+                .andExpect(header().string("Link", containsString(timeline + "?limit=2&max_id=" + second)));
     }
 
-    @Test
-    void homeTimelineNeedsAUser() throws Exception {
-        mockMvc.perform(get(HOME)).andExpect(status().isUnauthorized());
-        mockMvc.perform(withToken(get(HOME), appToken()))
+    @ParameterizedTest
+    @ValueSource(strings = {HOME, DIRECT})
+    void homeAndDirectTimelinesNeedAUser(String timeline) throws Exception {
+        mockMvc.perform(get(timeline)).andExpect(status().isUnauthorized());
+        mockMvc.perform(withToken(get(timeline), appToken()))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.error").value("This method requires an authenticated user"));
     }
@@ -1172,23 +1113,6 @@ class StatusesIntegrationTests {
             mockMvc.perform(withToken(post("/api/v1/accounts/" + bobId() + "/unblock"), alice()))
                     .andExpect(status().isOk());
         }
-    }
-
-    @Test
-    void directTimelinePagesAndLinks() throws Exception {
-        var first = create(alice(), "@bob 1", "direct");
-        var second = create(alice(), "@bob 2", "direct");
-
-        expectIds(withToken(get(DIRECT), alice()).param("max_id", second), first);
-        mockMvc.perform(withToken(get(DIRECT), alice()).param("limit", "1"))
-                .andExpect(header().string("Link", containsString(DIRECT + "?limit=1&max_id=" + second)));
-    }
-
-    @Test
-    void directTimelineNeedsAUser() throws Exception {
-        mockMvc.perform(get(DIRECT)).andExpect(status().isUnauthorized());
-        mockMvc.perform(withToken(get(DIRECT), appToken()))
-                .andExpect(status().isUnprocessableContent());
     }
 
     @Test
@@ -1288,34 +1212,19 @@ class StatusesIntegrationTests {
     // Accounts and the instance
 
     @Test
-    void verifyCredentialsReportsStatusStatsWithoutDirectStatuses() throws Exception {
-        mockMvc.perform(withToken(get(VERIFY_CREDENTIALS), alice()))
-                .andExpect(jsonPath("$.statuses_count").value(0))
-                .andExpect(jsonPath("$.last_status_at").value(nullValue()));
-
-        create(alice(), "Direct", "direct");
-        mockMvc.perform(withToken(get(VERIFY_CREDENTIALS), alice()))
-                .andExpect(jsonPath("$.statuses_count").value(0))
-                .andExpect(jsonPath("$.last_status_at").value(nullValue()));
-
-        create(alice(), "Public");
-        create(alice(), "Private", "private");
-        mockMvc.perform(withToken(get(VERIFY_CREDENTIALS), alice()))
-                .andExpect(jsonPath("$.username").value("alice"))
-                .andExpect(jsonPath("$.source.privacy").value("public"))
-                .andExpect(jsonPath("$.account").doesNotExist())
-                .andExpect(jsonPath("$.statuses_count").value(2))
-                .andExpect(jsonPath("$.last_status_at").value(matchesPattern("\\d{4}-\\d{2}-\\d{2}")));
-    }
-
-    @Test
-    void statusStatsFollowDeletions() throws Exception {
+    void statusStatsLeaveOutDirectAndRemoteStatusesAndFollowDeletions() throws Exception {
         var first = create(alice(), "First");
         jdbc.sql("UPDATE status SET published_at = '2020-01-02T00:00:00Z' WHERE id = :id::uuid").param("id", first).update();
         var second = create(alice(), "Second");
         create(alice(), "Direct", "direct");
         create(bob(), "Other account");
+        remote(Visibility.PUBLIC);
         expectStatusStats(3, 2, not(nullValue()));
+        mockMvc.perform(withToken(get(VERIFY_CREDENTIALS), alice()))
+                .andExpect(jsonPath("$.username").value("alice"))
+                .andExpect(jsonPath("$.source.privacy").value("public"))
+                .andExpect(jsonPath("$.account").doesNotExist())
+                .andExpect(jsonPath("$.last_status_at").value(matchesPattern("\\d{4}-\\d{2}-\\d{2}")));
 
         mockMvc.perform(withToken(delete("/api/v1/statuses/" + second), alice())).andExpect(status().isOk());
         expectStatusStats(2, 1, equalTo("2020-01-02"));
