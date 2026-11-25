@@ -63,7 +63,7 @@ class ChangePasswordIntegrationTests {
     }
 
     @Test
-    void aWrongCurrentPasswordChangesNothing() throws Exception {
+    void aWrongCurrentPasswordOrAnUnusableNewOneChangesNothing() throws Exception {
         var username = newUsername();
         var actorId = account(username);
         var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
@@ -71,35 +71,15 @@ class ChangePasswordIntegrationTests {
         change(session, "wrong password", NEW_PASSWORD, NEW_PASSWORD)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(content().string(containsString("Incorrect password.")));
-
-        assertThat(accounts.passwordMatches(actorId, PASSWORD)).isTrue();
-        assertLoggedIn(session);
-    }
-
-    @Test
-    void newPasswordsThatDoNotMatchChangeNothing() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
-
         change(session, PASSWORD, NEW_PASSWORD, NEW_PASSWORD + "!")
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(content().string(containsString("match")));
-
-        assertThat(accounts.passwordMatches(actorId, PASSWORD)).isTrue();
-    }
-
-    @Test
-    void aTooShortNewPasswordChangesNothing() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
-
         change(session, PASSWORD, "short", "short")
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(content().string(containsString("8 to 128 characters")));
 
         assertThat(accounts.passwordMatches(actorId, PASSWORD)).isTrue();
+        assertLoggedIn(session);
     }
 
     @Test

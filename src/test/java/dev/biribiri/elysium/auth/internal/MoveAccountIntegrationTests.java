@@ -130,20 +130,7 @@ class MoveAccountIntegrationTests {
     }
 
     @Test
-    void aWrongPasswordMovesNothing() throws Exception {
-        var alice = account();
-        var bob = account();
-        alias(bob, alice);
-        var session = TestOAuth.logIn(mockMvc, alice.username(), PASSWORD);
-
-        move(session, bob.username(), "wrong password")
-                .andExpect(status().isUnprocessableContent())
-                .andExpect(content().string(containsString("Incorrect password.")));
-        assertThat(profiles.find(alice.id()).movedTo()).isNull();
-    }
-
-    @Test
-    void theNewAccountHasToListTheOldOne() throws Exception {
+    void nothingMovesUntilTheNewAccountListsTheOldOneAndThePasswordIsRight() throws Exception {
         var alice = account();
         var bob = account();
         var session = TestOAuth.logIn(mockMvc, alice.username(), PASSWORD);
@@ -151,6 +138,10 @@ class MoveAccountIntegrationTests {
         move(session, bob.username(), PASSWORD)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(content().string(containsString("alias")));
+        alias(bob, alice);
+        move(session, bob.username(), "wrong password")
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(content().string(containsString("Incorrect password.")));
         assertThat(profiles.find(alice.id()).movedTo()).isNull();
     }
 

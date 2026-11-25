@@ -67,24 +67,15 @@ class AdminRoleIntegrationTests {
     // Admin pages. Nothing is mounted there yet, so getting past security gives a 404.
 
     @Test
-    void removingTheRoleAppliesToAnExistingSession() throws Exception {
+    void removingAndGivingTheRoleApplyToAnExistingSession() throws Exception {
         var account = account(AccountRole.ADMIN);
         var session = logIn(account);
         mockMvc.perform(get("/admin/jobs").session(session)).andExpect(status().isNotFound());
 
         accounts.setRole(account.id(), AccountRole.USER);
-
-        mockMvc.perform(get("/admin/jobs").session(session)).andExpect(status().isForbidden());
-    }
-
-    @Test
-    void givingTheRoleAppliesToAnExistingSession() throws Exception {
-        var account = account(AccountRole.USER);
-        var session = logIn(account);
         mockMvc.perform(get("/admin/jobs").session(session)).andExpect(status().isForbidden());
 
         accounts.setRole(account.id(), AccountRole.ADMIN);
-
         mockMvc.perform(get("/admin/jobs").session(session)).andExpect(status().isNotFound());
     }
 
@@ -98,26 +89,19 @@ class AdminRoleIntegrationTests {
     }
 
     @Test
-    void adminsSeeTheFrontPageAndALinkToIt() throws Exception {
-        var session = logIn(account(AccountRole.ADMIN));
+    void onlyAdminsSeeTheFrontPageAndALinkToIt() throws Exception {
+        var admin = logIn(account(AccountRole.ADMIN));
+        var user = logIn(account(AccountRole.USER));
 
-        mockMvc.perform(get("/admin").session(session))
+        mockMvc.perform(get("/admin").session(admin))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/admin/accounts\"")));
+        mockMvc.perform(get("/admin").session(user)).andExpect(status().isForbidden());
         for (var page : new String[]{"/", "/settings"}) {
-            mockMvc.perform(get(page).session(session))
+            mockMvc.perform(get(page).session(admin))
                     .andExpect(status().isOk())
                     .andExpect(content().string(containsString("href=\"/admin\"")));
-        }
-    }
-
-    @Test
-    void usersCannotSeeTheFrontPageOrALinkToIt() throws Exception {
-        var session = logIn(account(AccountRole.USER));
-
-        mockMvc.perform(get("/admin").session(session)).andExpect(status().isForbidden());
-        for (var page : new String[]{"/", "/settings"}) {
-            mockMvc.perform(get(page).session(session))
+            mockMvc.perform(get(page).session(user))
                     .andExpect(status().isOk())
                     .andExpect(content().string(not(containsString("href=\"/admin\""))));
         }
@@ -127,17 +111,10 @@ class AdminRoleIntegrationTests {
     // Tokens
 
     @Test
-    void anAdminsTokenKeepsItsAdminScopes() throws Exception {
+    void adminScopesWorkOnlyWhileTheAccountIsAnAdmin() throws Exception {
         var account = account(AccountRole.ADMIN);
         var token = userToken(registerApp("read admin:read"), logIn(account), "read admin:read");
-
         assertThat(introspect(token).scopes()).contains("read", "admin:read", "admin:read:accounts");
-    }
-
-    @Test
-    void adminScopesStopWorkingAsSoonAsTheAccountIsNotAnAdmin() throws Exception {
-        var account = account(AccountRole.ADMIN);
-        var token = userToken(registerApp("read admin:read"), logIn(account), "read admin:read");
 
         // Written directly, because setRole would also revoke the token, and this has to hold without that.
         jdbc.sql("UPDATE account_credential SET role = 'USER' WHERE actor_id = :actorId")
@@ -168,21 +145,16 @@ class AdminRoleIntegrationTests {
 
         assertThat(scopes).contains("read");
         assertThat(scopes).noneMatch(OAuthScopes::isAdmin);
-    }
-
-    @Test
-    void anAppTokenWithOnlyAdminScopesHasNoScopes() throws Exception {
-        var scopes = introspect(appToken(registerApp("admin:read"), "admin:read")).scopes();
-
-        assertThat(scopes).isEqualTo(Set.of());
+        assertThat(introspect(appToken(registerApp("admin:read"), "admin:read")).scopes()).isEqualTo(Set.of());
     }
 
     // Consent
 
     @Test
-    void theConsentPageLeavesOutAdminScopesForRegularUsers() throws Exception {
+    void theConsentPageShowsAdminScopesOnlyToAdmins() throws Exception {
+        var app = registerApp("read admin:read");
         var session = logIn(account(AccountRole.USER));
-        var consent = authorize(registerApp("read admin:read"), session, "read admin:read");
+        var consent = authorize(app, session, "read admin:read");
 
         mockMvc.perform(get(URI.create(consent)).session(session))
                 .andExpect(status().isOk())
@@ -191,14 +163,9 @@ class AdminRoleIntegrationTests {
                 .andExpect(content().string(not(containsString("value=\"admin:read\""))))
                 .andExpect(content().string(containsString("isn't an admin")))
                 .andExpect(content().string(containsString(">Authorize<")));
-    }
 
-    @Test
-    void theConsentPageShowsAdminScopesToAdmins() throws Exception {
-        var session = logIn(account(AccountRole.ADMIN));
-        var consent = authorize(registerApp("read admin:read"), session, "read admin:read");
-
-        mockMvc.perform(get(URI.create(consent)).session(session))
+        var admin = logIn(account(AccountRole.ADMIN));
+        mockMvc.perform(get(URI.create(authorize(app, admin, "read admin:read"))).session(admin))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("<code>admin:read</code>")))
                 .andExpect(content().string(containsString("value=\"admin:read\"")))

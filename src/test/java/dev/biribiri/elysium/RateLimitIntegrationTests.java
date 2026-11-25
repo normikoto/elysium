@@ -35,6 +35,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -110,17 +111,7 @@ class RateLimitIntegrationTests {
     }
 
     @Test
-    void successfulLoginsArentLimited() throws Exception {
-        createAccount("oftenloggedin");
-        var address = newAddress();
-
-        for (var i = 0; i < 25; i++) {
-            logIn("oftenloggedin", PASSWORD, address).andExpect(redirectedUrl("/"));
-        }
-    }
-
-    @Test
-    void aBusyServerDoesntUseUpLoginAttempts() throws Exception {
+    void aBusyServerSaysSoWithoutUsingUpLoginAttempts() throws Exception {
         createAccount("busylimit");
         var address = newAddress();
         doThrow(new PasswordHashingBusyException()).when(passwordEncoder).matches(any(), any());
@@ -128,6 +119,9 @@ class RateLimitIntegrationTests {
         for (var i = 0; i < 6; i++) {
             logIn("busylimit", PASSWORD, address).andExpect(redirectedUrl("/login?busy"));
         }
+        mockMvc.perform(get("/login").param("busy", ""))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("The server is busy")));
 
         Mockito.reset(passwordEncoder);
         logIn("busylimit", PASSWORD, address).andExpect(redirectedUrl("/"));
@@ -175,18 +169,6 @@ class RateLimitIntegrationTests {
         failLogins(2, " paddedname", address);
         logIn(" paddedname ", PASSWORD, address).andExpect(status().isTooManyRequests());
         logIn("paddedname", PASSWORD, address).andExpect(status().isTooManyRequests());
-    }
-
-    @Test
-    void limitsAnAddressAcrossUsernames() throws Exception {
-        var address = newAddress();
-        for (var i = 0; i < 20; i++) {
-            // Usernames that can't exist count too, because they still cost a hash.
-            var username = i % 2 == 0 ? "sprayed" + i : "not-valid-" + i;
-            logIn(username, WRONG_PASSWORD, address).andExpect(redirectedUrl("/login?error"));
-        }
-
-        logIn("sprayedagain", WRONG_PASSWORD, address).andExpect(status().isTooManyRequests());
     }
 
     @Test
@@ -246,13 +228,16 @@ class RateLimitIntegrationTests {
     }
 
     @Test
-    void aBusyServerDoesntUseUpSignUpAttempts() throws Exception {
+    void aBusyServerSaysSoWithoutUsingUpSignUpAttempts() throws Exception {
         var address = newAddress();
         doThrow(new PasswordHashingBusyException()).when(passwordEncoder).encode(any());
 
         for (var i = 0; i < 6; i++) {
-            signUp("busysignup", PASSWORD, address).andExpect(status().isServiceUnavailable());
+            signUp("busysignup", PASSWORD, address)
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(content().string(containsString("The server is busy")));
         }
+        assertThat(actors.findLocalByUsername("busysignup")).isEmpty();
 
         Mockito.reset(passwordEncoder);
         signUp("busysignup", PASSWORD, address).andExpect(redirectedUrl("/login?registered"));

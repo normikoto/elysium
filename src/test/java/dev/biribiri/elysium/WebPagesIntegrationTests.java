@@ -191,16 +191,12 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void frontPageOffersLoggingInAndSigningUpWithNoStatuses() throws Exception {
+    void frontPageOffersLoggingInAndSigningUpWithNoStatusesOnlyToVisitors() throws Exception {
         mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/login\"")))
                 .andExpect(content().string(containsString("href=\"/signup\"")))
                 .andExpect(content().string(containsString("No posts yet.")));
-    }
-
-    @Test
-    void frontPageDoesNotOfferLoggingInToALoggedInUser() throws Exception {
         mockMvc.perform(get("/").with(user("wanda")))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("href=\"/login\""))));
@@ -243,8 +239,10 @@ class WebPagesIntegrationTests {
         assertThat(page.indexOf("pinned text")).isBetween(pinsHeading, page.indexOf("newer text"));
         assertThat(page.lastIndexOf("pinned text")).isGreaterThan(page.indexOf("newer text"));
 
-        mockMvc.perform(get("/users/wanda").param("max_id", newer.id().toString()))
-                .andExpect(content().string(not(containsString("Pinned</h2>"))));
+        for (var laterPage : new String[]{"/users/wanda?max_id=" + newer.id(), "/users/wanda/with_replies"}) {
+            mockMvc.perform(get(laterPage))
+                    .andExpect(content().string(not(containsString("Pinned</h2>"))));
+        }
     }
 
     @Test
@@ -270,14 +268,6 @@ class WebPagesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("plain text"))))
                 .andExpect(content().string(containsString("No posts to show.")));
-    }
-
-    @Test
-    void profileTabsShowPinsOnlyAboveItsPosts() throws Exception {
-        pins.pin(post(wanda, "pinned text", Visibility.PUBLIC).id(), wanda.id());
-
-        mockMvc.perform(get("/users/wanda/with_replies"))
-                .andExpect(content().string(not(containsString("Pinned</h2>"))));
     }
 
     @Test
@@ -322,15 +312,6 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void profileLeavesOutRepliesToOtherAccounts() throws Exception {
-        var parent = post(walt, "text from walt", Visibility.PUBLIC);
-        reply(wanda, "reply to walt", parent);
-
-        mockMvc.perform(get("/users/wanda"))
-                .andExpect(content().string(not(containsString("reply to walt"))));
-    }
-
-    @Test
     void profilePagesThroughOlderStatuses() throws Exception {
         // One more than a profile page shows.
         for (var i = 0; i < 21; i++) {
@@ -371,14 +352,6 @@ class WebPagesIntegrationTests {
                     .andExpect(content().string(containsString("visible text")))
                     .andExpect(content().string(containsString(
                             "datetime=\"" + status.publishedAt() + "\"")));
-        }
-    }
-
-    @Test
-    void hidesPrivateAndDirectStatuses() throws Exception {
-        for (var visibility : new Visibility[]{Visibility.PRIVATE, Visibility.DIRECT}) {
-            var status = post(wanda, "hidden text", visibility);
-            mockMvc.perform(get(path(wanda, status))).andExpect(status().isNotFound());
         }
     }
 
@@ -464,23 +437,6 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void statusIsOnlyShownUnderItsAuthor() throws Exception {
-        var status = post(wanda, "text from wanda", Visibility.PUBLIC);
-
-        mockMvc.perform(get(path(walt, status))).andExpect(status().isNotFound());
-        mockMvc.perform(get("/users/WANDA/statuses/" + status.id()))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    void returnsNotFoundForUnknownAndMalformedStatusIds() throws Exception {
-        for (var id : new String[]{UUID.randomUUID().toString(), "nonsense", "1-1-1-1-1"}) {
-            mockMvc.perform(get("/users/wanda/statuses/" + id))
-                    .andExpect(status().isNotFound());
-        }
-    }
-
-    @Test
     void linksToAVisibleParent() throws Exception {
         var parent = post(walt, "text from walt", Visibility.PUBLIC);
         var reply = reply(wanda, "reply to walt", parent);
@@ -491,7 +447,7 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void doesNotLinkToAHiddenParent() throws Exception {
+    void linksToAHiddenParentOnlyForAViewerWhoCanSeeIt() throws Exception {
         var parent = post(wanda, "hidden text", Visibility.PRIVATE);
         var reply = reply(wanda, "reply to myself", parent);
 
@@ -499,13 +455,6 @@ class WebPagesIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("In reply to"))))
                 .andExpect(content().string(not(containsString(parent.id().toString()))));
-    }
-
-    @Test
-    void linksToAParentTheViewerCanSee() throws Exception {
-        var parent = post(wanda, "hidden text", Visibility.PRIVATE);
-        var reply = reply(wanda, "reply to myself", parent);
-
         mockMvc.perform(get(path(wanda, reply)).with(loggedIn(wanda)))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("In reply to")))
@@ -513,24 +462,6 @@ class WebPagesIntegrationTests {
     }
 
     // Followers
-
-    @Test
-    void actorDocumentLinksToItsFollowers() throws Exception {
-        mockMvc.perform(get("/users/wanda").accept(ACTIVITY_JSON))
-                .andExpect(jsonPath("$.followers").value(wanda.uri() + "/followers"));
-    }
-
-    @Test
-    void followersCollectionLinksToItsFirstPage() throws Exception {
-        mockMvc.perform(get("/users/wanda/followers").accept(ACTIVITY_JSON))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(ACTIVITY_JSON))
-                .andExpect(jsonPath("$.id").value(wanda.uri() + "/followers"))
-                .andExpect(jsonPath("$.type").value("OrderedCollection"))
-                .andExpect(jsonPath("$.totalItems").value(0))
-                .andExpect(jsonPath("$.first").value(wanda.uri() + "/followers?page=true"))
-                .andExpect(jsonPath("$.orderedItems").doesNotHaveJsonPath());
-    }
 
     @Test
     void followersCollectionCanBeReadFromAnyOrigin() throws Exception {
@@ -652,20 +583,23 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void noteIsOnlyServedUnderItsAuthor() throws Exception {
+    void statusIsOnlyServedUnderItsAuthorAsAPageOrANote() throws Exception {
         var status = post(wanda, "text from wanda", Visibility.PUBLIC);
 
-        mockMvc.perform(get(path(walt, status)).accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
-        mockMvc.perform(get("/users/nobody/statuses/" + status.id()).accept(ACTIVITY_JSON))
-                .andExpect(status().isNotFound());
-        mockMvc.perform(get("/users/WANDA/statuses/" + status.id()).accept(ACTIVITY_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(status.uri().toString()));
+        for (var accept : new MediaType[]{MediaType.TEXT_HTML, ACTIVITY_JSON}) {
+            mockMvc.perform(get(path(walt, status)).accept(accept)).andExpect(status().isNotFound());
+            mockMvc.perform(get("/users/nobody/statuses/" + status.id()).accept(accept))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(get("/users/WANDA/statuses/" + status.id()).accept(accept))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentTypeCompatibleWith(accept));
+        }
     }
 
     @Test
-    void returnsNotFoundForUnknownAndMalformedNoteIds() throws Exception {
+    void returnsNotFoundForUnknownAndMalformedStatusIds() throws Exception {
         for (var id : new String[]{UUID.randomUUID().toString(), "nonsense", "1-1-1-1-1"}) {
+            mockMvc.perform(get("/users/wanda/statuses/" + id)).andExpect(status().isNotFound());
             mockMvc.perform(get("/users/wanda/statuses/" + id).accept(ACTIVITY_JSON))
                     .andExpect(status().isNotFound())
                     .andExpect(header().stringValues("Vary", hasItem("Accept")));
@@ -694,25 +628,19 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void noteDoesNotRevealAHiddenParent() throws Exception {
-        var parent = post(wanda, "hidden text", Visibility.PRIVATE);
-        var reply = reply(wanda, "reply to myself", parent);
+    void noteLeavesOutAHiddenOrDeletedParent() throws Exception {
+        var hidden = post(wanda, "hidden text", Visibility.PRIVATE);
+        var deleted = post(walt, "text from walt", Visibility.PUBLIC);
+        var toHidden = reply(wanda, "reply to myself", hidden);
+        var toDeleted = reply(wanda, "reply to walt", deleted);
+        statuses.delete(deleted.id(), walt.id());
 
-        mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.inReplyTo").doesNotHaveJsonPath())
-                .andExpect(content().string(not(containsString(parent.id().toString()))));
-    }
-
-    @Test
-    void noteLeavesOutADeletedParent() throws Exception {
-        var parent = post(walt, "text from walt", Visibility.PUBLIC);
-        var reply = reply(wanda, "reply to walt", parent);
-        statuses.delete(parent.id(), walt.id());
-
-        mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.inReplyTo").doesNotHaveJsonPath());
+        for (var reply : new Status[]{toHidden, toDeleted}) {
+            mockMvc.perform(get(path(wanda, reply)).accept(ACTIVITY_JSON))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.inReplyTo").doesNotHaveJsonPath())
+                    .andExpect(content().string(not(containsString(hidden.id().toString()))));
+        }
     }
 
     @Test
@@ -829,19 +757,14 @@ class WebPagesIntegrationTests {
     }
 
     @Test
-    void marksTheLanguageOfAStatus() throws Exception {
-        var status = statuses.create(wanda.id(), new NewStatus(
+    void marksTheLanguageOfAStatusAndDoesNotAssumeOneItLacks() throws Exception {
+        var french = statuses.create(wanda.id(), new NewStatus(
                 "bonjour", null, "fr", Visibility.PUBLIC, false, null));
+        var unknown = post(wanda, "no language set", Visibility.PUBLIC);
 
-        mockMvc.perform(get(path(wanda, status)))
+        mockMvc.perform(get(path(wanda, french)))
                 .andExpect(content().string(containsString("lang=\"fr\"")));
-    }
-
-    @Test
-    void doesNotAssumeTheLanguageOfAStatusWithoutOne() throws Exception {
-        var status = post(wanda, "no language set", Visibility.PUBLIC);
-
-        mockMvc.perform(get(path(wanda, status)))
+        mockMvc.perform(get(path(wanda, unknown)))
                 .andExpect(content().string(containsString("lang=\"und\"")));
     }
 

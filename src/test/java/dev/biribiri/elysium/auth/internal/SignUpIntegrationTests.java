@@ -60,9 +60,11 @@ class SignUpIntegrationTests {
     }
 
     @Test
-    void theFormAsksForAnEmailAddress() throws Exception {
+    void theLoginPageLinksToAFormThatAsksForAnEmailAddress() throws Exception {
+        mockMvc.perform(get("/login")).andExpect(content().string(containsString("/signup")));
         mockMvc.perform(get("/signup"))
                 .andExpect(status().isOk())
+                .andExpect(content().string(containsString("name=\"_csrf\"")))
                 .andExpect(content().string(containsString("name=\"email\"")))
                 .andExpect(content().string(not(containsString("name=\"reason\""))));
     }

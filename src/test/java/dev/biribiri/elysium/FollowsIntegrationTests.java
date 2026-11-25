@@ -120,15 +120,6 @@ class FollowsIntegrationTests {
         assertThat(outboundBodies(account("alice"), bob)).isEmpty();
     }
 
-    @Test
-    void followingAgainChangesNothing() throws Exception {
-        var bob = account("bob");
-        follow("alice", bob);
-        follow("alice", bob);
-
-        assertThat(jdbc.sql("SELECT count(*) FROM follow").query(Long.class).single()).isEqualTo(1);
-    }
-
     // Follow options
 
     @Test
@@ -174,6 +165,9 @@ class FollowsIntegrationTests {
                 .andExpect(jsonPath("$.showing_reblogs").value(true))
                 .andExpect(jsonPath("$.notifying").value(true))
                 .andExpect(jsonPath("$.languages").isEmpty());
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + dave.id() + "/follow"), token("alice")))
+                .andExpect(jsonPath("$.showing_reblogs").value(true))
+                .andExpect(jsonPath("$.notifying").value(true));
         assertThat(jdbc.sql("SELECT count(*) FROM follow").query(Long.class).single()).isEqualTo(1);
     }
 
@@ -718,7 +712,7 @@ class FollowsIntegrationTests {
     // Lists of followers and following
 
     @Test
-    void listsFollowersAndFollowingNewestFirst() throws Exception {
+    void listsFollowersAndFollowingNewestFirstInPages() throws Exception {
         var alice = account("alice");
         follow("bob", alice);
         follow("carol", alice);
@@ -729,13 +723,6 @@ class FollowsIntegrationTests {
                 .andExpect(jsonPath("$[*].username", contains("carol", "bob")));
         mockMvc.perform(get("/api/v1/accounts/" + alice.id() + "/following"))
                 .andExpect(jsonPath("$[*].username", contains("carol")));
-    }
-
-    @Test
-    void pagesThroughFollowers() throws Exception {
-        var alice = account("alice");
-        follow("bob", alice);
-        follow("carol", alice);
 
         var response = mockMvc.perform(get("/api/v1/accounts/" + alice.id() + "/followers").param("limit", "1"))
                 .andExpect(jsonPath("$[*].username", contains("carol")))
@@ -923,9 +910,12 @@ class FollowsIntegrationTests {
                 .andExpect(jsonPath("$.following").value(alice.uri() + "/following"));
         mockMvc.perform(get("/users/alice/followers").accept(ACTIVITY_JSON))
                 .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.id").value(alice.uri() + "/followers"))
                 .andExpect(jsonPath("$.type").value("OrderedCollection"))
                 .andExpect(jsonPath("$.totalItems").value(2))
-                .andExpect(jsonPath("$.first").value(alice.uri() + "/followers?page=true"));
+                .andExpect(jsonPath("$.first").value(alice.uri() + "/followers?page=true"))
+                .andExpect(jsonPath("$.orderedItems").doesNotHaveJsonPath());
         mockMvc.perform(get("/users/alice/followers").param("page", "true").accept(ACTIVITY_JSON))
                 .andExpect(jsonPath("$.type").value("OrderedCollectionPage"))
                 .andExpect(jsonPath("$.partOf").value(alice.uri() + "/followers"))

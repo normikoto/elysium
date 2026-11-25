@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,17 +70,6 @@ class TwoFactorIntegrationTests {
     }
 
     @Test
-    void aPasswordAloneDoesNotLogIn() throws Exception {
-        var username = newUsername();
-        enable(account(username));
-
-        var session = passwordStep(username, PASSWORD);
-
-        assertLoggedOut(session);
-        mockMvc.perform(get("/login/two-factor").session(session)).andExpect(status().isOk());
-    }
-
-    @Test
     void aWrongPasswordDoesNotAskForACode() throws Exception {
         var username = newUsername();
         enable(account(username));
@@ -91,13 +81,16 @@ class TwoFactorIntegrationTests {
     }
 
     @Test
-    void aCodeFinishesLoggingInOnce() throws Exception {
+    void aPasswordAloneDoesNotLogInButACodeFinishesItOnce() throws Exception {
         var username = newUsername();
         var secret = enable(account(username));
         var code = currentCode(secret);
 
         var session = passwordStep(username, PASSWORD);
-        submitCode(session, code).andExpect(redirectedUrl("/"));
+        assertLoggedOut(session);
+        mockMvc.perform(get("/login/two-factor").session(session)).andExpect(status().isOk());
+        // Back to the page that found it logged out.
+        submitCode(session, code).andExpect(redirectedUrl("http://localhost/settings/two-factor"));
 
         assertLoggedIn(session);
 
@@ -162,29 +155,21 @@ class TwoFactorIntegrationTests {
     }
 
     @Test
-    void resettingThePasswordEndsALoginWaitingForACode() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        var secret = enable(actorId);
-        var session = passwordStep(username, PASSWORD);
+    void resettingThePasswordOrSuspendingTheAccountEndsALoginWaitingForACode() throws Exception {
+        List<Consumer<UUID>> endings = List.of(
+                actorId -> accounts.resetPassword(actorId, NEW_PASSWORD),
+                actorId -> jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", actorId).update());
+        for (var ending : endings) {
+            var username = newUsername();
+            var actorId = account(username);
+            var secret = enable(actorId);
+            var session = passwordStep(username, PASSWORD);
 
-        accounts.resetPassword(actorId, NEW_PASSWORD);
+            ending.accept(actorId);
 
-        submitCode(session, currentCode(secret)).andExpect(redirectedUrl("/login?error"));
-        assertLoggedOut(session);
-    }
-
-    @Test
-    void suspendingTheAccountEndsALoginWaitingForACode() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        var secret = enable(actorId);
-        var session = passwordStep(username, PASSWORD);
-
-        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", actorId).update();
-
-        submitCode(session, currentCode(secret)).andExpect(redirectedUrl("/login?error"));
-        assertLoggedOut(session);
+            submitCode(session, currentCode(secret)).andExpect(redirectedUrl("/login?error"));
+            assertLoggedOut(session);
+        }
     }
 
     @Test
@@ -212,9 +197,10 @@ class TwoFactorIntegrationTests {
     }
 
     @Test
-    void settingUpNeedsTheRightPasswordAndCode() throws Exception {
+    void settingUpNeedsTheRightPasswordAndCodeAndEndsOtherSessions() throws Exception {
         var username = newUsername();
         var actorId = account(username);
+        var other = TestOAuth.logIn(mockMvc, username, PASSWORD);
         var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
 
         mockMvc.perform(post("/settings/two-factor/setup").with(csrf()).session(session).param("password", NEW_PASSWORD))
@@ -232,49 +218,21 @@ class TwoFactorIntegrationTests {
                 .andExpect(status().isUnprocessableContent());
         assertThat(twoFactor.isEnabled(actorId)).isFalse();
 
-        var page = mockMvc.perform(post("/settings/two-factor/confirm").with(csrf()).session(session)
-                        .param("code", currentCode(secret)))
+        var code = currentCode(secret);
+        var result = mockMvc.perform(post("/settings/two-factor/confirm").with(csrf()).session(session)
+                        .param("code", code))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
-                .andReturn().getResponse().getContentAsString();
-
-        assertThat(twoFactor.isEnabled(actorId)).isTrue();
-        assertThat(RECOVERY_CODE.matcher(page).results().count()).isEqualTo(TwoFactorAccounts.RECOVERY_CODE_COUNT);
-        assertThat(twoFactor.recoveryCodesLeft(actorId)).isEqualTo(TwoFactorAccounts.RECOVERY_CODE_COUNT);
-    }
-
-    @Test
-    void turningItOnEndsOtherSessionsButKeepsThisOne() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        var other = TestOAuth.logIn(mockMvc, username, PASSWORD);
-        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
-        mockMvc.perform(post("/settings/two-factor/setup").with(csrf()).session(session).param("password", PASSWORD))
-                .andExpect(status().isOk());
-        var secret = twoFactor.pendingSecret(actorId).orElseThrow();
-
-        var result = mockMvc.perform(post("/settings/two-factor/confirm").with(csrf()).session(session)
-                        .param("code", currentCode(secret)))
-                .andExpect(status().isOk())
                 .andReturn();
 
+        assertThat(twoFactor.isEnabled(actorId)).isTrue();
+        var page = result.getResponse().getContentAsString();
+        assertThat(RECOVERY_CODE.matcher(page).results().count()).isEqualTo(TwoFactorAccounts.RECOVERY_CODE_COUNT);
+        assertThat(twoFactor.recoveryCodesLeft(actorId)).isEqualTo(TwoFactorAccounts.RECOVERY_CODE_COUNT);
         assertLoggedOut(other);
         var newSession = (MockHttpSession) result.getRequest().getSession(false);
         assertThat(newSession).isNotNull();
         assertLoggedIn(newSession);
-    }
-
-    @Test
-    void theCodeThatTurnsItOnCannotAlsoLogIn() throws Exception {
-        var username = newUsername();
-        var actorId = account(username);
-        var session = TestOAuth.logIn(mockMvc, username, PASSWORD);
-        mockMvc.perform(post("/settings/two-factor/setup").with(csrf()).session(session).param("password", PASSWORD))
-                .andExpect(status().isOk());
-        var code = currentCode(twoFactor.pendingSecret(actorId).orElseThrow());
-        mockMvc.perform(post("/settings/two-factor/confirm").with(csrf()).session(session).param("code", code))
-                .andExpect(status().isOk());
-
         submitCode(passwordStep(username, PASSWORD), code).andExpect(redirectedUrl("/login/two-factor?error"));
     }
 
