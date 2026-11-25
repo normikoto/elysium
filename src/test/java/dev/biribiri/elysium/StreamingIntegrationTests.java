@@ -143,7 +143,7 @@ class StreamingIntegrationTests {
     }
 
     @Test
-    void filtersHideStatusesFromTheStreamsOfTheirContexts() throws Exception {
+    void filtersHideStatusesFromTheStreamsOfTheirContextsAndAnEditThatTheyHideDeletesOne() throws Exception {
         follows.follow(alice, bob);
         filters.create(alice.id(), new PostFilterChange("Hidden", Set.of(PostFilter.Context.HOME),
                 PostFilter.Action.HIDE, null, List.of(new PostFilterChange.KeywordEdit(null, "secret", null, false))));
@@ -157,16 +157,11 @@ class StreamingIntegrationTests {
         assertThat(JsonPath.<String>read(payload, "$.id")).isEqualTo(hidden.id().toString());
         assertThat(JsonPath.<List<String>>read(payload, "$.filtered[*].keyword_matches[*]")).containsExactly("secret");
         home.expectNothing();
-    }
 
-    @Test
-    void anEditThatAFilterHidesDeletesTheStatusFromTheStream() throws Exception {
-        follows.follow(alice, bob);
-        filters.create(alice.id(), new PostFilterChange("Hidden", Set.of(PostFilter.Context.HOME),
-                PostFilter.Action.HIDE, null, List.of(new PostFilterChange.KeywordEdit(null, "secret", null, false))));
-        var home = webSocket("?stream=user", aliceToken);
         var status = post(bob, "nothing yet", Visibility.PUBLIC);
-        home.next(event("update"));
+        var shown = home.next(event("update"));
+        assertThat(JsonPath.<String>read(JsonPath.<String>read(shown, "$.payload"), "$.id"))
+                .isEqualTo(status.id().toString());
 
         statuses.edit(status.id(), bob.id(), new StatusEdit("now a secret", null, null, null));
         var delete = home.next(event("delete"));

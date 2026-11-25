@@ -143,7 +143,7 @@ class PollsIntegrationTests {
     }
 
     @Test
-    void countsVotes() throws Exception {
+    void countsVotesUntilThePollEndsAndThenTellsItsVoters() throws Exception {
         var id = createPoll(alice(), false, false);
         mockMvc.perform(form(post("/api/v1/polls/" + id + "/votes"), bob()).param("choices[]", "1"))
                 .andExpect(status().isOk())
@@ -162,6 +162,21 @@ class PollsIntegrationTests {
         mockMvc.perform(withToken(get("/api/v1/statuses/" + id), alice()))
                 .andExpect(jsonPath("$.poll.votes_count").value(1))
                 .andExpect(jsonPath("$.poll.voted").value(false));
+
+        expire(id);
+        mockMvc.perform(json(post("/api/v1/polls/" + id + "/votes"), carol(), "{\"choices\": [0]}"))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error").value("Validation failed: The poll has already ended"));
+        assertThat(polls.endDue()).isEqualTo(1);
+        assertThat(polls.endDue()).isZero();
+        await().atMost(WAIT).untilAsserted(() -> assertThat(jdbc.sql("""
+                        SELECT a.username FROM notification n JOIN actor a ON a.id = n.recipient_id
+                        WHERE n.type = 'poll' AND n.status_id = :id ORDER BY a.username
+                        """).param("id", UUID.fromString(id)).query(String.class).list())
+                .containsExactly("poll_alice", "poll_bob"));
+        mockMvc.perform(withToken(get("/api/v1/notifications").param("types[]", "poll"), bob()))
+                .andExpect(jsonPath("$[0].type").value("poll"))
+                .andExpect(jsonPath("$[0].status.poll.expired").value(true));
     }
 
     @Test
@@ -198,28 +213,6 @@ class PollsIntegrationTests {
         mockMvc.perform(get("/api/v1/polls/" + id))
                 .andExpect(jsonPath("$.expired").value(true))
                 .andExpect(jsonPath("$.options[0].votes_count").value(1));
-    }
-
-    @Test
-    void refusesVotesOnceThePollEndsAndTellsItsVoters() throws Exception {
-        var id = createPoll(alice(), false, false);
-        mockMvc.perform(json(post("/api/v1/polls/" + id + "/votes"), bob(), "{\"choices\": [0]}"))
-                .andExpect(status().isOk());
-        expire(id);
-        mockMvc.perform(json(post("/api/v1/polls/" + id + "/votes"), carol(), "{\"choices\": [0]}"))
-                .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.error").value("Validation failed: The poll has already ended"));
-
-        assertThat(polls.endDue()).isEqualTo(1);
-        assertThat(polls.endDue()).isZero();
-        await().atMost(WAIT).untilAsserted(() -> assertThat(jdbc.sql("""
-                        SELECT a.username FROM notification n JOIN actor a ON a.id = n.recipient_id
-                        WHERE n.type = 'poll' AND n.status_id = :id ORDER BY a.username
-                        """).param("id", UUID.fromString(id)).query(String.class).list())
-                .containsExactly("poll_alice", "poll_bob"));
-        mockMvc.perform(withToken(get("/api/v1/notifications").param("types[]", "poll"), bob()))
-                .andExpect(jsonPath("$[0].type").value("poll"))
-                .andExpect(jsonPath("$[0].status.poll.expired").value(true));
     }
 
     @Test

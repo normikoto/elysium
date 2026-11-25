@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -341,16 +342,16 @@ class FiltersIntegrationTests {
     }
 
     @Test
-    void hidingLeavesStatusesOutOfListsInItsContexts() throws Exception {
+    void hidingLeavesStatusesOutOfListsInItsContextsUntilTheFilterExpires() throws Exception {
         var alice = token("filteralice");
         var bob = token("filterbob");
         var bobAccount = account("filterbob");
         follow(alice, bobAccount);
         var hidden = createStatus(bob, "the finale was great");
         var shown = createStatus(bob, "nothing to see");
-        createFilter(alice, """
+        String filterId = JsonPath.read(createFilter(alice, """
                 {"title": "Finale", "context": ["home", "account"], "filter_action": "hide",
-                 "keywords_attributes": [{"keyword": "finale"}]}""");
+                 "keywords_attributes": [{"keyword": "finale"}]}"""), "$.id");
 
         mockMvc.perform(withToken(get("/api/v1/timelines/home"), alice))
                 .andExpect(jsonPath("$[*].id", contains(shown)));
@@ -361,6 +362,16 @@ class FiltersIntegrationTests {
         mockMvc.perform(withToken(get("/api/v1/statuses/" + hidden), alice))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.filtered[0].filter.filter_action").value("hide"));
+
+        jdbc.sql("UPDATE post_filter SET expires_at = now() - interval '1 minute' WHERE id = :id")
+                .param("id", UUID.fromString(filterId)).update();
+        cache.clear();
+        mockMvc.perform(withToken(get("/api/v1/timelines/home"), alice))
+                .andExpect(jsonPath("$[*].id", contains(shown, hidden)))
+                .andExpect(jsonPath("$[*].filtered[*]", hasSize(0)));
+        mockMvc.perform(withToken(get("/api/v1/accounts/" + bobAccount.id() + "/statuses"), alice))
+                .andExpect(jsonPath("$[*].id", contains(shown, hidden)));
+        mockMvc.perform(withToken(get("/api/v2/filters"), alice)).andExpect(jsonPath("$[*].id", contains(filterId)));
     }
 
     @Test
@@ -459,25 +470,6 @@ class FiltersIntegrationTests {
                 .single() == 2);
         mockMvc.perform(withToken(get("/api/v1/notifications"), alice))
                 .andExpect(jsonPath("$[*].status.id", contains(kept)));
-    }
-
-    @Test
-    void expiredFiltersStopApplying() throws Exception {
-        var alice = token("filteralice");
-        var bob = token("filterbob");
-        follow(alice, account("filterbob"));
-        createStatus(bob, "the finale");
-        createFilter(alice, """
-                {"title": "Finale", "context": ["home"], "filter_action": "hide",
-                 "keywords_attributes": [{"keyword": "finale"}]}""");
-        mockMvc.perform(withToken(get("/api/v1/timelines/home"), alice)).andExpect(jsonPath("$", hasSize(0)));
-
-        jdbc.sql("UPDATE post_filter SET expires_at = now() - interval '1 minute'").update();
-        cache.clear();
-        mockMvc.perform(withToken(get("/api/v1/timelines/home"), alice))
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].filtered", hasSize(0)));
-        mockMvc.perform(withToken(get("/api/v2/filters"), alice)).andExpect(jsonPath("$", hasSize(1)));
     }
 
     @Test
