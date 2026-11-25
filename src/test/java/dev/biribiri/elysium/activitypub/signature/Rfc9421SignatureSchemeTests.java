@@ -248,9 +248,15 @@ class Rfc9421SignatureSchemeTests {
                 });
     }
 
-    @Test
-    void requiresTheMethod() {
-        assertRejected(get("/a", "sig1=(\"@target-uri\")" + PARAMS, ANY_SIGNATURE));
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "sig1=(\"@target-uri\")" + PARAMS,
+            "sig1=(\"@method\" \"@target-uri\");keyid=\"" + KEY_ID + "\"",
+            "sig1=(\"@method\" \"@target-uri\");created=1793707200",
+            "sig1=(\"@method\" \"@target-uri\" \"x-missing\")" + PARAMS
+    })
+    void requiresTheMethodACreatedTimeAKeyIdAndEveryCoveredHeader(String input) {
+        assertRejected(get("/a", input, ANY_SIGNATURE));
     }
 
     @ParameterizedTest
@@ -276,16 +282,6 @@ class Rfc9421SignatureSchemeTests {
         headers.set("Signature", ANY_SIGNATURE);
 
         assertRejected(new HttpRequestData("GET", "/a", headers, body()));
-    }
-
-    @Test
-    void requiresACreatedTime() {
-        assertRejected(get("/a", "sig1=(\"@method\" \"@target-uri\");keyid=\"" + KEY_ID + "\"", ANY_SIGNATURE));
-    }
-
-    @Test
-    void requiresAKeyId() {
-        assertRejected(get("/a", "sig1=(\"@method\" \"@target-uri\");created=1793707200", ANY_SIGNATURE));
     }
 
     @Test
@@ -318,11 +314,6 @@ class Rfc9421SignatureSchemeTests {
         assertRejected(new HttpRequestData("GET", "/a?a=b", headers, new byte[0]));
     }
 
-    @Test
-    void rejectsACoveredHeaderThatIsMissing() {
-        assertRejected(get("/a", "sig1=(\"@method\" \"@target-uri\" \"x-missing\")" + PARAMS, ANY_SIGNATURE));
-    }
-
     @ParameterizedTest
     @ValueSource(strings = {
             "sig1=(\"@method\" \"@target-uri\" \"@method\")" + PARAMS,
@@ -342,37 +333,27 @@ class Rfc9421SignatureSchemeTests {
         assertFails(get("/a", "sig1=(\"@method\" \"@target-uri\")" + PARAMS, signature), Failure.MALFORMED);
     }
 
-    @Test
-    void acceptsASha512ContentDigest() {
-        var claim = scheme.parse(postWithDigest("sha-512=:" + SignatureFixtures.BODY_SHA512 + ":"));
-
-        assertThat(claim).isNotNull();
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "sha-512=:" + SignatureFixtures.BODY_SHA512 + ":",
+            "md5=:YWJj:, sha-256=:" + SignatureFixtures.BODY_DIGEST + ":"
+    })
+    void acceptsASha256OrSha512ContentDigestAndIgnoresOtherAlgorithms(String digest) {
+        assertThat(scheme.parse(postWithDigest(digest))).isNotNull();
     }
 
-    @Test
-    void ignoresDigestAlgorithmsItDoesNotKnow() {
-        var claim = scheme.parse(postWithDigest("md5=:YWJj:, sha-256=:" + SignatureFixtures.BODY_DIGEST + ":"));
-
-        assertThat(claim).isNotNull();
-    }
-
-    @Test
-    void rejectsAContentDigestThatDoesNotMatchTheBody() {
-        var other = Base64.getEncoder().encodeToString(new byte[32]);
-
-        assertRejected(postWithDigest("sha-256=:" + other + ":"));
-    }
-
-    @Test
-    void rejectsAnyKnownDigestThatDoesNotMatch() {
-        var other = Base64.getEncoder().encodeToString(new byte[64]);
-
-        assertRejected(postWithDigest("sha-256=:" + SignatureFixtures.BODY_DIGEST + ":, sha-512=:" + other + ":"));
-    }
-
-    @Test
-    void rejectsAContentDigestWithoutAKnownAlgorithm() {
-        assertRejected(postWithDigest("md5=:YWJj:"));
+    /**
+     * The zeros are the right length for their algorithm, but aren't the body's digest.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "sha-256=:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=:",
+            "sha-256=:" + SignatureFixtures.BODY_DIGEST + ":, sha-512=:"
+                    + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==:",
+            "md5=:YWJj:"
+    })
+    void rejectsAContentDigestUnlessItHasAKnownAlgorithmAndEveryKnownOneMatches(String digest) {
+        assertRejected(postWithDigest(digest));
     }
 
     @Test

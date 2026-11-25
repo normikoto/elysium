@@ -6,6 +6,8 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -51,29 +53,20 @@ class HttpSignatureIntegrationTests {
     @Autowired
     private SignatureVerifier verifier;
 
-    @Test
-    void verifiesARequestSignedWithALocalActorsKey() {
-        var alice = actors.createLocalIfAbsent("alice", actor -> {
+    @ParameterizedTest
+    @CsvSource({"alice, false", "grace, true"})
+    void verifiesARequestSignedWithALocalActorsKeyInEitherFormat(String username, boolean rfc9421) {
+        var actor = actors.createLocalIfAbsent(username, created -> {
         }).orElseThrow();
-        var key = signingKeys.forActor(alice).orElseThrow();
-
-        var verified = verifier.verify(signed("/users/bob/inbox", BODY, key), SignatureFixtures.UNLIMITED);
-
-        assertThat(verified).isEqualTo(new VerifiedSignature(alice.publicKeyId(), alice.uri()));
-    }
-
-    @Test
-    void verifiesAnRfc9421RequestSignedWithALocalActorsKey() {
-        var grace = actors.createLocalIfAbsent("grace", actor -> {
-        }).orElseThrow();
-        var key = signingKeys.forActor(grace).orElseThrow();
+        var key = signingKeys.forActor(actor).orElseThrow();
+        RequestSigner format = rfc9421 ? rfc9421Signer : signer;
         var headers = new HttpHeaders();
-        headers.addAll(rfc9421Signer.sign("POST", URI.create("https://signatures.example/users/bob/inbox"), BODY, key));
+        headers.addAll(format.sign("POST", URI.create("https://signatures.example/users/bob/inbox"), BODY, key));
 
         var verified = verifier.verify(
                 new HttpRequestData("POST", "/users/bob/inbox", headers, BODY), SignatureFixtures.UNLIMITED);
 
-        assertThat(verified).isEqualTo(new VerifiedSignature(grace.publicKeyId(), grace.uri()));
+        assertThat(verified).isEqualTo(new VerifiedSignature(actor.publicKeyId(), actor.uri()));
     }
 
     @Test

@@ -4,13 +4,13 @@ import dev.biribiri.elysium.activitypub.signature.SignatureVerificationException
 import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -24,8 +24,14 @@ class CavageSignatureSchemeTests {
     private final CavageSignatureScheme scheme =
             new CavageSignatureScheme(new InstanceProperties(URI.create("https://example.test")));
 
+    /**
+     * This body's digest ends in {@code =}, which also separates a digest's name from its value, so this also shows
+     * that padding survives.
+     */
     @Test
     void readsARequestSignedByOpenSsl() {
+        assertThat(SignatureFixtures.BODY_DIGEST).endsWith("=");
+
         var claim = scheme.parse(post(signature("rsa-sha256", POST_HEADERS, SignatureFixtures.POST_SIGNATURE)));
 
         assertThat(claim.keyId()).isEqualTo(KEY_ID);
@@ -46,26 +52,18 @@ class CavageSignatureSchemeTests {
                 .isTrue();
     }
 
-    @Test
-    void readsAndSignsCreatedUnderHs2019() {
-        var header = ("keyId=\"%s\",algorithm=\"hs2019\",created=%d,"
+    @ParameterizedTest
+    @ValueSource(strings = {"algorithm=\"hs2019\",", ""})
+    void readsCreatedUnderHs2019WhetherOrNotTheAlgorithmIsNamed(String algorithm) {
+        var header = ("keyId=\"%s\",%screated=%d,"
                 + "headers=\"(request-target) host (created)\",signature=\"%s\"")
-                .formatted(KEY_ID, SignatureFixtures.CREATED, SignatureFixtures.CREATED_SIGNATURE);
+                .formatted(KEY_ID, algorithm, SignatureFixtures.CREATED, SignatureFixtures.CREATED_SIGNATURE);
 
         var claim = scheme.parse(new HttpRequestData("GET", "/users/alice", headers(header), new byte[0]));
 
         assertThat(claim.created()).isEqualTo(Instant.ofEpochSecond(SignatureFixtures.CREATED));
         assertThat(claim.algorithm().verify(SignatureFixtures.publicKey(), claim.signatureBase(), claim.signature()))
                 .isTrue();
-    }
-
-    @Test
-    void treatsAMissingAlgorithmAsHs2019() {
-        var header = "keyId=\"%s\",created=%d,headers=\"(request-target) host (created)\",signature=\"%s\""
-                .formatted(KEY_ID, SignatureFixtures.CREATED, SignatureFixtures.CREATED_SIGNATURE);
-
-        assertThat(scheme.parse(new HttpRequestData("GET", "/users/alice", headers(header), new byte[0])).created())
-                .isEqualTo(Instant.ofEpochSecond(SignatureFixtures.CREATED));
     }
 
     @Test
@@ -132,43 +130,21 @@ class CavageSignatureSchemeTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"host date digest", "(request-target) date digest"})
-    void requiresTheRequestTargetAndHostEvenOnPost(String covered) {
+    @ValueSource(strings = {
+            "host date digest", "(request-target) date digest",
+            "(request-target) host digest", "(request-target) host date"
+    })
+    void requiresTheRequestTargetHostATimeAndADigestOnPost(String covered) {
         assertRejected(post(signature("rsa-sha256", covered, ANY_SIGNATURE)));
     }
 
-    @Test
-    void requiresAHostOnGet() {
-        var headers = headers(signature("rsa-sha256", "(request-target) date", ANY_SIGNATURE));
-        headers.set(HttpHeaders.DATE, SignatureFixtures.DATE);
-
-        assertRejected(new HttpRequestData("GET", "/users/alice", headers, new byte[0]));
-    }
-
-    @Test
-    void requiresATime() {
-        assertRejected(post(signature("rsa-sha256", "(request-target) host digest", ANY_SIGNATURE)));
-    }
-
-    @Test
-    void requiresADigestOnPost() {
-        assertRejected(post(signature("rsa-sha256", "(request-target) host date", ANY_SIGNATURE)));
-    }
-
-    @Test
-    void requiresADigestOnOtherMethodsThatMayHaveBodies() {
+    @ParameterizedTest
+    @CsvSource({"PUT, false", "GET, true"})
+    void requiresADigestOnOtherMethodsThatMayHaveBodies(String method, boolean hasBody) {
         var headers = headers(signature("rsa-sha256", "(request-target) host date", ANY_SIGNATURE));
         headers.set(HttpHeaders.DATE, SignatureFixtures.DATE);
 
-        assertRejected(new HttpRequestData("PUT", "/users/alice", headers, new byte[0]));
-    }
-
-    @Test
-    void requiresADigestOnAGetWithABody() {
-        var headers = headers(signature("rsa-sha256", "(request-target) host date", ANY_SIGNATURE));
-        headers.set(HttpHeaders.DATE, SignatureFixtures.DATE);
-
-        assertRejected(new HttpRequestData("GET", "/users/alice", headers, body()));
+        assertRejected(new HttpRequestData(method, "/users/alice", headers, hasBody ? body() : new byte[0]));
     }
 
     @Test
@@ -196,9 +172,13 @@ class CavageSignatureSchemeTests {
         assertRejected(post(header));
     }
 
-    @Test
-    void rejectsUnknownPseudoHeaders() {
-        assertRejected(post(signature("rsa-sha256", POST_HEADERS + " (other)", ANY_SIGNATURE)));
+    /**
+     * A Digest that's covered but missing fails here too, before its value is ever checked.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {POST_HEADERS + " (other)", POST_HEADERS + " content-type"})
+    void rejectsCoveredItemsItCannotRebuild(String covered) {
+        assertRejected(post(signature("rsa-sha256", covered, ANY_SIGNATURE)));
     }
 
     @ParameterizedTest
@@ -211,19 +191,15 @@ class CavageSignatureSchemeTests {
      * Mastodon reads these unsigned parameters, which would let anyone send an old request again with a new time.
      */
     @Test
-    void ignoresACreatedParameterTheSignatureDoesNotCover() {
-        var header = "keyId=\"%s\",algorithm=\"hs2019\",created=%d,headers=\"%s\",signature=\"%s\""
-                .formatted(KEY_ID, SignatureFixtures.CREATED + 86400, POST_HEADERS, ANY_SIGNATURE);
+    void ignoresCreatedAndExpiresParametersTheSignatureDoesNotCover() {
+        var header = "keyId=\"%s\",algorithm=\"hs2019\",created=%d,expires=%d,headers=\"%s\",signature=\"%s\""
+                .formatted(KEY_ID, SignatureFixtures.CREATED + 86400, SignatureFixtures.CREATED + 86400, POST_HEADERS,
+                        ANY_SIGNATURE);
 
-        assertThat(scheme.parse(post(header)).created()).isEqualTo(Instant.ofEpochSecond(SignatureFixtures.CREATED));
-    }
+        var claim = scheme.parse(post(header));
 
-    @Test
-    void ignoresAnExpiresParameterTheSignatureDoesNotCover() {
-        var header = "keyId=\"%s\",algorithm=\"hs2019\",expires=%d,headers=\"%s\",signature=\"%s\""
-                .formatted(KEY_ID, SignatureFixtures.CREATED + 86400, POST_HEADERS, ANY_SIGNATURE);
-
-        assertThat(scheme.parse(post(header)).expires()).isNull();
+        assertThat(claim.created()).isEqualTo(Instant.ofEpochSecond(SignatureFixtures.CREATED));
+        assertThat(claim.expires()).isNull();
     }
 
     @Test
@@ -274,11 +250,6 @@ class CavageSignatureSchemeTests {
     }
 
     @Test
-    void rejectsACoveredHeaderThatIsMissing() {
-        assertRejected(post(signature("rsa-sha256", POST_HEADERS + " content-type", ANY_SIGNATURE)));
-    }
-
-    @Test
     void rejectsACoveredDateThatIsMissing() {
         var headers = headers(signature("rsa-sha256", POST_HEADERS, ANY_SIGNATURE));
         headers.set("Digest", "SHA-256=" + SignatureFixtures.BODY_DIGEST);
@@ -295,14 +266,13 @@ class CavageSignatureSchemeTests {
         assertFails(request("POST", headers), Failure.MALFORMED);
     }
 
-    @Test
-    void requiresAKeyId() {
-        assertRejected(post("signature=\"%s\",headers=\"%s\"".formatted(ANY_SIGNATURE, POST_HEADERS)));
-    }
-
-    @Test
-    void requiresASignature() {
-        assertRejected(post("keyId=\"%s\",headers=\"%s\"".formatted(KEY_ID, POST_HEADERS)));
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "signature=\"" + ANY_SIGNATURE + "\",headers=\"" + POST_HEADERS + "\"",
+            "keyId=\"" + KEY_ID + "\",headers=\"" + POST_HEADERS + "\""
+    })
+    void requiresAKeyIdAndASignature(String header) {
+        assertRejected(post(header));
     }
 
     @Test
@@ -315,48 +285,28 @@ class CavageSignatureSchemeTests {
         assertFails(post(signature("rsa-sha256", " ", ANY_SIGNATURE)), Failure.MALFORMED);
     }
 
-    @Test
-    void acceptsDigestNamesInAnyCase() {
-        assertThat(scheme.parse(postWithDigest("sha-256=" + SignatureFixtures.BODY_DIGEST))).isNotNull();
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "sha-256=" + SignatureFixtures.BODY_DIGEST, "MD5=abc=, SHA-256=" + SignatureFixtures.BODY_DIGEST
+    })
+    void findsTheSha256DigestWhateverItsCaseAndWhateverElseIsThere(String digest) {
+        assertThat(scheme.parse(postWithDigest(digest))).isNotNull();
     }
 
     /**
-     * This body's digest ends in {@code =}, which also separates a digest's name from its value.
+     * The first is the right length for a SHA-256 digest, but isn't the body's.
      */
-    @Test
-    void keepsPaddingInDigests() {
-        assertThat(SignatureFixtures.BODY_DIGEST).endsWith("=");
-        assertThat(scheme.parse(postWithDigest("SHA-256=" + SignatureFixtures.BODY_DIGEST))).isNotNull();
-    }
-
-    @Test
-    void findsSha256AmongSeveralDigests() {
-        assertThat(scheme.parse(postWithDigest("MD5=abc=, SHA-256=" + SignatureFixtures.BODY_DIGEST))).isNotNull();
-    }
-
-    @Test
-    void rejectsADigestThatDoesNotMatchTheBody() {
-        var other = Base64.getEncoder().encodeToString(new byte[32]);
-
-        assertRejected(postWithDigest("SHA-256=" + other));
-    }
-
-    @Test
-    void rejectsADigestWithoutSha256() {
-        assertRejected(postWithDigest("SHA-512=" + SignatureFixtures.BODY_DIGEST));
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SHA-256=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "SHA-512=" + SignatureFixtures.BODY_DIGEST
+    })
+    void rejectsADigestThatIsNotTheBodysSha256(String digest) {
+        assertRejected(postWithDigest(digest));
     }
 
     @Test
     void rejectsADigestThatIsNotBase64() {
         assertFails(postWithDigest("SHA-256=not base64!"), Failure.MALFORMED);
-    }
-
-    @Test
-    void rejectsADigestThatIsMissing() {
-        var headers = headers(signature("rsa-sha256", POST_HEADERS, ANY_SIGNATURE));
-        headers.set(HttpHeaders.DATE, SignatureFixtures.DATE);
-
-        assertRejected(request("POST", headers));
     }
 
     private HttpRequestData postWithDigest(String digest) {

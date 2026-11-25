@@ -6,13 +6,14 @@ import dev.biribiri.elysium.actor.InstanceProperties;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpHeaders;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -51,8 +52,9 @@ class SignatureVerifierTests {
     }
 
     @Test
-    void acceptsAValidSignature() {
+    void acceptsAValidSignatureWithoutRefreshingTheKey() {
         assertThat(verifier(scheme(claim(NOW, null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isEqualTo(new VerifiedSignature(KEY_ID, OWNER));
+        verify(keys, never()).refresh(any(), any(), any());
     }
 
     @Test
@@ -107,58 +109,32 @@ class SignatureVerifierTests {
         verify(keys, never()).resolve(any(), any());
     }
 
-    @Test
-    void acceptsAsFarAheadAsTheClockSkewAllows() {
-        assertThat(verifier(scheme(claim(NOW.plus(Duration.ofHours(1)), null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
-    }
+    /**
+     * Seconds from now. The clock skew allowed is an hour, the default lifetime five minutes, and the longest a
+     * signature can claim twelve hours.
+     */
+    @ParameterizedTest
+    @CsvSource(textBlock = """
+            # created, expires, accepted
+            3600,     ,         true
+            3601,     ,         false
+            -3900,    ,         true
+            -3901,    ,         false
+            -7200,    -3600,    true
+            -7200,    -3601,    false
+            -46800,   31536000, true
+            -46801,   31536000, false
+            """)
+    void acceptsOnlyWithinTheLifetimeAndClockSkew(long created, Long expires, boolean accepted) {
+        var expiry = expires == null ? null : NOW.plusSeconds(expires);
+        var verifier = verifier(scheme(claim(NOW.plusSeconds(created), expiry)));
 
-    @Test
-    void rejectsFurtherAheadThanTheClockSkewAllows() {
-        var claim = claim(NOW.plus(Duration.ofHours(1)).plusSeconds(1), null);
-
-        assertFails(verifier(scheme(claim)), Failure.REJECTED);
-        verify(keys, never()).resolve(any(), any());
-    }
-
-    @Test
-    void acceptsUntilTheDefaultLifetimeAndClockSkewEnd() {
-        var created = NOW.minus(Duration.ofMinutes(5)).minus(Duration.ofHours(1));
-
-        assertThat(verifier(scheme(claim(created, null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
-    }
-
-    @Test
-    void rejectsAfterTheDefaultLifetimeAndClockSkewEnd() {
-        var created = NOW.minus(Duration.ofMinutes(5)).minus(Duration.ofHours(1)).minusSeconds(1);
-
-        assertFails(verifier(scheme(claim(created, null))), Failure.REJECTED);
-        verify(keys, never()).resolve(any(), any());
-    }
-
-    @Test
-    void acceptsUntilACoveredExpiryAndClockSkewEnd() {
-        var created = NOW.minus(Duration.ofHours(2));
-        var expires = NOW.minus(Duration.ofHours(1));
-
-        assertThat(verifier(scheme(claim(created, expires))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
-    }
-
-    @Test
-    void rejectsAfterACoveredExpiryAndClockSkewEnd() {
-        var created = NOW.minus(Duration.ofHours(2));
-        var expires = NOW.minus(Duration.ofHours(1)).minusSeconds(1);
-
-        assertFails(verifier(scheme(claim(created, expires))), Failure.REJECTED);
-    }
-
-    @Test
-    void capsTheLifetimeASignatureCanClaim() {
-        var expires = NOW.plus(Duration.ofDays(365));
-        var justInside = NOW.minus(Duration.ofHours(13));
-        var justOutside = justInside.minusSeconds(1);
-
-        assertThat(verifier(scheme(claim(justInside, expires))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
-        assertFails(verifier(scheme(claim(justOutside, expires))), Failure.REJECTED);
+        if (accepted) {
+            assertThat(verifier.verify(REQUEST, SignatureFixtures.UNLIMITED)).isNotNull();
+        } else {
+            assertFails(verifier, Failure.REJECTED);
+            verify(keys, never()).resolve(any(), any());
+        }
     }
 
     @Test
@@ -185,13 +161,6 @@ class SignatureVerifierTests {
 
         assertThat(verifier(scheme(claim(NOW, null))).verify(REQUEST, SignatureFixtures.UNLIMITED)).isEqualTo(new VerifiedSignature(KEY_ID, OWNER));
         verify(keys).refresh(any(), eq(staleKey), any());
-    }
-
-    @Test
-    void doesNotRefreshWhenTheSignatureMatches() {
-        verifier(scheme(claim(NOW, null))).verify(REQUEST, SignatureFixtures.UNLIMITED);
-
-        verify(keys, never()).refresh(any(), any(), any());
     }
 
     @Test

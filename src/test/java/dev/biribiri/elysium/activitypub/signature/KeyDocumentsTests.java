@@ -8,6 +8,8 @@ import dev.biribiri.elysium.activitypub.vocab.Multikey;
 import dev.biribiri.elysium.actor.InstanceProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -92,14 +94,6 @@ class KeyDocumentsTests {
     }
 
     @Test
-    void rejectsAKeyInAnActorWhoseOwnerIsAnObjectForAnotherActor() throws Exception {
-        serve(ACTOR, actorWith("{\"id\":\"%s\",\"owner\":{\"id\":\"%s\"},\"publicKeyPem\":\"%s\"}"
-                .formatted(KEY_ID, "https://remote.example/users/mallory", PEM)));
-
-        assertPermanent(KEY_ID);
-    }
-
-    @Test
     void acceptsAnActorIdAsAKeyIdIfItHasOneKey() throws Exception {
         serve(ACTOR, actorWith(keyObject(KEY_ID, ACTOR)));
 
@@ -123,9 +117,12 @@ class KeyDocumentsTests {
         assertPermanent(ACTOR + "#other");
     }
 
-    @Test
-    void rejectsAKeyInAnActorThatNamesAnotherOwner() throws Exception {
-        serve(ACTOR, actorWith(keyObject(KEY_ID, "https://remote.example/users/mallory")));
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "\"https://remote.example/users/mallory\"", "{\"id\":\"https://remote.example/users/mallory\"}"
+    })
+    void rejectsAKeyInAnActorThatNamesAnotherOwner(String owner) throws Exception {
+        serve(ACTOR, actorWith("{\"id\":\"%s\",\"owner\":%s,\"publicKeyPem\":\"%s\"}".formatted(KEY_ID, owner, PEM)));
 
         assertPermanent(KEY_ID);
     }
@@ -353,6 +350,7 @@ class KeyDocumentsTests {
     }
 
     @ParameterizedTest
+    @NullSource
     @ValueSource(strings = {
             "application/json",
             "text/html",
@@ -363,13 +361,6 @@ class KeyDocumentsTests {
     })
     void rejectsOtherContentTypes(String contentType) throws Exception {
         serve(ACTOR, contentType, actorWith(keyObject(KEY_ID, ACTOR)));
-
-        assertPermanent(KEY_ID);
-    }
-
-    @Test
-    void rejectsAMissingContentType() throws Exception {
-        serve(ACTOR, null, actorWith(keyObject(KEY_ID, ACTOR)));
 
         assertPermanent(KEY_ID);
     }
@@ -396,28 +387,21 @@ class KeyDocumentsTests {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {301, 302, 400, 401, 403})
-    void treatsOtherAnswersAsPermanent(int status) throws Exception {
-        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0], null));
-
-        assertPermanent(KEY_ID);
-    }
-
-    @ParameterizedTest
-    @ValueSource(ints = {404, 410})
-    void treatsMissingDocumentsAsGone(int status) throws Exception {
+    @CsvSource({
+            "301, false, false", "302, false, false", "400, false, false", "401, false, false", "403, false, false",
+            "404, true, false", "410, true, false",
+            "408, false, true", "429, false, true", "500, false, true", "502, false, true", "503, false, true",
+            "504, false, true"
+    })
+    void treatsMissingDocumentsAsGoneOverloadedServersAsTemporaryAndOtherAnswersAsPermanent(
+            int status, boolean gone, boolean temporary) throws Exception {
         when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0], null));
 
         assertThatThrownBy(() -> documents.fetch(keyId(KEY_ID)))
-                .isInstanceOfSatisfying(DocumentFetchException.class, e -> assertThat(e.isGone()).isTrue());
-    }
-
-    @ParameterizedTest
-    @ValueSource(ints = {408, 429, 500, 502, 503, 504})
-    void treatsOverloadedServersAsTemporary(int status) throws Exception {
-        when(http.get(eq(URI.create(ACTOR)), any())).thenReturn(new Response(status, ACTIVITY_JSON, null, new byte[0], null));
-
-        assertTemporary(KEY_ID);
+                .isInstanceOfSatisfying(DocumentFetchException.class, e -> {
+                    assertThat(e.isGone()).isEqualTo(gone);
+                    assertThat(e.isTemporary()).isEqualTo(temporary);
+                });
     }
 
     @Test

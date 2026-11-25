@@ -326,23 +326,20 @@ class FederationHttpClientTests {
     }
 
     @Test
-    void refusesALargeBodyThatDeclaresItsLength() {
-        server.createContext("/big", exchange -> respond(exchange, 200, "a".repeat(ONE_MEBIBYTE + 1)));
-
-        assertThatThrownBy(() -> allowingLoopback().get(url("/big"), "*/*", NO_HEADERS))
-                .isInstanceOf(ResponseTooLargeException.class);
-    }
-
-    @Test
-    void refusesALargeBodyThatDoesNotDeclareItsLength() {
-        server.createContext("/big", exchange -> {
+    void refusesALargeBodyWithOrWithoutALength() {
+        server.createContext("/sized", exchange -> respond(exchange, 200, "a".repeat(ONE_MEBIBYTE + 1)));
+        server.createContext("/chunked", exchange -> {
             exchange.sendResponseHeaders(200, 0);
             try (var body = exchange.getResponseBody()) {
                 body.write(new byte[ONE_MEBIBYTE + 1]);
+            } catch (IOException ignored) {
+                // The client stops reading.
             }
         });
 
-        assertThatThrownBy(() -> allowingLoopback().get(url("/big"), "*/*", NO_HEADERS))
+        assertThatThrownBy(() -> allowingLoopback().get(url("/sized"), "*/*", NO_HEADERS))
+                .isInstanceOf(ResponseTooLargeException.class);
+        assertThatThrownBy(() -> allowingLoopback().get(url("/chunked"), "*/*", NO_HEADERS))
                 .isInstanceOf(ResponseTooLargeException.class);
     }
 

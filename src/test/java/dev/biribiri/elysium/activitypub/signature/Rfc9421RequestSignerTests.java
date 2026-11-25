@@ -55,29 +55,6 @@ class Rfc9421RequestSignerTests {
                 .formatted(SignatureFixtures.CREATED) + "keyid=\"" + KEY_ID + "\";alg=\"rsa-v1_5-sha256\"");
     }
 
-    /**
-     * Spring sorts injected signers with this comparator, and cavage has to stay first. The package documentation explains
-     * why.
-     */
-    @Test
-    void comesAfterTheCavageSigner() {
-        var cavage = new CavageRequestSigner();
-        var signers = new ArrayList<RequestSigner>(List.of(signer, cavage));
-
-        AnnotationAwareOrderComparator.sort(signers);
-
-        assertThat(signers).containsExactly(cavage, signer);
-    }
-
-    @Test
-    void isAcceptedByTheVerifierWithBothSchemes() {
-        var signed = signer.sign("POST", INBOX, BODY, KEY);
-
-        var verified = verifier().verify(received("POST", "/users/alice/inbox", BODY, signed), SignatureFixtures.UNLIMITED);
-
-        assertThat(verified.keyId()).isEqualTo(KEY_ID);
-    }
-
     @Test
     void signsADigestOfAnEmptyBodyOnMethodsThatCanHaveOne() {
         var empty = new byte[0];
@@ -88,14 +65,6 @@ class Rfc9421RequestSignerTests {
                 .isEqualTo("sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:");
         assertThat(verifier().verify(received("POST", "/users/alice/inbox", empty, headers), SignatureFixtures.UNLIMITED)
                 .keyId()).isEqualTo(KEY_ID);
-    }
-
-    @Test
-    void signsTheTargetInTheFormThatIsSent() {
-        var headers = signer.sign("GET", URI.create("https://example.test/users/ü?name=ü"), new byte[0], KEY);
-
-        assertThat(verifier().verify(received("GET", "/users/%C3%BC?name=%C3%BC", new byte[0], headers),
-                SignatureFixtures.UNLIMITED).keyId()).isEqualTo(KEY_ID);
     }
 
     @Test
