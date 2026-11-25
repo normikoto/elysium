@@ -159,19 +159,29 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
-    void deletingAnAccountRemovesItsPostingDefaults() {
+    void deletingAnAccountRemovesItsPostingDefaultsUseDaysBookmarksAndThreadMutes() {
+        var status = statuses.create(newLocal().id(), draft());
         jdbc.sql("INSERT INTO posting_default (actor_id, quote_policy) VALUES (:id, 'nobody')")
                 .param("id", local.id()).update();
-        actors.markDeleted(local.id());
-        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM posting_default WHERE actor_id = :id", local.id()) == 0);
-    }
-
-    @Test
-    void deletingAnAccountRemovesTheDaysItWasUsed() {
         jdbc.sql("INSERT INTO account_use_day (actor_id, day) VALUES (:id, current_date), (:id, current_date - 1)")
                 .param("id", local.id()).update();
+        bookmarks.bookmark(status.id(), local.id());
+        threadMutes.mute(status.id(), local.id());
+        assertThat(count("SELECT count(*) FROM status_bookmark WHERE actor_id = :id", local.id())).isOne();
+        assertThat(count("SELECT count(*) FROM status_thread_mute WHERE actor_id = :id", local.id())).isOne();
+
         actors.markDeleted(local.id());
-        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM account_use_day WHERE actor_id = :id", local.id()) == 0);
+
+        await().atMost(WAIT).untilAsserted(() -> {
+            assertThat(count("SELECT count(*) FROM posting_default WHERE actor_id = :id", local.id()))
+                    .as("posting defaults").isZero();
+            assertThat(count("SELECT count(*) FROM account_use_day WHERE actor_id = :id", local.id()))
+                    .as("days used").isZero();
+            assertThat(count("SELECT count(*) FROM status_bookmark WHERE actor_id = :id", local.id()))
+                    .as("bookmarks").isZero();
+            assertThat(count("SELECT count(*) FROM status_thread_mute WHERE actor_id = :id", local.id()))
+                    .as("thread mutes").isZero();
+        });
     }
 
     @Test
@@ -184,26 +194,6 @@ class AccountCleanupIntegrationTests {
         await().atMost(WAIT).until(() -> count("SELECT count(*) FROM status_like WHERE actor_id = :id", local.id()) == 0);
         assertThat(likes.count(status.id())).isZero();
         assertThat(count("SELECT count(*) FROM notification WHERE sender_id = :id AND type = 'favourite'", local.id())).isZero();
-    }
-
-    @Test
-    void deletingAnAccountRemovesItsBookmarks() {
-        var author = newLocal();
-        var status = statuses.create(author.id(), draft());
-        bookmarks.bookmark(status.id(), local.id());
-        assertThat(count("SELECT count(*) FROM status_bookmark WHERE actor_id = :id", local.id())).isOne();
-        actors.markDeleted(local.id());
-        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM status_bookmark WHERE actor_id = :id", local.id()) == 0);
-    }
-
-    @Test
-    void deletingAnAccountRemovesItsThreadMutes() {
-        var author = newLocal();
-        var status = statuses.create(author.id(), draft());
-        threadMutes.mute(status.id(), local.id());
-        assertThat(count("SELECT count(*) FROM status_thread_mute WHERE actor_id = :id", local.id())).isOne();
-        actors.markDeleted(local.id());
-        await().atMost(WAIT).until(() -> count("SELECT count(*) FROM status_thread_mute WHERE actor_id = :id", local.id()) == 0);
     }
 
     @Test
@@ -276,20 +266,6 @@ class AccountCleanupIntegrationTests {
         assertThat(lists.find(other.id(), theirs.id())).isPresent();
     }
 
-    @Test
-    void suspendingARemoteActorKeepsItsBlocks() {
-        var suspended = remote();
-        insert("account_block", suspended, local);
-        insert("account_block", local, suspended);
-        follow(suspended, newLocal());
-
-        actors.suspend(suspended.id());
-
-        await().atMost(WAIT).until(() -> follows(suspended) == 0);
-        assertThat(count("SELECT count(*) FROM account_block WHERE account_id = :id OR target_id = :id", suspended.id()))
-                .isEqualTo(2);
-    }
-
     private void insertMemo(Actor account, Actor target) {
         jdbc.sql("INSERT INTO account_memo (account_id, target_id, memo) VALUES (:account, :target, 'a note')")
                 .param("account", account.id())
@@ -335,16 +311,20 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
-    void suspendingARemoteActorRemovesItsFollowsAndKeepsItsRow() {
+    void suspendingARemoteActorRemovesItsFollowsAndKeepsItsRowAndBlocks() {
         var suspended = remote();
         follow(suspended, local);
         follow(local, suspended);
+        insert("account_block", suspended, local);
+        insert("account_block", local, suspended);
 
         actors.suspend(suspended.id());
 
         await().atMost(WAIT).until(() -> follows(suspended) == 0);
         assertThat(actors.findByUri(suspended.uri()).orElseThrow().isSuspended()).isTrue();
         assertThat(activities(suspended, "%")).isEmpty();
+        assertThat(count("SELECT count(*) FROM account_block WHERE account_id = :id OR target_id = :id", suspended.id()))
+                .isEqualTo(2);
     }
 
     @Test
@@ -385,9 +365,11 @@ class AccountCleanupIntegrationTests {
     }
 
     @Test
-    void deletingAnAccountTellsFollowersAndThenRemovesItsDataAndKeepsItsRow() {
+    void deletingAnAccountTellsFollowersWithdrawsItsFollowsAndThenRemovesItsDataAndKeepsItsRow() {
         var follower = remote();
         follow(follower, local);
+        var accepted = sentFollow(remote(), "accepted");
+        var pending = sentFollow(remote(), "pending");
         var status = statuses.create(local.id(), draft());
         statuses.delete(statuses.create(local.id(), draft()).id(), local.id());
         // A Create still being sent.
@@ -408,6 +390,13 @@ class AccountCleanupIntegrationTests {
         assertThat(delete.get("type").asString()).isEqualTo("Delete");
         assertThat(delete.get("object").asString()).isEqualTo(local.uri().toString());
         assertThat(activities(local, queued)).isEmpty();
+        await().atMost(WAIT).until(() -> activities(local, "%/undo").size() == 2);
+        for (var follow : List.of(accepted, pending)) {
+            var undo = json.readTree(activities(local, follow + "/undo").getFirst());
+            assertThat(undo.get("type").asString()).isEqualTo("Undo");
+            assertThat(undo.get("actor").asString()).isEqualTo(local.uri().toString());
+            assertThat(undo.get("object").get("id").asString()).isEqualTo(follow);
+        }
     }
 
     @Test
@@ -479,26 +468,6 @@ class AccountCleanupIntegrationTests {
         assertThat(activities(local, "%")).isEmpty();
         assertThat(actors.markRemoteDeleted(deleted.id())).isFalse();
         assertThat(actors.markRemoteDeleted(local.id())).isFalse();
-    }
-
-    @Test
-    void deletingAnAccountWithdrawsItsFollowsOfOtherServers() {
-        var followed = remote();
-        var requested = remote();
-        var follower = remote();
-        var accepted = sentFollow(followed, "accepted");
-        var pending = sentFollow(requested, "pending");
-        follow(follower, local);
-
-        actors.markDeleted(local.id());
-
-        await().atMost(WAIT).until(() -> activities(local, "%/undo").size() == 2);
-        for (var follow : List.of(accepted, pending)) {
-            var undo = json.readTree(activities(local, follow + "/undo").getFirst());
-            assertThat(undo.get("type").asString()).isEqualTo("Undo");
-            assertThat(undo.get("actor").asString()).isEqualTo(local.uri().toString());
-            assertThat(undo.get("object").get("id").asString()).isEqualTo(follow);
-        }
     }
 
     @Test

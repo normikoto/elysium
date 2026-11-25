@@ -11,13 +11,16 @@ import dev.biribiri.elysium.moderation.DomainBlocks;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.io.IOException;
 import java.net.URI;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -47,52 +50,30 @@ class DeliveryTaskMetricsTests {
         when(keys.forActor(actor)).thenReturn(Optional.of(mock(SigningKey.class)));
     }
 
-    @Test
-    void countsADelivery() throws Exception {
-        answers(202);
-        assertThat(outcomeAfterSending()).isEqualTo("delivered");
+    static Stream<Arguments> endings() {
+        return Stream.of(
+                Arguments.of(202, "delivered"),
+                Arguments.of(404, "refused"),
+                Arguments.of(503, "retryable"),
+                Arguments.of(new IOException("Connection refused"), "unreachable"),
+                Arguments.of(new ConnectionRequestTimeoutException(), "no_connection"),
+                Arguments.of(mock(BlockedTargetException.class), "not_allowed"),
+                Arguments.of(new IllegalArgumentException(), "invalid_inbox"),
+                Arguments.of(new IllegalStateException(), "error"));
     }
 
-    @Test
-    void countsARefusal() throws Exception {
-        answers(404);
-        assertThat(outcomeAfterSending()).isEqualTo("refused");
-    }
-
-    @Test
-    void countsAnAnswerToRetry() throws Exception {
-        answers(503);
-        assertThat(outcomeAfterSending()).isEqualTo("retryable");
-    }
-
-    @Test
-    void countsAnUnreachableServer() throws Exception {
-        when(sender.post(any(), any(), any())).thenThrow(new IOException("Connection refused"));
-        assertThat(outcomeAfterSending()).isEqualTo("unreachable");
-    }
-
-    @Test
-    void countsRunningOutOfConnections() throws Exception {
-        when(sender.post(any(), any(), any())).thenThrow(new ConnectionRequestTimeoutException());
-        assertThat(outcomeAfterSending()).isEqualTo("no_connection");
-    }
-
-    @Test
-    void countsAnInboxThatIsNotAllowed() throws Exception {
-        when(sender.post(any(), any(), any())).thenThrow(mock(BlockedTargetException.class));
-        assertThat(outcomeAfterSending()).isEqualTo("not_allowed");
-    }
-
-    @Test
-    void countsAnInboxThatCannotBeSigned() throws Exception {
-        when(sender.post(any(), any(), any())).thenThrow(new IllegalArgumentException());
-        assertThat(outcomeAfterSending()).isEqualTo("invalid_inbox");
-    }
-
-    @Test
-    void countsAnUnexpectedFailure() throws Exception {
-        when(sender.post(any(), any(), any())).thenThrow(new IllegalStateException());
-        assertThat(outcomeAfterSending()).isEqualTo("error");
+    /**
+     * @param result the inbox's status, or what sending throws
+     */
+    @ParameterizedTest(name = "{1}")
+    @MethodSource("endings")
+    void countsEachWayADeliveryCanEnd(Object result, String outcome) throws Exception {
+        if (result instanceof Integer status) {
+            answers(status);
+        } else {
+            when(sender.post(any(), any(), any())).thenThrow((Throwable) result);
+        }
+        assertThat(outcomeAfterSending()).isEqualTo(outcome);
     }
 
     private void answers(int status) throws IOException {

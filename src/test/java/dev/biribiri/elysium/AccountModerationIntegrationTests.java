@@ -97,7 +97,7 @@ class AccountModerationIntegrationTests {
     // Listing
 
     @Test
-    void listsAccountsWithTheirState() throws Exception {
+    void listsAccountsWithTheirStateAndFiltersThem() throws Exception {
         var user = newAccount();
         var remote = newRemote();
         accounts.suspend(remote.id(), Optional.empty());
@@ -113,13 +113,6 @@ class AccountModerationIntegrationTests {
                 .andExpect(jsonPath("$.role").value(nullValue()))
                 .andExpect(jsonPath("$.suspended").value(true))
                 .andExpect(jsonPath("$.account.acct").value(remote.username() + "@" + remote.domain()));
-    }
-
-    @Test
-    void filtersTheList() throws Exception {
-        var user = newAccount();
-        var remote = newRemote();
-        accounts.suspend(remote.id(), Optional.empty());
 
         list("local=true").andExpect(jsonPath("$[*].id", hasItem(user.id().toString())))
                 .andExpect(jsonPath("$[*].id", not(hasItem(remote.id().toString()))));
@@ -287,21 +280,13 @@ class AccountModerationIntegrationTests {
     }
 
     @Test
-    void aSuspendedAdminDoesNotCountAsAnotherAdmin() {
+    void aSuspendedAdminDoesNotCountAsAnotherAdminButCanBeDeletedWhileAnotherRemains() {
         var other = newAccountAsAdmin();
         onlyAdmin(admin, other);
         accounts.suspend(other.id(), Optional.empty());
 
         assertThatThrownBy(() -> accounts.delete(admin.id(), Optional.empty()))
                 .isInstanceOf(AccountActionRefusedException.class);
-    }
-
-    @Test
-    void aSuspendedAdminCanBeDeletedWhileAnotherAdminRemains() {
-        var other = newAccountAsAdmin();
-        onlyAdmin(admin, other);
-        accounts.suspend(other.id(), Optional.empty());
-
         assertThat(accounts.delete(other.id(), Optional.empty())).isTrue();
     }
 
@@ -496,10 +481,12 @@ class AccountModerationIntegrationTests {
     }
 
     @Test
-    void deletingYourOwnAccountNeedsTheRightPassword() throws Exception {
+    void deletingYourOwnAccountNeedsACsrfTokenAndTheRightPassword() throws Exception {
         var user = newAccount();
         var session = TestOAuth.logIn(mockMvc, user.username(), PASSWORD);
 
+        mockMvc.perform(post("/settings/delete-account").session(session).param("password", PASSWORD))
+                .andExpect(status().isForbidden());
         mockMvc.perform(post("/settings/delete-account").session(session).with(csrf()).param("password", "wrong password"))
                 .andExpect(status().isUnprocessableContent());
         assertThat(actors.findById(user.id()).orElseThrow().isDeleted()).isFalse();
@@ -513,17 +500,6 @@ class AccountModerationIntegrationTests {
                 .single()).isZero();
         mockMvc.perform(get("/settings/delete-account").session(session).accept(MediaType.TEXT_HTML))
                 .andExpect(redirectedUrl("/login"));
-    }
-
-    @Test
-    void deletingYourOwnAccountNeedsACsrfToken() throws Exception {
-        var user = newAccount();
-        var session = TestOAuth.logIn(mockMvc, user.username(), PASSWORD);
-
-        mockMvc.perform(post("/settings/delete-account").session(session).param("password", PASSWORD))
-                .andExpect(status().isForbidden());
-
-        assertThat(actors.findById(user.id()).orElseThrow().isDeleted()).isFalse();
     }
 
     @Test

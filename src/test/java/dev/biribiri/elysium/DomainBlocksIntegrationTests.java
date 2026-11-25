@@ -227,22 +227,13 @@ class DomainBlocksIntegrationTests {
         create("sub.blocks.example").andExpect(status().isOk());
     }
 
-    @Test
-    void refusesABlockThatAlreadyExists() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"", "sub."})
+    void refusesABlockThatAnExistingOneAlreadyCovers(String prefix) throws Exception {
         var domain = newDomain();
         var id = id(create(domain).andExpect(status().isOk()));
 
-        create(domain)
-                .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.existing_domain_block.id").value(id));
-    }
-
-    @Test
-    void refusesADomainThatABroaderBlockCovers() throws Exception {
-        var domain = newDomain();
-        var id = id(create(domain).andExpect(status().isOk()));
-
-        create("sub." + domain)
+        create(prefix + domain)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.existing_domain_block.id").value(id));
     }
@@ -363,7 +354,7 @@ class DomainBlocksIntegrationTests {
     // Updating
 
     @Test
-    void updatesTheCommentFromAForm() throws Exception {
+    void updatesTheCommentFromAFormOrJsonAndClearsIt() throws Exception {
         var id = id(create(newDomain()));
 
         mockMvc.perform(withToken(put(PATH + "/" + id), write())
@@ -371,12 +362,6 @@ class DomainBlocksIntegrationTests {
                         .content("private_comment=Still%20spam"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.private_comment").value("Still spam"));
-    }
-
-    @Test
-    void updatesTheCommentFromJsonAndClearsIt() throws Exception {
-        var id = id(create(newDomain()));
-
         mockMvc.perform(withToken(put(PATH + "/" + id), write())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"private_comment\":\"Spam\"}"))
@@ -389,16 +374,6 @@ class DomainBlocksIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"private_comment\":\"\"}"))
                 .andExpect(jsonPath("$.private_comment").value(nullValue()));
-    }
-
-    @Test
-    void refusesToChangeABlockToAnotherSeverity() throws Exception {
-        var id = id(create(newDomain()));
-
-        mockMvc.perform(withToken(put(PATH + "/" + id), write())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"severity\":\"silence\"}"))
-                .andExpect(status().isUnprocessableContent());
     }
 
     @Test

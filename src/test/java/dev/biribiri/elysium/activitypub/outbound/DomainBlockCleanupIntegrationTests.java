@@ -84,26 +84,31 @@ class DomainBlockCleanupIntegrationTests {
     }
 
     @Test
-    void removesLikesOfActorsWhoHaveNoFollowsOrRemotePosts() {
+    void removesTheLikesVotesAndAttachmentsOfItsActors() {
         var liker = remote(domain);
         var status = statuses.create(local.id(), new NewStatus("post", null, null, Visibility.PUBLIC, false, null));
         likes.receive(liker.id(), status.id(), liker.uri() + "/like", Instant.now());
         assertThat(likes.count(status.id())).isOne();
-        blocks.create(domain, null);
-        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM status_like WHERE actor_id = :id")
-                .param("id", liker.id()).query(Long.class).single() == 0);
-        assertThat(likes.count(status.id())).isZero();
-    }
-
-    @Test
-    void removesVotesOfItsActors() {
         var voter = remote(domain);
-        var status = statuses.create(local.id(), new NewStatus("Which?", null, null, Visibility.PUBLIC, false, null,
+        var poll = statuses.create(local.id(), new NewStatus("Which?", null, null, Visibility.PUBLIC, false, null,
                 List.of(), null, null, new NewPoll(List.of("Tea", "Coffee"), 600, false, false)));
-        polls.receiveVote(status.id(), voter.id(), URI.create(voter.uri() + "#votes/1"), "Tea");
+        polls.receiveVote(poll.id(), voter.id(), URI.create(voter.uri() + "#votes/1"), "Tea");
+        var author = remote(domain);
+        follow(local, author);
+        remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(),
+                "<p>Hi</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
+                List.of(new RemoteAttachment(URI.create(author.uri() + "/a.png"), AttachmentType.IMAGE, "image/png",
+                        null, null, null, null, null)))).orElseThrow();
+        assertThat(attachmentsOf(author)).isOne();
+
         blocks.create(domain, null);
-        await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM poll_vote WHERE voter_id = :id")
-                .param("id", voter.id()).query(Long.class).single() == 0);
+
+        await().atMost(WAIT).untilAsserted(() -> {
+            assertThat(likes.count(status.id())).as("likes").isZero();
+            assertThat(jdbc.sql("SELECT count(*) FROM poll_vote WHERE voter_id = :id")
+                    .param("id", voter.id()).query(Long.class).single()).as("votes").isZero();
+            assertThat(attachmentsOf(author)).as("attachments").isZero();
+        });
     }
 
     @Test
@@ -173,15 +178,20 @@ class DomainBlockCleanupIntegrationTests {
     }
 
     @Test
-    void removesFollowsInBothDirectionsAndKeepsTheActors() {
+    void removesFollowsInBothDirectionsOnItsSubdomainsAndPortsAndKeepsTheActors() {
         var follower = remote(domain);
         var followed = remote(domain);
+        var onSubdomain = remote("social." + domain);
+        var onPort = remote(domain + ":8443");
         follow(follower, local);
         follow(local, followed);
+        follow(onSubdomain, local);
+        follow(local, onPort);
 
         blocks.create(domain, null);
 
-        await().atMost(WAIT).until(() -> follows(follower) == 0 && follows(followed) == 0);
+        await().atMost(WAIT).until(() -> follows(follower) == 0 && follows(followed) == 0
+                && follows(onSubdomain) == 0 && follows(onPort) == 0);
         assertThat(actors.findByUri(follower.uri())).isPresent();
         assertThat(actors.findByUri(followed.uri())).isPresent();
     }
@@ -271,18 +281,6 @@ class DomainBlockCleanupIntegrationTests {
     }
 
     @Test
-    void coversSubdomainsAndPorts() {
-        var onSubdomain = remote("social." + domain);
-        var onPort = remote(domain + ":8443");
-        follow(onSubdomain, local);
-        follow(onPort, local);
-
-        blocks.create(domain, null);
-
-        await().atMost(WAIT).until(() -> follows(onSubdomain) == 0 && follows(onPort) == 0);
-    }
-
-    @Test
     void theSecondJobRemovesAFollowSavedAfterTheFirst() {
         var follower = remote(domain);
         var block = blocks.create(domain, null);
@@ -327,21 +325,6 @@ class DomainBlockCleanupIntegrationTests {
         blocks.update(block.id(), DomainBlock.Severity.SUSPEND, false, null);
 
         await().atMost(WAIT).until(() -> follows(follower) == 0 && !statusExists(status));
-    }
-
-    @Test
-    void removesTheAttachmentsOfItsStatuses() {
-        var author = remote(domain);
-        follow(local, author);
-        remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/notes/" + UUID.randomUUID()), null, author.id(),
-                "<p>Hi</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(),
-                List.of(new RemoteAttachment(URI.create(author.uri() + "/a.png"), AttachmentType.IMAGE, "image/png",
-                        null, null, null, null, null)))).orElseThrow();
-        assertThat(attachmentsOf(author)).isOne();
-
-        blocks.create(domain, null);
-
-        await().atMost(WAIT).until(() -> attachmentsOf(author) == 0);
     }
 
     private long attachmentsOf(Actor author) {
