@@ -71,6 +71,8 @@ dependencies {
     runtimeOnly("org.springframework.modulith:spring-modulith-observability-core")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
     testImplementation("com.networknt:json-schema-validator:3.0.8")
+    // Spring Boot turns metrics export off in tests, and ManagementPortIntegrationTests turns it back on with this.
+    testImplementation("org.springframework.boot:spring-boot-micrometer-metrics-test")
     testImplementation("org.springframework.boot:spring-boot-starter-jdbc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-restclient-test")
     testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-authorization-server-test")

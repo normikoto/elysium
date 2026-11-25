@@ -161,6 +161,26 @@ class SecurityConfig {
     }
 
     /**
+     * Handles the management server's own port, which only exists when an admin gives it one, and which they're told to
+     * keep private. Nothing on it logs in, so scrapers need no credentials. Only health and metrics are allowed, so that
+     * exposing another endpoint, such as {@code env}, doesn't publish it to whoever can reach the port.
+     */
+    @Bean
+    @Order(0)
+    SecurityFilterChain managementPortChain(HttpSecurity http, ManagementPort managementPort) {
+        return http
+                .securityMatcher(managementPort)
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(requests -> requests
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/prometheus")
+                        .permitAll()
+                        .anyRequest().denyAll())
+                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(new Http403ForbiddenEntryPoint()))
+                .build();
+    }
+
+    /**
      * Handles the OAuth endpoints. This names them explicitly rather than using the configurer's own matcher, because
      * that would also expose the token introspection endpoint. That endpoint can't be turned off and doesn't check
      * which client owns a token, so here it falls through to the default chain and is denied.

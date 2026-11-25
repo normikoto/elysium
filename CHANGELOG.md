@@ -9,6 +9,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Elysium can serve metrics for Prometheus on a separate port, set with `management.server.port`, including deliveries
+  to and from other servers and the background job queue. They're off by default. See
+  [Metrics](docs/configuration.md#metrics).
 - Elysium now serves each public conversation that starts here as a FEP-f228 collection of posts, named by the
   `context` of its posts, so forums such as NodeBB and Discourse, and other servers that read it, can show the whole
   conversation. See [Federation](FEDERATION.md#threads).

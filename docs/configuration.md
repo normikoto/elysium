@@ -43,6 +43,8 @@ Set these in your `application.properties`:
 | `elysium.federation.allowed-private-networks` | Optional, and should not normally be set. A comma-separated list of private networks, such as `172.30.0.0/24`, that requests to other servers may reach. Anyone can make the server send requests, so this would let them reach anything on these networks. Only for testing with servers on a private network. |
 | `db-scheduler.polling-strategy` | Optional, and experimental. Set to `LOCK_AND_FETCH` to change how background jobs are picked up, which may help with more than one copy of the server. Defaults to `FETCH`. See [Background jobs](#background-jobs). |
 | `db-scheduler.polling-strategy-upper-limit-fraction-of-threads` | Set to `1.0` along with `LOCK_AND_FETCH`. Leave it unset otherwise. |
+| `management.server.port` | Optional. A second port, such as `9090`, that serves [metrics](#metrics) for Prometheus. Unset by default, which serves no metrics. Anyone who can reach this port can read them, without logging in. |
+| `management.server.address` | Optional. The address the metrics port listens on, such as `127.0.0.1`. Defaults to every address. Ignored unless `management.server.port` is set. |
 
 You also need to point `spring.datasource.*` at your PostgreSQL database. Migrations run automatically on startup.
 
@@ -170,6 +172,42 @@ Set the fraction to `1.0` so each instance claims only as many jobs as it can ru
 times as many, and if it stops, the other instances may take a long time to run the jobs it held.
 
 Remove both settings and restart to restore the defaults.
+
+## Metrics
+Elysium can serve metrics in Prometheus's format, for Prometheus, VictoriaMetrics, Grafana Alloy, or anything else that
+scrapes it. They're off until you give them a port of their own:
+```properties
+management.server.port=9090
+# Unless the scraper runs on another host
+management.server.address=127.0.0.1
+```
+With Docker Compose, set `MANAGEMENT_SERVER_PORT` in `.env` instead, and don't publish the port on a public interface.
+Put the scraper in the same Compose project, or publish it on `127.0.0.1` as `compose.yaml` does with the main port.
+
+**Warning:** Metrics need no login, and they show how busy the server is and when. Never route the metrics port through
+your reverse proxy, or allow it through the firewall to the internet.
+
+The health check at `/actuator/health` answers on both ports. Restart, and then check that it worked:
+```shell
+curl http://127.0.0.1:9090/actuator/prometheus
+```
+You should see lines starting with `elysium_`. Requests to `/actuator/prometheus` on the main port stay refused.
+
+Besides the usual metrics for the JVM, HTTP requests, and database connections, these show how federation is doing:
+
+- `elysium_federation_deliveries_seconds` times each attempt to deliver an activity to another server, by `outcome`:
+  `delivered`, `refused` for an answer that won't change, `retryable` for an error or a busy server, `unreachable`,
+  `too_large`, `no_connection` when all of Elysium's own connections were in use, `not_allowed` for an inbox on a
+  private network or a blocked server, `invalid_inbox`, or `error`.
+- `elysium_federation_inbox_requests_total` counts deliveries from other servers by `outcome`, such as `accepted`,
+  `rate_limited`, `signature_rejected`, or `error` for one that failed with a 500.
+- `elysium_jobs_queued` counts background jobs by `task` and `state`: `due` is waiting for a worker, and a steady rise
+  means the server is falling behind. `parked` jobs were given up on, and can be looked at in `/admin/db-scheduler`.
+- `elysium_jobs_oldest_due_seconds` is how late the most overdue job of each task is.
+- `dbscheduler_task_completions_total` counts runs of each task. A run that only waited for a busy server counts as `ok`.
+
+With more than one instance, each reports the whole job queue, so take the maximum of `elysium_jobs_*` rather than the
+sum. The job counts can be up to 30 seconds old.
 
 ## Streaming
 Apps stream new posts and notifications at `/api/v1/streaming`. To pass WebSocket connections through nginx, add this
