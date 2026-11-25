@@ -47,8 +47,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Fetches of statuses signed by actors on other servers, whose keys are served by a spy rather than fetched. The base URL
- * gives this class its own context, so that its fetch limits aren't shared, and each request comes from its own address.
+ * Fetches of statuses signed by actors on other servers, whose keys are served by a spy rather than fetched. The fetch
+ * limits last for the whole context, which {@code InboxIntegrationTests} shares, so each request comes from its own address,
+ * in a range that class doesn't use.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")

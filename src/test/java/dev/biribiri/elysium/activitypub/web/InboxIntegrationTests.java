@@ -44,8 +44,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Sends requests through the real security filters, signed with a real local actor's key. Fetching keys from other servers
- * is tested in {@code PublicKeyResolverTests}, and by the federation lab. The base URL gives this class its own context, so
- * that its limits aren't shared. Each test uses its own address, because they last for the whole context.
+ * is tested in {@code PublicKeyResolverTests}, and by the federation lab. The limits last for the whole context, which
+ * {@code NoteFetchIntegrationTests} shares, so each test uses its own address, in a range that class doesn't use.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
