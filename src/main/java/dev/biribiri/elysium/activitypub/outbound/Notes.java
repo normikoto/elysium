@@ -97,6 +97,7 @@ public class Notes {
                 status,
                 author,
                 parent.map(Status::uri).orElse(null),
+                statuses.findOpenThreadRoot(status.id()).map(Note::threadOf).orElse(null),
                 parent.flatMap(shown -> actors.findById(shown.actorId())).filter(Actor::isActive).map(Actor::uri).orElse(null),
                 mentioned.stream().map(actor -> Mention.of(actor.uri(), "@" + actor.username() + "@" + actor.domain())).toList(),
                 Hashtag.of(tags, instance),
