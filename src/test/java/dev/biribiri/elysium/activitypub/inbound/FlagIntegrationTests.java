@@ -36,7 +36,7 @@ import static org.mockito.Mockito.when;
  * Reports from other servers. The handler is called directly with no worker running, as in {@link BlockIntegrationTests}.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://flag.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class FlagIntegrationTests {
 
     @Autowired
@@ -110,7 +110,7 @@ class FlagIntegrationTests {
     @Test
     void ignoresWhatIsntHere() {
         handler.handle(flag(newId(), "Elsewhere", URI.create("https://" + host + "/users/someone"),
-                URI.create("https://flag.example/users/nobody"), URI.create("https://flag.example/statuses/" + UUID.randomUUID())));
+                URI.create("https://elysium.example/users/nobody"), URI.create("https://elysium.example/statuses/" + UUID.randomUUID())));
 
         assertThat(actors.findByUri(URI.create(reporterUri))).isEmpty();
     }

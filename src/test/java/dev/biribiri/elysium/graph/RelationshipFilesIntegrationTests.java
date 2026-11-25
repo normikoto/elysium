@@ -56,14 +56,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://relationship-files.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"})
 @AutoConfigureMockMvc
 class RelationshipFilesIntegrationTests {
 
     private static final String PASSWORD = "correct horse battery staple";
     private static final String IMPORTS = "/settings/imports";
-    private static final String LOCAL = "relationship-files.example";
+    private static final String LOCAL = "elysium.example";
 
     @Autowired
     private MockMvc mockMvc;

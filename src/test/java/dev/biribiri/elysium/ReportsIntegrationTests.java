@@ -57,7 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://reports.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -202,7 +202,7 @@ class ReportsIntegrationTests {
 
         await().atMost(WAIT).until(() -> !flags().isEmpty());
         var flag = flags().getFirst();
-        assertThat(JsonPath.<String>read(flag, "$.actor")).isEqualTo("https://reports.example/actor");
+        assertThat(JsonPath.<String>read(flag, "$.actor")).isEqualTo("https://elysium.example/actor");
         assertThat(JsonPath.<String>read(flag, "$.content")).isEqualTo("Please look");
         assertThat(JsonPath.<List<String>>read(flag, "$.object"))
                 .containsExactly(remote.uri().toString(), status.uri().toString());

@@ -44,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://announcements.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -203,7 +203,7 @@ class AnnouncementsIntegrationTests {
                 .andExpect(jsonPath("$[1].ends_at").value("2027-01-11T00:00:00.000Z"))
                 .andExpect(jsonPath("$[1].all_day").value(true))
                 .andExpect(jsonPath("$[1].tags[0].name").value("fediverse"))
-                .andExpect(jsonPath("$[1].tags[0].url").value("https://announcements.example/tags/fediverse"));
+                .andExpect(jsonPath("$[1].tags[0].url").value("https://elysium.example/tags/fediverse"));
     }
 
     @Test
@@ -271,7 +271,7 @@ class AnnouncementsIntegrationTests {
                 .andExpect(jsonPath("$[0].reactions[1].name").value(shortcode))
                 .andExpect(jsonPath("$[0].reactions[1].count").value(1))
                 .andExpect(jsonPath("$[0].reactions[1].me").value(false))
-                .andExpect(jsonPath("$[0].reactions[1].url").value(containsString("https://announcements.example/")))
+                .andExpect(jsonPath("$[0].reactions[1].url").value(containsString("https://elysium.example/")))
                 .andExpect(jsonPath("$[0].reactions[1].static_url").exists());
 
         unreact(USER, announcement.id(), "👍").andExpect(status().isOk());

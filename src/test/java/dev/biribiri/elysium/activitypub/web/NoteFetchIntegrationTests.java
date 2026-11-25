@@ -47,15 +47,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Fetches of statuses signed by actors on other servers, whose keys are served by a spy rather than fetched. The base URL
- * gives this class its own context, so that its fetch limits aren't shared, and each request comes from its own address.
+ * Fetches of statuses signed by actors on other servers, whose keys are served by a spy rather than fetched. The fetch
+ * limits last for the whole context, which {@code InboxIntegrationTests} shares, so each request comes from its own address,
+ * in a range that class doesn't use.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://notes.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class NoteFetchIntegrationTests {
 
-    private static final String BASE = "https://notes.example";
+    private static final String BASE = "https://elysium.example";
     private static final String ACTIVITY_JSON = "application/activity+json";
     private static final String FEATURED = "/users/alice/collections/featured";
     private static final AtomicInteger nextAddress = new AtomicInteger();

@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.TestEvents;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
@@ -15,6 +16,7 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,7 +28,6 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
@@ -38,16 +39,17 @@ import java.util.UUID;
 
 import static dev.biribiri.elysium.content.Visibility.*;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.opaqueToken;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://pins.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 @AutoConfigureMockMvc
 class StatusPinIntegrationTests {
+    private static Instant started;
+
     private static final String AP = "application/activity+json";
     private static final Set<String> SCOPES = Set.of("read:statuses", "write:accounts");
 
@@ -162,12 +164,12 @@ class StatusPinIntegrationTests {
         pins.pin(createPost(PRIVATE).id(), alice.id());
         pins.pin(shown.id(), alice.id());
         mvc.perform(get("/users/pinalice").accept(AP))
-                .andExpect(jsonPath("$.featured").value("https://pins.example/users/pinalice/collections/featured"))
+                .andExpect(jsonPath("$.featured").value("https://elysium.example/users/pinalice/collections/featured"))
                 .andExpect(jsonPath("$['@context'][2].featured['@id']").value("toot:featured"))
                 .andExpect(jsonPath("$['@context'][2].featured['@type']").value("@id"));
         mvc.perform(get("/users/pinalice/collections/featured").accept(AP))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value("https://pins.example/users/pinalice/collections/featured"))
+                .andExpect(jsonPath("$.id").value("https://elysium.example/users/pinalice/collections/featured"))
                 .andExpect(jsonPath("$.type").value("OrderedCollection"))
                 .andExpect(jsonPath("$.totalItems").value(1))
                 .andExpect(jsonPath("$.orderedItems[0].type").value("Note"))
@@ -358,8 +360,12 @@ class StatusPinIntegrationTests {
                 Instant.now(), Instant.now().plusSeconds(3600), "test"));
     }
 
+    @BeforeAll
+    static void rememberTheStart() {
+        started = Instant.now();
+    }
+
     private void settled() {
-        await().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql("SELECT count(*) FROM event_publication WHERE completion_date IS NULL")
-                .query(Long.class).single() == 0);
+        TestEvents.awaitHandled(jdbc, started);
     }
 }

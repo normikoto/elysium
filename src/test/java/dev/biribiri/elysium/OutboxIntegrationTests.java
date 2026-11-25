@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Outboxes, as other servers read them to backfill an account's statuses.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://outbox.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 @AutoConfigureMockMvc
 class OutboxIntegrationTests {
 

@@ -42,7 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://polls.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class PollsIntegrationTests {
 
@@ -216,7 +216,7 @@ class PollsIntegrationTests {
                         SELECT a.username FROM notification n JOIN actor a ON a.id = n.recipient_id
                         WHERE n.type = 'poll' AND n.status_id = :id ORDER BY a.username
                         """).param("id", UUID.fromString(id)).query(String.class).list())
-                .containsExactly("alice", "bob"));
+                .containsExactly("poll_alice", "poll_bob"));
         mockMvc.perform(withToken(get("/api/v1/notifications").param("types[]", "poll"), bob()))
                 .andExpect(jsonPath("$[0].type").value("poll"))
                 .andExpect(jsonPath("$[0].status.poll.expired").value(true));
@@ -286,7 +286,7 @@ class PollsIntegrationTests {
     void showsThePollOnTheStatusPage() throws Exception {
         var id = createPoll(alice(), false, false);
         mockMvc.perform(json(post("/api/v1/polls/" + id + "/votes"), bob(), "{\"choices\": [1]}"));
-        mockMvc.perform(get("/users/alice/statuses/" + id).accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/users/poll_alice/statuses/" + id).accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("Coffee")))
                 .andExpect(content().string(containsString("100%")))
@@ -345,15 +345,15 @@ class PollsIntegrationTests {
     }
 
     private String alice() throws Exception {
-        return token("alice");
+        return token("poll_alice");
     }
 
     private String bob() throws Exception {
-        return token("bob");
+        return token("poll_bob");
     }
 
     private String carol() throws Exception {
-        return token("carol");
+        return token("poll_carol");
     }
 
     private String token(String username) throws Exception {

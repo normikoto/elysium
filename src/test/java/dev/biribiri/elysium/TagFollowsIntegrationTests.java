@@ -16,6 +16,7 @@ import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.MuteService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,7 +28,6 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.net.URI;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +36,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -48,9 +47,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://tagfollows.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class TagFollowsIntegrationTests {
+    private static Instant started;
+
 
     private static final Set<String> SCOPES = Set.of("read:follows", "write:follows", "read:statuses", "read:search");
 
@@ -92,7 +93,7 @@ class TagFollowsIntegrationTests {
     void followsAndUnfollowsATag() throws Exception {
         tag(alice, "Cats", "follow").andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("cats"))
-                .andExpect(jsonPath("$.url").value("https://tagfollows.example/tags/cats"))
+                .andExpect(jsonPath("$.url").value("https://elysium.example/tags/cats"))
                 .andExpect(jsonPath("$.following").value(true));
         tag(alice, "cats", "follow").andExpect(status().isOk()).andExpect(jsonPath("$.following").value(true));
 
@@ -146,9 +147,9 @@ class TagFollowsIntegrationTests {
                 .andExpect(header().string("Link", containsString("rel=\"next\"")))
                 .andReturn().getResponse();
         var next = response.getHeader("Link")
-                .replaceAll(".*<https://tagfollows.example([^>]*)>; rel=\"next\".*", "$1");
+                .replaceAll(".*<https://elysium.example([^>]*)>; rel=\"next\".*", "$1");
         var prev = response.getHeader("Link")
-                .replaceAll(".*<https://tagfollows.example([^>]*)>; rel=\"prev\".*", "$1");
+                .replaceAll(".*<https://elysium.example([^>]*)>; rel=\"prev\".*", "$1");
 
         mvc.perform(get(next).with(user(alice)))
                 .andExpect(jsonPath("$[*].name").value(contains("cats")));
@@ -247,8 +248,12 @@ class TagFollowsIntegrationTests {
                 Instant.now(), Instant.now().plusSeconds(3600), "test"));
     }
 
+    @BeforeAll
+    static void rememberTheStart() {
+        started = Instant.now();
+    }
+
     private void settled() {
-        await().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql(
-                "SELECT count(*) FROM event_publication WHERE completion_date IS NULL").query(Long.class).single() == 0);
+        TestEvents.awaitHandled(jdbc, started);
     }
 }

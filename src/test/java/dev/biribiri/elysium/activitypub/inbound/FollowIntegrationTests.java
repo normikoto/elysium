@@ -42,10 +42,10 @@ import static org.mockito.Mockito.when;
  * {@code ActivityDeliveryIntegrationTests}. Real servers are tested by the federation lab.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://follow.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class FollowIntegrationTests {
 
-    private static final String BASE = "https://follow.example";
+    private static final String BASE = "https://elysium.example";
 
     @Autowired
     private FollowHandler followHandler;

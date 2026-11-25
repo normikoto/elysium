@@ -49,7 +49,7 @@ import static org.mockito.Mockito.when;
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://forwarded-notes.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"
 })
 class ForwardedNotesIntegrationTests {

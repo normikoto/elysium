@@ -44,15 +44,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Sends requests through the real security filters, signed with a real local actor's key. Fetching keys from other servers
- * is tested in {@code PublicKeyResolverTests}, and by the federation lab. The base URL gives this class its own context, so
- * that its limits aren't shared. Each test uses its own address, because they last for the whole context.
+ * is tested in {@code PublicKeyResolverTests}, and by the federation lab. The limits last for the whole context, which
+ * {@code NoteFetchIntegrationTests} shares, so each test uses its own address, in a range that class doesn't use.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://inbox.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class InboxIntegrationTests {
 
-    private static final String BASE = "https://inbox.example";
+    private static final String BASE = "https://elysium.example";
     private static final String ACTIVITY_JSON = "application/activity+json";
     private static final AtomicInteger nextAddress = new AtomicInteger();
 
@@ -210,7 +210,7 @@ class InboxIntegrationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"not json", "{\"id\":\"https://inbox.example/has space\",\"type\":\"Test\",\"actor\":\"https://inbox.example/users/alice\"}"})
+    @ValueSource(strings = {"not json", "{\"id\":\"https://elysium.example/has space\",\"type\":\"Test\",\"actor\":\"https://elysium.example/users/alice\"}"})
     void refusesASignedBodyThatIsNotAnActivity(String body) throws Exception {
         signed("/inbox", alice(), body).andExpect(status().isBadRequest());
     }
@@ -337,9 +337,9 @@ class InboxIntegrationTests {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "http://inbox.example/1",
-            "https://inbox.example:8443/1",
-            "https://user@inbox.example/1",
+            "http://elysium.example/1",
+            "https://elysium.example:8443/1",
+            "https://user@elysium.example/1",
             "/1",
             "urn:uuid:1"
     })
@@ -354,7 +354,7 @@ class InboxIntegrationTests {
     @Test
     void comparesServersRegardlessOfCase() throws Exception {
         var alice = alice();
-        var id = "https://INBOX.example:443/activities/" + UUID.randomUUID();
+        var id = "https://ELYSIUM.example:443/activities/" + UUID.randomUUID();
 
         signed("/inbox", alice, activity(id, alice.uri().toString())).andExpect(status().isAccepted());
 

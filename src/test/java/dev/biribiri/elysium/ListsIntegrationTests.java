@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://lists.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -248,7 +248,7 @@ class ListsIntegrationTests {
                 .andExpect(header().string("Link", containsString("rel=\"next\"")))
                 .andReturn().getResponse().getHeader("Link");
         var next = first.substring(first.indexOf('<') + 1, first.indexOf('>'));
-        mockMvc.perform(withToken(get(next.replace("https://lists.example", "")), alice))
+        mockMvc.perform(withToken(get(next.replace("https://elysium.example", "")), alice))
                 .andExpect(jsonPath("$[*].id", contains(bob.id().toString())));
 
         mockMvc.perform(withToken(get("/api/v1/lists/" + id + "/accounts").param("limit", "0"), alice))

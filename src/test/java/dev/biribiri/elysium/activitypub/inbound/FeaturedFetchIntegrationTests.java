@@ -52,7 +52,7 @@ import static org.mockito.Mockito.when;
  * runs the job itself, and the actor's server is a mock. Real servers are tested by the federation lab.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://featured.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class FeaturedFetchIntegrationTests {
     private static final String PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 

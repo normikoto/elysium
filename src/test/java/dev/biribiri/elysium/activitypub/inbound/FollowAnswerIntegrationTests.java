@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Calls the handlers directly, with no worker running.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://answers.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class FollowAnswerIntegrationTests {
 
     @Autowired

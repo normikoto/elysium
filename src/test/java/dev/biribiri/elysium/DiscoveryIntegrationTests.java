@@ -313,8 +313,9 @@ class DiscoveryIntegrationTests {
 
     @Test
     void nodeInfoDescribesTheServer() throws Exception {
-        var users = jdbc.sql("SELECT count(*) FROM local_account").query(Long.class).single();
-        var posts = jdbc.sql("SELECT count(*) FROM status WHERE visibility <> 'direct'").query(Long.class).single();
+        // Other classes share this database and leave suspended accounts and remote statuses behind, which these leave out.
+        var users = actors.countLocal();
+        var posts = statuses.countLocal();
         for (var version : new String[]{"2.0", "2.1"}) {
             mockMvc.perform(get("/nodeinfo/" + version).accept(MediaType.APPLICATION_JSON))
                     .andExpect(status().isOk())

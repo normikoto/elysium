@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * The FEP-f228 collection of a thread's posts, which the {@code context} of each of them names.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://contexts.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class ThreadCollectionIntegrationTests {
 

@@ -11,6 +11,7 @@ import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,7 +23,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -32,7 +32,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -47,9 +46,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://featuredtags.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class FeaturedTagsIntegrationTests {
+    private static Instant started;
+
 
     private static final Set<String> SCOPES = Set.of("read:accounts", "write:accounts", "read:statuses");
 
@@ -81,7 +82,7 @@ class FeaturedTagsIntegrationTests {
     void featuresAndUnfeaturesATag() throws Exception {
         var id = JsonPath.<String>read(feature(alice, "#Cats").andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("cats"))
-                .andExpect(jsonPath("$.url").value("https://featuredtags.example/tags/cats"))
+                .andExpect(jsonPath("$.url").value("https://elysium.example/tags/cats"))
                 .andExpect(jsonPath("$.statuses_count").value("0"))
                 .andExpect(jsonPath("$.last_status_at").value(nullValue()))
                 .andReturn().getResponse().getContentAsString(), "$.id");
@@ -231,8 +232,12 @@ class FeaturedTagsIntegrationTests {
                 Instant.now(), Instant.now().plusSeconds(3600), "test"));
     }
 
+    @BeforeAll
+    static void rememberTheStart() {
+        started = Instant.now();
+    }
+
     private void settled() {
-        await().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql(
-                "SELECT count(*) FROM event_publication WHERE completion_date IS NULL").query(Long.class).single() == 0);
+        TestEvents.awaitHandled(jdbc, started);
     }
 }

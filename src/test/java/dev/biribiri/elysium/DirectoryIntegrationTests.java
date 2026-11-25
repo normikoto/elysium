@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.RemoteProfile;
 import dev.biribiri.elysium.auth.TokenPrincipal;
 import dev.biribiri.elysium.graph.MuteService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,14 +21,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.net.URI;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
@@ -41,9 +40,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://directory.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class DirectoryIntegrationTests {
+    private static Instant started;
+
 
     private static final String DIRECTORY = "/api/v1/directory";
     private static final Set<String> SCOPES = Set.of("read:accounts", "write:statuses", "write:blocks");
@@ -223,8 +224,12 @@ class DirectoryIntegrationTests {
                 Instant.now(), Instant.now().plusSeconds(3600), "test"));
     }
 
+    @BeforeAll
+    static void rememberTheStart() {
+        started = Instant.now();
+    }
+
     private void settled() {
-        await().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql(
-                "SELECT count(*) FROM event_publication WHERE completion_date IS NULL").query(Long.class).single() == 0);
+        TestEvents.awaitHandled(jdbc, started);
     }
 }

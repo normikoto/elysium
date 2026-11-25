@@ -56,7 +56,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://quotes.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -103,7 +103,7 @@ class QuotesIntegrationTests {
                 .andExpect(jsonPath("$.quote.state").value("accepted"))
                 .andExpect(jsonPath("$.quote.quoted_status.id").value(quoted))
                 .andExpect(jsonPath("$.quote.quoted_status.quote").doesNotExist())
-                .andExpect(jsonPath("$.content", startsWith("<p class=\"quote-inline\">RE: <a href=\"https://quotes.example/users/qbob/statuses/" + quoted)))
+                .andExpect(jsonPath("$.content", startsWith("<p class=\"quote-inline\">RE: <a href=\"https://elysium.example/users/qbob/statuses/" + quoted)))
                 .andExpect(jsonPath("$.content", containsString("<p>look at this</p>")));
         mockMvc.perform(withToken(get("/api/v1/statuses/" + quoted), token("qbob")))
                 .andExpect(jsonPath("$.quotes_count").value(1))
@@ -121,7 +121,7 @@ class QuotesIntegrationTests {
     void aTextThatLinksTheQuotedStatusHasNoFallback() throws Exception {
         account("qbob");
         var quoted = createStatus("qbob", Map.of("status", "original"));
-        var link = "https://quotes.example/users/qbob/statuses/" + quoted;
+        var link = "https://elysium.example/users/qbob/statuses/" + quoted;
         var quote = createStatus("qalice", Map.of("status", "see " + link, "quoted_status_id", quoted));
 
         mockMvc.perform(withToken(get("/api/v1/statuses/" + quote), token("qalice")))
@@ -320,7 +320,7 @@ class QuotesIntegrationTests {
         edit("qalice", quote, Map.of("status", "quoting another", "quoted_status_id", other))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", startsWith(
-                        "<p class=\"quote-inline\">RE: <a href=\"https://quotes.example/users/qcarol/statuses/" + other)))
+                        "<p class=\"quote-inline\">RE: <a href=\"https://elysium.example/users/qcarol/statuses/" + other)))
                 .andExpect(jsonPath("$.quote.state").value("accepted"))
                 .andExpect(jsonPath("$.quote.quoted_status.id").value(other));
         assertThat(silentMentions(quote)).contains(bob.id(), carol.id());
@@ -386,7 +386,7 @@ class QuotesIntegrationTests {
         var remoteStatus = storeRemote(remote, new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of()));
         var quoted = createStatus("qbob", Map.of("status", "original"));
         var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", remoteStatus.toString()));
-        var quoteUri = "https://quotes.example/users/qalice/statuses/" + quote;
+        var quoteUri = "https://elysium.example/users/qalice/statuses/" + quote;
         await().atMost(WAIT).until(() -> bodiesOfType(alice, "QuoteRequest", quote), found -> found.size() == 1);
 
         edit("qalice", quote, Map.of("status", "quoting bob", "quoted_status_id", quoted))
@@ -429,7 +429,7 @@ class QuotesIntegrationTests {
                 .andExpect(jsonPath("$.quote.quoted_status").isEmpty());
         var request = await().atMost(WAIT).until(() -> bodiesOfType(alice, "QuoteRequest", quote), found -> !found.isEmpty())
                 .getFirst();
-        var quoteUri = "https://quotes.example/users/qalice/statuses/" + quote;
+        var quoteUri = "https://elysium.example/users/qalice/statuses/" + quote;
         assertThat(JsonPath.<String>read(request, "$.id")).isEqualTo(quoteUri + "#quote_request");
         assertThat(JsonPath.<String>read(request, "$.object")).isEqualTo(remote.uri() + "/statuses/1");
         assertThat(JsonPath.<String>read(request, "$.instrument.id")).isEqualTo(quoteUri);
@@ -479,15 +479,15 @@ class QuotesIntegrationTests {
                 .andReturn().getResponse().getContentAsString();
         var create = "{\"object\":" + note + "}";
         var stamp = JsonPath.<String>read(create, "$.object.quoteAuthorization");
-        assertThat(stamp).startsWith("https://quotes.example/users/qbob/quote_authorizations/");
+        assertThat(stamp).startsWith("https://elysium.example/users/qbob/quote_authorizations/");
         assertThat(JsonPath.<String>read(create, "$.object.interactionPolicy.canQuote.automaticApproval[0]"))
                 .isEqualTo(PUBLIC);
         mockMvc.perform(get(URI.create(stamp).getPath()).accept("application/activity+json"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.type").value("QuoteAuthorization"))
-                .andExpect(jsonPath("$.attributedTo").value("https://quotes.example/users/qbob"))
+                .andExpect(jsonPath("$.attributedTo").value("https://elysium.example/users/qbob"))
                 .andExpect(jsonPath("$.interactingObject").value(JsonPath.<String>read(create, "$.object.id")))
-                .andExpect(jsonPath("$.interactionTarget").value("https://quotes.example/users/qbob/statuses/" + quoted));
+                .andExpect(jsonPath("$.interactionTarget").value("https://elysium.example/users/qbob/statuses/" + quoted));
         mockMvc.perform(get(URI.create(stamp).getPath().replace("qbob", "qalice")).accept("application/activity+json"))
                 .andExpect(status().isNotFound());
     }
@@ -498,7 +498,7 @@ class QuotesIntegrationTests {
         var remote = remote();
         var quotedId = storeRemote(remote, new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of()));
         var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quotedId.toString()));
-        var quoteUri = URI.create("https://quotes.example/users/qalice/statuses/" + quote);
+        var quoteUri = URI.create("https://elysium.example/users/qalice/statuses/" + quote);
         await().atMost(WAIT).until(() -> bodiesOfType(alice, "Create", quote), found -> !found.isEmpty());
         var stamp = URI.create(remote.uri() + "/quote_authorizations/1");
 
@@ -522,7 +522,7 @@ class QuotesIntegrationTests {
         var quoteUri = URI.create(remote.uri() + "/statuses/" + UUID.randomUUID());
         var quote = remoteStatuses.storeRemote(new RemoteStatus(quoteUri, null, remote.id(), "<p>quote</p>", null, null,
                 Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(), List.of(), List.of(),
-                new RemoteQuote(URI.create("https://quotes.example/users/qbob/statuses/" + quoted), false, null), null))
+                new RemoteQuote(URI.create("https://elysium.example/users/qbob/statuses/" + quoted), false, null), null))
                 .orElseThrow();
         var answer = quotes.answerIncomingRequest(quote, UUID.fromString(quoted), URI.create(remote.uri() + "/request"),
                 QuoteDecision.AUTOMATIC);
@@ -656,7 +656,7 @@ class QuotesIntegrationTests {
     void reportsApiVersionSevenForQuotes() throws Exception {
         mockMvc.perform(get("/api/v2/instance"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.domain").value("quotes.example"))
+                .andExpect(jsonPath("$.domain").value("elysium.example"))
                 .andExpect(jsonPath("$.api_versions.mastodon").value(7));
     }
 
@@ -672,7 +672,7 @@ class QuotesIntegrationTests {
                 .andExpect(jsonPath("$.quote_approval.current_user").value("manual"));
         mockMvc.perform(get("/users/qbob/statuses/" + quoted).accept("application/activity+json"))
                 .andExpect(jsonPath("$.interactionPolicy.canQuote.automaticApproval[0]")
-                        .value("https://quotes.example/users/qbob"))
+                        .value("https://elysium.example/users/qbob"))
                 .andExpect(jsonPath("$.interactionPolicy.canQuote.manualApproval[0]").value(PUBLIC));
 
         var quote = createStatus("qalice", Map.of("status", "look", "quoted_status_id", quoted));
@@ -787,7 +787,7 @@ class QuotesIntegrationTests {
                 .andExpect(jsonPath("$.quote_approval.current_user").value("manual"));
         mockMvc.perform(get("/users/qbob/statuses/" + quoted).accept("application/activity+json"))
                 .andExpect(jsonPath("$.interactionPolicy.canQuote.automaticApproval[0]")
-                        .value("https://quotes.example/users/qbob/followers"))
+                        .value("https://elysium.example/users/qbob/followers"))
                 .andExpect(jsonPath("$.interactionPolicy.canQuote.manualApproval[0]").value(PUBLIC));
         mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/follow"), token("qalice")))
                 .andExpect(status().isOk());
@@ -860,7 +860,7 @@ class QuotesIntegrationTests {
         var remote = remote();
         var quoted = storeRemote(remote, new QuoteApproval(Set.of(QuoteApproval.Audience.PUBLIC), Set.of()));
         var quote = createStatus("qalice", Map.of("status", "quoting", "quoted_status_id", quoted.toString()));
-        var quoteUri = "https://quotes.example/users/qalice/statuses/" + quote;
+        var quoteUri = "https://elysium.example/users/qalice/statuses/" + quote;
         jdbc.sql("UPDATE status_quote SET state = 'rejected' WHERE status_id = :id")
                 .param("id", UUID.fromString(quote)).update();
         askedLongAgo(quote);
@@ -919,7 +919,7 @@ class QuotesIntegrationTests {
         return remoteStatuses.storeRemote(new RemoteStatus(URI.create(author.uri() + "/statuses/" + UUID.randomUUID()), null,
                 author.id(), "<p>quote</p>", null, null, Visibility.PUBLIC, false, null, Instant.now(), null, Map.of(),
                 List.of(), List.of(),
-                new RemoteQuote(URI.create("https://quotes.example/users/qbob/statuses/" + quoted), false, null), null))
+                new RemoteQuote(URI.create("https://elysium.example/users/qbob/statuses/" + quoted), false, null), null))
                 .orElseThrow();
     }
 

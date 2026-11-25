@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code GET /api/v1/favourites}, and the lists of who favourited and boosted a status.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://favourites.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class FavouritesIntegrationTests {
 
@@ -113,8 +113,8 @@ class FavouritesIntegrationTests {
 
     @Test
     void favouritesNeedTheScopeAndAUser() throws Exception {
-        mockMvc.perform(withToken(get(FAVOURITES), token("dave", "write"))).andExpect(status().isForbidden());
-        mockMvc.perform(withToken(get(FAVOURITES), token("dave", "read:favourites"))).andExpect(status().isOk());
+        mockMvc.perform(withToken(get(FAVOURITES), token("fav_dave", "write"))).andExpect(status().isForbidden());
+        mockMvc.perform(withToken(get(FAVOURITES), token("fav_dave", "read:favourites"))).andExpect(status().isOk());
         mockMvc.perform(withToken(get(FAVOURITES), appToken())).andExpect(status().isUnprocessableEntity());
         mockMvc.perform(get(FAVOURITES)).andExpect(status().isUnauthorized());
     }
@@ -128,15 +128,15 @@ class FavouritesIntegrationTests {
         mockMvc.perform(get("/api/v1/statuses/" + id + "/favourited_by")).andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].id", contains(accountId(carol()), accountId(alice()))));
         list(bob(), "/api/v1/statuses/" + id + "/favourited_by")
-                .andExpect(jsonPath("$[*].username", contains("carol", "alice")));
+                .andExpect(jsonPath("$[*].username", contains("fav_carol", "fav_alice")));
 
         var page = list(bob(), "/api/v1/statuses/" + id + "/favourited_by?limit=1")
-                .andExpect(jsonPath("$[*].username", contains("carol")));
+                .andExpect(jsonPath("$[*].username", contains("fav_carol")));
         assertThat(next(page)).isEqualTo(likeId(carol(), id));
         list(bob(), "/api/v1/statuses/" + id + "/favourited_by?max_id=" + next(page))
-                .andExpect(jsonPath("$[*].username", contains("alice")));
+                .andExpect(jsonPath("$[*].username", contains("fav_alice")));
         list(bob(), "/api/v1/statuses/" + id + "/favourited_by?min_id=" + likeId(alice(), id))
-                .andExpect(jsonPath("$[*].username", contains("carol")));
+                .andExpect(jsonPath("$[*].username", contains("fav_carol")));
     }
 
     @Test
@@ -146,9 +146,9 @@ class FavouritesIntegrationTests {
         var boost = reblog(carol(), id, "public");
 
         list(bob(), "/api/v1/statuses/" + boost + "/favourited_by")
-                .andExpect(jsonPath("$[*].username", contains("alice")));
+                .andExpect(jsonPath("$[*].username", contains("fav_alice")));
         list(bob(), "/api/v1/statuses/" + boost + "/reblogged_by")
-                .andExpect(jsonPath("$[*].username", contains("carol")));
+                .andExpect(jsonPath("$[*].username", contains("fav_carol")));
     }
 
     @Test
@@ -157,10 +157,10 @@ class FavouritesIntegrationTests {
         favourite(alice(), id);
         favourite(erin(), id);
         reblog(erin(), id, "public");
-        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE username = 'erin'").update();
+        jdbc.sql("UPDATE actor SET suspended_at = now() WHERE username = 'fav_erin'").update();
 
         list(bob(), "/api/v1/statuses/" + id + "/favourited_by")
-                .andExpect(jsonPath("$[*].username", contains("alice")));
+                .andExpect(jsonPath("$[*].username", contains("fav_alice")));
         list(bob(), "/api/v1/statuses/" + id + "/reblogged_by").andExpect(jsonPath("$", empty()));
     }
 
@@ -171,11 +171,11 @@ class FavouritesIntegrationTests {
         reblog(carol(), id, "unlisted");
 
         mockMvc.perform(get("/api/v1/statuses/" + id + "/reblogged_by")).andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].username", contains("carol", "alice")));
+                .andExpect(jsonPath("$[*].username", contains("fav_carol", "fav_alice")));
         var page = list(bob(), "/api/v1/statuses/" + id + "/reblogged_by?limit=1")
-                .andExpect(jsonPath("$[*].username", contains("carol")));
+                .andExpect(jsonPath("$[*].username", contains("fav_carol")));
         list(bob(), "/api/v1/statuses/" + id + "/reblogged_by?max_id=" + next(page))
-                .andExpect(jsonPath("$[*].username", contains("alice")));
+                .andExpect(jsonPath("$[*].username", contains("fav_alice")));
 
         var followersOnly = create(bob(), "private");
         reblog(bob(), followersOnly, "public");
@@ -199,9 +199,9 @@ class FavouritesIntegrationTests {
         for (var list : new String[]{"/favourited_by", "/reblogged_by"}) {
             list(bob(), "/api/v1/statuses/" + id + list).andExpect(jsonPath("$", empty()));
             mockMvc.perform(get("/api/v1/statuses/" + id + list)).andExpect(status().isOk())
-                    .andExpect(jsonPath("$[*].username", contains("dave", "carol", "alice")));
+                    .andExpect(jsonPath("$[*].username", contains("fav_dave", "fav_carol", "fav_alice")));
             list(carol(), "/api/v1/statuses/" + id + list)
-                    .andExpect(jsonPath("$[*].username", contains("dave", "carol", "alice")));
+                    .andExpect(jsonPath("$[*].username", contains("fav_dave", "fav_carol", "fav_alice")));
         }
     }
 
@@ -224,9 +224,9 @@ class FavouritesIntegrationTests {
     void interactionListsNeedReadAccountsWithAToken() throws Exception {
         var id = create(bob(), "public");
 
-        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/favourited_by"), token("dave", "write")))
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/favourited_by"), token("fav_dave", "write")))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/reblogged_by"), token("dave", "read:accounts")))
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + id + "/reblogged_by"), token("fav_dave", "read:accounts")))
                 .andExpect(status().isOk());
     }
 
@@ -282,26 +282,26 @@ class FavouritesIntegrationTests {
     }
 
     private String alice() throws Exception {
-        return token("alice", "read write follow");
+        return token("fav_alice", "read write follow");
     }
 
     private String bob() throws Exception {
-        return token("bob", "read write follow");
+        return token("fav_bob", "read write follow");
     }
 
     private String carol() throws Exception {
-        return token("carol", "read write follow");
+        return token("fav_carol", "read write follow");
     }
 
     private String dave() throws Exception {
-        return token("dave", "read write follow");
+        return token("fav_dave", "read write follow");
     }
 
     /**
      * Only for the test that suspends the account, since its token stops working then.
      */
     private String erin() throws Exception {
-        return token("erin", "read write follow");
+        return token("fav_erin", "read write follow");
     }
 
     private String token(String username, String scope) throws Exception {

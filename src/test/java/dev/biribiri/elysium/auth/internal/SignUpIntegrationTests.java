@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://signups.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.registration.mode=open"
 })
 @AutoConfigureMockMvc
@@ -78,7 +78,7 @@ class SignUpIntegrationTests {
                 .andExpect(redirectedUrl("/login?error"));
 
         var message = mailer.sentTo("confirmer@mail.example").getLast();
-        assertThat(message.body()).contains("@confirmer", "https://signups.example/signup/verify?token=");
+        assertThat(message.body()).contains("@confirmer", "https://elysium.example/signup/verify?token=");
         var token = mailer.lastTokenSentTo("confirmer@mail.example");
 
         confirm(token).andExpect(redirectedUrl("/login?registered"));
@@ -198,7 +198,7 @@ class SignUpIntegrationTests {
     void pendingSignUpsArentSeenAnywhere() throws Exception {
         signUp("invisible", "invisible@mail.example").andExpect(status().isOk());
 
-        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:invisible@signups.example"))
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:invisible@elysium.example"))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/users/invisible")).andExpect(status().isNotFound());
     }

@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * The job is off here, so that tests run the cleanup themselves, as if it were later, rather than wait for statuses to age.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.jobs.worker-enabled=false")
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 @AutoConfigureMockMvc
 class PostCleanupIntegrationTests {
 

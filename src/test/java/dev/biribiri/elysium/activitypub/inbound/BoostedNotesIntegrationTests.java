@@ -49,7 +49,7 @@ import static org.mockito.Mockito.when;
  * server is a mock. Real servers are tested by the federation lab.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://remote-boosts.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class BoostedNotesIntegrationTests {
     private static final String PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 

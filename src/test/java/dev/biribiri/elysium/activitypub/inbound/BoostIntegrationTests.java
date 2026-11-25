@@ -2,6 +2,7 @@ package dev.biribiri.elysium.activitypub.inbound;
 
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.TestcontainersConfiguration;
+import dev.biribiri.elysium.TestEvents;
 import dev.biribiri.elysium.activitypub.outbound.BoostDeliveries;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -18,6 +19,7 @@ import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.notification.Notifier;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,7 +33,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -44,16 +45,17 @@ import java.util.stream.IntStream;
 
 import static dev.biribiri.elysium.content.Visibility.*;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.opaqueToken;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://boosts.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 @AutoConfigureMockMvc
 class BoostIntegrationTests {
+    private static Instant started;
+
     private static final String AP = "application/activity+json";
     private static final String PUBLIC_COLLECTION = "https://www.w3.org/ns/activitystreams#Public";
     private static final Set<String> SCOPES = Set.of(
@@ -537,8 +539,12 @@ class BoostIntegrationTests {
                 .param("id", post.id()).query(Long.class).single();
     }
 
+    @BeforeAll
+    static void rememberTheStart() {
+        started = Instant.now();
+    }
+
     private void settled() {
-        await().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql("SELECT count(*) FROM event_publication WHERE completion_date IS NULL")
-                .query(Long.class).single() == 0);
+        TestEvents.awaitHandled(jdbc, started);
     }
 }
