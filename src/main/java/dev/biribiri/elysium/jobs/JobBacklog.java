@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -51,13 +52,14 @@ class JobBacklog {
         PARKED
     }
 
-    private record Counts(Map<State, Long> byState, Duration oldestDue) {
+    record Counts(Map<State, Long> byState, Duration oldestDue) {
         static final Counts NONE = new Counts(Map.of(), Duration.ZERO);
     }
 
     private final JdbcClient jdbc;
-    private Map<String, Counts> counts = Map.of();
-    private Instant readAt = Instant.MIN;
+    private final ReentrantLock reading = new ReentrantLock();
+    private volatile Map<String, Counts> counts = Map.of();
+    private volatile Instant readAt = Instant.MIN;
 
     JobBacklog(JdbcClient jdbc, MeterRegistry meters, List<Task<?>> tasks) {
         this.jdbc = jdbc;
@@ -87,28 +89,36 @@ class JobBacklog {
 
     /**
      * A failed read keeps the last counts, so that a database outage shows as stale numbers and not as an empty queue.
+     * While one read waits, such as for a connection from a full pool, other gauges and scrapes take the last counts
+     * instead of queueing behind it, so that the rest of the metrics still arrive in time.
      */
-    private synchronized Map<String, Counts> current() {
-        var now = Instant.now();
-        if (readAt.plus(REFRESH).isAfter(now)) {
+    private Map<String, Counts> current() {
+        if (readAt.plus(REFRESH).isAfter(Instant.now()) || !reading.tryLock()) {
             return counts;
         }
-        readAt = now;
         try {
+            var now = Instant.now();
+            if (readAt.plus(REFRESH).isAfter(now)) {
+                return counts;
+            }
+            readAt = now;
             counts = read();
         } catch (DataAccessException e) {
             log.warn("Couldn't count queued jobs for metrics", e);
+        } finally {
+            reading.unlock();
         }
         return counts;
     }
 
-    private Map<String, Counts> read() {
+    Map<String, Counts> read() {
         return jdbc.sql("""
                         SELECT task_name, state, count(*) AS jobs, max(due_for) AS oldest_due
                         FROM (SELECT task_name,
                                      CASE WHEN picked THEN 'RUNNING'
                                           WHEN execution_time <= now() THEN 'DUE'
-                                          WHEN consecutive_failures = 0 THEN 'SCHEDULED'
+                                          -- db-scheduler leaves it null on a new job, until its first run.
+                                          WHEN coalesce(consecutive_failures, 0) = 0 THEN 'SCHEDULED'
                                           WHEN last_failure IS NOT NULL
                                                AND execution_time >= last_failure + make_interval(secs => :parkedAfter)
                                               THEN 'PARKED'
