@@ -37,7 +37,7 @@ class Ed25519KeyBackfillTests {
     }
 
     @Test
-    void givesExistingAccountsAndTheInstanceActorTheirOwnKeys() {
+    void givesExistingAccountsAndTheInstanceActorTheirOwnKeysAndThenRequiresOneOfNewAccounts() {
         flyway("67").migrate();
         var alice = insertAccount("alice");
         var bob = insertAccount("bob");
@@ -61,6 +61,16 @@ class Ed25519KeyBackfillTests {
                 .param("id", alice)
                 .query(String.class)
                 .single()).isEqualTo("rsa");
+
+        var carol = UUID.randomUUID();
+        insertActor(carol, "carol");
+        assertThatThrownBy(() -> jdbc.sql("""
+                        INSERT INTO %s.local_account (actor_id, private_key_pem) VALUES (:id, 'rsa')
+                        """.formatted(SCHEMA))
+                .param("id", carol)
+                .update())
+                .as("a new account without a key")
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
@@ -71,20 +81,6 @@ class Ed25519KeyBackfillTests {
 
         assertThat(jdbc.sql("SELECT count(*) FROM %s.instance_actor".formatted(SCHEMA)).query(Long.class).single())
                 .isZero();
-    }
-
-    @Test
-    void newAccountsNeedAKey() {
-        flyway("68").migrate();
-        var id = UUID.randomUUID();
-        insertActor(id, "carol");
-
-        assertThatThrownBy(() -> jdbc.sql("""
-                        INSERT INTO %s.local_account (actor_id, private_key_pem) VALUES (:id, 'rsa')
-                        """.formatted(SCHEMA))
-                .param("id", id)
-                .update())
-                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     private UUID insertAccount(String username) {

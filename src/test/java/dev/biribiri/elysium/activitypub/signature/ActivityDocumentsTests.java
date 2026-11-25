@@ -81,18 +81,11 @@ class ActivityDocumentsTests {
         assertThat(document.path("id").asString()).isEqualTo(NOTE.toString());
     }
 
+    /**
+     * The second fetch finds the wait already spent, so the lookup ends after one wait rather than two.
+     */
     @Test
-    void givesUpOnALookupAfterItsWaitRunsOut() throws Exception {
-        fillFetchSlots();
-        var started = Instant.now();
-
-        assertThatThrownBy(() -> ActivityDocuments.lookUp(() -> fetch(NOTE))).isInstanceOf(HostBusyException.class);
-        assertThat(Duration.between(started, Instant.now())).isGreaterThanOrEqualTo(ActivityDocuments.LOOKUP_WAIT);
-        verify(http, never()).get(any(), any());
-    }
-
-    @Test
-    void sharesALookupsWaitAcrossItsFetches() throws Exception {
+    void givesUpOnALookupAfterOneWaitSharedAcrossItsFetches() throws Exception {
         fillFetchSlots();
         var started = Instant.now();
 
@@ -101,7 +94,9 @@ class ActivityDocumentsTests {
             return fetch(NOTE);
         })).isInstanceOf(HostBusyException.class);
         assertThat(Duration.between(started, Instant.now()))
+                .isGreaterThanOrEqualTo(ActivityDocuments.LOOKUP_WAIT)
                 .isLessThan(ActivityDocuments.LOOKUP_WAIT.multipliedBy(2));
+        verify(http, never()).get(any(), any());
     }
 
     private void fillFetchSlots() {

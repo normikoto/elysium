@@ -40,7 +40,7 @@ class ActivityProofsIntegrationTests {
     }
 
     @Test
-    void signsWithTheActorsEd25519Key() throws Exception {
+    void signsWithTheActorsEd25519KeySoThatAnyChangeBreaksTheProof() throws Exception {
         var signed = sign(create(alice, "\"" + AS + "\""), alice.id());
 
         var proof = signed.get("proof");
@@ -50,7 +50,15 @@ class ActivityProofsIntegrationTests {
         assertThat(proof.get("verificationMethod").stringValue()).isEqualTo(alice.uri() + "#ed25519-key");
         assertThat(proof.get("created").stringValue()).matches("\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ");
         assertThat(proof.get("@context")).isEqualTo(signed.get("@context"));
-        assertThat(ProofVerifier.verifies(signed, publicKeyOf(alice))).isTrue();
+        assertThat(ProofVerifier.verifies(signed, publicKeyOf(alice))).as("as signed").isTrue();
+
+        var changed = signed.deepCopy();
+        changed.put("type", "Delete");
+        var otherContext = signed.deepCopy();
+        otherContext.set("@context", json.readTree("[\"" + AS + "\"]"));
+
+        assertThat(ProofVerifier.verifies(changed, publicKeyOf(alice))).as("with another type").isFalse();
+        assertThat(ProofVerifier.verifies(otherContext, publicKeyOf(alice))).as("with another context").isFalse();
     }
 
     @Test
@@ -67,19 +75,6 @@ class ActivityProofsIntegrationTests {
         var signed = sign(create(alice, "[\"" + AS + "\", \"" + ActivityProofs.DATA_INTEGRITY_CONTEXT + "\"]"), alice.id());
 
         assertThat(signed.get("@context").size()).isEqualTo(2);
-    }
-
-    @Test
-    void anyChangeBreaksTheProof() throws Exception {
-        var signed = sign(create(alice, "\"" + AS + "\""), alice.id());
-
-        var changed = signed.deepCopy();
-        changed.put("type", "Delete");
-        var otherContext = signed.deepCopy();
-        otherContext.set("@context", json.readTree("[\"" + AS + "\"]"));
-
-        assertThat(ProofVerifier.verifies(changed, publicKeyOf(alice))).isFalse();
-        assertThat(ProofVerifier.verifies(otherContext, publicKeyOf(alice))).isFalse();
     }
 
     @Test
