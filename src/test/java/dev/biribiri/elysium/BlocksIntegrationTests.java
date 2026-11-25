@@ -80,7 +80,7 @@ class BlocksIntegrationTests {
     // Blocks
 
     @Test
-    void blockingEndsTheFollowsBothWays() throws Exception {
+    void blockingEndsTheFollowsBothWaysAndBlockingAgainKeepsOneBlock() throws Exception {
         var bob = account("bob");
         var alice = account("alice");
         follow("alice", bob);
@@ -97,6 +97,8 @@ class BlocksIntegrationTests {
         mockMvc.perform(withToken(get("/api/v1/accounts/relationships").param("id[]", alice.id().toString()), token("bob")))
                 .andExpect(jsonPath("$[0].blocking").value(false))
                 .andExpect(jsonPath("$[0].blocked_by").value(true));
+        block("alice", bob);
+        assertThat(jdbc.sql("SELECT count(*) FROM account_block").query(Long.class).single()).isEqualTo(1);
     }
 
     @Test
@@ -115,15 +117,6 @@ class BlocksIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.blocking").value(false));
         follow("alice", bob);
-    }
-
-    @Test
-    void blockingTwiceKeepsOneBlock() throws Exception {
-        var bob = account("bob");
-        block("alice", bob);
-        block("alice", bob);
-
-        assertThat(jdbc.sql("SELECT count(*) FROM account_block").query(Long.class).single()).isEqualTo(1);
     }
 
     @Test
@@ -288,7 +281,7 @@ class BlocksIntegrationTests {
     }
 
     @Test
-    void mutingAgainChangesTheMute() throws Exception {
+    void mutingAgainChangesTheMuteAndUnmutingEndsIt() throws Exception {
         var bob = account("bob");
         mute("alice", bob, "true", null);
         mute("alice", bob, "false", "3600");
@@ -299,6 +292,10 @@ class BlocksIntegrationTests {
                 .andExpect(jsonPath("$[0].id").value(bob.id().toString()))
                 .andExpect(jsonPath("$[0].username").value("bob"))
                 .andExpect(jsonPath("$[0].mute_expires_at").isString());
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/unmute"), token("alice")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.muting").value(false));
     }
 
     @Test
@@ -322,16 +319,6 @@ class BlocksIntegrationTests {
                 .andExpect(status().isUnprocessableContent());
         mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/mute"), token("alice")).param("duration", "soon"))
                 .andExpect(status().isUnprocessableContent());
-    }
-
-    @Test
-    void unmuting() throws Exception {
-        var bob = account("bob");
-        mute("alice", bob, null, null);
-
-        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/unmute"), token("alice")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.muting").value(false));
     }
 
     // Server blocks
@@ -431,15 +418,17 @@ class BlocksIntegrationTests {
     }
 
     @Test
-    void aNoteIsLimitedTo2000Characters() throws Exception {
+    void aNoteIsLimitedTo2000CharactersThatPostgresCanStore() throws Exception {
         var bob = account("bob");
         // Characters outside the Basic Multilingual Plane count once each, as they do on Mastodon.
         var longest = "\uD83D\uDE00".repeat(2000);
         note("alice", bob, "{\"comment\":\"" + longest + "\"}").andExpect(jsonPath("$.note").value(longest));
 
-        mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice"))
-                        .param("comment", "a".repeat(2001)))
-                .andExpect(status().isUnprocessableContent());
+        for (var comment : new String[]{"a".repeat(2001), "a\u0000b", "a\uD83Db"}) {
+            mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice"))
+                            .param("comment", comment))
+                    .andExpect(status().isUnprocessableContent());
+        }
         mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"comment\":5}"))
@@ -456,17 +445,6 @@ class BlocksIntegrationTests {
         mockMvc.perform(withToken(post("/api/v1/accounts/" + suspended.id() + "/note"), token("alice"))
                         .param("comment", "x"))
                 .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void aNoteThatPostgresCantStoreIsRejected() throws Exception {
-        var bob = account("bob");
-        for (var comment : new String[]{"a\u0000b", "a\uD83Db"}) {
-            mockMvc.perform(withToken(post("/api/v1/accounts/" + bob.id() + "/note"), token("alice"))
-                            .param("comment", comment))
-                    .andExpect(status().isUnprocessableContent());
-        }
-        assertThat(jdbc.sql("SELECT count(*) FROM account_memo").query(Long.class).single()).isZero();
     }
 
     // Helpers

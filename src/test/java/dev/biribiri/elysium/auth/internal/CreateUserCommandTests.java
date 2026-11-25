@@ -52,20 +52,14 @@ class CreateUserCommandTests {
     }
 
     @Test
-    void createsAnAccountThatCanLogIn() {
+    void createsAnAccountThatCanLogInWithoutPrintingThePassword() {
         assertThat(run(() -> PASSWORD, "created")).isZero();
+        assertThat(run(() -> PASSWORD, "created")).isOne();
 
         assertThat(out.toString()).contains("Created account created");
         var hash = accounts.loadUserByUsername("created").getPassword();
         assertThat(hash).startsWith("{argon2id}$argon2id$");
         assertThat(passwordEncoder.matches(PASSWORD, hash)).isTrue();
-    }
-
-    @Test
-    void doesNotPrintThePassword() {
-        run(() -> PASSWORD, "quiet");
-        run(() -> PASSWORD, "quiet");
-
         assertThat(out.toString()).doesNotContain(PASSWORD);
         assertThat(err.toString()).doesNotContain(PASSWORD);
     }

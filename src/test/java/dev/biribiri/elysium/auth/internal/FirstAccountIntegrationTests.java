@@ -130,15 +130,11 @@ class FirstAccountIntegrationTests {
     // The sign-up page
 
     @Test
-    void theSignUpPageExplainsThatItIsUnavailable() throws Exception {
+    void theSignUpPageExplainsThatItIsUnavailableAndRefusesToCreateTheFirstAccount() throws Exception {
         mockMvc.perform(get("/signup"))
                 .andExpect(status().isForbidden())
                 .andExpect(content().string(containsString("isn't accepting sign-ups yet")))
                 .andExpect(content().string(not(containsString("<form"))));
-    }
-
-    @Test
-    void theSignUpPageRefusesToCreateTheFirstAccount() throws Exception {
         signUp("stranger")
                 .andExpect(status().isForbidden())
                 .andExpect(content().string(containsString("isn't accepting sign-ups yet")))

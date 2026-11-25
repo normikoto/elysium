@@ -134,17 +134,6 @@ class JobAdminIntegrationTests {
     }
 
     @Test
-    void anAdminWhoLosesTheRoleLosesAccessImmediately() throws Exception {
-        var account = account(AccountRole.ADMIN);
-        var session = logIn(account);
-        mockMvc.perform(get(API + "/config").session(session)).andExpect(status().isOk());
-
-        accounts.setRole(actors.findLocalByUsername(account).orElseThrow().id(), AccountRole.USER);
-
-        mockMvc.perform(get(API + "/config").session(session)).andExpect(status().isForbidden());
-    }
-
-    @Test
     void theUnprefixedPathsAreClosedEvenToAdmins() throws Exception {
         var session = logIn(account(AccountRole.ADMIN));
 

@@ -3,6 +3,7 @@ package dev.biribiri.elysium;
 import com.jayway.jsonpath.JsonPath;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
+import dev.biribiri.elysium.actor.Profile;
 import dev.biribiri.elysium.actor.ProfileChange;
 import dev.biribiri.elysium.actor.ProfileService;
 import dev.biribiri.elysium.actor.ProfileUpdated;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -354,54 +356,27 @@ class ProfileIntegrationTests {
     }
 
     @Test
-    void theSettingsPageMarksTheAccountAsABotOrACat() throws Exception {
+    void theSettingsPageTurnsEachSwitchOnAndOff() throws Exception {
         var session = TestOAuth.logIn(mockMvc, "alice", PASSWORD);
-        mockMvc.perform(get("/settings").session(session))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("name=\"bot\"")))
-                .andExpect(content().string(containsString("name=\"cat\"")));
+        Map<String, Function<Profile, Boolean>> switches = Map.of(
+                "bot", Profile::bot,
+                "cat", Profile::cat,
+                "indexable", Profile::indexable,
+                "discoverable", Profile::discoverable);
 
-        mockMvc.perform(post("/settings").session(session).with(csrf()).param("bot", "true").param("cat", "true"))
-                .andExpect(redirectedUrl("/settings?saved"));
-        assertThat(profiles.find(account("alice").id()).bot()).isTrue();
-        assertThat(profiles.find(account("alice").id()).cat()).isTrue();
+        for (var entry : switches.entrySet()) {
+            mockMvc.perform(get("/settings").session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(containsString("name=\"" + entry.getKey() + "\"")));
 
-        mockMvc.perform(post("/settings").session(session).with(csrf()))
-                .andExpect(redirectedUrl("/settings?saved"));
-        assertThat(profiles.find(account("alice").id()).bot()).isFalse();
-        assertThat(profiles.find(account("alice").id()).cat()).isFalse();
-    }
+            mockMvc.perform(post("/settings").session(session).with(csrf()).param(entry.getKey(), "true"))
+                    .andExpect(redirectedUrl("/settings?saved"));
+            assertThat(entry.getValue().apply(profiles.find(account("alice").id()))).as(entry.getKey()).isTrue();
 
-    @Test
-    void theSettingsPageChangesWhetherTheAccountIsIndexable() throws Exception {
-        var session = TestOAuth.logIn(mockMvc, "alice", PASSWORD);
-        mockMvc.perform(get("/settings").session(session))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("name=\"indexable\"")));
-
-        mockMvc.perform(post("/settings").session(session).with(csrf()).param("indexable", "true"))
-                .andExpect(redirectedUrl("/settings?saved"));
-        assertThat(profiles.find(account("alice").id()).indexable()).isTrue();
-
-        mockMvc.perform(post("/settings").session(session).with(csrf()))
-                .andExpect(redirectedUrl("/settings?saved"));
-        assertThat(profiles.find(account("alice").id()).indexable()).isFalse();
-    }
-
-    @Test
-    void theSettingsPageChangesWhetherTheAccountIsInTheDirectory() throws Exception {
-        var session = TestOAuth.logIn(mockMvc, "alice", PASSWORD);
-        mockMvc.perform(get("/settings").session(session))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("name=\"discoverable\"")));
-
-        mockMvc.perform(post("/settings").session(session).with(csrf()).param("discoverable", "true"))
-                .andExpect(redirectedUrl("/settings?saved"));
-        assertThat(profiles.find(account("alice").id()).discoverable()).isTrue();
-
-        mockMvc.perform(post("/settings").session(session).with(csrf()))
-                .andExpect(redirectedUrl("/settings?saved"));
-        assertThat(profiles.find(account("alice").id()).discoverable()).isFalse();
+            mockMvc.perform(post("/settings").session(session).with(csrf()))
+                    .andExpect(redirectedUrl("/settings?saved"));
+            assertThat(entry.getValue().apply(profiles.find(account("alice").id()))).as(entry.getKey()).isFalse();
+        }
     }
 
     @Test
@@ -488,14 +463,6 @@ class ProfileIntegrationTests {
     }
 
     @Test
-    void refusesABackgroundOverTheLimit() throws Exception {
-        mockMvc.perform(withToken(multipart(HttpMethod.PATCH, UPDATE)
-                        .file(new MockMultipartFile("pleroma_background_image", "b.png", "image/png", new byte[300 * 1024]))))
-                .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.error").value(containsString("Background")));
-    }
-
-    @Test
     void removingAProfileRemovesItsBackground() throws Exception {
         var erin = account("erin");
         profiles.update(erin.id(), ProfileChange.NONE.withBackground(ProfileChange.Image.upload(TestImages.png(20, 20))));
@@ -539,11 +506,15 @@ class ProfileIntegrationTests {
      * Tomcat refuses a file over the limit before it's read, which MockMvc doesn't, so this is the check after it's read.
      */
     @Test
-    void refusesAnImageOverTheLimit() throws Exception {
+    void refusesAnImageOrABackgroundOverTheLimit() throws Exception {
         mockMvc.perform(withToken(multipart(HttpMethod.PATCH, UPDATE)
                         .file(new MockMultipartFile("header", "h.png", "image/png", new byte[300 * 1024]))))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.error").value(containsString("larger than")));
+        mockMvc.perform(withToken(multipart(HttpMethod.PATCH, UPDATE)
+                        .file(new MockMultipartFile("pleroma_background_image", "b.png", "image/png", new byte[300 * 1024]))))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error").value(containsString("Background")));
     }
 
     @Test

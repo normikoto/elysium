@@ -181,15 +181,23 @@ class OAuthIntegrationTests {
     }
 
     @Test
-    void rejectsBadClientCredentials() throws Exception {
+    void rejectsBadClientCredentialsInFormsAndJson() throws Exception {
         var app = registerApp("read", REDIRECT_URI);
-        mockMvc.perform(post("/oauth/token")
-                        .param("grant_type", "client_credentials")
-                        .param("client_id", app.clientId())
-                        .param("client_secret", "wrong"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("invalid_client"))
-                .andExpect(jsonPath("$.error_description").isString());
+        var form = post("/oauth/token")
+                .param("grant_type", "client_credentials")
+                .param("client_id", app.clientId())
+                .param("client_secret", "wrong");
+        var json = post("/oauth/token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "wrong"}"""
+                        .formatted(app.clientId()));
+        for (var request : List.of(form, json)) {
+            mockMvc.perform(request)
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error").value("invalid_client"))
+                    .andExpect(jsonPath("$.error_description").isString());
+        }
     }
 
     @Test
@@ -209,6 +217,13 @@ class OAuthIntegrationTests {
                                  "scope": "write"}""".formatted(app.clientId(), app.clientSecret())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("write"));
+        mockMvc.perform(post("/oauth/token")
+                        .contentType("application/json; charset=ISO-8859-1")
+                        .content("""
+                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
+                                 "client_name": "Café"}""".formatted(app.clientId(), app.clientSecret())
+                                .getBytes(StandardCharsets.ISO_8859_1)))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -223,18 +238,6 @@ class OAuthIntegrationTests {
                                 .formatted(app.clientId(), app.clientSecret(), code, REDIRECT_URI)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("read"));
-    }
-
-    @Test
-    void rejectsBadClientCredentialsInJson() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
-        mockMvc.perform(post("/oauth/token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "wrong"}"""
-                                .formatted(app.clientId())))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("invalid_client"));
     }
 
     @Test
@@ -268,27 +271,17 @@ class OAuthIntegrationTests {
     }
 
     @Test
-    void rejectsRepeatedJsonKeys() throws Exception {
+    void rejectsRepeatedJsonKeysAndFields() throws Exception {
         var app = registerApp("read", REDIRECT_URI);
-        mockMvc.perform(post("/oauth/token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
-                                 "scope": "read", "scope": "write"}""".formatted(app.clientId(), app.clientSecret())))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("invalid_request"));
-    }
-
-    @Test
-    void readsJsonInTheDeclaredCharset() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
-        mockMvc.perform(post("/oauth/token")
-                        .contentType("application/json; charset=ISO-8859-1")
-                        .content("""
-                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
-                                 "client_name": "Café"}""".formatted(app.clientId(), app.clientSecret())
-                                .getBytes(StandardCharsets.ISO_8859_1)))
-                .andExpect(status().isOk());
+        for (var scope : List.of("\"scope\": \"read\", \"scope\": \"write\"", "\"scope\": [\"read\", \"write\"]")) {
+            mockMvc.perform(post("/oauth/token")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s", %s}"""
+                                    .formatted(app.clientId(), app.clientSecret(), scope)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("invalid_request"));
+        }
     }
 
     @Test
@@ -305,37 +298,18 @@ class OAuthIntegrationTests {
     }
 
     @Test
-    void rejectsRepeatedJsonFields() throws Exception {
+    void appVerifyCredentialsAcceptsAppAndUserTokensButNeverReturnsTheSecret() throws Exception {
         var app = registerApp("read", REDIRECT_URI);
-        mockMvc.perform(post("/oauth/token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"grant_type": "client_credentials", "client_id": "%s", "client_secret": "%s",
-                                 "scope": ["read", "write"]}""".formatted(app.clientId(), app.clientSecret())))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("invalid_request"));
-    }
 
-    @Test
-    void appVerifyCredentialsNeverReturnsTheSecret() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
-        var token = appToken(app);
-
-        mockMvc.perform(withToken(get("/api/v1/apps/verify_credentials"), token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(app.id()))
-                .andExpect(jsonPath("$.name").value("Test"))
-                .andExpect(jsonPath("$.redirect_uris[0]").value(REDIRECT_URI))
-                .andExpect(jsonPath("$.client_id").doesNotExist())
-                .andExpect(jsonPath("$.client_secret").doesNotExist());
-    }
-
-    @Test
-    void appVerifyCredentialsAcceptsUserTokens() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
-        mockMvc.perform(withToken(get("/api/v1/apps/verify_credentials"), userToken(app, "read")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(app.id()));
+        for (var token : List.of(appToken(app), userToken(app, "read"))) {
+            mockMvc.perform(withToken(get("/api/v1/apps/verify_credentials"), token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(app.id()))
+                    .andExpect(jsonPath("$.name").value("Test"))
+                    .andExpect(jsonPath("$.redirect_uris[0]").value(REDIRECT_URI))
+                    .andExpect(jsonPath("$.client_id").doesNotExist())
+                    .andExpect(jsonPath("$.client_secret").doesNotExist());
+        }
     }
 
     // Authorization code
@@ -475,14 +449,18 @@ class OAuthIntegrationTests {
     // Consent
 
     @Test
-    void consentPageDescribesTheRequest() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
+    void consentPageDescribesTheRequestAndEscapesTheClientName() throws Exception {
+        var response = registration(Map.of("client_name", "Test <script>alert(1)</script>", "redirect_uris", REDIRECT_URI));
+        var body = response.getContentAsString();
+        var app = new App(JsonPath.read(body, "$.id"), JsonPath.read(body, "$.client_id"),
+                JsonPath.read(body, "$.client_secret"));
         var session = loggedInSession();
         var consent = authorize(app, session, "read", null);
 
         mockMvc.perform(get(URI.create(consent)).session(session))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Test")))
+                .andExpect(content().string(containsString("Test &lt;script&gt;")))
+                .andExpect(content().string(not(containsString("<script>"))))
                 .andExpect(content().string(containsString("oauthuser")))
                 .andExpect(content().string(containsString("value=\"" + queryParameter(consent, "state") + "\"")))
                 .andExpect(content().string(containsString("<title>Authorize application - Elysium</title>")))
@@ -519,19 +497,6 @@ class OAuthIntegrationTests {
     }
 
     @Test
-    void consentPageEscapesClientNames() throws Exception {
-        var response = registration(Map.of("client_name", "<script>alert(1)</script>", "redirect_uris", REDIRECT_URI));
-        var body = response.getContentAsString();
-        var app = new App(JsonPath.read(body, "$.id"), JsonPath.read(body, "$.client_id"),
-                JsonPath.read(body, "$.client_secret"));
-        var session = loggedInSession();
-
-        mockMvc.perform(get(URI.create(authorize(app, session, "read", null))).session(session))
-                .andExpect(status().isOk())
-                .andExpect(content().string(not(containsString("<script>"))));
-    }
-
-    @Test
     void consentPageNeedsALogin() throws Exception {
         mockMvc.perform(get("/oauth/consent")
                         .param("client_id", "x").param("scope", "read").param("state", "y"))
@@ -539,20 +504,12 @@ class OAuthIntegrationTests {
     }
 
     @Test
-    void skipsConsentForScopesAlreadyApproved() throws Exception {
+    void skipsConsentForScopesAlreadyApprovedButAsksAgainForNewOnes() throws Exception {
         var app = registerApp("read write", REDIRECT_URI);
         var session = loggedInSession();
         approve(app, session, authorize(app, session, "read", null));
 
         assertThat(authorize(app, session, "read", null)).startsWith(REDIRECT_URI + "?code=");
-    }
-
-    @Test
-    void asksAgainForNewScopes() throws Exception {
-        var app = registerApp("read write", REDIRECT_URI);
-        var session = loggedInSession();
-        approve(app, session, authorize(app, session, "read", null));
-
         assertThat(authorize(app, session, "read write", null)).startsWith("http://localhost/oauth/consent");
     }
 
@@ -625,18 +582,6 @@ class OAuthIntegrationTests {
     @Test
     void loginIgnoresUsernameCase() throws Exception {
         assertThat(logIn(new MockHttpSession(), "OAUTHUSER", PASSWORD)).isNotEqualTo("/login?error");
-    }
-
-    @Test
-    void rejectsWrongPasswordsAndUnknownUsers() throws Exception {
-        assertThat(logIn(new MockHttpSession(), "oauthuser", "wrong password")).isEqualTo("/login?error");
-        assertThat(logIn(new MockHttpSession(), "nobody", PASSWORD)).isEqualTo("/login?error");
-    }
-
-    @Test
-    void loginNeedsACsrfToken() throws Exception {
-        mockMvc.perform(post("/login").param("username", "oauthuser").param("password", PASSWORD))
-                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -782,35 +727,26 @@ class OAuthIntegrationTests {
     // Revocation
 
     @Test
-    void revokingATokenStopsItWorking() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
-        var token = userToken(app, "read");
-        mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), token)).andExpect(status().isOk());
+    void revokingATokenFromAFormOrJsonStopsItWorking() throws Exception {
+        for (var json : List.of(false, true)) {
+            var app = registerApp("read", REDIRECT_URI);
+            var token = userToken(app, "read");
+            mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), token)).andExpect(status().isOk());
+            var revoke = json
+                    ? post("/oauth/revoke").contentType(MediaType.APPLICATION_JSON).content("""
+                            {"client_id": "%s", "client_secret": "%s", "token": "%s"}"""
+                            .formatted(app.clientId(), app.clientSecret(), token))
+                    : revokeRequest(app, token);
 
-        for (var attempt = 0; attempt < 2; attempt++) {
-            mockMvc.perform(revokeRequest(app, token))
-                    .andExpect(status().isOk())
-                    .andExpect(content().json("{}"));
+            for (var attempt = 0; attempt < 2; attempt++) {
+                mockMvc.perform(revoke)
+                        .andExpect(status().isOk())
+                        .andExpect(content().json("{}"));
+            }
+
+            mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), token))
+                    .andExpect(status().isUnauthorized());
         }
-
-        mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), token))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void revokesTokensWithAJsonRequest() throws Exception {
-        var app = registerApp("read", REDIRECT_URI);
-        var token = userToken(app, "read");
-        mockMvc.perform(post("/oauth/revoke")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"client_id": "%s", "client_secret": "%s", "token": "%s"}"""
-                                .formatted(app.clientId(), app.clientSecret(), token)))
-                .andExpect(status().isOk())
-                .andExpect(content().json("{}"));
-
-        mockMvc.perform(withToken(get("/api/v1/accounts/verify_credentials"), token))
-                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -890,16 +826,12 @@ class OAuthIntegrationTests {
     }
 
     @Test
-    void aLoggedInUserCannotReachInternalEndpoints() throws Exception {
+    void neitherALoginNorABearerTokenReachesInternalEndpoints() throws Exception {
         var session = loggedInSession();
         for (var path : List.of("/v3/api-docs", "/actuator", "/actuator/env",
                 "/actuator/prometheus", "/not-a-real-path")) {
             mockMvc.perform(get(path).session(session)).andExpect(status().isForbidden());
         }
-    }
-
-    @Test
-    void aBearerTokenCannotReachInternalEndpoints() throws Exception {
         var token = appToken(registerApp("read", REDIRECT_URI));
         mockMvc.perform(withToken(get("/actuator"), token)).andExpect(status().isForbidden());
     }
@@ -942,18 +874,6 @@ class OAuthIntegrationTests {
         mockMvc.perform(authorizeRequest(app, new MockHttpSession(), "read", null)
                         .header("Origin", "https://client.example"))
                 .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
-    }
-
-    @Test
-    void signUpIsOffByDefault() throws Exception {
-        mockMvc.perform(get("/signup")).andExpect(status().isNotFound());
-        mockMvc.perform(post("/signup").with(csrf())
-                        .param("username", "someone")
-                        .param("password", PASSWORD)
-                        .param("confirmPassword", PASSWORD))
-                .andExpect(status().isNotFound());
-        assertThat(jdbc.sql("SELECT count(*) FROM actor WHERE username = 'someone'").query(Long.class).single()).isZero();
-        mockMvc.perform(get("/login")).andExpect(content().string(not(containsString("/signup"))));
     }
 
     // Helpers

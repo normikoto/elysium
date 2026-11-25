@@ -45,25 +45,19 @@ class SetRoleCommandTests {
     }
 
     @Test
-    void givesAndRemovesTheRole() {
+    void givesAndRemovesTheRoleFindingBothRegardlessOfCase() {
         var actorId = account("promoted");
 
-        assertThat(run("promoted", "admin")).isZero();
-        assertThat(out.toString()).contains("promoted is now an admin");
+        assertThat(run("Promoted", "ADMIN")).isZero();
+        assertThat(out.toString()).contains("Promoted is now an admin")
+                .doesNotContain("lost their access")
+                .doesNotContain("reset-password");
         assertThat(accounts.isAdmin(actorId)).isTrue();
 
         assertThat(run("promoted", "user")).isZero();
-        assertThat(out.toString()).contains("promoted is now a regular user");
+        assertThat(out.toString()).contains("promoted is now a regular user")
+                .contains("run reset-password before giving it back");
         assertThat(accounts.isAdmin(actorId)).isFalse();
-    }
-
-    @Test
-    void findsTheAccountAndRoleRegardlessOfCase() {
-        var actorId = account("mixedrole");
-
-        assertThat(run("MixedRole", "ADMIN")).isZero();
-
-        assertThat(accounts.isAdmin(actorId)).isTrue();
     }
 
     @Test
@@ -102,15 +96,6 @@ class SetRoleCommandTests {
     }
 
     @Test
-    void doesNotMentionAppsWhenNoneLostAccess() {
-        account("noapps");
-
-        assertThat(run("noapps", "admin")).isZero();
-
-        assertThat(out.toString()).doesNotContain("lost their access");
-    }
-
-    @Test
     void warnsWhenNoAdminsRemain() {
         jdbc.sql("UPDATE account_credential SET role = 'USER'").update();
         account("lastadmin");
@@ -133,25 +118,10 @@ class SetRoleCommandTests {
     }
 
     @Test
-    void warnsThatSessionsSurviveRemovingTheRole() {
-        account("sessions");
-
-        assertThat(run("sessions", "admin")).isZero();
-        assertThat(out.toString()).doesNotContain("reset-password");
-
-        assertThat(run("sessions", "user")).isZero();
-        assertThat(out.toString()).contains("run reset-password before giving it back");
-    }
-
-    @Test
-    void refusesAnUnknownUsername() {
+    void refusesAnUnknownUsernameOrANonLocalActor() {
         assertThat(run("nobody", "admin")).isOne();
+        assertThat(err.toString()).contains("no local account named nobody");
 
-        assertThat(err.toString()).contains("no local account");
-    }
-
-    @Test
-    void refusesANonLocalActor() {
         var uri = instance.resolve("/users/remote").toString();
         jdbc.sql("""
                         INSERT INTO actor (id, uri, username, domain, inbox_uri, outbox_uri, public_key_pem)
@@ -163,8 +133,7 @@ class SetRoleCommandTests {
                 .update();
 
         assertThat(run("remote", "admin")).isOne();
-
-        assertThat(err.toString()).contains("no local account");
+        assertThat(err.toString()).contains("no local account named remote");
     }
 
     @Test

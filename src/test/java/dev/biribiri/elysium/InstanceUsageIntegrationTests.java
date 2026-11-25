@@ -15,7 +15,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.DayOfWeek;
@@ -27,8 +26,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
-import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -58,7 +55,7 @@ class InstanceUsageIntegrationTests {
     private ActorService actors;
     @Autowired
     private StatusService statuses;
-    @MockitoSpyBean
+    @Autowired
     private ActiveAccounts activeAccounts;
 
     private static String token;
@@ -68,12 +65,7 @@ class InstanceUsageIntegrationTests {
     void setUp() throws Exception {
         TestAccounts.makeSureAnAccountExists(actors);
         if (actors.findLocalByUsername(USER).isEmpty()) {
-            mockMvc.perform(post("/signup").with(csrf())
-                            .param("invite", TestAccounts.invite(jdbc))
-                            .param("username", USER)
-                            .param("password", PASSWORD)
-                            .param("confirmPassword", PASSWORD))
-                    .andExpect(status().is3xxRedirection());
+            signUp(USER);
         }
         userId = actors.findLocalByUsername(USER).orElseThrow().id();
         if (token == null) {
@@ -81,24 +73,23 @@ class InstanceUsageIntegrationTests {
         }
     }
 
+    /**
+     * A new account, since the shared one may already have been recorded today, and recording remembers that.
+     */
     @Test
-    void anAppUsingATokenCountsAsTheAccountsUse() throws Exception {
-        clearInvocations(activeAccounts);
+    void anAppUsingATokenRecordsTheAccountsUseOnceADay() throws Exception {
+        var username = "usagenew" + suffix();
+        signUp(username);
+        var id = actors.findLocalByUsername(username).orElseThrow().id();
+        var newToken = TestOAuth.userToken(mockMvc, username, PASSWORD, "read");
 
-        useTheApi();
-
-        verify(activeAccounts).recordUse(userId);
-    }
-
-    @Test
-    void anAccountIsRecordedOnceADay() throws Exception {
-        useTheApi();
-        useTheApi();
+        useTheApi(newToken);
+        useTheApi(newToken);
 
         assertThat(jdbc.sql("SELECT count(*) FROM account_use_day WHERE actor_id = :id")
-                .param("id", userId).query(Long.class).single()).isOne();
+                .param("id", id).query(Long.class).single()).isOne();
         assertThat(jdbc.sql("SELECT day FROM account_use_day WHERE actor_id = :id")
-                .param("id", userId).query(LocalDate.class).single()).isEqualTo(LocalDate.now(ZoneOffset.UTC));
+                .param("id", id).query(LocalDate.class).single()).isEqualTo(LocalDate.now(ZoneOffset.UTC));
     }
 
     /**
@@ -174,7 +165,20 @@ class InstanceUsageIntegrationTests {
         assertThat(values).allMatch(value -> value instanceof String text && text.matches("\\d+"));
     }
 
+    private void signUp(String username) throws Exception {
+        mockMvc.perform(post("/signup").with(csrf())
+                        .param("invite", TestAccounts.invite(jdbc))
+                        .param("username", username)
+                        .param("password", PASSWORD)
+                        .param("confirmPassword", PASSWORD))
+                .andExpect(status().is3xxRedirection());
+    }
+
     private void useTheApi() throws Exception {
+        useTheApi(token);
+    }
+
+    private void useTheApi(String token) throws Exception {
         mockMvc.perform(get("/api/v1/accounts/verify_credentials").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk());
     }

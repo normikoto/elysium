@@ -79,6 +79,12 @@ class InviteIntegrationTests {
     void signUpsWithoutAnInviteAreClosed() throws Exception {
         mockMvc.perform(get("/signup")).andExpect(status().isNotFound());
         mockMvc.perform(get("/signup/verify").param("token", "anything")).andExpect(status().isNotFound());
+        mockMvc.perform(post("/signup").with(csrf())
+                        .param("username", "uninvited")
+                        .param("password", PASSWORD)
+                        .param("confirmPassword", PASSWORD))
+                .andExpect(status().isNotFound());
+        assertThat(actors.findAnyLocalByUsername("uninvited")).isEmpty();
         mockMvc.perform(get("/login")).andExpect(content().string(not(containsString("/signup"))));
         mockMvc.perform(get("/api/v1/instance"))
                 .andExpect(jsonPath("$.registrations").value(false))
