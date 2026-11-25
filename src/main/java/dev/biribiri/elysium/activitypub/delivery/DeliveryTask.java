@@ -216,8 +216,13 @@ class DeliveryTask {
         try {
             response = sender.post(inbox, activity.body().getBytes(StandardCharsets.UTF_8), key);
         } catch (IllegalArgumentException e) {
+            recordRequest("invalid_inbox", started);
             throw new PermanentJobFailure("The inbox URL can't be signed", e);
+        } catch (RuntimeException e) {
+            recordRequest("error", started);
+            throw e;
         } catch (BlockedTargetException e) {
+            recordRequest("not_allowed", started);
             if (blocks.isBlocked(host)) {
                 // Blocked since this job's check, so this finishes as it would have then.
                 return;

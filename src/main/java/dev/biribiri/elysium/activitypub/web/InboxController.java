@@ -113,7 +113,7 @@ class InboxController {
         if (actor.get().isDeleted()) {
             return ResponseEntity.status(HttpStatus.GONE).build();
         }
-        return receive(request);
+        return counted(request);
     }
 
     @PostMapping(path = "/inbox", consumes = {ACTIVITY_JSON, ANY_LD_JSON})
@@ -122,7 +122,7 @@ class InboxController {
             summary = "Deliver an activity to the shared inbox",
             description = "Actor documents advertise this URL as `endpoints.sharedInbox`.\n\n" + FederationDocs.INBOX)
     ResponseEntity<Void> sharedInbox(HttpServletRequest request) throws IOException {
-        return receive(request);
+        return counted(request);
     }
 
     @PostMapping(path = InstanceActor.PATH + "/inbox", consumes = {ACTIVITY_JSON, ANY_LD_JSON})
@@ -131,26 +131,43 @@ class InboxController {
             summary = "Deliver an activity to the instance actor's inbox",
             description = FederationDocs.INBOX)
     ResponseEntity<Void> instanceActorInbox(HttpServletRequest request) throws IOException {
-        return receive(request);
+        return counted(request);
     }
 
-    private ResponseEntity<Void> receive(HttpServletRequest request) throws IOException {
+    /**
+     * Counts each request once, by what became of it. One that fails with an exception is counted as {@code error}, since
+     * the sender gets a 500 rather than any of the answers described here.
+     */
+    private ResponseEntity<Void> counted(HttpServletRequest request) throws IOException {
+        Answer answer;
+        try {
+            answer = receive(request);
+        } catch (IOException | RuntimeException e) {
+            count("error");
+            throw e;
+        }
+        count(answer.outcome());
+        return answer.response();
+    }
+
+    private record Answer(String outcome, ResponseEntity<Void> response) {
+    }
+
+    private Answer receive(HttpServletRequest request) throws IOException {
         var address = clients.keyFor(request);
         // Behind a proxy that hides its clients' addresses, one sender could otherwise stop every server delivering.
         var countRefusals = !clients.seemsToBeAProxy(request);
         if (countRefusals && refusals.isOverLimit(address)) {
-            count("too_many_refused");
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            return new Answer("too_many_refused", ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                     .header(HttpHeaders.RETRY_AFTER, refusals.retryAfter(address))
-                    .build();
+                    .build());
         }
         var body = readBody(request);
         if (body == null) {
             if (countRefusals) {
                 refusals.countTooLarge(address);
             }
-            count("too_large");
-            return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
+            return new Answer("too_large", ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build());
         }
 
         // Called with no transaction open, because this can wait on another server.
@@ -165,7 +182,6 @@ class InboxController {
                 return respond(unverified.get());
             }
             log.debug("Refusing a delivery: {}", e.getMessage());
-            count("signature_" + e.failure().name().toLowerCase(Locale.ROOT));
             if (countRefusals) {
                 refusals.count(address, e.failure());
             }
@@ -173,20 +189,19 @@ class InboxController {
             if (e.failure() == Failure.FETCH_BUDGET_SPENT) {
                 response.header(HttpHeaders.RETRY_AFTER, budgets.retryAfter(address));
             }
-            return response.build();
+            return new Answer("signature_" + e.failure().name().toLowerCase(Locale.ROOT), response.build());
         }
     }
 
-    private ResponseEntity<Void> respond(Inbox.Result result) {
-        count(result.outcome().name().toLowerCase(Locale.ROOT));
-        return switch (result.outcome()) {
+    private static Answer respond(Inbox.Result result) {
+        return new Answer(result.outcome().name().toLowerCase(Locale.ROOT), switch (result.outcome()) {
             case ACCEPTED, FORWARDED, IGNORED -> ResponseEntity.accepted().build();
             case INVALID -> ResponseEntity.badRequest().build();
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             case RATE_LIMITED -> ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                     .header(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(result.retryAfter()))
                     .build();
-        };
+        });
     }
 
     /**

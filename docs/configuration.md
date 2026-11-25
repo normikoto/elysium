@@ -197,9 +197,10 @@ Besides the usual metrics for the JVM, HTTP requests, and database connections, 
 
 - `elysium_federation_deliveries_seconds` times each attempt to deliver an activity to another server, by `outcome`:
   `delivered`, `refused` for an answer that won't change, `retryable` for an error or a busy server, `unreachable`,
-  `too_large`, or `no_connection` when all of Elysium's own connections were in use.
+  `too_large`, `no_connection` when all of Elysium's own connections were in use, `not_allowed` for an inbox on a
+  private network or a blocked server, `invalid_inbox`, or `error`.
 - `elysium_federation_inbox_requests_total` counts deliveries from other servers by `outcome`, such as `accepted`,
-  `rate_limited`, or `signature_rejected`.
+  `rate_limited`, `signature_rejected`, or `error` for one that failed with a 500.
 - `elysium_jobs_queued` counts background jobs by `task` and `state`: `due` is waiting for a worker, and a steady rise
   means the server is falling behind. `parked` jobs were given up on, and can be looked at in `/admin/db-scheduler`.
 - `elysium_jobs_oldest_due_seconds` is how late the most overdue job of each task is.
