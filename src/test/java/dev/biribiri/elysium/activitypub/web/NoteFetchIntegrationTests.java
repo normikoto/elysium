@@ -51,11 +51,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * gives this class its own context, so that its fetch limits aren't shared, and each request comes from its own address.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://notes.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class NoteFetchIntegrationTests {
 
-    private static final String BASE = "https://notes.example";
+    private static final String BASE = "https://elysium.example";
     private static final String ACTIVITY_JSON = "application/activity+json";
     private static final String FEATURED = "/users/alice/collections/featured";
     private static final AtomicInteger nextAddress = new AtomicInteger();

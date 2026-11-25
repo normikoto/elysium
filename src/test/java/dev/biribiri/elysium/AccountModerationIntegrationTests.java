@@ -55,7 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://moderation.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -376,12 +376,12 @@ class AccountModerationIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.suspended").value(true))
                 .andExpect(jsonPath("$.publicKey.publicKeyPem").isString())
-                .andExpect(jsonPath("$.endpoints.sharedInbox").value("https://moderation.example/inbox"))
+                .andExpect(jsonPath("$.endpoints.sharedInbox").value("https://elysium.example/inbox"))
                 .andExpect(jsonPath("$['@context'][2].suspended").value("toot:suspended"));
         mockMvc.perform(get(path + "/statuses/" + status.id()).accept(ACTIVITY_JSON)).andExpect(status().isForbidden());
         mockMvc.perform(get(path + "/followers").accept(ACTIVITY_JSON)).andExpect(status().isForbidden());
         mockMvc.perform(get(path + "/outbox").accept(ACTIVITY_JSON)).andExpect(status().isForbidden());
-        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:" + user.username() + "@moderation.example"))
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:" + user.username() + "@elysium.example"))
                 .andExpect(status().isOk());
         mockMvc.perform(get(path).accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
         mockMvc.perform(get(path + "/statuses/" + status.id()).accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
@@ -447,7 +447,7 @@ class AccountModerationIntegrationTests {
                 .andExpect(jsonPath("$.formerType").value("Note"));
         mockMvc.perform(get(path + "/followers").accept(ACTIVITY_JSON)).andExpect(status().isGone());
         mockMvc.perform(get(path + "/outbox").accept(ACTIVITY_JSON)).andExpect(status().isGone());
-        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:" + user.username() + "@moderation.example"))
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:" + user.username() + "@elysium.example"))
                 .andExpect(status().isGone());
         mockMvc.perform(get("/.well-known/webfinger").param("resource", user.uri().toString()))
                 .andExpect(status().isGone());

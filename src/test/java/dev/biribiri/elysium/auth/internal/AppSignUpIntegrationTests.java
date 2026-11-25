@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://appsignups.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.registration.mode=open"
 })
 @AutoConfigureMockMvc

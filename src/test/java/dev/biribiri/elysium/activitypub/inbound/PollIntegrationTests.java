@@ -36,7 +36,7 @@ import static org.mockito.Mockito.when;
  * Calls the handlers directly with no worker running, as {@link CreateIntegrationTests} does.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://polls.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class PollIntegrationTests {
 
     private static final String PUBLIC = "https://www.w3.org/ns/activitystreams#Public";

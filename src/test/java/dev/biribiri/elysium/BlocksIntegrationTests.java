@@ -43,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://blocks.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -153,7 +153,7 @@ class BlocksIntegrationTests {
                 .andExpect(jsonPath("$[0].id").value(carol.id().toString()))
                 .andExpect(header().string("Link", containsString("rel=\"next\"")))
                 .andReturn().getResponse();
-        var next = response.getHeader("Link").replaceAll(".*<https://blocks.example([^>]*)>; rel=\"next\".*", "$1");
+        var next = response.getHeader("Link").replaceAll(".*<https://elysium.example([^>]*)>; rel=\"next\".*", "$1");
         mockMvc.perform(withToken(get(URI.create(next)), token("alice")))
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].id").value(bob.id().toString()));
@@ -357,7 +357,7 @@ class BlocksIntegrationTests {
 
     @Test
     void refusesDomainsThatCantBeBlocked() throws Exception {
-        for (var domain : List.of("", "com", "192.0.2.1", "blocks.example", "*.example.com")) {
+        for (var domain : List.of("", "com", "192.0.2.1", "elysium.example", "*.example.com")) {
             mockMvc.perform(withToken(post("/api/v1/domain_blocks"), token("alice")).param("domain", domain))
                     .andExpect(status().isUnprocessableContent());
         }

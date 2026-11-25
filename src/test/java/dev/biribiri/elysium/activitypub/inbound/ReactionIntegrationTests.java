@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import dev.biribiri.elysium.TestImages;
+import dev.biribiri.elysium.TestEvents;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -16,6 +17,7 @@ import dev.biribiri.elysium.content.RemoteStatuses;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,7 +32,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
@@ -42,7 +43,6 @@ import java.util.UUID;
 
 import static dev.biribiri.elysium.content.Visibility.PUBLIC;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.opaqueToken;
@@ -57,9 +57,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * worker running, as in {@link LikeIntegrationTests}.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://reactions.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 @AutoConfigureMockMvc
 class ReactionIntegrationTests {
+    private static Instant started;
+
 
     private static final Set<String> SCOPES =
             Set.of("read:statuses", "write:favourites", "read:notifications", "write:notifications");
@@ -124,7 +126,7 @@ class ReactionIntegrationTests {
                 .andExpect(jsonPath("$.pleroma.emoji_reactions[0].count").value(2))
                 .andExpect(jsonPath("$.pleroma.emoji_reactions[0].me").value(false))
                 .andExpect(jsonPath("$.pleroma.emoji_reactions[1].name").value(blob.shortcode()))
-                .andExpect(jsonPath("$.pleroma.emoji_reactions[1].url", startsWith("https://reactions.example/media/")));
+                .andExpect(jsonPath("$.pleroma.emoji_reactions[1].url", startsWith("https://elysium.example/media/")));
 
         mvc.perform(get("/api/v1/pleroma/statuses/" + post.id() + "/reactions"))
                 .andExpect(status().isOk())
@@ -180,7 +182,7 @@ class ReactionIntegrationTests {
                 .andExpect(jsonPath("$[0].account.id").value(bob.id().toString()))
                 .andExpect(jsonPath("$[0].status.id").value(post.id().toString()))
                 .andExpect(jsonPath("$[0].emoji").value(blob.shortcode()))
-                .andExpect(jsonPath("$[0].emoji_url", startsWith("https://reactions.example/media/")));
+                .andExpect(jsonPath("$[0].emoji_url", startsWith("https://elysium.example/media/")));
     }
 
     @Test
@@ -295,7 +297,7 @@ class ReactionIntegrationTests {
         assertThat(body.path("content").asString()).isEqualTo(":" + blob.shortcode() + ":");
         assertThat(body.path("tag").get(0).path("type").asString()).isEqualTo("Emoji");
         assertThat(body.path("tag").get(0).path("icon").path("url").asString())
-                .startsWith("https://reactions.example/media/");
+                .startsWith("https://elysium.example/media/");
         assertThat(body.path("to").get(0).asString()).isEqualTo(remote.uri().toString());
 
         reactions.unreact(post.id(), bob.id(), reactions.choose(blob.shortcode()));
@@ -405,8 +407,12 @@ class ReactionIntegrationTests {
                 .query(String.class).single();
     }
 
+    @BeforeAll
+    static void rememberTheStart() {
+        started = Instant.now();
+    }
+
     private void settled() {
-        await().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql(
-                "SELECT count(*) FROM event_publication WHERE completion_date IS NULL").query(Long.class).single() == 0);
+        TestEvents.awaitHandled(jdbc, started);
     }
 }

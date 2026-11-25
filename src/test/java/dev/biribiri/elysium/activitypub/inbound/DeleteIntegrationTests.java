@@ -34,7 +34,7 @@ import static org.mockito.Mockito.when;
  * mock, and real ones are tested by the federation lab.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://delete.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class DeleteIntegrationTests {
 
     private static final String PUBLIC = "https://www.w3.org/ns/activitystreams#Public";

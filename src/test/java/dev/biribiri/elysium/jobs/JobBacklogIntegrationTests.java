@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Reads the queue directly, because a failed read only logs a warning, and the gauges would still report zero.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.jobs.worker-enabled=false")
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class JobBacklogIntegrationTests {
 
     private static final String TASK = "backlog-test";

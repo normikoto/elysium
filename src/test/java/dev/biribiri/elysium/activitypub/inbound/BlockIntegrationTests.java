@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
  * {@link FollowIntegrationTests}.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://block.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class BlockIntegrationTests {
 
     private static final Duration WAIT = Duration.ofSeconds(30);
@@ -102,7 +102,7 @@ class BlockIntegrationTests {
         jdbc.sql("DELETE FROM outbound_activity WHERE actor_id = :id").param("id", local.id()).update();
         jdbc.sql("""
                         INSERT INTO account_block (id, account_id, target_id, activity_uri)
-                        VALUES (gen_random_uuid(), :local, :remote, 'https://block.example/x')
+                        VALUES (gen_random_uuid(), :local, :remote, 'https://elysium.example/x')
                         """)
                 .param("local", local.id()).param("remote", remote.id()).update();
 
@@ -197,7 +197,7 @@ class BlockIntegrationTests {
         var remote = actors.findByUri(URI.create(blockerUri)).orElseThrow();
         jdbc.sql("""
                         INSERT INTO account_block (id, account_id, target_id, activity_uri)
-                        VALUES (gen_random_uuid(), :local, :remote, 'https://block.example/y')
+                        VALUES (gen_random_uuid(), :local, :remote, 'https://elysium.example/y')
                         """)
                 .param("local", local.id()).param("remote", remote.id()).update();
         var create = "{\"id\":\"%s\",\"type\":\"Create\",\"actor\":\"%s\",\"to\":[\"%s\"],\"object\":\"%s/note\"}"

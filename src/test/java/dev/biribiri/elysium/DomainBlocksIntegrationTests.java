@@ -53,7 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = {
-        "elysium.instance.base-url=https://blocks.example",
+        "elysium.instance.base-url=https://elysium.example",
         "elysium.jobs.worker-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -215,7 +215,7 @@ class DomainBlocksIntegrationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"*.spam.example", "blocks.example"})
+    @ValueSource(strings = {"*.spam.example", "elysium.example"})
     void refusesDomainsThatCannotBeBlocked(String domain) throws Exception {
         create(domain).andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.error").isString());
 
@@ -339,7 +339,7 @@ class DomainBlocksIntegrationTests {
                 .andExpect(jsonPath("$[0].id").value(third))
                 .andExpect(jsonPath("$[1].id").value(second))
                 .andExpect(header().string(HttpHeaders.LINK, containsString(
-                        "<https://blocks.example" + PATH + "?limit=2&max_id=" + second + ">; rel=\"next\"")))
+                        "<https://elysium.example" + PATH + "?limit=2&max_id=" + second + ">; rel=\"next\"")))
                 .andExpect(header().string(HttpHeaders.LINK, containsString("min_id=" + third)));
 
         mockMvc.perform(withToken(get(PATH).param("max_id", second), read()))

@@ -43,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://tags.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class HashtagsIntegrationTests {
 
@@ -79,14 +79,14 @@ class HashtagsIntegrationTests {
     void linksAndListsAStatusesHashtags() throws Exception {
         mockMvc.perform(createRequest(writer(), "Hello #Cats and #café, #cats again"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").value("<p>Hello <a href=\"https://tags.example/tags/cats\" "
+                .andExpect(jsonPath("$.content").value("<p>Hello <a href=\"https://elysium.example/tags/cats\" "
                         + "class=\"mention hashtag\" rel=\"tag\">#<span>Cats</span></a> and "
-                        + "<a href=\"https://tags.example/tags/caf%C3%A9\" class=\"mention hashtag\" rel=\"tag\">"
-                        + "#<span>café</span></a>, <a href=\"https://tags.example/tags/cats\" class=\"mention hashtag\" "
+                        + "<a href=\"https://elysium.example/tags/caf%C3%A9\" class=\"mention hashtag\" rel=\"tag\">"
+                        + "#<span>café</span></a>, <a href=\"https://elysium.example/tags/cats\" class=\"mention hashtag\" "
                         + "rel=\"tag\">#<span>cats</span></a> again</p>"))
                 .andExpect(jsonPath("$.tags", hasSize(2)))
-                .andExpect(jsonPath("$.tags[?(@.name == 'cats')].url").value("https://tags.example/tags/cats"))
-                .andExpect(jsonPath("$.tags[?(@.name == 'café')].url").value("https://tags.example/tags/caf%C3%A9"));
+                .andExpect(jsonPath("$.tags[?(@.name == 'cats')].url").value("https://elysium.example/tags/cats"))
+                .andExpect(jsonPath("$.tags[?(@.name == 'café')].url").value("https://elysium.example/tags/caf%C3%A9"));
     }
 
     @Test
@@ -152,9 +152,9 @@ class HashtagsIntegrationTests {
         mockMvc.perform(get(TAG + "café").param("limit", "1").param("all[]", "Café").param("local", "true"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Link",
-                        "<https://tags.example/api/v1/timelines/tag/caf%C3%A9?limit=1&all%5B%5D=Caf%C3%A9&local=true"
+                        "<https://elysium.example/api/v1/timelines/tag/caf%C3%A9?limit=1&all%5B%5D=Caf%C3%A9&local=true"
                                 + "&max_id=%s>; rel=\"next\", ".formatted(newer)
-                                + "<https://tags.example/api/v1/timelines/tag/caf%C3%A9?limit=1&all%5B%5D=Caf%C3%A9"
+                                + "<https://elysium.example/api/v1/timelines/tag/caf%C3%A9?limit=1&all%5B%5D=Caf%C3%A9"
                                 + "&local=true&min_id=%s>; rel=\"prev\"".formatted(newer)));
         expectIds(get(TAG + "café").param("max_id", newer), older);
     }
@@ -199,7 +199,7 @@ class HashtagsIntegrationTests {
         mockMvc.perform(get("/api/v1/tags/Cats"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("cats"))
-                .andExpect(jsonPath("$.url").value("https://tags.example/tags/cats"))
+                .andExpect(jsonPath("$.url").value("https://elysium.example/tags/cats"))
                 .andExpect(jsonPath("$.history", hasSize(7)))
                 .andExpect(jsonPath("$.history[0].uses").value("2"))
                 .andExpect(jsonPath("$.history[0].accounts").value("1"))
@@ -242,7 +242,7 @@ class HashtagsIntegrationTests {
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("note", "I like #Cats"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.note").value("<p>I like <a href=\"https://tags.example/tags/cats\" "
+                .andExpect(jsonPath("$.note").value("<p>I like <a href=\"https://elysium.example/tags/cats\" "
                         + "class=\"mention hashtag\" rel=\"tag\">#<span>Cats</span></a></p>"));
 
         mockMvc.perform(get("/users/tagwriter").accept(ACTIVITY_JSON))
@@ -250,10 +250,10 @@ class HashtagsIntegrationTests {
                 .andExpect(jsonPath("$.tag", hasSize(1)))
                 .andExpect(jsonPath("$.tag[0].type").value("Hashtag"))
                 .andExpect(jsonPath("$.tag[0].name").value("#cats"))
-                .andExpect(jsonPath("$.tag[0].href").value("https://tags.example/tags/cats"))
+                .andExpect(jsonPath("$.tag[0].href").value("https://elysium.example/tags/cats"))
                 .andExpect(jsonPath("$['@context'][2].Hashtag").value("as:Hashtag"));
         mockMvc.perform(get("/users/tagwriter").accept(MediaType.TEXT_HTML))
-                .andExpect(content().string(containsString("href=\"https://tags.example/tags/cats\"")));
+                .andExpect(content().string(containsString("href=\"https://elysium.example/tags/cats\"")));
 
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), writer())
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
@@ -276,7 +276,7 @@ class HashtagsIntegrationTests {
                 .andExpect(jsonPath("$.tag[0].type").value("Mention"))
                 .andExpect(jsonPath("$.tag[1].type").value("Hashtag"))
                 .andExpect(jsonPath("$.tag[1].name").value("#cats"))
-                .andExpect(jsonPath("$.tag[1].href").value("https://tags.example/tags/cats"))
+                .andExpect(jsonPath("$.tag[1].href").value("https://elysium.example/tags/cats"))
                 .andExpect(jsonPath("$['@context'][1].Hashtag").value("as:Hashtag"));
     }
 

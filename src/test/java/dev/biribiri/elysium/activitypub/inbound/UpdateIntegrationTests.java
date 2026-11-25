@@ -52,7 +52,7 @@ import static org.mockito.Mockito.when;
  * so that the two share a context, which keeps the test run within its memory, and each test uses a host of its own.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://create.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class UpdateIntegrationTests {
 
     private static final String PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
@@ -493,7 +493,7 @@ class UpdateIntegrationTests {
 
         var profile = profiles.find(author.id());
         assertThat(profile.displayName()).isEqualTo("Sam :wave:");
-        assertThat(profile.noteHtml(URI.create("https://create.example/"))).isEqualTo("<p>Hello there</p>");
+        assertThat(profile.noteHtml(URI.create("https://elysium.example/"))).isEqualTo("<p>Hello there</p>");
         assertThat(profile.manuallyApprovesFollowers()).isTrue();
         assertThat(profile.bot()).isTrue();
         assertThat(profile.cat()).isTrue();
@@ -515,7 +515,7 @@ class UpdateIntegrationTests {
 
         var replaced = profiles.find(author.id());
         assertThat(replaced.displayName()).isEmpty();
-        assertThat(replaced.noteHtml(URI.create("https://create.example/"))).isEmpty();
+        assertThat(replaced.noteHtml(URI.create("https://elysium.example/"))).isEmpty();
         assertThat(replaced.fields()).isEmpty();
         assertThat(replaced.manuallyApprovesFollowers()).isFalse();
         assertThat(replaced.bot()).isFalse();

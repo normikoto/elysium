@@ -38,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Invites, with sign-ups closed, which is the default mode.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "elysium.instance.base-url=https://invites.example")
+@SpringBootTest(properties = "elysium.instance.base-url=https://elysium.example")
 @AutoConfigureMockMvc
 class InviteIntegrationTests {
 
@@ -89,7 +89,7 @@ class InviteIntegrationTests {
     @Test
     void anInviteMakesAnAccountWithoutAnEmailAddress() throws Exception {
         var invite = invites.create(null, null);
-        assertThat(invite.url().toString()).isEqualTo("https://invites.example/signup?invite=" + invite.code());
+        assertThat(invite.url().toString()).isEqualTo("https://elysium.example/signup?invite=" + invite.code());
 
         mockMvc.perform(get("/signup").param("invite", invite.code()))
                 .andExpect(status().isOk())
@@ -157,7 +157,7 @@ class InviteIntegrationTests {
     void commandsCreateListAndRevoke() {
         assertThat(run(createInvite(), "--max-uses", "2", "--expires-in", "7d")).isZero();
         var printed = out.toString().lines().toList();
-        assertThat(printed.get(1)).startsWith("https://invites.example/signup?invite=");
+        assertThat(printed.get(1)).startsWith("https://elysium.example/signup?invite=");
         var id = printed.get(0).replace("Created invite ", "");
         assertThat(invites.isUsable(printed.get(1).substring(printed.get(1).indexOf('=') + 1))).isTrue();
 
@@ -188,7 +188,7 @@ class InviteIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("can't be shown again")))
                 .andReturn().getResponse().getContentAsString();
-        var code = page.replaceAll("(?s).*https://invites\\.example/signup\\?invite=([^<\"&]+).*", "$1");
+        var code = page.replaceAll("(?s).*https://elysium\\.example/signup\\?invite=([^<\"&]+).*", "$1");
         assertThat(invites.isUsable(code)).isTrue();
         var created = invites.list().getFirst();
         assertThat(created.maxUses()).isEqualTo(3);

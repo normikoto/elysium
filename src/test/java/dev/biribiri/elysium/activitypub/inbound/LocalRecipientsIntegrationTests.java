@@ -17,7 +17,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = {"elysium.instance.base-url=https://recipients.example", "elysium.jobs.worker-enabled=false"})
+@SpringBootTest(properties = {"elysium.instance.base-url=https://elysium.example", "elysium.jobs.worker-enabled=false"})
 class LocalRecipientsIntegrationTests {
 
     @Autowired
@@ -61,7 +61,7 @@ class LocalRecipientsIntegrationTests {
 
     @Test
     void skipsAddressesWithNoSchemeOrHost() {
-        var body = "{\"to\":[\"//recipients.example%s\",\"urn:x:y\",\"/users/x\",\"%s\"]}"
+        var body = "{\"to\":[\"//elysium.example%s\",\"urn:x:y\",\"/users/x\",\"%s\"]}"
                 .formatted(alice.uri().getPath(), bob.uri());
 
         assertThat(recipients.of(activity("Create", body))).containsExactly(bob.id());
@@ -106,7 +106,7 @@ class LocalRecipientsIntegrationTests {
     void leavesOutSuspendedAndUnknownAccounts() {
         actors.suspend(bob.id());
 
-        var body = "{\"to\":[\"%s\",\"https://recipients.example/users/nobody\",\"not a uri\",\"%s\"]}"
+        var body = "{\"to\":[\"%s\",\"https://elysium.example/users/nobody\",\"not a uri\",\"%s\"]}"
                 .formatted(bob.uri(), sender.uri());
 
         assertThat(recipients.of(activity("Create", body))).isEmpty();
