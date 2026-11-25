@@ -376,6 +376,15 @@ public class RemoteStatuses {
     }
 
     /**
+     * Whether a URI is in the same thread as a stored status, as a status there or as the parent that one of them replies
+     * to, even if that parent isn't stored. A thread's statuses are linked by their {@code inReplyTo}, so this tells a
+     * status that belongs to a thread from one that only something else says does.
+     */
+    public boolean isInThreadOf(URI uri, UUID statusId) {
+        return threads.isInThreadOf(uri, statusId);
+    }
+
+    /**
      * Whether a status with this URI is stored, whoever can see it.
      */
     public boolean isStored(URI uri) {

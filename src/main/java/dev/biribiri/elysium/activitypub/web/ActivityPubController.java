@@ -13,6 +13,7 @@ import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollectionPage;
 import dev.biribiri.elysium.activitypub.vocab.Person;
 import dev.biribiri.elysium.activitypub.vocab.QuoteAuthorization;
+import dev.biribiri.elysium.activitypub.vocab.ThreadCollection;
 import dev.biribiri.elysium.activitypub.vocab.Tombstone;
 import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
@@ -550,6 +551,62 @@ public class ActivityPubController {
                     .toList();
             return ResponseEntity.ok(OrderedCollectionPage.of(pageUri(uri, cursor.orElse(null)), total, uri, next, items));
         });
+    }
+
+    @GetMapping(path = "/users/{username}/statuses/{id}/context", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(operationId = "getStatusThread", summary = "Fetch the posts in a thread",
+            description = """
+                    FEP-f228's collection of posts, which the `context` of each post in the thread names: an \
+                    `OrderedCollection` with `attributedTo` (the thread's author), `totalItems`, and a `first` page at \
+                    `?page=true`. Pages contain up to 40 post IDs, oldest first, starting with the post that starts the \
+                    thread, with `min_id` cursors. Replies from other servers are listed by their own IDs.
+
+                    Only a public or unlisted post that isn't a reply has the collection. Others get 404. It lists the \
+                    public and unlisted replies under it, up to 40 replies deep. A reply that isn't public or unlisted \
+                    is left out, and so are the replies under it. The collection excludes suspended or deleted authors \
+                    and authors on blocked domains. HTML requests redirect to the post's page.
+
+                    """ + FederationDocs.NEGOTIATED,
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The collection or its page."),
+                    @ApiResponse(responseCode = "400", description = "The cursor is invalid."),
+                    @ApiResponse(responseCode = "403", description = "The author is suspended."),
+                    @ApiResponse(responseCode = "404", description = "No publicly fetchable post by this author starts a thread."),
+                    @ApiResponse(responseCode = "406", description = "The Accept header allows neither type.")
+            })
+    @SignedFetch
+    ResponseEntity<?> thread(@PathVariable String username, @PathVariable String id,
+                             @RequestParam(required = false) String page,
+                             @RequestParam(name = "min_id", required = false) String minId) {
+        return collectionOf(username, id, (status, author) -> {
+            if (statuses.findOpenThreadRoot(status).filter(root -> root.id().equals(status.id())).isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            var uri = Note.threadOf(status);
+            var total = statuses.countOpenThread(status.id());
+            if (page == null) {
+                return ResponseEntity.ok(ThreadCollection.of(uri, author.uri(), total, threadPageUri(uri, null)));
+            }
+            var cursor = minId == null ? Optional.<UUID>empty() : Ids.parse(minId);
+            if (minId != null && cursor.isEmpty()) return ResponseEntity.badRequest().build();
+            var selection = statuses.findOpenThread(status.id(), cursor.orElse(null), COLLECTION_PAGE_SIZE + 1);
+            var entries = selection.stream().limit(COLLECTION_PAGE_SIZE).toList();
+            var next = selection.size() > COLLECTION_PAGE_SIZE ? threadPageUri(uri, entries.getLast().id()) : null;
+            var items = entries.stream().map(Status::uri).toList();
+            return ResponseEntity.ok(
+                    OrderedCollectionPage.of(threadPageUri(uri, cursor.orElse(null)), total, uri, next, items));
+        });
+    }
+
+    /**
+     * A thread's pages go forward from the oldest, so that each reply comes after its parent.
+     */
+    private static URI threadPageUri(URI collection, UUID minId) {
+        var builder = UriComponentsBuilder.fromUri(collection).queryParam("page", "true");
+        if (minId != null) {
+            builder.queryParam("min_id", minId);
+        }
+        return builder.build().toUri();
     }
 
     /**

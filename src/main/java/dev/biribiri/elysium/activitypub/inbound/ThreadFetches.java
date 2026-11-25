@@ -36,6 +36,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Fills in a thread that someone here is reading, as Mastodon does when a status's context is viewed, so that it shows the
@@ -49,6 +50,13 @@ import java.util.UUID;
  * whose collection listed it, so that a collection can't add unrelated statuses to a thread. Every fetch is made on
  * another server's word, so each one takes a turn in {@link TargetFetchTurns}. Fetching stops at the limits of what a
  * context lists, since nothing past them would be shown.
+ *
+ * <p>A status whose {@code context} names a collection of its thread's posts, as FEP-f228 has it, has that read instead of
+ * its replies, as the FEP says, since it lists the whole thread, which forums and their like don't reply to in a tree.
+ * Whoever started the thread lists it, from any server, so only the ID of each item is read here too, and each post is
+ * kept only if it names that collection as its {@code context} itself, or is linked by {@code inReplyTo} to what's stored
+ * of the thread. A {@code context} that isn't a collection, as Pleroma's and Akkoma's aren't, has the replies read
+ * instead.
  *
  * <p>Only public and unlisted statuses are stored, as for any status fetched on its own. When a thread was last fetched is
  * stored, so that every node waits as long before fetching it again. Its jobs are one group in {@link Jobs#scheduleInGroup},
@@ -77,6 +85,17 @@ class ThreadFetches implements RemoteThreadFetcher {
      * Read from each replies collection, which bounds what a server whose collection never ends can have fetched.
      */
     static final int MAX_PAGES = 10;
+
+    /**
+     * Queued from a collection of a thread's posts, which lists the whole thread rather than what's under one status, so
+     * this is as many as a context lists above and below a status.
+     */
+    static final int MAX_CONTEXT_POSTS = StatusService.MAX_ANCESTORS + StatusService.MAX_DESCENDANTS;
+
+    /**
+     * How long a post from a collection of a thread's posts waits for its parent, which that collection may list after it.
+     */
+    static final Duration PARENT_WAIT = Duration.ofMinutes(1);
 
     private static final Logger log = LoggerFactory.getLogger(ThreadFetches.class);
 
@@ -250,6 +269,8 @@ class ThreadFetches implements RemoteThreadFetcher {
                 case PARENTS -> parents(job);
                 case REPLIES -> replies(job);
                 case REPLY -> reply(job);
+                case CONTEXT -> context(job);
+                case CONTEXT_POST -> contextPost(job);
             };
         } catch (PermanentJobFailure e) {
             // Such as an author who's been suspended here, which isn't worth parking the job for.
@@ -319,8 +340,12 @@ class ThreadFetches implements RemoteThreadFetcher {
         if (job.target() == null) {
             var own = AttributedNote.of(target, document.get())
                     .filter(found -> found.author().equals(author.get().uri()));
-            return own.isEmpty()
-                    ? Jobs.done()
+            if (own.isEmpty()) {
+                return Jobs.done();
+            }
+            var context = job.contextId() == null ? contextOf(document.get()) : Optional.<URI>empty();
+            return context.isPresent()
+                    ? Jobs.rescheduleAt(Instant.now(), job.context(context.get()))
                     : readReplies(document.get().path("replies"), parent.get(), job, job.depth(), job.pages());
         }
         if (ActorCollections.hasId(document.get(), target, "OrderedCollection", "Collection")) {
@@ -371,6 +396,167 @@ class ThreadFetches implements RemoteThreadFetcher {
         return reply.isEmpty()
                 ? Jobs.done()
                 : readReplies(document.get().path("replies"), reply.get(), job, job.depth() + 1, 0);
+    }
+
+    /**
+     * Reads the collection of the thread's posts, or one of its pages. The collection can be on any server, since a thread
+     * is listed by whoever started it, but its pages have to be on the collection's own server. If the collection itself
+     * can't be read, the replies are read instead, since some servers name a {@code context} that isn't one.
+     */
+    private CompletionHandler<ThreadFetchJob> context(ThreadFetchJob job) {
+        var collection = URI.create(job.contextId());
+        var target = URI.create(job.target());
+        var first = target.equals(collection) && job.pages() == 0;
+        Supplier<CompletionHandler<ThreadFetchJob>> unread =
+                () -> first ? Jobs.rescheduleAt(Instant.now(), job.repliesWithoutContext()) : Jobs.done();
+        if (!isFetchable(target)) {
+            return unread.get();
+        }
+        var waiting = waitForTurn(target, job, unread);
+        if (waiting.isPresent()) {
+            return waiting.get();
+        }
+        Optional<JsonNode> document;
+        try {
+            document = fetch(target);
+        } catch (HostBusyException e) {
+            return Jobs.waitForHost(job, job::withTurn);
+        } catch (IllegalStateException e) {
+            // Retrying could leave the replies unread once the retries run out, and they're on another server.
+            if (!first) {
+                throw e;
+            }
+            log.debug("Reading the replies to {}, since {} couldn't be fetched: {}", job.statusId(), target,
+                    e.getMessage());
+            return unread.get();
+        }
+        if (first) {
+            return document.filter(found -> ActorCollections.hasId(found, target, "OrderedCollection", "Collection"))
+                    .map(found -> readContext(found, job, 1, job.depth()))
+                    .orElseGet(() -> Jobs.rescheduleAt(Instant.now(), job.repliesWithoutContext()));
+        }
+        return document
+                .filter(found -> ActorCollections.hasId(found, target, "OrderedCollectionPage", "CollectionPage"))
+                .map(found -> readContextPage(found, job, job.pages() + 1, job.depth()))
+                .orElseGet(Jobs::done);
+    }
+
+    /**
+     * @param pages  how many pages have been read, this collection included
+     * @param queued how many posts have been queued before it
+     */
+    private CompletionHandler<ThreadFetchJob> readContext(JsonNode collection, ThreadFetchJob job, int pages, int queued) {
+        queued += queuePosts(collection, job, queued);
+        if (pages >= MAX_PAGES || queued >= MAX_CONTEXT_POSTS) {
+            return Jobs.done();
+        }
+        var first = collection.path("first");
+        if (first.isObject()) {
+            return readContextPage(first, job, pages + 1, queued);
+        }
+        return nextContextPage(first, job, pages, queued);
+    }
+
+    /**
+     * @param pages  how many pages have been read, this one included
+     * @param queued how many posts have been queued before it
+     */
+    private CompletionHandler<ThreadFetchJob> readContextPage(JsonNode page, ThreadFetchJob job, int pages, int queued) {
+        queued += queuePosts(page, job, queued);
+        if (pages >= MAX_PAGES || queued >= MAX_CONTEXT_POSTS) {
+            return Jobs.done();
+        }
+        return nextContextPage(page.path("next"), job, pages, queued);
+    }
+
+    private CompletionHandler<ThreadFetchJob> nextContextPage(JsonNode next, ThreadFetchJob job, int pages, int queued) {
+        var collection = URI.create(job.contextId());
+        return Optional.ofNullable(ActivityJson.text(next))
+                .filter(InboundActivity::isStorableId)
+                .flatMap(ActivityObject::parseUri)
+                .filter(page -> Inbox.isOnActorsServer(page, collection) && !page.toString().equals(job.target()))
+                .map(page -> Jobs.rescheduleAt(Instant.now(), job.contextAt(page, pages, queued)))
+                .orElseGet(Jobs::done);
+    }
+
+    /**
+     * Queues a fetch of each post that a collection or page of the thread's posts lists, other than those stored already,
+     * each in a job of its own, since each can be on a different server.
+     *
+     * @param queued how many posts have been queued before these
+     * @return how many it queued
+     */
+    private int queuePosts(JsonNode page, ThreadFetchJob job, int queued) {
+        var count = 0;
+        for (var item : ActorCollections.items(page, MAX_CONTEXT_POSTS - queued)) {
+            var id = Optional.ofNullable(ActivityJson.idOf(item))
+                    .filter(InboundActivity::isStorableId)
+                    .flatMap(ActivityObject::parseUri)
+                    .filter(found -> isFetchable(found) && !remoteStatuses.isStored(found));
+            if (id.isEmpty()) {
+                continue;
+            }
+            // A post listed both in the collection and in its first page, or on two pages, only counts once.
+            if (Jobs.scheduleInGroup(scheduler, TASK, job.contextPost(id.get()),
+                    group(job.statusId(), job.queuedAt()), "context", id.get().toString())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Fetches a post that the collection of the thread's posts lists, from its own server. It's only stored if it says it's
+     * in that collection too, or if it's linked to the thread by its {@code inReplyTo}, so that a collection can't have
+     * statuses that have nothing to do with the thread stored. Its parent may be listed after it, with its job still to
+     * run, so a post whose parent isn't stored yet waits for it once.
+     */
+    private CompletionHandler<ThreadFetchJob> contextPost(ThreadFetchJob job) {
+        if (isFull(job)) {
+            return Jobs.done();
+        }
+        var target = URI.create(job.target());
+        if (!isFetchable(target) || remoteStatuses.isStored(target)) {
+            return Jobs.done();
+        }
+        var waiting = waitForTurn(target, job);
+        if (waiting.isPresent()) {
+            return waiting.get();
+        }
+        Optional<JsonNode> document;
+        try {
+            document = fetch(target);
+        } catch (HostBusyException e) {
+            return Jobs.waitForHost(job, job::withTurn);
+        }
+        var note = document.flatMap(found -> AttributedNote.of(target, found));
+        if (note.isEmpty()) {
+            return Jobs.done();
+        }
+        var parent = note.get().note().inReplyTo();
+        var listed = contextOf(document.get()).filter(context -> context.toString().equals(job.contextId())).isPresent()
+                || remoteStatuses.isInThreadOf(target, job.statusId())
+                || parent != null && remoteStatuses.isInThreadOf(parent, job.statusId());
+        if (!listed) {
+            return parent != null && job.pages() < 1 && !remoteStatuses.isStored(parent)
+                    ? Jobs.rescheduleAt(Instant.now().plus(PARENT_WAIT), job.waitedForParent())
+                    : Jobs.done();
+        }
+        if (storage.storeInThread(note.get().note(), note.get().author()) == NoteStorage.Result.STORED) {
+            stored(job);
+        }
+        return Jobs.done();
+    }
+
+    /**
+     * The collection of the thread's posts that a note's {@code context} names, if it's one that could be fetched. Pleroma
+     * and Akkoma name one that can't be, which is found out when it's fetched.
+     */
+    private Optional<URI> contextOf(JsonNode note) {
+        return Optional.ofNullable(ActivityJson.idOf(note.path("context")))
+                .filter(InboundActivity::isStorableId)
+                .flatMap(ActivityObject::parseUri)
+                .filter(this::isFetchable);
     }
 
     /**
@@ -472,11 +658,19 @@ class ThreadFetches implements RemoteThreadFetcher {
      * @return what to do with the job if it has to wait for its turn, or has waited too long, or empty if it can fetch now
      */
     private Optional<CompletionHandler<ThreadFetchJob>> waitForTurn(URI target, ThreadFetchJob job) {
+        return waitForTurn(target, job, Jobs::done);
+    }
+
+    /**
+     * @param refused what to do instead if too many fetches are waiting for the target's server
+     */
+    private Optional<CompletionHandler<ThreadFetchJob>> waitForTurn(
+            URI target, ThreadFetchJob job, Supplier<CompletionHandler<ThreadFetchJob>> refused) {
         var now = Instant.now();
         var turn = turns.take(target, job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not fetching {} for a thread, since too many fetches are waiting for its server", target);
-            return Optional.of(Jobs.done());
+            return Optional.of(refused.get());
         }
         if (turn.get().isAfter(now)) {
             return Optional.of(Jobs.waitUntil(turn.get(), job.withTurn(turn.get())));

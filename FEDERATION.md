@@ -31,6 +31,9 @@ This reference describes what peers can send, receive, and fetch.
   [Emoji reactions](#emoji-reactions) describes
 - [FEP-e232: Object Links](https://codeberg.org/fediverse/fep/src/branch/main/fep/e232/fep-e232.md), only for quotes
 - [FEP-f1d5: NodeInfo in Fediverse Software](https://codeberg.org/fediverse/fep/src/branch/main/fep/f1d5/fep-f1d5.md)
+- [FEP-f228: Backfilling conversations](https://codeberg.org/fediverse/fep/src/branch/main/fep/f228/fep-f228.md), with a
+  collection of posts, which is served as [Threads](#threads) describes and read when [fetching
+  threads](#fetching-threads)
 
 ## ActivityPub
 
@@ -198,6 +201,7 @@ A `Note` has `id`, `attributedTo`, `url`, `published`, `to`, `cc`, `content`, an
 - `updated`: when it was last edited, if it has been.
 - `summary`: the content warning, as plain text rather than HTML, which matches Mastodon.
 - `inReplyTo`: the parent status.
+- `context`: the [collection of its thread's posts](#threads), if it's listed in one.
 - `contentMap`: the `content` under its language, if one is set.
 - `source`: for a status written in Markdown, the text as written, with `mediaType` `text/markdown`, as Misskey and
   Pleroma send it. `content` is still the HTML to show, and only uses the tags that
@@ -248,6 +252,34 @@ was written: `<a href="…" class="mention hashtag" rel="tag">#<span>Café</span
 A reply's `inReplyTo` is shown if the parent is public or unlisted, or if a followers-only status replies to its author's own
 followers-only status. A direct reply also shows a followers-only or direct parent if it mentions the parent's author, so
 that direct conversations stay threaded.
+
+### Threads
+
+A public or unlisted status that isn't a reply has the collection of its thread's posts at `{note-uri}/context`, as
+FEP-f228 has it, and its `context` names it. So does the `context` of each status that the collection lists. Any other
+status gets a 404 there. It's served as the `likes` collection is, with the same `Accept` types, signatures, and CORS.
+HTML requests redirect to the status's page.
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000/context",
+  "type": "OrderedCollection",
+  "attributedTo": "https://elysium.example/users/alice",
+  "totalItems": 3,
+  "first": "https://elysium.example/users/alice/statuses/019a0000-0000-7000-8000-000000000000/context?page=true"
+}
+```
+
+- `attributedTo` is the thread's author.
+- Each `OrderedCollectionPage` has up to 40 IDs in `orderedItems`, oldest first, starting with the status that starts the
+  thread. `next` has a `min_id` cursor. Unlike this server's other collections, the order is chronological, as FEP-f228
+  has it.
+- It lists the public and unlisted replies under that status that are stored here, down to 40 replies deep, including
+  those from other servers, by their own IDs. A reply that isn't public or unlisted, or is
+  [local-only](#local-only-statuses), is left out, and so are the replies under it. Statuses by suspended or deleted
+  accounts, or from [blocked servers](#domain-blocks), are left out too.
+- A local reply to a thread that started on another server has no `context`, since that server lists its thread.
 
 ### Custom emoji
 
@@ -940,15 +972,28 @@ from this server or a [blocked](#domain-blocks) one.
   40 ancestors are stored. Each has to come back as a `Note` or `Question` with the `id` fetched, attributed to one actor on
   the same host and port. Fetching stops at the first that isn't stored.
 - **Replies:** for a status from another server, its `id` is fetched again, and has to come back with that `id`,
-  attributed to its author. Its `replies` can be embedded or an ID, and so can the collection's `first`, and each
-  page's `next` is followed, up to 10 pages, counting a collection fetched by its ID. The collection and its pages
-  have to be on the same host and port as the status, and one fetched by its ID has to be a `Collection`,
-  `OrderedCollection`, `CollectionPage`, or `OrderedCollectionPage` with the `id` fetched. Up to 20 of each one's
-  `orderedItems`, or `items`, are read, as IDs or objects with one, and an embedded reply is only read for its `id`.
+  attributed to its author. If it has a `context` that could be fetched, that's read instead, as **Context** describes
+  and FEP-f228 says. Otherwise, or if the `context` can't be read, its `replies` are. They can be embedded or an ID, and
+  so can the collection's `first`, and each page's `next` is followed, up to 10 pages, counting a collection fetched by
+  its ID. The collection and its pages have to be on the same host and port as the status, and one fetched by its ID has
+  to be a `Collection`, `OrderedCollection`, `CollectionPage`, or `OrderedCollectionPage` with the `id` fetched. Up to
+  20 of each one's `orderedItems`, or `items`, are read, as IDs or objects with one, and an embedded reply is only read
+  for its `id`.
 
   Each reply is fetched from its `id`, checked as a parent is, and kept only if its `inReplyTo` is the status whose
   collection listed it. A reply's own `replies` are read the same way, down to 20 replies deep, including for a reply
   that was already stored. Fetching stops once 60 replies to the status, and replies to those, are stored.
+- **Context:** the `context` is fetched by its ID, which can be on any server other than this one or a blocked one. It
+  has to come back as an `OrderedCollection` or `Collection` with that `id`, or the status's `replies` are read
+  instead. Its own items are read, then its `first` page, embedded or an ID, and each page's `next`, up to 10 pages,
+  counting the collection. Pages fetched by their ID have to be on the same host and port as the
+  collection, and be an `OrderedCollectionPage` or `CollectionPage` with the `id` fetched. Items can be IDs or objects
+  with one, and only the `id` is read. Up to 100 posts that aren't stored here are fetched, each from its `id`, and checked
+  as a parent is.
+
+  A post is kept only if its own `context` is the collection's `id`, or if it's linked by `inReplyTo` to what's stored of
+  the thread: it's the parent of a status there, or its `inReplyTo` is. A post whose `inReplyTo` isn't stored is fetched
+  once more a minute later, in case the collection listed its parent after it. The posts' own `replies` aren't read.
 - **Storing:** only a public or unlisted status with a `published` is stored, read [as for a `Create`](#receiving-statuses).
   As with [backfill](#backfill), it's sorted by its `published` time, and local accounts it mentions aren't notified.
 - **Failures:** a `404`, `410`, or other refusal skips what was fetched, and what it would have led to. A server error or
@@ -1816,7 +1861,7 @@ An admin can [require signed fetches](docs/configuration.md#authorized-fetch), a
 off by default. When it's on, a `GET` or `HEAD` of these needs a signature, in either [format](#http-signatures):
 
 - A user's actor document, and their `followers`, `following`, `outbox`, and `featured` collections and their pages.
-- `Note`s and their `Tombstone`s, a `Note`'s `likes` and `shares`, and `QuoteAuthorization`s.
+- `Note`s and their `Tombstone`s, a `Note`'s `likes`, `shares`, and [thread](#threads), and `QuoteAuthorization`s.
 
 An unsigned request for a user’s actor document gets a shorter document so peers can fetch its signing keys. It
 includes only `@context`, `id`, `type`, `preferredUsername`, `inbox`, `outbox`, `followers`, `following`, `endpoints`,

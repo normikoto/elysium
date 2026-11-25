@@ -24,6 +24,8 @@ import java.util.Map;
  * @param summary    the content warning as plain text, or null for none. ActivityStreams allows HTML here, but Mastodon
  *                   sends and reads this as plain text, so escaping it would show the escapes in its content warnings.
  * @param inReplyTo  the parent status, or null if this isn't a reply or the parent can't be shown
+ * @param thread     the FEP-f228 collection of the posts in its thread, or null if this server doesn't serve one for it.
+ *                   The Java name differs because {@code context} is the {@code @context}.
  * @param contentMap the content under its language, or null if no language is set
  * @param source     the text as the author wrote it in Markdown, as Misskey and Pleroma send it, for servers that render
  *                   it themselves, or null for plain text, which says nothing {@code content} doesn't
@@ -56,6 +58,7 @@ public record Note(
         boolean sensitive,
         String summary,
         URI inReplyTo,
+        @JsonProperty("context") URI thread,
         Map<String, String> contentMap,
         Source source,
         List<Tag> tag,
@@ -169,6 +172,7 @@ public record Note(
      * as on Mastodon.
      *
      * @param inReplyTo    the parent status, or null if there's none to show
+     * @param thread       the collection of the posts in its thread, or null if it isn't listed in one
      * @param parentAuthor who wrote the parent status, or null if there's none to show
      * @param mentions     the accounts the status mentions
      * @param hashtags     the status's hashtags
@@ -180,9 +184,9 @@ public record Note(
      * @param now          what time it is, which decides whether the poll has closed
      */
     public static Note from(
-            Status status, Actor author, URI inReplyTo, URI parentAuthor, List<Mention> mentions, List<Hashtag> hashtags,
-            List<Emoji> emojis, List<Document> attachments, Quote quote, InteractionPolicy policy, Poll poll,
-            Instant now) {
+            Status status, Actor author, URI inReplyTo, URI thread, URI parentAuthor, List<Mention> mentions,
+            List<Hashtag> hashtags, List<Emoji> emojis, List<Document> attachments, Quote quote, InteractionPolicy policy,
+            Poll poll, Instant now) {
         var others = new ArrayList<String>();
         mentions.forEach(mention -> others.add(mention.href().toString()));
         if (parentAuthor != null && !parentAuthor.equals(author.uri()) && status.visibility() != Visibility.DIRECT) {
@@ -211,6 +215,7 @@ public record Note(
                 status.sensitive(),
                 status.spoilerText().isEmpty() ? null : status.spoilerText(),
                 inReplyTo,
+                thread,
                 status.language() == null ? null : Map.of(status.language(), status.content()),
                 status.contentType() == ContentType.MARKDOWN ? new Source(status.text(), status.contentType().value())
                         : null,
@@ -231,6 +236,13 @@ public record Note(
                 poll == null ? null : poll.votersCount());
     }
 
+    /**
+     * The collection of the posts in the thread that a local status starts, which FEP-f228 has its {@code context} name.
+     */
+    public static URI threadOf(Status root) {
+        return URI.create(root.uri() + "/context");
+    }
+
     private static List<Tag> tags(List<Mention> mentions, List<Hashtag> hashtags, List<Emoji> emojis, URI quoted) {
         var tags = new ArrayList<Tag>(mentions);
         tags.addAll(hashtags);
@@ -247,7 +259,7 @@ public record Note(
     public Note withoutContext() {
         return new Note(
                 null, id, type, attributedTo, url, published, updated, to, cc, content, sensitive, summary, inReplyTo,
-                contentMap, source, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote, quoteAuthorization,
+                thread, contentMap, source, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote, quoteAuthorization,
                 interactionPolicy, oneOf, anyOf, endTime, closed, votersCount);
     }
 
@@ -257,7 +269,7 @@ public record Note(
     public Note withUpdated(Instant updated) {
         return new Note(
                 context, id, type, attributedTo, url, published, ActivityStreams.time(updated), to, cc, content, sensitive,
-                summary, inReplyTo, contentMap, source, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote,
+                summary, inReplyTo, thread, contentMap, source, tag, attachment, likes, shares, quote, quoteUri, quoteUrl, misskeyQuote,
                 quoteAuthorization, interactionPolicy, oneOf, anyOf, endTime, closed, votersCount);
     }
 }

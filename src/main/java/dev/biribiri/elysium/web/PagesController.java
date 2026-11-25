@@ -268,7 +268,8 @@ class PagesController {
         return "tag";
     }
 
-    @GetMapping({"/users/{username}/statuses/{id}/likes", "/users/{username}/statuses/{id}/shares"})
+    @GetMapping({"/users/{username}/statuses/{id}/likes", "/users/{username}/statuses/{id}/shares",
+            "/users/{username}/statuses/{id}/context"})
     String collection(
             @PathVariable String username, @PathVariable String id, Principal principal, HttpServletRequest request)
             throws HttpMediaTypeNotAcceptableException {

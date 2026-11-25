@@ -7,7 +7,7 @@ import java.net.URI;
 import java.util.List;
 
 /**
- * One page of a collection's items, newest first.
+ * One page of a collection's items, newest first unless the collection is a {@link ThreadCollection}.
  *
  * @param next the page after this one, or null if this is the last
  */

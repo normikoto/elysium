@@ -1050,6 +1050,52 @@ public class StatusService {
     }
 
     /**
+     * Finds the local status that starts a thread that other servers can be shown whole, as FEP-f228 has it, if this status
+     * is in what {@link #findOpenThread} lists for it. That's the status itself if it starts the thread.
+     *
+     * <p>The thread has to start here, with a status that isn't a reply, since a status whose parent was deleted or never
+     * arrived doesn't start its thread. Every status from there down to this one has to be one that anyone can see, so that
+     * nothing it names shows where a hidden status is. A local reply to another server's thread has none, since that
+     * thread is that server's to list.
+     */
+    public Optional<Status> findOpenThreadRoot(Status found) {
+        return Optional.of(found).filter(StatusService::isInOpenThread).flatMap(status -> {
+            var chain = new ArrayList<>(statuses.findAncestors(status.id(), MAX_ANCESTORS));
+            chain.add(status);
+            var root = chain.getFirst();
+            // An ancestor whose author is suspended or deleted isn't found, and leaves a gap in the chain.
+            for (var i = 1; i < chain.size(); i++) {
+                if (!chain.get(i - 1).id().equals(chain.get(i).inReplyToId())) {
+                    return Optional.empty();
+                }
+            }
+            if (root.reply() || !chain.stream().allMatch(StatusService::isInOpenThread) || !actors.isLocal(root.actorId())) {
+                return Optional.empty();
+            }
+            return Optional.of(root);
+        });
+    }
+
+    /**
+     * Lists a thread's statuses that anyone can see, oldest first, starting with the one {@link #findOpenThreadRoot}
+     * found. Replies that not everyone can see are left out, and so are the replies below them.
+     *
+     * @param after only those newer than this, or null to start from the root
+     */
+    public List<Status> findOpenThread(UUID rootId, UUID after, int limit) {
+        // Only as deep as findOpenThreadRoot looks up, so that what's listed is what names the root.
+        return statuses.findOpenThread(rootId, MAX_ANCESTORS, after, limit);
+    }
+
+    public long countOpenThread(UUID rootId) {
+        return statuses.countOpenThread(rootId, MAX_ANCESTORS);
+    }
+
+    private static boolean isInOpenThread(Status status) {
+        return !status.isReblog() && status.isVisibleTo(Optional.empty());
+    }
+
+    /**
      * Whether as many of a status's replies, and theirs, are stored as {@link #findContext} lists, whoever can see them,
      * so that fetching more would show nothing new.
      */
