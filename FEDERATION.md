@@ -931,8 +931,10 @@ lookups of accounts, a minute.
 #### Fetching threads
 
 When a local user views a status's thread, what it's missing is fetched in the background, signed as the
-[instance actor](#instance-actor), each fetch once its host has a [turn](#forwarded-activities). A status's thread is
-fetched at most every 15 minutes. Nothing is fetched from this server or a [blocked](#domain-blocks) one.
+[instance actor](#instance-actor), each fetch once its host has a [turn](#forwarded-activities). When a `Create` or
+`Update` stores a reply whose `inReplyTo` isn't stored here, its parents are fetched the same way, but not its replies.
+A status's thread is fetched at most every 15 minutes, and fetching a new reply's parents counts. Nothing is fetched
+from this server or a [blocked](#domain-blocks) one.
 
 - **Parents:** a status whose `inReplyTo` isn't stored has that fetched, and then that status's parent, and so on, until
   40 ancestors are stored. Each has to come back as a `Note` or `Question` with the `id` fetched, attributed to one actor on

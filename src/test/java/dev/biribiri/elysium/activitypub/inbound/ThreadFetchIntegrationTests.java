@@ -222,6 +222,52 @@ class ThreadFetchIntegrationTests {
     }
 
     @Test
+    void aReplyThatArrivesWithoutItsParentHasOnlyItsParentsFetched() throws Exception {
+        var top = noteUri(author);
+        var middle = noteUri(author);
+        serve(top, note(top, author, null, List.of(PUBLIC)));
+        serve(middle, note(middle, author, top, List.of(PUBLIC)));
+        var uri = noteUri(author);
+        var reply = store(author, uri, middle);
+
+        fetches.fetchParentsOf(arrived(uri, middle), author.uri());
+        assertThat(jobs()).isOne();
+        drain();
+
+        var context = statuses.findContext(reply, Optional.empty()).orElseThrow();
+        assertThat(context.ancestors()).extracting(Status::uri).containsExactly(top, middle);
+        verify(documents, never()).fetch(uri);
+        // It counts as the thread's fetch, so viewing it soon after doesn't start another.
+        fetches.fetchSoon(reply);
+        assertThat(jobs()).isZero();
+    }
+
+    @Test
+    void aReplyToWhatsStoredOrCantBeFetchedFetchesNothing() {
+        var parent = noteUri(author);
+        store(author, parent, null);
+        var answersStored = noteUri(author);
+        store(author, answersStored, parent);
+        var blocked = remote();
+        blocks.create(blocked.domain(), null);
+        var answersBlocked = noteUri(author);
+        var blockedParent = noteUri(blocked);
+        store(author, answersBlocked, blockedParent);
+        var answersLocal = noteUri(author);
+        var localParent = URI.create("https://threads.example/users/someone/statuses/" + UUID.randomUUID());
+        store(author, answersLocal, localParent);
+        var topLevel = noteUri(author);
+        store(author, topLevel, null);
+
+        fetches.fetchParentsOf(arrived(answersStored, parent), author.uri());
+        fetches.fetchParentsOf(arrived(answersBlocked, blockedParent), author.uri());
+        fetches.fetchParentsOf(arrived(answersLocal, localParent), author.uri());
+        fetches.fetchParentsOf(arrived(topLevel, null), author.uri());
+
+        assertThat(jobs()).isZero();
+    }
+
+    @Test
     void viewingAThreadFetchesItOnlyForSomeoneSignedIn() throws Exception {
         var statusId = store(author, noteUri(author));
         var context = "/api/v1/statuses/" + statusId + "/context";
@@ -340,6 +386,14 @@ class ThreadFetchIntegrationTests {
     private UUID store(Actor author, URI uri, URI inReplyTo) {
         return remoteStatuses.storeRemote(new RemoteStatus(uri, null, author.id(), "<p>stored</p>", null, null,
                 Visibility.PUBLIC, false, inReplyTo, Instant.now())).orElseThrow();
+    }
+
+    /**
+     * The note of a status stored by {@link #store}, as it was delivered.
+     */
+    private RemoteNote arrived(URI uri, URI inReplyTo) {
+        var document = json.readTree(json.writeValueAsString(note(uri, author, inReplyTo, List.of(PUBLIC))));
+        return AttributedNote.of(uri, document).orElseThrow().note();
     }
 
     private static Map<String, Object> note(URI id, Actor author, URI inReplyTo, List<String> to) {

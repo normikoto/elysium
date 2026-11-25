@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
+import com.github.kagkarlsson.scheduler.SchedulerClient;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.activitypub.signature.DocumentFetchException;
@@ -80,6 +81,8 @@ class UpdateIntegrationTests {
     private CustomEmojis emojis;
     @Autowired
     private ActorRefetch refetch;
+    @Autowired
+    private SchedulerClient scheduler;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -279,6 +282,25 @@ class UpdateIntegrationTests {
         assertThat(row.get("visibility")).isEqualTo("public");
         assertThat(((Timestamp) row.get("edited_at")).toInstant()).isEqualTo(updated);
         assertThat(((Timestamp) row.get("published_at")).toInstant()).isEqualTo(published);
+    }
+
+    @Test
+    void aLateUpdateOfAReplyWhoseParentIsntStoredHasItsParentsFetched() {
+        var noteId = noteId();
+        var edited = new HashMap<>(note(noteId, null));
+        var published = Instant.now().minus(Duration.ofHours(1)).truncatedTo(ChronoUnit.SECONDS);
+        edited.put("published", published.toString());
+        edited.put("updated", published.plus(Duration.ofMinutes(5)).toString());
+        edited.put("inReplyTo", noteId());
+
+        handler.handle(update(edited));
+
+        var statusId = (UUID) status(noteId).orElseThrow().get("id");
+        assertThat(scheduler.getScheduledExecutionsForTask(ThreadFetches.TASK_NAME, ThreadFetchJob.class).stream()
+                .map(execution -> execution.getData())
+                .filter(job -> job.statusId().equals(statusId))
+                .map(ThreadFetchJob::step)
+                .toList()).containsExactly(ThreadFetchJob.Step.PARENTS);
     }
 
     @Test

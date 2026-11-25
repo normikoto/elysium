@@ -39,7 +39,8 @@ import java.util.UUID;
 
 /**
  * Fills in a thread that someone here is reading, as Mastodon does when a status's context is viewed, so that it shows the
- * parents and replies that nobody here was sent.
+ * parents and replies that nobody here was sent. A reply that arrives before its parent has its parents fetched too, as
+ * Mastodon does, so that it doesn't sit alone until someone opens it.
  *
  * <p>Parents are fetched one at a time, each from the server its {@code inReplyTo} names, since only that server can say
  * what's there. Replies are listed by the {@code replies} collection of the status they answer, which is read from that
@@ -118,15 +119,41 @@ class ThreadFetches implements RemoteThreadFetcher {
 
     @Override
     public Optional<ThreadRefresh> fetchSoon(UUID statusId) {
+        startSoon(statusId, true);
+        return find(statusId).filter(ThreadRefresh::running);
+    }
+
+    /**
+     * Fetches the parents of a note that was just delivered and stored, if what it replies to isn't stored. Its replies
+     * aren't fetched, since it's new enough to have none. This counts as a fetch of its thread, so viewing it within
+     * {@link #REFETCH_AFTER} doesn't fetch its replies either, which would find nothing yet. If the parent's own
+     * {@code Create} is still waiting for its job, the parents job finds it stored by then and fetches nothing. This makes
+     * no request itself.
+     *
+     * @param author the note's author, which has to be the activity's actor
+     */
+    void fetchParentsOf(RemoteNote note, URI author) {
+        var parent = note.inReplyTo();
+        // Checked before looking the reply up, since most notes aren't replies, or answer what's stored.
+        if (parent == null || !isFetchable(parent) || remoteStatuses.isStored(parent)) {
+            return;
+        }
+        actors.findByUri(author)
+                .flatMap(found -> statuses.findStoredByUri(note.id(), found.id()))
+                .ifPresent(reply -> startSoon(reply.id(), false));
+    }
+
+    private void startSoon(UUID statusId, boolean replies) {
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         // Most views come soon after another, and this saves them the write and row lock that starting takes.
         var recent = latest(statusId).filter(row -> row.startedAt().isAfter(now.minus(REFETCH_AFTER)));
         if (recent.isEmpty() && start(statusId, now)) {
             var group = group(statusId, now);
             Jobs.scheduleInGroup(scheduler, TASK, ThreadFetchJob.parents(statusId, now), group, "parents");
-            Jobs.scheduleInGroup(scheduler, TASK, ThreadFetchJob.replies(statusId, now), group, "replies");
+            if (replies) {
+                Jobs.scheduleInGroup(scheduler, TASK, ThreadFetchJob.replies(statusId, now), group, "replies");
+            }
         }
-        return find(statusId).filter(ThreadRefresh::running);
     }
 
     /**

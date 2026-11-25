@@ -58,6 +58,7 @@ class UpdateHandler implements InboundActivityHandler {
     private final JsonMapper json;
     private final FeaturedFetch featured;
     private final ActorRefetch refetch;
+    private final ThreadFetches threads;
 
     UpdateHandler(
             ActorService actors,
@@ -70,7 +71,9 @@ class UpdateHandler implements InboundActivityHandler {
             PollService polls,
             JsonMapper json,
             FeaturedFetch featured,
-            ActorRefetch refetch) {
+            ActorRefetch refetch,
+            ThreadFetches threads) {
+        this.threads = threads;
         this.featured = featured;
         this.refetch = refetch;
         this.polls = polls;
@@ -174,7 +177,9 @@ class UpdateHandler implements InboundActivityHandler {
         var stored = published.isBefore(activity.firstReceivedAt().minus(NEW_FOR))
                 ? storage.storeOld(activity, document, read)
                 : storage.store(activity, document, read);
-        if (stored == NoteStorage.Result.TAKEN) {
+        if (stored == NoteStorage.Result.STORED) {
+            threads.fetchParentsOf(read.note(), URI.create(activity.actorUri()));
+        } else if (stored == NoteStorage.Result.TAKEN) {
             // Its Create was stored in between, with an older version, which can still be edited. Or it was deleted, which
             // this finds nothing to edit for.
             storedAuthor(URI.create(activity.actorUri())).ifPresent(author -> edit(read.note(), author));

@@ -28,6 +28,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
+import com.github.kagkarlsson.scheduler.SchedulerClient;
 import java.net.URI;
 import java.sql.Timestamp;
 import java.util.HashMap;
@@ -73,6 +74,8 @@ class CreateIntegrationTests {
     private MediaAttachments attachments;
     @Autowired
     private CustomEmojis emojis;
+    @Autowired
+    private SchedulerClient scheduler;
     @MockitoBean
     private ActivityDocuments documents;
 
@@ -614,6 +617,19 @@ class CreateIntegrationTests {
         assertThat(status(noteId).orElseThrow().get("language")).isEqualTo("pt-BR");
     }
 
+    @Test
+    void aReplyWhoseParentIsntStoredHasItsParentsFetched() {
+        var reply = new HashMap<>(note(noteId(), List.of(PUBLIC), List.of(followers)));
+        reply.put("inReplyTo", noteId());
+        var topLevel = note(noteId(), List.of(PUBLIC), List.of(followers));
+
+        handler.handle(create(reply));
+        handler.handle(create(topLevel));
+
+        assertThat(threadFetches(statusId((String) reply.get("id")))).containsExactly(ThreadFetchJob.Step.PARENTS);
+        assertThat(threadFetches(statusId((String) topLevel.get("id")))).isEmpty();
+    }
+
     // Helpers
 
     private String noteId() {
@@ -636,6 +652,14 @@ class CreateIntegrationTests {
                 .map(uri -> Map.of("type", "Mention", "href", uri.toString(), "name", "@x@" + uri.getHost()))
                 .toList());
         return tagged;
+    }
+
+    private List<ThreadFetchJob.Step> threadFetches(UUID statusId) {
+        return scheduler.getScheduledExecutionsForTask(ThreadFetches.TASK_NAME, ThreadFetchJob.class).stream()
+                .map(execution -> execution.getData())
+                .filter(job -> job.statusId().equals(statusId))
+                .map(ThreadFetchJob::step)
+                .toList();
     }
 
     private UUID statusId(String uri) {
