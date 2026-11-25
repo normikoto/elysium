@@ -14,6 +14,8 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
 import dev.biribiri.elysium.moderation.DomainBlocks;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,6 +33,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Sends one activity to one inbox. No database transaction is open during this, so a slow server doesn't hold a connection.
@@ -48,6 +51,7 @@ class DeliveryTask {
     private final SignedSender sender;
     private final HostGate gate;
     private final DomainBlocks blocks;
+    private final MeterRegistry meters;
 
     DeliveryTask(
             JdbcClient jdbc,
@@ -55,7 +59,9 @@ class DeliveryTask {
             ActorSigningKeys keys,
             SignedSender sender,
             HostGate gate,
-            DomainBlocks blocks) {
+            DomainBlocks blocks,
+            MeterRegistry meters) {
+        this.meters = meters;
         this.jdbc = jdbc;
         this.actors = actors;
         this.keys = keys;
@@ -206,6 +212,7 @@ class DeliveryTask {
                 : signer.flatMap(keys::forActor)
                         .orElseThrow(() -> new PermanentJobFailure("The activity's actor no longer has a local key"));
         Response response;
+        var started = System.nanoTime();
         try {
             response = sender.post(inbox, activity.body().getBytes(StandardCharsets.UTF_8), key);
         } catch (IllegalArgumentException e) {
@@ -220,12 +227,15 @@ class DeliveryTask {
         } catch (ResponseTooLargeException e) {
             // The host answered, and would answer the same way again, having probably received the activity each time.
             gate.succeeded(host);
+            recordRequest("too_large", started);
             throw new PermanentJobFailure("The inbox's answer was too large", e);
         } catch (ConnectionRequestTimeoutException e) {
             // This server's own connections were all busy, which says nothing about the host's health.
+            recordRequest("no_connection", started);
             throw new UncheckedIOException(e);
         } catch (IOException e) {
             gate.failed(host, Instant.now(), Duration.ZERO);
+            recordRequest("unreachable", started);
             throw new UncheckedIOException(e);
         }
 
@@ -233,12 +243,27 @@ class DeliveryTask {
         if (status >= 500 || status == 408 || status == 429) {
             var now = Instant.now();
             gate.failed(host, now, response.retryAfterDelay(now));
+            recordRequest("retryable", started);
             throw new TemporaryDeliveryFailure("The inbox answered with a " + status);
         }
         gate.succeeded(host);
         if (status < 200 || status >= 300) {
+            recordRequest("refused", started);
             throw new PermanentJobFailure("The inbox answered with a " + status);
         }
+        recordRequest("delivered", started);
+    }
+
+    /**
+     * Tagged by outcome and not by host, since there's a value for every server this one has ever sent to. The time includes
+     * waiting for one of this server's connections, which is what {@code no_connection} runs out of.
+     */
+    private void recordRequest(String outcome, long startedNanos) {
+        Timer.builder("elysium.federation.deliveries")
+                .description("Requests to deliver an activity to another server's inbox")
+                .tag("outcome", outcome)
+                .register(meters)
+                .record(System.nanoTime() - startedNanos, TimeUnit.NANOSECONDS);
     }
 
     /**

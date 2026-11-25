@@ -7,6 +7,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.signing.ActorSigningKeys;
 import dev.biribiri.elysium.actor.signing.SigningKey;
 import dev.biribiri.elysium.moderation.DomainBlocks;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -34,7 +35,8 @@ class DeliveryTaskBlockTests {
     private final SignedSender sender = mock();
     private final DomainBlocks blocks = mock();
     private final Actor actor = mock();
-    private final DeliveryTask task = new DeliveryTask(mock(JdbcClient.class), actors, keys, sender, mock(HostGate.class), blocks);
+    private final DeliveryTask task = new DeliveryTask(mock(JdbcClient.class), actors, keys, sender, mock(HostGate.class), blocks,
+            new SimpleMeterRegistry());
 
     @BeforeEach
     void clientRefuses() throws Exception {

@@ -9,6 +9,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Elysium can serve metrics for Prometheus on a separate port, set with `management.server.port`, including deliveries
+  to and from other servers and the background job queue. They're off by default. See
+  [Metrics](docs/configuration.md#metrics).
 - When a reply from another server arrives before the post it answers, Elysium now fetches that post and the ones
   above it in the background, so the conversation shows without anyone opening it first. See
   [Federation](FEDERATION.md#fetching-threads).

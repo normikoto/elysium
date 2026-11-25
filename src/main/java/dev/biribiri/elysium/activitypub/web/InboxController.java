@@ -10,6 +10,8 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.InstanceActor;
 import dev.biribiri.elysium.ratelimit.ClientAddresses;
 import dev.biribiri.elysium.ratelimit.RateLimiter;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.headers.Header;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.util.Locale;
 
 import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ACTIVITY_JSON;
 import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ANY_LD_JSON;
@@ -71,6 +74,7 @@ class InboxController {
     private final ClientAddresses clients;
     private final AddressFetchBudgets budgets;
     private final RefusedDeliveries refusals;
+    private final MeterRegistry meters;
 
     InboxController(
             ActorService actors,
@@ -78,7 +82,9 @@ class InboxController {
             SignatureVerifier verifier,
             ClientAddresses clients,
             AddressFetchBudgets budgets,
-            RefusedDeliveries refusals) {
+            RefusedDeliveries refusals,
+            MeterRegistry meters) {
+        this.meters = meters;
         this.actors = actors;
         this.inbox = inbox;
         this.verifier = verifier;
@@ -133,6 +139,7 @@ class InboxController {
         // Behind a proxy that hides its clients' addresses, one sender could otherwise stop every server delivering.
         var countRefusals = !clients.seemsToBeAProxy(request);
         if (countRefusals && refusals.isOverLimit(address)) {
+            count("too_many_refused");
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                     .header(HttpHeaders.RETRY_AFTER, refusals.retryAfter(address))
                     .build();
@@ -142,6 +149,7 @@ class InboxController {
             if (countRefusals) {
                 refusals.countTooLarge(address);
             }
+            count("too_large");
             return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
         }
 
@@ -157,6 +165,7 @@ class InboxController {
                 return respond(unverified.get());
             }
             log.debug("Refusing a delivery: {}", e.getMessage());
+            count("signature_" + e.failure().name().toLowerCase(Locale.ROOT));
             if (countRefusals) {
                 refusals.count(address, e.failure());
             }
@@ -168,7 +177,8 @@ class InboxController {
         }
     }
 
-    private static ResponseEntity<Void> respond(Inbox.Result result) {
+    private ResponseEntity<Void> respond(Inbox.Result result) {
+        count(result.outcome().name().toLowerCase(Locale.ROOT));
         return switch (result.outcome()) {
             case ACCEPTED, FORWARDED, IGNORED -> ResponseEntity.accepted().build();
             case INVALID -> ResponseEntity.badRequest().build();
@@ -177,6 +187,18 @@ class InboxController {
                     .header(HttpHeaders.RETRY_AFTER, RateLimiter.retryAfterSeconds(result.retryAfter()))
                     .build();
         };
+    }
+
+    /**
+     * Counts requests to every inbox together, by what became of them. A 404 or 410 for a user's inbox isn't counted, since
+     * it's about the address, not what was sent.
+     */
+    private void count(String outcome) {
+        Counter.builder("elysium.federation.inbox.requests")
+                .description("Deliveries from other servers, by what became of them")
+                .tag("outcome", outcome)
+                .register(meters)
+                .increment();
     }
 
     /**

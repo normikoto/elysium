@@ -108,6 +108,11 @@ spring.datasource.password=
 #db-scheduler.polling-strategy=LOCK_AND_FETCH
 #db-scheduler.polling-strategy-upper-limit-fraction-of-threads=1.0
 
+# Serves Prometheus metrics at /actuator/prometheus on this port, without a login. Keep it private, such as with the
+# address below. See docs/configuration.md.
+#management.server.port=9090
+#management.server.address=127.0.0.1
+
 # Uncomment if a reverse proxy is the only way to reach this server, so that redirects use the public URL and rate limits
 # apply to each client's address. Without this behind a proxy, all clients share one limit. The server trusts the
 # forwarded headers it receives, so the proxy must set them itself, or clients can get around the rate limits by making up
