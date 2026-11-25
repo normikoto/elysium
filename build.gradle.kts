@@ -131,6 +131,12 @@ tasks.test {
     }
     // Gradle's 512 MB default runs out with many cached contexts and concurrent Argon2 hashing in FirstAccountIntegrationTests.
     maxHeapSize = "2g"
+    // GitHub Actions sets CI. Its log is all there is to read there, while a local run has the HTML report.
+    if (System.getenv("CI") != null) {
+        testLogging {
+            events("passed", "skipped", "failed")
+        }
+    }
 }
 
 tasks.register<Test>("loadTest") {
