@@ -635,6 +635,46 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
+    void sendsNothingForARolledBackDelete() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+        awaitNothingLeftFor(status);
+
+        transactions.executeWithoutResult(transaction -> {
+            statuses.delete(status.id(), author.id());
+            transaction.setRollbackOnly();
+        });
+
+        assertThat(statuses.findVisible(status.id(), Optional.empty())).isPresent();
+        assertThat(statuses.findTombstone(status.id(), author.id())).isEmpty();
+        assertThat(publications(status)).isZero();
+        assertThat(storedDelete(status)).isZero();
+    }
+
+    @Test
+    void retriesAFailedDeleteListener() {
+        var host = newHost();
+        follow(host, "bob", false);
+        var status = post(Visibility.PUBLIC, null);
+        awaitCreate(host, status);
+        awaitNothingLeftFor(status);
+        doThrow(new IllegalStateException("Expected by this test"))
+                .doCallRealMethod()
+                .when(follows).followerInboxes(author.id());
+
+        statuses.delete(status.id(), author.id());
+        await().atMost(WAIT).until(() -> "FAILED".equals(publicationStatus(status)));
+
+        backdatePublication(status);
+        retries.retry();
+
+        awaitDelete(host, status);
+        awaitNothingLeftFor(status);
+    }
+
+    @Test
     void aDeleteWaitsForItsCreateToBeQueuedAndThenCancelsIt() {
         var host = newHost();
         follow(host, "bob", false);
