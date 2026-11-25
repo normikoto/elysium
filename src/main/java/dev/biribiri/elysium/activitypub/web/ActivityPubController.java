@@ -579,7 +579,7 @@ public class ActivityPubController {
                              @RequestParam(required = false) String page,
                              @RequestParam(name = "min_id", required = false) String minId) {
         return collectionOf(username, id, (status, author) -> {
-            if (statuses.findOpenThreadRoot(status.id()).filter(root -> root.id().equals(status.id())).isEmpty()) {
+            if (statuses.findOpenThreadRoot(status).filter(root -> root.id().equals(status.id())).isEmpty()) {
                 return ResponseEntity.notFound().build();
             }
             var uri = Note.threadOf(status);

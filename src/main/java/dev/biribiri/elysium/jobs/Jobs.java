@@ -205,10 +205,11 @@ public final class Jobs {
      *
      * @param group what the group's jobs share, which has to be short and can't come from another server, since it isn't
      *              hashed
+     * @return whether it was queued, which it isn't if a job with the same ID is queued already
      */
-    public static <T extends QueuedJob> void scheduleInGroup(
+    public static <T extends QueuedJob> boolean scheduleInGroup(
             SchedulerClient scheduler, TaskDescriptor<T> task, T job, String group, String... idParts) {
-        scheduler.scheduleIfNotExists(
+        return scheduler.scheduleIfNotExists(
                 task.instance(group + "/" + instanceId(idParts)).data(job).scheduledTo(job.queuedAt()));
     }
 

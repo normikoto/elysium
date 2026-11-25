@@ -1058,9 +1058,9 @@ public class StatusService {
      * nothing it names shows where a hidden status is. A local reply to another server's thread has none, since that
      * thread is that server's to list.
      */
-    public Optional<Status> findOpenThreadRoot(UUID id) {
-        return statuses.findById(id).filter(StatusService::isInOpenThread).flatMap(status -> {
-            var chain = new ArrayList<>(statuses.findAncestors(id, MAX_ANCESTORS));
+    public Optional<Status> findOpenThreadRoot(Status found) {
+        return Optional.of(found).filter(StatusService::isInOpenThread).flatMap(status -> {
+            var chain = new ArrayList<>(statuses.findAncestors(status.id(), MAX_ANCESTORS));
             chain.add(status);
             var root = chain.getFirst();
             // An ancestor whose author is suspended or deleted isn't found, and leaves a gap in the chain.

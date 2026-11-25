@@ -36,6 +36,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Fills in a thread that someone here is reading, as Mastodon does when a status's context is viewed, so that it shows the
@@ -406,10 +407,12 @@ class ThreadFetches implements RemoteThreadFetcher {
         var collection = URI.create(job.contextId());
         var target = URI.create(job.target());
         var first = target.equals(collection) && job.pages() == 0;
+        Supplier<CompletionHandler<ThreadFetchJob>> unread =
+                () -> first ? Jobs.rescheduleAt(Instant.now(), job.repliesWithoutContext()) : Jobs.done();
         if (!isFetchable(target)) {
-            return first ? Jobs.rescheduleAt(Instant.now(), job.repliesWithoutContext()) : Jobs.done();
+            return unread.get();
         }
-        var waiting = waitForTurn(target, job);
+        var waiting = waitForTurn(target, job, unread);
         if (waiting.isPresent()) {
             return waiting.get();
         }
@@ -418,6 +421,14 @@ class ThreadFetches implements RemoteThreadFetcher {
             document = fetch(target);
         } catch (HostBusyException e) {
             return Jobs.waitForHost(job, job::withTurn);
+        } catch (IllegalStateException e) {
+            // Retrying could leave the replies unread once the retries run out, and they're on another server.
+            if (!first) {
+                throw e;
+            }
+            log.debug("Reading the replies to {}, since {} couldn't be fetched: {}", job.statusId(), target,
+                    e.getMessage());
+            return unread.get();
         }
         if (first) {
             return document.filter(found -> ActorCollections.hasId(found, target, "OrderedCollection", "Collection"))
@@ -485,9 +496,11 @@ class ThreadFetches implements RemoteThreadFetcher {
             if (id.isEmpty()) {
                 continue;
             }
-            Jobs.scheduleInGroup(scheduler, TASK, job.contextPost(id.get()),
-                    group(job.statusId(), job.queuedAt()), "context", id.get().toString());
-            count++;
+            // A post listed both in the collection and in its first page, or on two pages, only counts once.
+            if (Jobs.scheduleInGroup(scheduler, TASK, job.contextPost(id.get()),
+                    group(job.statusId(), job.queuedAt()), "context", id.get().toString())) {
+                count++;
+            }
         }
         return count;
     }
@@ -645,11 +658,19 @@ class ThreadFetches implements RemoteThreadFetcher {
      * @return what to do with the job if it has to wait for its turn, or has waited too long, or empty if it can fetch now
      */
     private Optional<CompletionHandler<ThreadFetchJob>> waitForTurn(URI target, ThreadFetchJob job) {
+        return waitForTurn(target, job, Jobs::done);
+    }
+
+    /**
+     * @param refused what to do instead if too many fetches are waiting for the target's server
+     */
+    private Optional<CompletionHandler<ThreadFetchJob>> waitForTurn(
+            URI target, ThreadFetchJob job, Supplier<CompletionHandler<ThreadFetchJob>> refused) {
         var now = Instant.now();
         var turn = turns.take(target, job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not fetching {} for a thread, since too many fetches are waiting for its server", target);
-            return Optional.of(Jobs.done());
+            return Optional.of(refused.get());
         }
         if (turn.get().isAfter(now)) {
             return Optional.of(Jobs.waitUntil(turn.get(), job.withTurn(turn.get())));
