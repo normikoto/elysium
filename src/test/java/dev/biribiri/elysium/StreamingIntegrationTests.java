@@ -227,13 +227,6 @@ class StreamingIntegrationTests {
     }
 
     @Test
-    void theUserStreamLeavesOutWhatTheHomeTimelineWould() throws Exception {
-        var stream = webSocket("?stream=user", aliceToken);
-        post(bob, "not followed", Visibility.PUBLIC);
-        stream.expectNothing();
-    }
-
-    @Test
     void notificationsAreStreamedToTheirRecipient() throws Exception {
         var aliceStream = webSocket("?stream=user:notification", aliceToken);
         var bobStream = webSocket("?stream=user:notification", bobToken);

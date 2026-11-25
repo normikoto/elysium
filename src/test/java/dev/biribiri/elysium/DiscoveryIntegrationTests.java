@@ -14,6 +14,9 @@ import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -91,27 +94,30 @@ class DiscoveryIntegrationTests {
                         .value("https://elysium.example/authorize_interaction?uri={object}"));
     }
 
-    @Test
-    void webFingerMatchesUsernameAndDomainCaseInsensitively() throws Exception {
-        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:ADMIN@ELYSIUM.example"))
+    @ParameterizedTest
+    @ValueSource(strings = {"acct:ADMIN@ELYSIUM.example", "ACCT:admin@elysium.example", ACTOR_URI})
+    void webFingerFindsALocalActorByItsUriOrAnAddressInAnyCase(String resource) throws Exception {
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", resource))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.subject").value("acct:admin@elysium.example"));
     }
 
-    @Test
-    void webFingerRejectsMalformedResources() throws Exception {
-        for (var resource : new String[]{"admin@elysium.example", "acct:admin", "acct:@elysium.example", "acct:admin@"}) {
-            mockMvc.perform(get("/.well-known/webfinger").param("resource", resource))
-                    .andExpect(status().isBadRequest());
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"admin@elysium.example", "acct:admin", "acct:@elysium.example", "acct:admin@"})
+    void webFingerRejectsMalformedResources(String resource) throws Exception {
+        var request = get("/.well-known/webfinger");
+        if (resource != null) {
+            request.param("resource", resource);
         }
-        mockMvc.perform(get("/.well-known/webfinger")).andExpect(status().isBadRequest());
+        mockMvc.perform(request).andExpect(status().isBadRequest());
     }
 
-    @Test
-    void webFingerReturnsNotFoundForUnknownAccounts() throws Exception {
-        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:nobody@elysium.example"))
-                .andExpect(status().isNotFound());
-        mockMvc.perform(get("/.well-known/webfinger").param("resource", "acct:admin@other.example"))
+    @ParameterizedTest
+    @ValueSource(strings = {"acct:nobody@elysium.example", "acct:admin@other.example", "https://other.example/users/admin",
+            "mailto:admin@elysium.example"})
+    void webFingerReturnsNotFoundForResourcesWithNoMatch(String resource) throws Exception {
+        mockMvc.perform(get("/.well-known/webfinger").param("resource", resource))
                 .andExpect(status().isNotFound());
     }
 
@@ -178,15 +184,6 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
-    void servesTheInstanceActorAsLdJsonAndToAnyOrigin() throws Exception {
-        mockMvc.perform(get("/actor")
-                        .accept(MediaType.parseMediaType("application/ld+json"))
-                        .header("Origin", "https://other.example"))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Access-Control-Allow-Origin", "*"));
-    }
-
-    @Test
     void webFingerFindsTheInstanceActor() throws Exception {
         for (var resource : new String[]{
                 "acct:instance.actor@elysium.example", "acct:INSTANCE.actor@ELYSIUM.example", INSTANCE_ACTOR_URI}) {
@@ -217,12 +214,13 @@ class DiscoveryIntegrationTests {
     }
 
     @Test
-    void answersLdJsonWithTheActivityStreamsProfile() throws Exception {
+    void answersLdJsonWithTheActivityStreamsProfileToAnyOrigin() throws Exception {
         var profiled = "application/ld+json;profile=\"https://www.w3.org/ns/activitystreams\"";
         for (var accept : new String[]{"application/ld+json", profiled}) {
-            mockMvc.perform(get("/actor").header("Accept", accept))
+            mockMvc.perform(get("/actor").header("Accept", accept).header("Origin", "https://other.example"))
                     .andExpect(status().isOk())
-                    .andExpect(header().string("Content-Type", profiled));
+                    .andExpect(header().string("Content-Type", profiled))
+                    .andExpect(header().string("Access-Control-Allow-Origin", "*"));
         }
     }
 
@@ -240,27 +238,6 @@ class DiscoveryIntegrationTests {
     void rejectsUnauthenticatedRequestsToOtherPaths() throws Exception {
         // This path exists, so it would return 200 rather than 403 if it were left open.
         mockMvc.perform(get("/actuator")).andExpect(status().isForbidden());
-    }
-
-    @Test
-    void webFingerFindsActorByUri() throws Exception {
-        mockMvc.perform(get("/.well-known/webfinger").param("resource", ACTOR_URI))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.subject").value("acct:admin@elysium.example"));
-    }
-
-    @Test
-    void webFingerTreatsTheAcctSchemeCaseInsensitively() throws Exception {
-        mockMvc.perform(get("/.well-known/webfinger").param("resource", "ACCT:admin@elysium.example"))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    void webFingerReturnsNotFoundForWellFormedResourcesWithNoMatch() throws Exception {
-        for (var resource : new String[]{"https://other.example/users/admin", "mailto:admin@elysium.example"}) {
-            mockMvc.perform(get("/.well-known/webfinger").param("resource", resource))
-                    .andExpect(status().isNotFound());
-        }
     }
 
     @Test
@@ -332,6 +309,8 @@ class DiscoveryIntegrationTests {
                     .andExpect(jsonPath("$.usage.users.total").value(users))
                     .andExpect(jsonPath("$.usage.localPosts").value(posts));
         }
+        mockMvc.perform(get("/nodeinfo/2.1").accept(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.software.repository").value("https://github.com/normikoto/elysium"));
     }
 
     @Test
@@ -347,12 +326,6 @@ class DiscoveryIntegrationTests {
 
         statuses.delete(unlisted.id(), author);
         expectLocalPosts(3);
-    }
-
-    @Test
-    void nodeInfo21IncludesTheRepository() throws Exception {
-        mockMvc.perform(get("/nodeinfo/2.1").accept(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.software.repository").value("https://github.com/normikoto/elysium"));
     }
 
     @Test

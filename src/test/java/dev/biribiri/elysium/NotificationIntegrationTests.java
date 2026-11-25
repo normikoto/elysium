@@ -410,24 +410,6 @@ class NotificationIntegrationTests {
     }
 
     @Test
-    void notificationsAreSeenUpToTheNotificationsMarker() throws Exception {
-        follows.follow(alice, bob);
-        follows.follow(carol, bob);
-        createStatus(alice, "@inboxbob hello", DIRECT, null);
-        settled();
-        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
-                .andExpect(jsonPath("$[*].pleroma.is_seen", contains(false, false, false)));
-        String middle = values(get(NOTIFICATIONS).with(user(bob)), "$[1].id");
-        mvc.perform(post(MARKERS).with(user(bob)).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"notifications\":{\"last_read_id\":\"" + middle + "\"}}"))
-                .andExpect(status().isOk());
-        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
-                .andExpect(jsonPath("$[*].pleroma.is_seen", contains(false, true, true)));
-        mvc.perform(get(NOTIFICATIONS + "/" + middle).with(user(bob))).andExpect(jsonPath("$.pleroma.is_seen").value(true));
-        mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(1));
-    }
-
-    @Test
     void pleromasReadEndpointOnlyMovesTheMarkerForward() throws Exception {
         follows.follow(alice, bob);
         follows.follow(carol, bob);
@@ -475,7 +457,7 @@ class NotificationIntegrationTests {
     }
 
     @Test
-    void notificationMarkersControlCountsAndDoNotDismissAnything() throws Exception {
+    void notificationMarkersMarkWhatsSeenAndControlCountsWithoutDismissingAnything() throws Exception {
         follows.follow(alice, bob);
         follows.follow(carol, bob);
         createStatus(alice, "@inboxbob hello", DIRECT, null);
@@ -484,11 +466,23 @@ class NotificationIntegrationTests {
         mvc.perform(get(GROUPS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(2));
         mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob)).param("limit", "1"))
                 .andExpect(jsonPath("$.count").value(1));
+        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
+                .andExpect(jsonPath("$[*].pleroma.is_seen", contains(false, false, false)));
+
+        String middle = values(get(NOTIFICATIONS).with(user(bob)), "$[1].id");
+        mvc.perform(post(MARKERS).with(user(bob)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"notifications\":{\"last_read_id\":\"" + middle + "\"}}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.notifications.version").value(0))
+                .andExpect(jsonPath("$.notifications.updated_at").isString());
+        mvc.perform(get(NOTIFICATIONS).with(user(bob)))
+                .andExpect(jsonPath("$[*].pleroma.is_seen", contains(false, true, true)));
+        mvc.perform(get(NOTIFICATIONS + "/" + middle).with(user(bob))).andExpect(jsonPath("$.pleroma.is_seen").value(true));
+        mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(1));
+
         String latest = values(get(NOTIFICATIONS).with(user(bob)), "$[0].id");
         mvc.perform(post(MARKERS).with(user(bob)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"notifications\":{\"last_read_id\":\"" + latest + "\"}}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.notifications.version").value(0))
-                .andExpect(jsonPath("$.notifications.updated_at").isString());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.notifications.version").value(1));
         mvc.perform(get(NOTIFICATIONS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(0));
         mvc.perform(get(GROUPS + "/unread_count").with(user(bob))).andExpect(jsonPath("$.count").value(0));
         mvc.perform(get(NOTIFICATIONS).with(user(bob))).andExpect(jsonPath("$", hasSize(3)));
@@ -498,7 +492,7 @@ class NotificationIntegrationTests {
                 .andExpect(jsonPath("$.notifications.last_read_id").value(latest));
         mvc.perform(post(MARKERS).with(user(bob)).contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("notifications[last_read_id]", latest).param("home[last_read_id]", latest))
-                .andExpect(jsonPath("$.notifications.version").value(1)).andExpect(jsonPath("$.home.version").value(0));
+                .andExpect(jsonPath("$.notifications.version").value(2)).andExpect(jsonPath("$.home.version").value(0));
         mvc.perform(multipart(MARKERS).with(user(bob)).param("home[last_read_id]", latest))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.home.version").value(1));
     }

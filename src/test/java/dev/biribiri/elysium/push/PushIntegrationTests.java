@@ -208,7 +208,7 @@ class PushIntegrationTests {
     }
 
     @Test
-    void subscribingAgainReplacesTheSubscription() throws Exception {
+    void eachTokenHasOneSubscriptionThatSubscribingAgainReplaces() throws Exception {
         var token = token("pushalice", "push");
         var first = subscribe(token, subscriber(), true, Map.of("mention", true), null);
         var second = subscribe(token, subscriber(), true, Map.of("mention", true), null);
@@ -217,15 +217,7 @@ class PushIntegrationTests {
         mockMvc.perform(withToken(get(SUBSCRIPTION), token)).andExpect(jsonPath("$.id").value(second));
         assertThat(subscriptionCount(second)).isOne();
         assertThat(subscriptionCount(first)).isZero();
-    }
-
-    @Test
-    void eachTokenHasItsOwnSubscription() throws Exception {
-        var first = token("pushalice", "push");
-        var second = token("pushalice", "push");
-        subscribe(first, subscriber(), true, Map.of("mention", true), null);
-
-        mockMvc.perform(withToken(get(SUBSCRIPTION), second)).andExpect(status().isNotFound());
+        mockMvc.perform(withToken(get(SUBSCRIPTION), token("pushalice", "push"))).andExpect(status().isNotFound());
     }
 
     @Test
@@ -242,15 +234,10 @@ class PushIntegrationTests {
         invalid(token, subscriber.endpoint(), "!!!", auth, "all");
         invalid(token, subscriber.endpoint(), key, BASE64URL.encodeToString(new byte[8]), "all");
         invalid(token, subscriber.endpoint(), key, auth, "everyone");
-    }
 
-    @Test
-    void refusesAnEndpointWithoutAPublicAddress() throws Exception {
-        var token = token("pushalice", "push");
-        var subscriber = subscriber("private.example");
+        var unreachable = subscriber("private.example");
         BLOCKED_HOSTS.add("private.example");
-
-        invalid(token, subscriber.endpoint(), publicKey(subscriber), BASE64URL.encodeToString(subscriber.authSecret()),
+        invalid(token, unreachable.endpoint(), publicKey(unreachable), BASE64URL.encodeToString(unreachable.authSecret()),
                 "all");
     }
 

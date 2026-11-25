@@ -285,6 +285,10 @@ class MediaIntegrationTests {
         var others = uploadImage("max");
         refused("{\"status\":\"x\",\"media_ids\":[\"" + others + "\"]}");
         refused("{\"status\":\"x\",\"media_ids\":[\"not-an-id\"]}");
+        var expired = uploadImage("mia");
+        jdbc.sql("UPDATE media_attachment SET removable_after = now() - interval '1 second' WHERE id = :id")
+                .param("id", UUID.fromString(expired)).update();
+        refused("{\"status\":\"x\",\"media_ids\":[\"" + expired + "\"]}");
 
         var attached = uploadImage("mia");
         postStatus("mia", "{\"status\":\"first\",\"media_ids\":[\"" + attached + "\"]}");
@@ -299,15 +303,6 @@ class MediaIntegrationTests {
         refused("{\"status\":\"x\",\"media_ids\":" + json(List.of(images.get(1), video)) + "}");
         // None of them were attached by the statuses that were refused.
         postStatus("mia", "{\"status\":\"x\",\"media_ids\":" + json(images.subList(0, 4)) + "}");
-    }
-
-    @Test
-    void anExpiredUploadCantBeAttached() throws Exception {
-        var id = uploadImage("mia");
-        jdbc.sql("UPDATE media_attachment SET removable_after = now() - interval '1 second' WHERE id = :id")
-                .param("id", UUID.fromString(id)).update();
-
-        refused("{\"status\":\"x\",\"media_ids\":[\"" + id + "\"]}");
     }
 
     // Editing
@@ -391,17 +386,6 @@ class MediaIntegrationTests {
 
         assertGone(JsonPath.read(upload, "$.url"));
         assertGone(JsonPath.read(upload, "$.preview_url"));
-    }
-
-    @Test
-    void anUploadThatIsntPostedInTimeIsRemoved() throws Exception {
-        var upload = uploadResponse("mia");
-        jdbc.sql("UPDATE media_attachment SET removable_after = now() - interval '1 second' WHERE id = :id")
-                .param("id", UUID.fromString(JsonPath.read(upload, "$.id"))).update();
-
-        attachments.removeOrphans();
-
-        assertGone(JsonPath.read(upload, "$.url"));
     }
 
     @Test
