@@ -57,6 +57,14 @@ public class StatusThreads {
                         """).param("uri", status.uri().toString()).param("id", status.id()).update();
     }
 
+    public boolean isInThreadOf(URI uri, UUID statusId) {
+        return jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM status_thread_alias a JOIN status s ON s.thread_id = a.thread_id
+                        WHERE a.uri = :uri AND s.id = :id)
+                        """)
+                .param("uri", uri.toString()).param("id", statusId).query(Boolean.class).single();
+    }
+
     private Optional<UUID> threadOf(URI uri) {
         return jdbc.sql("SELECT thread_id FROM status_thread_alias WHERE uri = :uri")
                 .param("uri", uri.toString()).query(UUID.class).optional();

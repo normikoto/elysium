@@ -616,6 +616,52 @@ public class StatusRepository {
     }
 
     /**
+     * A status anyone can see, and its replies that anyone can see, and theirs. A reply that not everyone can see hides the
+     * replies below it too, so that listing them doesn't tell anyone where it is. The depth limit also ends a loop of
+     * replies, which other servers can make.
+     */
+    private static final String OPEN_THREAD = """
+            WITH RECURSIVE down (id, path) AS (
+                SELECT s.id, ARRAY[s.id]\s""" + FROM_ACTIVE + "WHERE s.id = :id AND %1$s"
+            + " UNION ALL SELECT s.id, down.path || s.id " + FROM_ACTIVE
+            + "JOIN down ON s.in_reply_to_id = down.id "
+            + "WHERE cardinality(down.path) <= :maxDepth AND s.id <> ALL (down.path) AND %1$s) ";
+
+    private static final String OPEN = "s.reblog_of_id IS NULL AND s.visibility IN ('public', 'unlisted')"
+            + NOT_LOCAL_ONLY + " AND " + ActorSql.serverNotSuspended("author");
+
+    /**
+     * Lists a status and the replies under it that anyone can see, oldest first, for other servers to backfill the thread
+     * from.
+     *
+     * @param after only those newer than this, or null to start from the status itself
+     */
+    public List<Status> findOpenThread(UUID id, int maxDepth, UUID after, int limit) {
+        var parameters = new HashMap<String, Object>(Map.of("id", id, "maxDepth", maxDepth, "limit", limit));
+        var cursor = "";
+        if (after != null) {
+            cursor = "WHERE s.id > :after ";
+            parameters.put("after", after);
+        }
+        return jdbc.sql(OPEN_THREAD.formatted(OPEN) + SELECT + "JOIN down ON down.id = s.id " + cursor
+                        + "ORDER BY s.id LIMIT :limit")
+                .params(parameters)
+                .query(STATUS_MAPPER)
+                .list();
+    }
+
+    /**
+     * Counts what {@link #findOpenThread} lists.
+     */
+    public long countOpenThread(UUID id, int maxDepth) {
+        return jdbc.sql(OPEN_THREAD.formatted(OPEN) + "SELECT count(*) FROM down")
+                .param("id", id)
+                .param("maxDepth", maxDepth)
+                .query(Long.class)
+                .single();
+    }
+
+    /**
      * Finds a status and stops it from being deleted until the transaction ends, such as so that a reply to it can be
      * inserted without a concurrent delete breaking the foreign key.
      */

@@ -31,6 +31,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -310,6 +311,179 @@ class ThreadFetchIntegrationTests {
         mockMvc.perform(get(refresh)).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1_alpha/async_refreshes/" + statusId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void readsTheCollectionOfTheThreadsPostsThatItsContextNamesInsteadOfItsReplies() throws Exception {
+        var root = noteUri(author);
+        var rootId = store(author, root, null);
+        var forum = remote();
+        var other = remote();
+        var context = URI.create(forum.uri() + "/topics/1");
+        var firstPage = URI.create(context + "?page=1");
+        var nextPage = URI.create(context + "?page=2");
+        var named = noteUri(forum);
+        var linked = noteUri(other);
+        var unrelated = noteUri(other);
+        var reply = noteUri(other);
+
+        var rootDocument = note(root, author, null, List.of(PUBLIC));
+        rootDocument.put("context", context.toString());
+        rootDocument.put("replies", Map.of("type", "Collection", "items", List.of(reply.toString())));
+        serve(root, rootDocument);
+        serve(context, Map.of("id", context.toString(), "type", "OrderedCollection",
+                "attributedTo", forum.uri().toString(), "first", firstPage.toString()));
+        serve(firstPage, Map.of("id", firstPage.toString(), "type", "OrderedCollectionPage", "next", nextPage.toString(),
+                "orderedItems", List.of(root.toString(), named.toString())));
+        // Embedded items are only read for their IDs.
+        serve(nextPage, Map.of("id", nextPage.toString(), "type", "OrderedCollectionPage",
+                "orderedItems", List.of(Map.of("id", linked.toString(), "type", "Note"), unrelated.toString())));
+        // In the thread because it says so, though nothing stored links it there.
+        var namedDocument = note(named, forum, noteUri(forum), List.of(PUBLIC));
+        namedDocument.put("context", context.toString());
+        serve(named, namedDocument);
+        serve(linked, note(linked, other, root, List.of(PUBLIC)));
+        serve(unrelated, note(unrelated, other, noteUri(other), List.of(PUBLIC)));
+        serve(reply, note(reply, other, root, List.of(PUBLIC)));
+
+        fetches.fetchSoon(rootId);
+        drain();
+
+        assertThat(remoteStatuses.isStored(named)).isTrue();
+        assertThat(remoteStatuses.isStored(linked)).isTrue();
+        assertThat(remoteStatuses.isStored(unrelated)).isFalse();
+        verify(documents, never()).fetch(reply);
+        verify(documents, times(1)).fetch(root);
+        assertThat(fetches.find(rootId)).hasValueSatisfying(refresh -> assertThat(refresh.resultCount()).isEqualTo(2));
+    }
+
+    @Test
+    void readsTheRepliesWhenTheContextIsNotACollection() throws Exception {
+        var root = noteUri(author);
+        var rootId = store(author, root, null);
+        var unresolvable = URI.create("https://" + author.domain() + "/contexts/" + UUID.randomUUID());
+        var notACollection = URI.create(author.uri() + "/contexts/" + UUID.randomUUID());
+        var reply = noteUri(author);
+        var rootDocument = note(root, author, null, List.of(PUBLIC));
+        rootDocument.put("context", unresolvable.toString());
+        rootDocument.put("replies", Map.of("type", "Collection", "items", List.of(reply.toString())));
+        serve(root, rootDocument);
+        serve(reply, note(reply, author, root, List.of(PUBLIC)));
+
+        fetches.fetchSoon(rootId);
+        drain();
+
+        assertThat(remoteStatuses.isStored(reply)).isTrue();
+        verify(documents, times(1)).fetch(unresolvable);
+
+        var otherRoot = noteUri(author);
+        var otherRootId = store(author, otherRoot, null);
+        var otherReply = noteUri(author);
+        var otherDocument = note(otherRoot, author, null, List.of(PUBLIC));
+        otherDocument.put("context", Map.of("id", notACollection.toString(), "type", "Group"));
+        otherDocument.put("replies", Map.of("type", "Collection", "items", List.of(otherReply.toString())));
+        serve(otherRoot, otherDocument);
+        serve(notACollection, Map.of("id", notACollection.toString(), "type", "Group"));
+        serve(otherReply, note(otherReply, author, otherRoot, List.of(PUBLIC)));
+
+        fetches.fetchSoon(otherRootId);
+        drain();
+
+        assertThat(remoteStatuses.isStored(otherReply)).isTrue();
+    }
+
+    @Test
+    void readsTheContextsPagesOnlyFromItsOwnServerAndNeverFromABlockedOne() throws Exception {
+        var root = noteUri(author);
+        var rootId = store(author, root, null);
+        var other = remote();
+        var context = URI.create(author.uri() + "/context");
+        var elsewhere = URI.create(other.uri() + "/context?page=1");
+        var rootDocument = note(root, author, null, List.of(PUBLIC));
+        rootDocument.put("context", context.toString());
+        serve(root, rootDocument);
+        serve(context, Map.of("id", context.toString(), "type", "OrderedCollection", "first", elsewhere.toString()));
+
+        fetches.fetchSoon(rootId);
+        drain();
+
+        verify(documents, never()).fetch(elsewhere);
+
+        var blocked = remote();
+        blocks.create(blocked.domain(), null);
+        var blockedContext = URI.create(blocked.uri() + "/context");
+        var otherRoot = noteUri(author);
+        var otherRootId = store(author, otherRoot, null);
+        var otherDocument = note(otherRoot, author, null, List.of(PUBLIC));
+        otherDocument.put("context", blockedContext.toString());
+        serve(otherRoot, otherDocument);
+
+        fetches.fetchSoon(otherRootId);
+        drain();
+
+        verify(documents, never()).fetch(blockedContext);
+    }
+
+    @Test
+    void aPostFromTheContextWaitsOnceForAParentThatsListedAfterIt() throws Exception {
+        var root = noteUri(author);
+        var rootId = store(author, root, null);
+        var other = remote();
+        var context = URI.create(author.uri() + "/context");
+        var parent = noteUri(other);
+        var child = noteUri(other);
+        serve(child, note(child, other, parent, List.of(PUBLIC)));
+        fetches.fetchSoon(rootId);
+        var job = queued().stream().filter(found -> found.step() == ThreadFetchJob.Step.REPLIES).findFirst()
+                .orElseThrow()
+                .context(context)
+                .contextPost(child);
+
+        var waited = runOnce(job);
+
+        assertThat(waited).isNotNull();
+        assertThat(remoteStatuses.isStored(child)).isFalse();
+        store(other, parent, root);
+        assertThat(runOnce(waited)).isNull();
+        assertThat(remoteStatuses.isStored(child)).isTrue();
+
+        var orphan = noteUri(other);
+        serve(orphan, note(orphan, other, noteUri(other), List.of(PUBLIC)));
+        var orphanJob = job.contextPost(orphan);
+        assertThat(runOnce(runOnce(orphanJob))).isNull();
+        assertThat(remoteStatuses.isStored(orphan)).isFalse();
+    }
+
+    @Test
+    void queuesNoMorePostsFromTheContextThanAThreadShows() throws Exception {
+        var root = noteUri(author);
+        var rootId = store(author, root, null);
+        var context = URI.create(author.uri() + "/context");
+        var items = new ArrayList<String>();
+        for (var i = 0; i < ThreadFetches.MAX_CONTEXT_POSTS + 10; i++) {
+            items.add(noteUri(author).toString());
+        }
+        var rootDocument = note(root, author, null, List.of(PUBLIC));
+        rootDocument.put("context", context.toString());
+        serve(root, rootDocument);
+        serve(context, Map.of("id", context.toString(), "type", "OrderedCollection", "orderedItems", items));
+        fetches.fetchSoon(rootId);
+        var replies = queued().stream().filter(found -> found.step() == ThreadFetchJob.Step.REPLIES).findFirst()
+                .orElseThrow();
+        jdbc.sql("DELETE FROM scheduled_tasks WHERE task_name = :name").param("name", ThreadFetches.TASK_NAME).update();
+
+        var next = runOnce(replies);
+        assertThat(next.step()).isEqualTo(ThreadFetchJob.Step.CONTEXT);
+        assertThat(runOnce(next)).isNull();
+
+        assertThat(queued()).hasSize(ThreadFetches.MAX_CONTEXT_POSTS)
+                .allMatch(found -> found.step() == ThreadFetchJob.Step.CONTEXT_POST);
+    }
+
+    private List<ThreadFetchJob> queued() {
+        return scheduler.getScheduledExecutionsForTask(ThreadFetches.TASK_NAME, ThreadFetchJob.class).stream()
+                .map(execution -> execution.getData())
+                .toList();
     }
 
     /**

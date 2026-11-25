@@ -81,7 +81,7 @@ class AuthorizedFetchIntegrationTests {
         var paths = List.of(
                 "/users/alice/followers", "/users/alice/followers?page=true", "/users/alice/following",
                 "/users/alice/outbox", "/users/alice/outbox?page=true", "/users/alice/collections/featured",
-                path(status), path(status) + "/likes", path(status) + "/shares", path(deleted),
+                path(status), path(status) + "/likes", path(status) + "/shares", path(status) + "/context", path(deleted),
                 "/users/alice/quote_authorizations/" + UUID.randomUUID());
         var someone = remote("someone");
         for (var path : paths) {

@@ -103,6 +103,7 @@ class SecurityConfig {
             "/users/*/with_replies", "/users/*/media", "/users/*/followers", "/users/*/following", "/tags/*", "/directory",
             "/users/*/outbox", "/users/*/collections/featured",
             "/users/*/statuses/*", "/users/*/statuses/*/likes", "/users/*/statuses/*/shares",
+            "/users/*/statuses/*/context",
             "/users/*/quote_authorizations/*", "/emojis/*", "/actor", "/actor/outbox", "/actuator/health", "/actuator/health/**",
             "/images/*", "/css/*", "/media/*", "/media_proxy/**", "/api-docs/**", "/api-docs.yaml"
     };
