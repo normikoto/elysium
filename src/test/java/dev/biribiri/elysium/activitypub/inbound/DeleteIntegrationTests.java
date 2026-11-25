@@ -212,15 +212,6 @@ class DeleteIntegrationTests {
     }
 
     @Test
-    void aCheckDeletesAnActorWhoseServerSaysItsGone() throws Exception {
-        when(documents.fetch(author.uri())).thenThrow(DocumentFetchException.gone("gone"));
-
-        checks.confirm(author.uri(), author.uri());
-
-        assertThat(actors.findById(author.id()).orElseThrow().isDeleted()).isTrue();
-    }
-
-    @Test
     void aForwardedDeleteThatItsOriginDoesNotServeIsCheckedWithTheObjectsServer() throws Exception {
         var status = stored(author);
         var id = status + "#delete";
@@ -250,12 +241,17 @@ class DeleteIntegrationTests {
     // Deletes whose key is gone
 
     @Test
-    void anActorsOwnDeleteWithAGoneKeyQueuesACheck() {
+    void anActorsOwnDeleteWithAGoneKeyIsCheckedAndThenDeletesIt() throws Exception {
         var result = inbox.receiveUnverifiedDelete(author.uri(), bytes(delete(author, "\"" + author.uri() + "\"")));
 
         assertThat(result).map(Inbox.Result::outcome).contains(Inbox.Outcome.ACCEPTED);
         assertThat(checkJobs(author.uri())).isOne();
-        assertThat(actors.findById(author.id()).orElseThrow().isDeleted()).isFalse();
+        assertThat(actors.findById(author.id()).orElseThrow().isDeleted()).as("deleted before the check").isFalse();
+
+        when(documents.fetch(author.uri())).thenThrow(DocumentFetchException.gone("gone"));
+        checks.confirm(author.uri(), author.uri());
+
+        assertThat(actors.findById(author.id()).orElseThrow().isDeleted()).as("deleted after the check").isTrue();
     }
 
     @Test

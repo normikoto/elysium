@@ -269,30 +269,22 @@ class ThreadFetchIntegrationTests {
     }
 
     @Test
-    void viewingAThreadFetchesItOnlyForSomeoneSignedIn() throws Exception {
-        var statusId = store(author, noteUri(author));
-        var context = "/api/v1/statuses/" + statusId + "/context";
-
-        mockMvc.perform(get(context)).andExpect(status().isOk());
-        assertThat(jobs()).isZero();
-
-        mockMvc.perform(get(context).header("Authorization", "Bearer " + token())).andExpect(status().isOk());
-        assertThat(jobs()).isEqualTo(2);
-    }
-
-    @Test
-    void tellsClientsWhileTheThreadIsFetchedAndWhatItFound() throws Exception {
+    void viewingAThreadSignedInFetchesItAndTellsClientsWhileItsFetchedAndWhatItFound() throws Exception {
         var parent = noteUri(author);
         serve(parent, note(parent, author, null, List.of(PUBLIC)));
         var statusId = store(author, parent);
         var token = token();
+        var context = "/api/v1/statuses/" + statusId + "/context";
         var refresh = "/api/v1_alpha/async_refreshes/context-" + statusId;
 
         mockMvc.perform(get(refresh).header("Authorization", "Bearer " + token)).andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/v1/statuses/" + statusId + "/context").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get(context)).andExpect(status().isOk());
+        assertThat(jobs()).as("jobs after an anonymous view").isZero();
+        mockMvc.perform(get(context).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Mastodon-Async-Refresh",
                         "id=\"context-" + statusId + "\", retry=5, result_count=0"));
+        assertThat(jobs()).as("jobs after a signed-in view").isEqualTo(2);
         mockMvc.perform(get(refresh).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.async_refresh.id").value("context-" + statusId))
@@ -305,7 +297,7 @@ class ThreadFetchIntegrationTests {
                 .andExpect(jsonPath("$.async_refresh.status").value("finished"))
                 .andExpect(jsonPath("$.async_refresh.result_count").value(1));
         // Finished, and not started again so soon, so there's nothing to check on.
-        mockMvc.perform(get("/api/v1/statuses/" + statusId + "/context").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get(context).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(header().doesNotExist("Mastodon-Async-Refresh"));
         mockMvc.perform(get(refresh)).andExpect(status().isUnauthorized());
