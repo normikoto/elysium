@@ -130,22 +130,16 @@ class BlockIntegrationTests {
     }
 
     @Test
-    void anUndoLiftsTheBlock() {
+    void anUndoNamingTheBlockOrItsTwoActorsLiftsIt() {
         var blockId = newId();
-        var block = arrive(block(blockId));
-        blockHandler.handle(block);
+        blockHandler.handle(arrive(block(blockId)));
 
         undoHandler.handle(undo("\"" + blockId + "\""));
-
         assertThat(blocks()).isEmpty();
-    }
 
-    @Test
-    void anUndoThatEmbedsTheBlockWithoutAnIdLiftsIt() {
         blockHandler.handle(block(newId()));
 
         undoHandler.handle(undo("{\"type\":\"Block\",\"actor\":\"%s\",\"object\":\"%s\"}".formatted(blockerUri, local.uri())));
-
         assertThat(blocks()).isEmpty();
     }
 

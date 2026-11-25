@@ -40,6 +40,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -103,40 +104,47 @@ class ForwardedActivitiesIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        var forwarderUri = "https://f" + UUID.randomUUID() + ".test/users/f";
-        forwarder = new VerifiedSignature(forwarderUri + "#main-key", URI.create(forwarderUri));
+        forwarder = newForwarder();
         origin = "o" + UUID.randomUUID() + ".test";
         actor = "https://" + origin + "/users/a";
         id = "https://" + origin + "/activities/" + UUID.randomUUID();
     }
 
     @Test
-    void queuesAFetchAndStoresNothingUntilTheOriginAnswers() {
+    void queuesOneFetchAndStoresNothingUntilTheOriginAnswers() {
+        var before = now();
+
         var result = receive(activity(id, actor, "forwarded"));
+        receive(activity(id, actor, "forwarded"));
 
         assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
         assertThat(stored()).isZero();
         assertThat(forwardedJobs()).isOne();
+        var data = jdbc.sql("""
+                        SELECT convert_from(task_data, 'UTF8') FROM scheduled_tasks
+                        WHERE task_name = 'forwarded-activity' AND convert_from(task_data, 'UTF8') LIKE :id
+                        """)
+                .param("id", "%" + id + "%")
+                .query(String.class)
+                .single();
+        var queuedAt = Instant.parse(json.readTree(data).path("queuedAt").stringValue());
+        assertThat(queuedAt).isBetween(before, now());
     }
 
     @Test
-    void queuesOneFetchForRepeats() {
-        receive(activity(id, actor, "forwarded"));
-        receive(activity(id, actor, "forwarded"));
-
-        assertThat(forwardedJobs()).isOne();
-    }
-
-    @Test
-    void storesTheOriginsCopy() throws Exception {
+    void storesTheOriginsCopyAsArrivingWhenTheForwardedCopyDid() throws Exception {
+        var arrivedAt = now().minusSeconds(60);
         receive(activity(id, actor, "forwarded"));
         serve(activity(id, actor, "origin"));
 
-        forwarded.fetch(new ForwardedJob(id, now(), null, null, null, null, null));
+        forwarded.fetch(new ForwardedJob(id, arrivedAt, null, null, null, null, null));
 
         assertThat(storedBody()).contains("origin").doesNotContain("forwarded");
         assertThat(storedActor()).isEqualTo(actor);
         assertThat(inboundJobs()).isOne();
+        var activity = stored.find(id).orElseThrow();
+        assertThat(activity.firstReceivedAt()).isEqualTo(arrivedAt);
+        assertThat(activity.receivedAt()).isEqualTo(arrivedAt);
     }
 
     @Test
@@ -215,35 +223,6 @@ class ForwardedActivitiesIntegrationTests {
                 .query(UUID.class).single()).isEqualTo(followed.id());
     }
 
-    @Test
-    void storesWhenTheForwardedCopyArrived() throws Exception {
-        var arrivedAt = now().minusSeconds(60);
-        serve(activity(id, actor, "origin"));
-
-        forwarded.fetch(new ForwardedJob(id, arrivedAt, null, null, null, null, null));
-
-        var activity = stored.find(id).orElseThrow();
-        assertThat(activity.firstReceivedAt()).isEqualTo(arrivedAt);
-        assertThat(activity.receivedAt()).isEqualTo(arrivedAt);
-    }
-
-    @Test
-    void queuesTheFetchWithWhenTheForwardArrived() {
-        var before = now();
-
-        receive(activity(id, actor, "forwarded"));
-
-        var data = jdbc.sql("""
-                        SELECT convert_from(task_data, 'UTF8') FROM scheduled_tasks
-                        WHERE task_name = 'forwarded-activity' AND convert_from(task_data, 'UTF8') LIKE :id
-                        """)
-                .param("id", "%" + id + "%")
-                .query(String.class)
-                .single();
-        var queuedAt = Instant.parse(json.readTree(data).path("queuedAt").stringValue());
-        assertThat(queuedAt).isBetween(before, now());
-    }
-
     /**
      * The {@code Undo} arrives after the forwarded {@code Follow}, but before the {@code Follow} is fetched. It covers the
      * {@code Follow}, which would otherwise look newer and follow again.
@@ -281,39 +260,18 @@ class ForwardedActivitiesIntegrationTests {
     }
 
     @Test
-    void dropsWhatTheOriginServesUnderAnotherId() throws Exception {
-        serve(activity("https://" + origin + "/activities/other", actor, "origin"));
+    void dropsWhatTheOriginServesThatIsntTheActivityFromOneActorOnItsServer() throws Exception {
+        for (var served : List.of(
+                activity("https://" + origin + "/activities/other", actor, "origin"),
+                activity(id, "https://elsewhere.test/users/a", "origin"),
+                "{\"id\":\"" + id + "\",\"type\":\"Create\",\"actor\":[\"" + actor + "\",\"" + actor + "2\"]}",
+                activity(id, "urn:x:y", "origin"))) {
+            serve(served);
 
-        forwarded.fetch(new ForwardedJob(id, now(), null, null, null, null, null));
+            forwarded.fetch(new ForwardedJob(id, now(), null, null, null, null, null));
 
-        assertThat(stored()).isZero();
-    }
-
-    @Test
-    void dropsWhatTheOriginSaysIsFromAnotherServer() throws Exception {
-        serve(activity(id, "https://elsewhere.test/users/a", "origin"));
-
-        forwarded.fetch(new ForwardedJob(id, now(), null, null, null, null, null));
-
-        assertThat(stored()).isZero();
-    }
-
-    @Test
-    void dropsWhatTheOriginSaysHasSeveralActors() throws Exception {
-        serve("{\"id\":\"" + id + "\",\"type\":\"Create\",\"actor\":[\"" + actor + "\",\"" + actor + "2\"]}");
-
-        forwarded.fetch(new ForwardedJob(id, now(), null, null, null, null, null));
-
-        assertThat(stored()).isZero();
-    }
-
-    @Test
-    void dropsWhatTheOriginSaysIsFromAnActorWithNoHost() throws Exception {
-        serve(activity(id, "urn:x:y", "origin"));
-
-        forwarded.fetch(new ForwardedJob(id, now(), null, null, null, null, null));
-
-        assertThat(stored()).isZero();
+            assertThat(stored()).as(served).isZero();
+        }
     }
 
     @Test
@@ -355,12 +313,21 @@ class ForwardedActivitiesIntegrationTests {
         verify(documents, never()).fetch(any());
     }
 
+    /**
+     * The forwarder is only passing it on, so it isn't told that its request was wrong.
+     */
     @Test
-    void ignoresAnIdThatIsNotOnItsActorsServer() {
-        var result = receive(activity("https://elsewhere.test/activities/1", actor, "forwarded"));
+    void ignoresAnIdThatCantBeFetchedFromItsActorsServer() {
+        var local = "https://forward.example/activities/" + UUID.randomUUID();
+        for (var forward : List.of(
+                activity("https://elsewhere.test/activities/1", actor, "forwarded"),
+                activity("https://" + origin + "/has space", actor, "forwarded"),
+                activity(local, "https://forward.example/users/alice", "forwarded"))) {
+            assertThat(receive(forward).outcome()).as(forward).isEqualTo(Inbox.Outcome.IGNORED);
+        }
 
-        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
         assertThat(forwardedJobs("https://elsewhere.test/activities/1")).isZero();
+        assertThat(forwardedJobs(local)).isZero();
     }
 
     @ParameterizedTest
@@ -370,32 +337,12 @@ class ForwardedActivitiesIntegrationTests {
         assertThat(forwardedJobs()).isZero();
     }
 
-    /**
-     * The forwarder is only passing it on, so it isn't told that its request was wrong.
-     */
-    @Test
-    void ignoresAnIdThatIsNotAUri() {
-        var result = receive(activity("https://" + origin + "/has space", actor, "forwarded"));
-
-        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
-    }
-
     @Test
     void ignoresAnActivityFromABlockedServer() {
         blocks.create(origin, null);
 
         assertThat(receive(activity(id, actor, "forwarded")).outcome()).isEqualTo(Inbox.Outcome.IGNORED);
         assertThat(forwardedJobs()).isZero();
-    }
-
-    @Test
-    void ignoresAnActivityClaimingToBeFromThisServer() {
-        var local = "https://forward.example/activities/" + UUID.randomUUID();
-
-        var result = receive(activity(local, "https://forward.example/users/alice", "forwarded"));
-
-        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.IGNORED);
-        assertThat(forwardedJobs(local)).isZero();
     }
 
     @Test
@@ -427,30 +374,28 @@ class ForwardedActivitiesIntegrationTests {
         verify(documents, never()).fetch(URI.create(id));
     }
 
-    @Test
-    void fetchesAnActivityWhoseProofWasMadeByAnotherActor() throws Exception {
-        var other = "https://" + origin + "/users/b";
-        var key = proofKeyOf(other);
-
-        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key));
-
-        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
-        assertThat(stored()).isZero();
-        assertThat(forwardedJobs()).isOne();
-    }
-
     /**
-     * By then, a repeat of it might no longer be recognized, so an activity that's since been undone could come back.
+     * A proof older than activities are kept is fetched too, since by then a repeat of it might no longer be recognized,
+     * and an activity that's since been undone could come back.
      */
     @Test
-    void fetchesAnActivityWhoseProofIsOlderThanActivitiesAreKept() throws Exception {
+    void fetchesAnActivityWhoseProofCantBeTrusted() throws Exception {
         var key = proofKeyOf(actor);
-        var old = Instant.now().minus(ActivityJobs.ACTIVITIES_KEPT);
+        var other = proofKeyOf("https://" + origin + "/users/b");
+        var unlisted = new SigningKey(actor + "#other-key", ed25519().getPrivate());
+        var unsigned = activity(id, actor, "forwarded");
+        for (var signed : List.of(
+                TestProofs.sign(unsigned, other),
+                TestProofs.sign(unsigned, key, Instant.now().minus(ActivityJobs.ACTIVITIES_KEPT)),
+                TestProofs.sign(unsigned, key).replace("forwarded", "changed"),
+                TestProofs.sign(unsigned, unlisted))) {
+            // A forwarder's own limit would turn away the last of these.
+            forwarder = newForwarder();
+            assertThat(receive(signed).outcome()).as(signed).isEqualTo(Inbox.Outcome.FORWARDED);
+        }
 
-        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key, old));
-
-        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
         assertThat(stored()).isZero();
+        assertThat(forwardedJobs()).isOne();
     }
 
     @Test
@@ -461,27 +406,6 @@ class ForwardedActivitiesIntegrationTests {
         var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), key, old));
 
         assertThat(result.outcome()).isEqualTo(Inbox.Outcome.ACCEPTED);
-    }
-
-    @Test
-    void fetchesAnActivityThatWasChangedAfterItsProofWasMade() throws Exception {
-        var key = proofKeyOf(actor);
-        var signed = TestProofs.sign(activity(id, actor, "forwarded"), key);
-
-        var result = receive(signed.replace("forwarded", "changed"));
-
-        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
-        assertThat(stored()).isZero();
-    }
-
-    @Test
-    void fetchesAnActivityWhoseActorDoesNotListTheProofsKey() throws Exception {
-        proofKeyOf(actor);
-        var unlisted = new SigningKey(actor + "#other-key", ed25519().getPrivate());
-
-        var result = receive(TestProofs.sign(activity(id, actor, "forwarded"), unlisted));
-
-        assertThat(result.outcome()).isEqualTo(Inbox.Outcome.FORWARDED);
     }
 
     @Test
@@ -536,6 +460,11 @@ class ForwardedActivitiesIntegrationTests {
                 .set("assertionMethod", json.createArrayNode().add(json.valueToTree(multikey)));
         DocumentStubs.actor(documents, URI.create(documentOwner), document);
         return new SigningKey(keyId, pair.getPrivate());
+    }
+
+    private static VerifiedSignature newForwarder() {
+        var uri = "https://f" + UUID.randomUUID() + ".test/users/f";
+        return new VerifiedSignature(uri + "#main-key", URI.create(uri));
     }
 
     private static KeyPair ed25519() throws Exception {

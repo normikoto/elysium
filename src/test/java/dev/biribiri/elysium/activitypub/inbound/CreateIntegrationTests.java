@@ -21,6 +21,8 @@ import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.moderation.DomainBlocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -364,35 +366,19 @@ class CreateIntegrationTests {
         assertThat(status(noteId)).isEmpty();
     }
 
-    @Test
-    void dropsANoteAttributedToSomeoneElse() {
-        var noteId = noteId();
-        var note = new HashMap<>(note(noteId, List.of(PUBLIC), List.of(followers)));
-        note.put("attributedTo", "https://" + host + "/users/other");
+    @ParameterizedTest
+    @ValueSource(strings = {"attributedTo", "id", "type"})
+    void dropsWhatIsntANoteOfTheActorsOwn(String changed) {
+        var note = new HashMap<>(note(noteId(), List.of(PUBLIC), List.of(followers)));
+        note.put(changed, switch (changed) {
+            case "attributedTo" -> "https://" + host + "/users/other";
+            case "id" -> "https://elsewhere.test/notes/" + UUID.randomUUID();
+            default -> "Article";
+        });
 
         handler.handle(create(note));
 
-        assertThat(status(noteId)).isEmpty();
-    }
-
-    @Test
-    void dropsANoteOnAnotherServer() {
-        var noteId = "https://elsewhere.test/notes/" + UUID.randomUUID();
-
-        handler.handle(create(note(noteId, List.of(PUBLIC), List.of(followers))));
-
-        assertThat(status(noteId)).isEmpty();
-    }
-
-    @Test
-    void ignoresObjectsThatArentNotes() {
-        var noteId = noteId();
-        var article = new HashMap<>(note(noteId, List.of(PUBLIC), List.of(followers)));
-        article.put("type", "Article");
-
-        handler.handle(create(article));
-
-        assertThat(status(noteId)).isEmpty();
+        assertThat(status((String) note.get("id"))).isEmpty();
     }
 
     @Test

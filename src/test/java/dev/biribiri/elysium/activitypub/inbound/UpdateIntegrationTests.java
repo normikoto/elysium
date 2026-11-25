@@ -561,30 +561,6 @@ class UpdateIntegrationTests {
     }
 
     @Test
-    void aSuspendedActorsProfileIsLeftAlone() throws Exception {
-        var document = new HashMap<>(actorDocument(author.uri(), "/inbox", "key"));
-        document.put("name", "Changed");
-        when(documents.fetch(eq(author.uri()))).thenAnswer(invocation -> {
-            jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", author.id()).update();
-            return json.readTree(json.writeValueAsString(document));
-        });
-
-        handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
-
-        assertThat(profiles.find(author.id()).displayName()).isEmpty();
-    }
-
-    @Test
-    void anActorsUpdateSentAsAnIdFetchesItsDocument() throws Exception {
-        when(documents.fetch(eq(author.uri())))
-                .thenReturn(json.readTree(json.writeValueAsString(actorDocument(author.uri(), "/new-inbox", "new-key"))));
-
-        handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
-
-        assertThat(actors.findByUri(author.uri()).orElseThrow().inboxUri()).hasToString(author.uri() + "/new-inbox");
-    }
-
-    @Test
     void anActorCannotUpdateAnotherActor() throws Exception {
         var other = actorDocument(neighbour.uri(), "/new-inbox", "new-key");
 
@@ -607,9 +583,11 @@ class UpdateIntegrationTests {
 
     @Test
     void anActorSuspendedWhileItsBeingFetchedIsLeftAlone() throws Exception {
+        var document = new HashMap<>(actorDocument(author.uri(), "/new-inbox", "new-key"));
+        document.put("name", "Changed");
         when(documents.fetch(eq(author.uri()))).thenAnswer(invocation -> {
             jdbc.sql("UPDATE actor SET suspended_at = now() WHERE id = :id").param("id", author.id()).update();
-            return json.readTree(json.writeValueAsString(actorDocument(author.uri(), "/new-inbox", "new-key")));
+            return json.readTree(json.writeValueAsString(document));
         });
 
         handler.handle(updateOf(author.uri() + "#updates/1", author.uri(), "\"" + author.uri() + "\""));
@@ -617,6 +595,7 @@ class UpdateIntegrationTests {
         var kept = actors.findByUri(author.uri()).orElseThrow();
         assertThat(kept.inboxUri()).hasToString(author.uri() + "/inbox");
         assertThat(kept.publicKeyPem()).isNull();
+        assertThat(profiles.find(author.id()).displayName()).isEmpty();
     }
 
     @Test

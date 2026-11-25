@@ -566,7 +566,7 @@ class MediaDownloadIntegrationTests {
     }
 
     @Test
-    void aServerCanOnlyHaveSoMuchDownloaded() {
+    void aServerCanOnlyHaveSoMuchDownloadedAndThenTheProxyLinksToItsFiles() throws Exception {
         serve("/first.mp4", 200, "video/mp4", TestMedia.mp4(40 * 1024));
         serve("/second.mp4", 200, "video/mp4", TestMedia.mp4(40 * 1024));
         var first = attach("/first.mp4", "video/mp4");
@@ -579,6 +579,12 @@ class MediaDownloadIntegrationTests {
         assertThat(find(second).isCached()).isFalse();
         // Not given up, so that a view once there's room can keep it.
         assertThat(find(second).url(instance)).isEqualTo(proxy(second, "original"));
+        assertThat(attachments.findForDownload(second.id())).isPresent();
+
+        mvc.perform(get(proxy(second, "original")))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", second.remoteUrl().toString()));
+        assertThat(find(second).isProxied()).isTrue();
         assertThat(attachments.findForDownload(second.id())).isPresent();
     }
 
@@ -686,22 +692,6 @@ class MediaDownloadIntegrationTests {
         remoteStatuses.deleteRemote(status, author.uri());
         mvc.perform(get(proxy(attachment, "original"))).andExpect(status().isNotFound());
         assertThat(requests).doesNotContainKey("/deleted.png");
-    }
-
-    @Test
-    void theProxyLinksPastItsServersBudgetWithoutGivingUp() throws Exception {
-        serve("/first.mp4", 200, "video/mp4", TestMedia.mp4(40 * 1024));
-        serve("/second.mp4", 200, "video/mp4", TestMedia.mp4(40 * 1024));
-        var first = attach("/first.mp4", "video/mp4");
-        var second = attach("/second.mp4", "video/mp4");
-        downloads.run(new MediaDownloadJob(first.id(), Instant.now()));
-
-        mvc.perform(get(proxy(second, "original")))
-                .andExpect(status().isFound())
-                .andExpect(header().string("Location", second.remoteUrl().toString()));
-
-        assertThat(find(second).isProxied()).isTrue();
-        assertThat(attachments.findForDownload(second.id())).isPresent();
     }
 
     @Test
