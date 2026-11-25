@@ -70,7 +70,7 @@ class SignUpIntegrationTests {
     }
 
     @Test
-    void anAccountOnlyExistsOnceItsAddressIsConfirmed() throws Exception {
+    void anAccountOnlyExistsOnceItsAddressIsConfirmedByALinkThatWorksOnce() throws Exception {
         signUp("confirmer", "confirmer@mail.example")
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("confirmer@mail.example")));
@@ -83,6 +83,14 @@ class SignUpIntegrationTests {
         assertThat(message.body()).contains("@confirmer", "https://elysium.example/signup/verify?token=");
         var token = mailer.lastTokenSentTo("confirmer@mail.example");
 
+        // Opening the link, as a mail scanner might, only asks for confirmation.
+        mockMvc.perform(get("/signup/verify").param("token", token))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("@confirmer")))
+                .andExpect(content().string(containsString("<form")));
+        assertThat(actors.findAnyLocalByUsername("confirmer")).as("after opening the link").isEmpty();
+        assertThat(pendingCount("confirmer")).isOne();
+
         confirm(token).andExpect(redirectedUrl("/login?registered"));
 
         var actor = actors.findLocalByUsername("confirmer").orElseThrow();
@@ -91,28 +99,7 @@ class SignUpIntegrationTests {
         mockMvc.perform(post("/login").with(csrf()).param("username", "confirmer").param("password", PASSWORD))
                 .andExpect(redirectedUrl("/"));
         assertThat(pendingCount("confirmer")).isZero();
-    }
 
-    @Test
-    void openingTheLinkOnlyAsksForConfirmation() throws Exception {
-        signUp("prefetched", "prefetched@mail.example").andExpect(status().isOk());
-        var token = mailer.lastTokenSentTo("prefetched@mail.example");
-
-        mockMvc.perform(get("/signup/verify").param("token", token))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("@prefetched")))
-                .andExpect(content().string(containsString("<form")));
-
-        assertThat(actors.findAnyLocalByUsername("prefetched")).isEmpty();
-        assertThat(pendingCount("prefetched")).isOne();
-    }
-
-    @Test
-    void aLinkOnlyWorksOnce() throws Exception {
-        signUp("once", "once@mail.example").andExpect(status().isOk());
-        var token = mailer.lastTokenSentTo("once@mail.example");
-
-        confirm(token).andExpect(redirectedUrl("/login?registered"));
         confirm(token).andExpect(status().isNotFound());
         mockMvc.perform(get("/signup/verify").param("token", token)).andExpect(status().isNotFound());
     }

@@ -416,7 +416,7 @@ class FollowsIntegrationTests {
     // Approving followers by hand
 
     @Test
-    void aRequestToFollowALockedAccountWaitsForIt() throws Exception {
+    void aRequestToFollowALockedAccountWaitsForItToApprove() throws Exception {
         var alice = account("alice");
         var carol = account("carol");
         mockMvc.perform(withToken(patch("/api/v1/accounts/update_credentials"), token("carol"))
@@ -446,15 +446,6 @@ class FollowsIntegrationTests {
         mockMvc.perform(withToken(get("/api/v1/statuses/" + statusId), token("alice"))).andExpect(status().isNotFound());
         expectStatusIds(withToken(get("/api/v1/accounts/" + carol.id() + "/statuses"), token("alice")));
         mockMvc.perform(get("/users/carol/followers").accept(ACTIVITY_JSON)).andExpect(jsonPath("$.totalItems").value(0));
-    }
-
-    @Test
-    void approvingARequestMakesAFollower() throws Exception {
-        var alice = account("alice");
-        var carol = account("carol");
-        lock("carol", true);
-        var before = createStatus(token("carol"), "before", "private");
-        follow("alice", carol);
 
         mockMvc.perform(withToken(post("/api/v1/follow_requests/" + alice.id() + "/authorize"), token("carol")))
                 .andExpect(status().isOk())
@@ -467,7 +458,7 @@ class FollowsIntegrationTests {
                 .andExpect(jsonPath("$[0].requested").value(false));
         mockMvc.perform(get("/api/v1/accounts/" + carol.id())).andExpect(jsonPath("$.followers_count").value(1));
         mockMvc.perform(withToken(get("/api/v1/follow_requests"), token("carol"))).andExpect(jsonPath("$", empty()));
-        mockMvc.perform(withToken(get("/api/v1/statuses/" + before), token("alice"))).andExpect(status().isOk());
+        mockMvc.perform(withToken(get("/api/v1/statuses/" + statusId), token("alice"))).andExpect(status().isOk());
         mockMvc.perform(withToken(post("/api/v1/follow_requests/" + alice.id() + "/authorize"), token("carol")))
                 .andExpect(status().isNotFound());
     }
@@ -621,7 +612,7 @@ class FollowsIntegrationTests {
     // Following remote accounts
 
     @Test
-    void followingARemoteAccountWaitsForAnAnswerAndQueuesAFollow() throws Exception {
+    void followingARemoteAccountQueuesAFollowThatUnfollowingUndoesAndFollowingAgainSendsAnew() throws Exception {
         var remote = remote();
         var alice = account("alice");
 
@@ -642,6 +633,24 @@ class FollowsIntegrationTests {
                 .andExpect(jsonPath("$.acct").value("bob@" + remote.domain()))
                 .andExpect(jsonPath("$.followers_count").value(0))
                 .andExpect(jsonPath("$.hide_collections").doesNotExist());
+        var followId = JsonPath.<String>read(follow, "$.id");
+
+        mockMvc.perform(withToken(post("/api/v1/accounts/" + remote.id() + "/unfollow"), token("alice")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requested").value(false));
+
+        var undo = await().atMost(WAIT)
+                .until(() -> outboundBodies(alice, remote), bodies -> bodies.stream().anyMatch(body -> body.contains("\"Undo\"")))
+                .stream().filter(body -> body.contains("\"Undo\"")).findFirst().orElseThrow();
+        assertThat(JsonPath.<String>read(undo, "$.id")).isEqualTo(followId + "/undo");
+        assertThat(JsonPath.<String>read(undo, "$.object.id")).isEqualTo(followId);
+        assertThat(JsonPath.<String>read(undo, "$.object.object")).isEqualTo(remote.uri().toString());
+        // The Follow hadn't been sent, so it never will be.
+        assertThat(followIds(alice, remote)).isEmpty();
+
+        follow("alice", remote);
+        var ids = await().atMost(WAIT).until(() -> followIds(alice, remote), found -> found.size() == 1);
+        assertThat(ids.getFirst()).as("the new Follow").startsWith(alice.uri() + "#follows/").isNotEqualTo(followId);
     }
 
     @Test
@@ -662,41 +671,6 @@ class FollowsIntegrationTests {
         await().atMost(WAIT).until(() -> jdbc.sql("SELECT count(*) FROM event_publication WHERE completion_date IS NULL")
                 .query(Long.class).single() == 0);
         assertThat(deliveryInboxes(alice, remote)).hasSize(2);
-    }
-
-    @Test
-    void unfollowingARemoteAccountCancelsTheFollowAndQueuesAnUndo() throws Exception {
-        var remote = remote();
-        var alice = account("alice");
-        follow("alice", remote);
-        var followId = await().atMost(WAIT).until(() -> outboundBodies(alice, remote), bodies -> !bodies.isEmpty())
-                .stream().map(body -> JsonPath.<String>read(body, "$.id")).findFirst().orElseThrow();
-
-        mockMvc.perform(withToken(post("/api/v1/accounts/" + remote.id() + "/unfollow"), token("alice")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.requested").value(false));
-
-        var undo = await().atMost(WAIT)
-                .until(() -> outboundBodies(alice, remote), bodies -> bodies.stream().anyMatch(body -> body.contains("\"Undo\"")))
-                .stream().filter(body -> body.contains("\"Undo\"")).findFirst().orElseThrow();
-        assertThat(JsonPath.<String>read(undo, "$.id")).isEqualTo(followId + "/undo");
-        assertThat(JsonPath.<String>read(undo, "$.object.id")).isEqualTo(followId);
-        assertThat(JsonPath.<String>read(undo, "$.object.object")).isEqualTo(remote.uri().toString());
-        // The Follow hadn't been sent, so it never will be.
-        assertThat(followIds(alice, remote)).isEmpty();
-    }
-
-    @Test
-    void followingAgainAfterUnfollowingSendsANewFollow() throws Exception {
-        var remote = remote();
-        var alice = account("alice");
-        follow("alice", remote);
-        var first = await().atMost(WAIT).until(() -> followIds(alice, remote), ids -> ids.size() == 1).getFirst();
-        unfollow("alice", remote);
-        follow("alice", remote);
-
-        var ids = await().atMost(WAIT).until(() -> followIds(alice, remote), found -> found.size() == 1 && !found.contains(first));
-        assertThat(ids.getFirst()).startsWith(alice.uri() + "#follows/");
     }
 
     @Test

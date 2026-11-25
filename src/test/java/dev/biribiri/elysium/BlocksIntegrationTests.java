@@ -201,7 +201,7 @@ class BlocksIntegrationTests {
     }
 
     @Test
-    void blockingARemoteAccountSendsABlockToItsOwnInboxAndEndsTheFollows() throws Exception {
+    void aBlockOfARemoteAccountGoesToItsOwnInboxEndsTheFollowsAndCanBeUndone() throws Exception {
         var alice = account("alice");
         var remote = remote();
         follow("alice", remote);
@@ -224,23 +224,17 @@ class BlocksIntegrationTests {
         var reject = await().atMost(WAIT).until(() -> bodiesOfType(alice, remote, "Reject"), found -> !found.isEmpty())
                 .getFirst();
         assertThat(JsonPath.<String>read(reject, "$.object.id")).isEqualTo(theirFollow);
-    }
-
-    @Test
-    void unblockingARemoteAccountSendsAnUndo() throws Exception {
-        var alice = account("alice");
-        var remote = remote();
-        block("alice", remote);
-        var blockId = await().atMost(WAIT).until(() -> bodiesOfType(alice, remote, "Block"), found -> !found.isEmpty())
-                .stream().map(body -> JsonPath.<String>read(body, "$.id")).findFirst().orElseThrow();
 
         mockMvc.perform(withToken(post("/api/v1/accounts/" + remote.id() + "/unblock"), token("alice")))
                 .andExpect(status().isOk());
 
-        var undo = await().atMost(WAIT).until(() -> bodiesOfType(alice, remote, "Undo"), found -> !found.isEmpty())
+        var blockId = JsonPath.<String>read(block, "$.id");
+        var unblock = await().atMost(WAIT)
+                .until(() -> bodiesOfType(alice, remote, "Undo").stream()
+                        .filter(body -> JsonPath.<String>read(body, "$.id").equals(blockId + "/undo"))
+                        .toList(), found -> !found.isEmpty())
                 .getFirst();
-        assertThat(JsonPath.<String>read(undo, "$.id")).isEqualTo(blockId + "/undo");
-        assertThat(JsonPath.<String>read(undo, "$.object.type")).isEqualTo("Block");
+        assertThat(JsonPath.<String>read(unblock, "$.object.type")).isEqualTo("Block");
         assertThat(deliveryInboxes(blockId + "/undo")).containsExactly(remote.inboxUri().toString());
     }
 

@@ -228,7 +228,7 @@ class MoveAccountIntegrationTests {
     }
 
     @Test
-    void anAccountCanOnlyMoveOnceEveryThirtyDays() throws Exception {
+    void anAccountCanOnlyMoveOnceEveryThirtyDaysButCanStopBeingMoved() throws Exception {
         var alice = account();
         var bob = account();
         var dave = account();
@@ -240,21 +240,11 @@ class MoveAccountIntegrationTests {
         move(session, dave.username(), PASSWORD)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(content().string(containsString("once every 30 days")));
-        assertThat(profiles.find(alice.id()).movedTo()).isEqualTo(bob.uri());
-    }
-
-    @Test
-    void stoppingBeingMovedSendsAnUpdateWithoutMovedTo() throws Exception {
-        var alice = account();
-        var bob = account();
-        alias(bob, alice);
-        var session = TestOAuth.logIn(mockMvc, alice.username(), PASSWORD);
-        move(session, bob.username(), PASSWORD).andExpect(redirectedUrl("/settings/move"));
+        assertThat(profiles.find(alice.id()).movedTo()).as("after moving again").isEqualTo(bob.uri());
 
         mockMvc.perform(post("/settings/move/cancel").with(csrf()).session(session))
                 .andExpect(redirectedUrl("/settings/move"));
-
-        assertThat(profiles.find(alice.id()).movedTo()).isNull();
+        assertThat(profiles.find(alice.id()).movedTo()).as("after stopping").isNull();
         assertThat(json.readTree(json.writeValueAsString(persons.of(alice))).has("movedTo")).isFalse();
     }
 
