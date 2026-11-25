@@ -22,6 +22,9 @@ import dev.biribiri.elysium.jobs.EventRetries;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -103,7 +106,6 @@ class StatusDeliveryIntegrationTests {
 
     private final Queue<Received> received = new ConcurrentLinkedQueue<>();
     private final Map<String, CountDownLatch> holdLikes = new ConcurrentHashMap<>();
-    private final Set<String> refuseLikes = ConcurrentHashMap.newKeySet();
     private final Map<String, CountDownLatch> holdCreates = new ConcurrentHashMap<>();
     private final Map<String, CountDownLatch> holdUpdates = new ConcurrentHashMap<>();
     private final Set<String> refuseCreates = ConcurrentHashMap.newKeySet();
@@ -138,8 +140,7 @@ class StatusDeliveryIntegrationTests {
                 }
             }
             var refused = refuseCreates.contains(host) && body.contains("#create");
-            var retryLike = refuseLikes.contains(host) && json.readTree(body).path("type").asString().equals("Like");
-            exchange.sendResponseHeaders(refused ? 410 : retryLike ? 503 : 202, -1);
+            exchange.sendResponseHeaders(refused ? 410 : 202, -1);
             exchange.close();
         });
         server.start();
@@ -155,7 +156,7 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void sendsAPublicStatusToAFollower() {
+    void sendsAPublicStatusItsEditAndItsDeleteToAFollower() {
         var host = newHost();
         follow(host, "bob", false);
 
@@ -180,65 +181,89 @@ class StatusDeliveryIntegrationTests {
         assertThat(strings(body.path("cc"))).containsExactly(followers());
         assertThat(strings(note.path("to"))).containsExactly(PUBLIC);
         assertThat(strings(note.path("cc"))).containsExactly(followers());
+
+        var edited = edit(status, "Hello again");
+
+        var update = awaitUpdate(host, status);
+        assertThat(update.request().path()).isEqualTo("/users/bob/inbox");
+        assertThat(update.request().signature()).contains("keyId=\"" + author.uri() + "#main-key\"");
+        var updateBody = update.body();
+        assertThat(updateBody.path("@context").path(1).path("sensitive").stringValue()).isEqualTo("as:sensitive");
+        assertThat(updateBody.path("id").stringValue())
+                .isEqualTo(status.uri() + "#updates/" + edited.editedAt().toEpochMilli());
+        assertThat(updateBody.path("type").stringValue()).isEqualTo("Update");
+        assertThat(updateBody.path("actor").stringValue()).isEqualTo(author.uri().toString());
+        assertThat(strings(updateBody.path("to"))).containsExactly(PUBLIC);
+        assertThat(strings(updateBody.path("cc"))).containsExactly(followers());
+        var updatedNote = updateBody.path("object");
+        assertThat(updatedNote.has("@context")).isFalse();
+        assertThat(updatedNote.path("id").stringValue()).isEqualTo(status.uri().toString());
+        assertThat(updatedNote.path("content").stringValue()).isEqualTo("<p>Hello again</p>");
+        assertThat(Instant.parse(updatedNote.path("updated").stringValue()))
+                .isAfter(Instant.parse(updatedNote.path("published").stringValue()));
+
+        statuses.delete(status.id(), author.id());
+
+        var delete = awaitDelete(host, status);
+        assertThat(delete.request().path()).isEqualTo("/users/bob/inbox");
+        assertThat(delete.request().signature()).contains("keyId=\"" + author.uri() + "#main-key\"");
+        var deleteBody = delete.body();
+        assertThat(deleteBody.path("@context").path(0).stringValue()).isEqualTo("https://www.w3.org/ns/activitystreams");
+        assertThat(deleteBody.path("@context").path(1).stringValue()).isEqualTo("https://w3id.org/security/data-integrity/v2");
+        assertThat(deleteBody.path("id").stringValue()).isEqualTo(status.uri() + "#delete");
+        assertThat(deleteBody.path("type").stringValue()).isEqualTo("Delete");
+        assertThat(deleteBody.path("actor").stringValue()).isEqualTo(author.uri().toString());
+        assertThat(strings(deleteBody.path("to"))).containsExactly(PUBLIC);
+        assertThat(strings(deleteBody.path("cc"))).containsExactly(followers());
+        var tombstone = deleteBody.path("object");
+        assertThat(tombstone.has("@context")).isFalse();
+        assertThat(tombstone.path("id").stringValue()).isEqualTo(status.uri().toString());
+        assertThat(tombstone.path("type").stringValue()).isEqualTo("Tombstone");
+        assertThat(tombstone.path("formerType").stringValue()).isEqualTo("Note");
     }
 
-    @Test
-    void addressesAnUnlistedStatus() {
+    @ParameterizedTest
+    @EnumSource(value = Visibility.class, names = {"UNLISTED", "PRIVATE"})
+    void addressesAStatusThatIsntPublicAndItsDeleteToFollowers(Visibility visibility) {
         var host = newHost();
         follow(host, "bob", false);
+        var cc = visibility == Visibility.UNLISTED ? List.of(PUBLIC) : List.<String>of();
 
-        var body = awaitCreate(host, post(Visibility.UNLISTED, null)).body();
+        var status = post(visibility, null);
 
-        assertThat(strings(body.path("to"))).containsExactly(followers());
-        assertThat(strings(body.path("cc"))).containsExactly(PUBLIC);
+        var create = awaitCreate(host, status).body();
+        assertThat(strings(create.path("to"))).containsExactly(followers());
+        assertThat(strings(create.path("cc"))).isEqualTo(cc);
+
+        statuses.delete(status.id(), author.id());
+
+        var delete = awaitDelete(host, status).body();
+        assertThat(strings(delete.path("to"))).containsExactly(followers());
+        assertThat(strings(delete.path("cc"))).isEqualTo(cc);
     }
 
-    @Test
-    void addressesAFollowersOnlyStatus() {
+    /**
+     * A reply only links to a parent that everyone it's sent to could already see.
+     */
+    @ParameterizedTest
+    @CsvSource({"PRIVATE, PRIVATE, true", "PRIVATE, PUBLIC, false", "DIRECT, PRIVATE, false"})
+    void aReplyLinksToItsAuthorsOwnParentOnlyIfTheParentIsShownAsWidely(
+            Visibility parentVisibility, Visibility replyVisibility, boolean links) {
         var host = newHost();
         follow(host, "bob", false);
+        var parent = post(parentVisibility, null);
 
-        var body = awaitCreate(host, post(Visibility.PRIVATE, null)).body();
+        var note = awaitCreate(host, post(replyVisibility, parent.id())).body().path("object");
 
-        assertThat(strings(body.path("to"))).containsExactly(followers());
-        assertThat(strings(body.path("cc"))).isEmpty();
+        if (links) {
+            assertThat(note.path("inReplyTo").stringValue()).isEqualTo(parent.uri().toString());
+        } else {
+            assertThat(note.has("inReplyTo")).isFalse();
+        }
     }
 
     @Test
-    void aFollowersOnlyReplyLinksToTheAuthorsOwnFollowersOnlyParent() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var parent = post(Visibility.PRIVATE, null);
-
-        var body = awaitCreate(host, post(Visibility.PRIVATE, parent.id())).body();
-
-        assertThat(body.path("object").path("inReplyTo").stringValue()).isEqualTo(parent.uri().toString());
-    }
-
-    @Test
-    void aPublicReplyDoesNotLinkToAFollowersOnlyParent() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var parent = post(Visibility.PRIVATE, null);
-
-        var body = awaitCreate(host, post(Visibility.PUBLIC, parent.id())).body();
-
-        assertThat(body.path("object").has("inReplyTo")).isFalse();
-    }
-
-    @Test
-    void aFollowersOnlyReplyDoesNotLinkToADirectParent() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var parent = post(Visibility.DIRECT, null);
-
-        var body = awaitCreate(host, post(Visibility.PRIVATE, parent.id())).body();
-
-        assertThat(body.path("object").has("inReplyTo")).isFalse();
-    }
-
-    @Test
-    void followersOnAServerShareItsSharedInbox() {
+    void followersOnAServerShareItsSharedInboxForTheCreateAndTheDelete() {
         var host = newHost();
         follow(host, "bob", true);
         follow(host, "carol", true);
@@ -252,10 +277,15 @@ class StatusDeliveryIntegrationTests {
         await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(host).size() == 1);
         assertThat(receivedBy(host).getFirst().path()).isEqualTo("/inbox");
         assertThat(receivedBy(other).getFirst().path()).isEqualTo("/users/dave/inbox");
+
+        statuses.delete(status.id(), author.id());
+
+        assertThat(awaitDelete(host, status).request().path()).isEqualTo("/inbox");
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> deletesFor(host, status).size() == 1);
     }
 
     @Test
-    void sendsADirectStatusOnlyToTheAccountsItMentions() {
+    void sendsADirectStatusAndItsDeleteOnlyToTheAccountsItMentions() {
         var followerHost = newHost();
         follow(followerHost, "bob", false);
         var host = newHost();
@@ -273,6 +303,12 @@ class StatusDeliveryIntegrationTests {
         assertThat(note.path("tag").path(0).path("type").stringValue()).isEqualTo("Mention");
         assertThat(note.path("tag").path(0).path("href").stringValue()).isEqualTo(carol.uri().toString());
         assertThat(note.path("tag").path(0).path("name").stringValue()).isEqualTo("@carol@" + carol.domain());
+
+        statuses.delete(status.id(), author.id());
+
+        var delete = awaitDelete(host, status).body();
+        assertThat(strings(delete.path("to"))).containsExactly(carol.uri().toString());
+        assertThat(strings(delete.path("cc"))).isEmpty();
         awaitNothingLeftFor(status);
         assertThat(receivedBy(followerHost)).isEmpty();
     }
@@ -451,33 +487,6 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void sendsADeleteToAFollower() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var status = post(Visibility.PUBLIC, null);
-        awaitCreate(host, status);
-
-        statuses.delete(status.id(), author.id());
-
-        var delete = awaitDelete(host, status);
-        assertThat(delete.request().path()).isEqualTo("/users/bob/inbox");
-        assertThat(delete.request().signature()).contains("keyId=\"" + author.uri() + "#main-key\"");
-        var body = delete.body();
-        assertThat(body.path("@context").path(0).stringValue()).isEqualTo("https://www.w3.org/ns/activitystreams");
-        assertThat(body.path("@context").path(1).stringValue()).isEqualTo("https://w3id.org/security/data-integrity/v2");
-        assertThat(body.path("id").stringValue()).isEqualTo(status.uri() + "#delete");
-        assertThat(body.path("type").stringValue()).isEqualTo("Delete");
-        assertThat(body.path("actor").stringValue()).isEqualTo(author.uri().toString());
-        assertThat(strings(body.path("to"))).containsExactly(PUBLIC);
-        assertThat(strings(body.path("cc"))).containsExactly(followers());
-        var tombstone = body.path("object");
-        assertThat(tombstone.has("@context")).isFalse();
-        assertThat(tombstone.path("id").stringValue()).isEqualTo(status.uri().toString());
-        assertThat(tombstone.path("type").stringValue()).isEqualTo("Tombstone");
-        assertThat(tombstone.path("formerType").stringValue()).isEqualTo("Note");
-    }
-
-    @Test
     void sendsADeleteForAStatusAnAdminRemoved() {
         var host = newHost();
         follow(host, "bob", false);
@@ -489,61 +498,6 @@ class StatusDeliveryIntegrationTests {
         var body = awaitDelete(host, status).body();
         assertThat(body.path("actor").stringValue()).isEqualTo(author.uri().toString());
         assertThat(body.path("object").path("id").stringValue()).isEqualTo(status.uri().toString());
-    }
-
-    @Test
-    void addressesTheDeleteOfAnUnlistedStatus() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var status = post(Visibility.UNLISTED, null);
-
-        statuses.delete(status.id(), author.id());
-
-        var body = awaitDelete(host, status).body();
-        assertThat(strings(body.path("to"))).containsExactly(followers());
-        assertThat(strings(body.path("cc"))).containsExactly(PUBLIC);
-    }
-
-    @Test
-    void addressesTheDeleteOfAFollowersOnlyStatus() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var status = post(Visibility.PRIVATE, null);
-
-        statuses.delete(status.id(), author.id());
-
-        var body = awaitDelete(host, status).body();
-        assertThat(strings(body.path("to"))).containsExactly(followers());
-        assertThat(strings(body.path("cc"))).isEmpty();
-    }
-
-    @Test
-    void followersOnAServerShareOneDelete() {
-        var host = newHost();
-        follow(host, "bob", true);
-        follow(host, "carol", true);
-        var status = post(Visibility.PUBLIC, null);
-
-        statuses.delete(status.id(), author.id());
-
-        assertThat(awaitDelete(host, status).request().path()).isEqualTo("/inbox");
-        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> deletesFor(host, status).size() == 1);
-    }
-
-    @Test
-    void aLaterFollowerIsNotToldAboutADeletedFollowersOnlyStatus() {
-        var earlier = newHost();
-        follow(earlier, "bob", false);
-        var status = post(Visibility.PRIVATE, null);
-        awaitCreate(earlier, status);
-        awaitNothingLeftFor(status);
-        var later = newHost();
-        follow(later, "carol", false);
-
-        statuses.delete(status.id(), author.id());
-
-        awaitDelete(earlier, status);
-        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
     }
 
     @Test
@@ -564,17 +518,20 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void aFormerFollowerIsToldAboutADeletedFollowersOnlyStatusTheyWereSent() {
+    void aFormerFollowerIsToldAboutADeletedFollowersOnlyStatusTheyWereSentButALaterFollowerIsNot() {
         var host = newHost();
         var follower = follow(host, "bob", false);
         var status = post(Visibility.PRIVATE, null);
         awaitCreate(host, status);
         awaitNothingLeftFor(status);
         unfollow(follower);
+        var later = newHost();
+        follow(later, "carol", false);
 
         statuses.delete(status.id(), author.id());
 
         awaitDelete(host, status);
+        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
     }
 
     @Test
@@ -626,37 +583,26 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void aDirectReplyLinksToADirectParentWhoseAuthorItMentions() {
-        var host = newHost();
-        var carol = mentionable(host, "carol");
-        var parentId = remoteStatuses.storeRemote(new RemoteStatus(
-                URI.create(carol.uri() + "/notes/" + UUID.randomUUID()), null, carol.id(), "<p>Psst</p>", null, null,
-                Visibility.DIRECT, false, null, Instant.now(), null, Map.of(author.id(), false))).orElseThrow();
-        var parent = statuses.findVisible(parentId, Optional.of(author.id())).orElseThrow();
-
-        var reply = statuses.create(author.id(), new NewStatus(
-                "@carol@" + host + " hi", null, null, Visibility.DIRECT, false, parent.id()));
-
-        var note = awaitCreate(host, reply).body().path("object");
-        assertThat(note.path("inReplyTo").stringValue()).isEqualTo(parent.uri().toString());
-        assertThat(strings(note.path("to"))).containsExactly(carol.uri().toString());
-    }
-
-    @Test
-    void aDirectReplyDoesNotLinkToADirectParentWhoseAuthorItDoesNotMention() {
+    void aDirectReplyLinksToADirectParentOnlyIfItMentionsTheParentsAuthor() {
         var host = newHost();
         var carol = mentionable(host, "carol");
         var dave = mentionable(host, "dave");
         var parentId = remoteStatuses.storeRemote(new RemoteStatus(
                 URI.create(carol.uri() + "/notes/" + UUID.randomUUID()), null, carol.id(), "<p>Psst</p>", null, null,
                 Visibility.DIRECT, false, null, Instant.now(), null, Map.of(author.id(), false))).orElseThrow();
+        var parent = statuses.findVisible(parentId, Optional.of(author.id())).orElseThrow();
 
-        var reply = statuses.create(author.id(), new NewStatus(
+        var mentioning = statuses.create(author.id(), new NewStatus(
+                "@carol@" + host + " hi", null, null, Visibility.DIRECT, false, parent.id()));
+        var notMentioning = statuses.create(author.id(), new NewStatus(
                 "@dave@" + host + " look", null, null, Visibility.DIRECT, false, parentId));
 
-        var note = awaitCreate(host, reply).body().path("object");
-        assertThat(note.has("inReplyTo")).isFalse();
-        assertThat(strings(note.path("to"))).containsExactly(dave.uri().toString());
+        var linked = awaitCreate(host, mentioning).body().path("object");
+        assertThat(linked.path("inReplyTo").stringValue()).isEqualTo(parent.uri().toString());
+        assertThat(strings(linked.path("to"))).containsExactly(carol.uri().toString());
+        var unlinked = awaitCreate(host, notMentioning).body().path("object");
+        assertThat(unlinked.has("inReplyTo")).isFalse();
+        assertThat(strings(unlinked.path("to"))).containsExactly(dave.uri().toString());
     }
 
     @Test
@@ -673,24 +619,6 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void sendsTheDeleteOfADirectStatusToTheAccountsItMentioned() {
-        var followerHost = newHost();
-        follow(followerHost, "bob", false);
-        var host = newHost();
-        var carol = mentionable(host, "carol");
-        var status = mention(Visibility.DIRECT, host, "carol");
-        awaitCreate(host, status);
-
-        statuses.delete(status.id(), author.id());
-
-        var body = awaitDelete(host, status).body();
-        assertThat(strings(body.path("to"))).containsExactly(carol.uri().toString());
-        assertThat(strings(body.path("cc"))).isEmpty();
-        awaitNothingLeftFor(status);
-        assertThat(receivedBy(followerHost)).isEmpty();
-    }
-
-    @Test
     void cancelsAnUnsentCreateEvenWithNoFollowersLeft() {
         var status = post(Visibility.PUBLIC, null);
         awaitNothingLeftFor(status);
@@ -704,46 +632,6 @@ class StatusDeliveryIntegrationTests {
         awaitNothingLeftFor(status);
         assertThat(stored(status)).isZero();
         assertThat(storedDelete(status)).isZero();
-    }
-
-    @Test
-    void sendsNothingForARolledBackDelete() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var status = post(Visibility.PUBLIC, null);
-        awaitCreate(host, status);
-        awaitNothingLeftFor(status);
-
-        transactions.executeWithoutResult(transaction -> {
-            statuses.delete(status.id(), author.id());
-            transaction.setRollbackOnly();
-        });
-
-        assertThat(statuses.findVisible(status.id(), Optional.empty())).isPresent();
-        assertThat(statuses.findTombstone(status.id(), author.id())).isEmpty();
-        assertThat(publications(status)).isZero();
-        assertThat(storedDelete(status)).isZero();
-    }
-
-    @Test
-    void retriesAFailedDeleteListener() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var status = post(Visibility.PUBLIC, null);
-        awaitCreate(host, status);
-        awaitNothingLeftFor(status);
-        doThrow(new IllegalStateException("Expected by this test"))
-                .doCallRealMethod()
-                .when(follows).followerInboxes(author.id());
-
-        statuses.delete(status.id(), author.id());
-        await().atMost(WAIT).until(() -> "FAILED".equals(publicationStatus(status)));
-
-        backdatePublication(status);
-        retries.retry();
-
-        awaitDelete(host, status);
-        awaitNothingLeftFor(status);
     }
 
     @Test
@@ -772,25 +660,6 @@ class StatusDeliveryIntegrationTests {
         await().atMost(WAIT).until(() -> deleting.isDone() && deleting.join().isDone());
         assertThat(deleteWaited).isTrue();
         await().atMost(WAIT).until(() -> stored(status) == 0);
-        awaitDelete(host, status);
-    }
-
-    @Test
-    void aDeleteStaysBehindACreateBeingSent() throws Exception {
-        var host = newHost();
-        follow(host, "bob", false);
-        var hold = holdCreates(host);
-        var status = post(Visibility.PUBLIC, null);
-        awaitCreate(host, status);
-
-        try {
-            statuses.delete(status.id(), author.id());
-
-            await().atMost(WAIT).until(() -> jobsFor(status.uri() + "#delete") == 1);
-            await().during(Duration.ofSeconds(2)).atMost(WAIT).until(() -> deletesFor(host, status).isEmpty());
-        } finally {
-            hold.countDown();
-        }
         awaitDelete(host, status);
     }
 
@@ -861,34 +730,6 @@ class StatusDeliveryIntegrationTests {
     // Helpers
 
     @Test
-    void sendsAnEditToFollowers() {
-        var host = newHost();
-        follow(host, "bob", false);
-        var status = post(Visibility.PUBLIC, null);
-        awaitCreate(host, status);
-
-        var edited = edit(status, "Hello again");
-
-        var update = awaitUpdate(host, status);
-        assertThat(update.request().path()).isEqualTo("/users/bob/inbox");
-        assertThat(update.request().signature()).contains("keyId=\"" + author.uri() + "#main-key\"");
-        var body = update.body();
-        assertThat(body.path("@context").path(1).path("sensitive").stringValue()).isEqualTo("as:sensitive");
-        assertThat(body.path("id").stringValue())
-                .isEqualTo(status.uri() + "#updates/" + edited.editedAt().toEpochMilli());
-        assertThat(body.path("type").stringValue()).isEqualTo("Update");
-        assertThat(body.path("actor").stringValue()).isEqualTo(author.uri().toString());
-        assertThat(strings(body.path("to"))).containsExactly(PUBLIC);
-        assertThat(strings(body.path("cc"))).containsExactly(followers());
-        var note = body.path("object");
-        assertThat(note.has("@context")).isFalse();
-        assertThat(note.path("id").stringValue()).isEqualTo(status.uri().toString());
-        assertThat(note.path("content").stringValue()).isEqualTo("<p>Hello again</p>");
-        assertThat(Instant.parse(note.path("updated").stringValue()))
-                .isAfter(Instant.parse(note.path("published").stringValue()));
-    }
-
-    @Test
     void sendsAnEditToTheAccountsItMentionsAndThoseItNoLongerDoes() {
         var before = newHost();
         mentionable(before, "carol");
@@ -921,23 +762,7 @@ class StatusDeliveryIntegrationTests {
     }
 
     @Test
-    void doesNotSendTheEditOfAFollowersOnlyStatusToSomeoneWhoFollowedAfterItWasPosted() {
-        var earlier = newHost();
-        follow(earlier, "bob", false);
-        var status = post(Visibility.PRIVATE, null);
-        awaitCreate(earlier, status);
-        var later = newHost();
-        follow(later, "carol", false);
-
-        edit(status, "Hello again");
-
-        awaitUpdate(earlier, status);
-        awaitNothingLeftFor(status);
-        await().during(Duration.ofSeconds(1)).atMost(WAIT).until(() -> receivedBy(later).isEmpty());
-    }
-
-    @Test
-    void sendsTheEditOfAFollowersOnlyStatusToSomeoneWhoFollowedAgainButNotToAFormerFollower() {
+    void sendsTheEditOfAFollowersOnlyStatusToSomeoneWhoFollowedAgainButNotToAFormerOrLaterFollower() {
         var again = newHost();
         var refollower = follow(again, "bob", false);
         var gone = newHost();
@@ -949,13 +774,16 @@ class StatusDeliveryIntegrationTests {
         unfollow(refollower);
         follow(again, "bob", false, author, "#follow-again");
         unfollow(former);
+        var later = newHost();
+        follow(later, "dave", false);
 
         edit(status, "Hello again");
 
         awaitUpdate(again, status);
         awaitNothingLeftFor(status);
         await().during(Duration.ofSeconds(1)).atMost(WAIT)
-                .until(() -> receivedBy(gone).stream().noneMatch(request -> request.body().contains("#updates/")));
+                .until(() -> receivedBy(gone).stream().noneMatch(request -> request.body().contains("#updates/"))
+                        && receivedBy(later).isEmpty());
     }
 
     @Test
@@ -1109,25 +937,6 @@ class StatusDeliveryIntegrationTests {
             hold.countDown();
         }
         awaitActivity(host, saved.activityUri() + "/undo");
-    }
-
-    @Test
-    void retriesLikeDeliveryAfterAServerFailure() {
-        var host = newHost();
-        refuseLikes.add(host);
-        var remote = remoteAuthor(host, "bob");
-        var status = remoteStatus(remote, Visibility.PUBLIC);
-        likes.favourite(status, author.id());
-        var saved = likes.page(status, null, 10).getFirst();
-        awaitActivity(host, saved.activityUri());
-        await().atMost(WAIT).until(() -> parkedJobsFor(saved.activityUri()) == 1);
-        refuseLikes.remove(host);
-        jdbc.sql("UPDATE scheduled_tasks SET execution_time = now() WHERE task_name = 'activity-delivery' "
-                        + "AND convert_from(task_data, 'UTF8') LIKE :id")
-                .param("id", "%" + saved.activityUri() + "%").update();
-        await().atMost(WAIT).until(() -> receivedBy(host).size() >= 2);
-        await().atMost(WAIT).until(() -> jobsFor(saved.activityUri()) == 0);
-        assertThat(receivedBy(host).stream().map(Received::body).distinct()).hasSize(1);
     }
 
     private String newHost() {

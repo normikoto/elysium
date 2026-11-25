@@ -89,30 +89,27 @@ class StatusRemovalIntegrationTests {
     }
 
     @Test
-    void findsALocalStatusByItsIdOrUrl() throws Exception {
-        var status = publish(Visibility.PUBLIC, "Found by its URL");
+    void findsAStatusByAnyOfItsAddressesAndSaysWhenNothingIsFound() throws Exception {
+        var local = publish(Visibility.PUBLIC, "Found by its URL");
+        var author = remoteAuthor();
+        var remote = remoteStatus(author, Visibility.PUBLIC);
         var session = logIn(ADMIN);
 
-        for (var query : new String[]{status.id().toString(), status.uri().toString(), " " + status.uri() + " "}) {
+        for (var query : new String[]{local.id().toString(), local.uri().toString(), " " + local.uri() + " "}) {
             mockMvc.perform(get(PAGE).session(session).param("q", query))
                     .andExpect(status().isOk())
                     .andExpect(content().string(containsString("Found by its URL")))
                     .andExpect(content().string(containsString(USER)));
         }
-    }
-
-    @Test
-    void findsARemoteStatusByItsUriOrPage() throws Exception {
-        var author = remoteAuthor();
-        var status = remoteStatus(author, Visibility.PUBLIC);
-        var session = logIn(ADMIN);
-
-        for (var query : new String[]{status.uri().toString(), status.url().toString()}) {
+        for (var query : new String[]{remote.uri().toString(), remote.url().toString()}) {
             mockMvc.perform(get(PAGE).session(session).param("q", query))
                     .andExpect(status().isOk())
                     .andExpect(content().string(containsString("From afar")))
                     .andExpect(content().string(containsString("r@" + author.domain())));
         }
+        mockMvc.perform(get(PAGE).session(session).param("q", "https://nowhere.example/notes/1"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().string(containsString("No status was found")));
     }
 
     @Test
@@ -124,13 +121,6 @@ class StatusRemovalIntegrationTests {
                 Visibility.PUBLIC)).orElseThrow();
 
         assertThat(statuses.findForModeration(page.toString())).isEmpty();
-    }
-
-    @Test
-    void saysWhenNothingIsFound() throws Exception {
-        mockMvc.perform(get(PAGE).session(logIn(ADMIN)).param("q", "https://nowhere.example/notes/1"))
-                .andExpect(status().isNotFound())
-                .andExpect(content().string(containsString("No status was found")));
     }
 
     @Test
