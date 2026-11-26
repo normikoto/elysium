@@ -7,6 +7,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-26
+
 ### Added
 
 - Elysium can serve metrics for Prometheus on a separate port, set with `management.server.port`, including deliveries
@@ -275,7 +277,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 Initial release.
 
-[Unreleased]: https://github.com/normikoto/elysium/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/normikoto/elysium/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/normikoto/elysium/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/normikoto/elysium/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/normikoto/elysium/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/normikoto/elysium/compare/v0.1.0...v0.2.0
