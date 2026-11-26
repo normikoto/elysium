@@ -28,7 +28,7 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew test
+      - run: ./gradlew test -PlogEveryTest=true
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
