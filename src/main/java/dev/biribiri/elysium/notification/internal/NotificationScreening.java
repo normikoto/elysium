@@ -63,6 +63,13 @@ public class NotificationScreening {
     }
 
     /**
+     * Only local accounts have a policy, so a server's cleanup has nothing to remove here.
+     */
+    public void remove(UUID account) {
+        jdbc.sql("DELETE FROM notification_policy WHERE account_id = :account").param("account", account).update();
+    }
+
+    /**
      * @param statusId the status the notification is about, or null
      */
     public Treatment decide(UUID recipient, UUID sender, String type, UUID statusId) {
@@ -93,6 +100,7 @@ public class NotificationScreening {
         var policy = policy(recipient);
         var treatment = Treatment.ACCEPT;
         if (facts.notFollowing()) treatment = treatment.stricter(policy.forNotFollowing());
+        // A follow of a local account counts from when it was accepted, since approving a request resets its created_at.
         if (facts.notFollower()) treatment = treatment.stricter(policy.forNotFollowers());
         // Mastodon only applies the rest to accounts the recipient doesn't follow.
         if (facts.notFollowing()) {

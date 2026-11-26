@@ -44,6 +44,7 @@ public class NotificationRepository {
             + " AND (n.type = '" + ADMIN_REPORT + "' OR " + NotificationSql.notHidden("a") + ")"
             + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + StatusSql.visibleTo(":viewer") + "))";
     private static final String FROM = FROM_ANY + " AND NOT n.filtered";
+    static final String FILTERED_GROUP = "filtered-";
     private static final String GROUP = """
             CASE WHEN n.type = ANY(CAST(:groupedTypes AS text[])) AND n.group_key IS NOT NULL
                  THEN n.group_key ELSE 'ungrouped-' || n.id END
@@ -245,6 +246,9 @@ public class NotificationRepository {
                             """).param("recipient", recipient).param("hour", hour).query(Long.class).single();
             group = "follow-" + start;
         }
+        // A filtered notification never shares a group with ones that aren't, so that a group's count and accounts are
+        // the same whether it's listed with include_filtered or not, and opening or dismissing one acts on what was listed.
+        if (filtered && group != null) group = FILTERED_GROUP + group;
         var inserted = jdbc.sql("""
                         INSERT INTO notification
                         (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, reblog_id,
@@ -260,7 +264,7 @@ public class NotificationRepository {
         }
         jdbc.sql("UPDATE notification_sequence SET last_id = :id WHERE singleton").param("id", id).update();
         if (filtered) {
-            if (type.equals("mention") || type.equals("quote")) requests.add(recipient, sender);
+            if (type.equals("mention") || type.equals("quote")) requests.add(recipient, sender, id);
             return Optional.empty();
         }
         return Optional.of(id);
@@ -296,8 +300,12 @@ public class NotificationRepository {
                 .param("viewer", viewer).param("id", id).update() != 0;
     }
 
+    /**
+     * Filtered notifications are left to their requests, since the viewer hasn't seen them, and accepting a request
+     * brings back only those that weren't dismissed.
+     */
     public void clear(UUID viewer) {
-        jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed")
+        jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed AND NOT filtered")
                 .param("viewer", viewer).update();
     }
 
@@ -381,10 +389,10 @@ public class NotificationRepository {
     }
 
     public Optional<NotificationGroup> group(UUID viewer, String key) {
-        var members = jdbc.sql("SELECT n.*" + FROM + groupCondition(key) + " ORDER BY n.id DESC LIMIT 8")
+        var members = jdbc.sql("SELECT n.*" + FROM_ANY + groupCondition(key) + " ORDER BY n.id DESC LIMIT 8")
                 .param("viewer", viewer).params(groupParameters(key)).query(MAPPER).list();
         if (members.isEmpty()) return Optional.empty();
-        var count = jdbc.sql("SELECT count(*)" + FROM + groupCondition(key)).param("viewer", viewer).params(groupParameters(key))
+        var count = jdbc.sql("SELECT count(*)" + FROM_ANY + groupCondition(key)).param("viewer", viewer).params(groupParameters(key))
                 .query(Long.class).single();
         var first = members.getFirst();
         return Optional.of(new NotificationGroup(key, count, first.type(), first.id(), null, null, null,
@@ -392,7 +400,7 @@ public class NotificationRepository {
     }
 
     public List<UUID> groupAccounts(UUID viewer, String key) {
-        return jdbc.sql("SELECT n.sender_id" + FROM + groupCondition(key) + " GROUP BY n.sender_id ORDER BY max(n.id::text) DESC")
+        return jdbc.sql("SELECT n.sender_id" + FROM_ANY + groupCondition(key) + " GROUP BY n.sender_id ORDER BY max(n.id::text) DESC")
                 .param("viewer", viewer).params(groupParameters(key)).query(UUID.class).list();
     }
 
@@ -407,8 +415,7 @@ public class NotificationRepository {
 
     public void dismissGroup(UUID viewer, String key) {
         var condition = key.startsWith("ungrouped-") ? "id = :groupId" : "group_key = :key";
-        jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed AND NOT filtered AND "
-                        + condition)
+        jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed AND " + condition)
                 .param("viewer", viewer).params(groupParameters(key)).update();
     }
 

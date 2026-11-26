@@ -302,11 +302,16 @@ public class Notifier {
 
     /**
      * A direct status that the recipient's policy filters joins its conversation only once the recipient accepts the
-     * sender's request, unlike on Mastodon, so that an unsolicited message stays out of sight until then.
+     * sender's request, unlike on Mastodon, so that an unsolicited message stays out of sight until then. A muted thread
+     * adds no mention, and so no request to accept, so a filtered status in one joins as it did before policies.
      */
     private boolean joins(UUID recipient, ConversationRepository.Source source) {
-        return !notifications.isHidden(recipient, source.authorId())
-                && screening.decide(recipient, source.authorId(), "mention", source.id()) == NotificationPolicy.Treatment.ACCEPT;
+        if (notifications.isHidden(recipient, source.authorId())) return false;
+        return switch (screening.decide(recipient, source.authorId(), "mention", source.id())) {
+            case ACCEPT -> true;
+            case FILTER -> threadMuted(recipient, source.id());
+            case DROP -> false;
+        };
     }
 
     private boolean concernsAnyoneHere(UUID statusId) {

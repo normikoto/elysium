@@ -587,6 +587,9 @@ Follow Mastodon's [policy](https://docs.joinmastodon.org/methods/notifications/#
   `pending.quote`.
 - Only filtered mentions and quotes make a request. Other filtered notifications are only seen with
   `include_filtered`. Filtered and dropped notifications aren't pushed or streamed.
+- In V2, filtered notifications are grouped apart from the rest, with group keys that start with `filtered-`, so a
+  group's count doesn't change with `include_filtered`. Accepting a request moves its notifications back into the
+  usual groups.
 - Unlike Mastodon, a filtered direct status stays out of [conversations](#conversations) until its request is
   accepted.
 - Accepting a request brings its notifications and conversations back straight away, without pushing them, and lets

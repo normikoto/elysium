@@ -229,6 +229,7 @@ public class NotificationService {
         notifications.lock();
         conversations.removeForActors(List.of(id));
         requests.removeForActors(List.of(id));
+        screening.remove(id);
     }
 
     /** Each batch commits by itself, so that a large server doesn't hold the notification lock for its whole cleanup. */

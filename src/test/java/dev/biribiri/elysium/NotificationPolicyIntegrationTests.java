@@ -5,6 +5,7 @@ import dev.biribiri.elysium.actor.Actor;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.actor.RemoteActorProfile;
 import dev.biribiri.elysium.auth.TokenPrincipal;
+import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.RemoteStatus;
 import dev.biribiri.elysium.content.RemoteStatuses;
@@ -49,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.opaqueToken;
@@ -75,6 +77,7 @@ class NotificationPolicyIntegrationTests {
     @Autowired StatusService statuses;
     @Autowired RemoteStatuses remoteStatuses;
     @Autowired FollowService follows;
+    @Autowired LikeService likes;
     @Autowired BlockService blocks;
     @Autowired NotificationService notifications;
     @Autowired Notifier notifier;
@@ -95,6 +98,7 @@ class NotificationPolicyIntegrationTests {
         jdbc.sql("DELETE FROM status").update();
         jdbc.sql("DELETE FROM follow").update();
         jdbc.sql("DELETE FROM account_block").update();
+        jdbc.sql("UPDATE profile SET manually_approves_followers = false").update();
         alice = local("policyalice");
         bob = local("policybob");
         // Old enough not to count as new accounts, unless a test says otherwise.
@@ -318,6 +322,64 @@ class NotificationPolicyIntegrationTests {
         createStatus(alice, "@policybob again", PUBLIC, null);
         settled();
         mvc.perform(get(NOTIFICATIONS).with(user(bob))).andExpect(jsonPath("$", hasSize(1)));
+    }
+
+    @Test
+    void aFollowerCountsFromWhenItsRequestWasApproved() throws Exception {
+        policy(bob, "for_not_followers", "filter");
+        jdbc.sql("""
+                        INSERT INTO profile (actor_id, manually_approves_followers) VALUES (:id, true)
+                        ON CONFLICT (actor_id) DO UPDATE SET manually_approves_followers = true
+                        """).param("id", bob.id()).update();
+        follows.follow(alice, bob);
+        // The request has waited 5 days, but the follow only starts when it's approved.
+        jdbc.sql("UPDATE follow SET created_at = now() - INTERVAL '5 days'").update();
+        assertThat(follows.authorize(alice, bob.id())).isTrue();
+        createStatus(alice, "@policybob just approved", PUBLIC, null);
+        settled();
+        mvc.perform(get(NOTIFICATIONS).with(user(bob))).andExpect(jsonPath("$", empty()));
+    }
+
+    @Test
+    void filteredGroupsAreKeptApartAndCanBeOpenedAndDismissed() throws Exception {
+        policy(bob, "for_not_following", "filter");
+        var post = createStatus(bob, "a post", PUBLIC, null);
+        var carol = local("policycarol");
+        follows.follow(bob, carol);
+        likes.favourite(post.id(), alice.id());
+        likes.favourite(post.id(), carol.id());
+        settled();
+
+        mvc.perform(get(GROUPS).with(user(bob)))
+                .andExpect(jsonPath("$.notification_groups", hasSize(1)))
+                .andExpect(jsonPath("$.notification_groups[0].notifications_count").value(1));
+        var listed = mvc.perform(get(GROUPS).param("include_filtered", "true").with(user(bob)))
+                .andExpect(jsonPath("$.notification_groups", hasSize(2)))
+                .andReturn().getResponse().getContentAsString();
+        List<String> keys = JsonPath.read(listed, "$.notification_groups[*].group_key");
+        var filtered = keys.stream().filter(key -> key.startsWith("filtered-")).findFirst().orElseThrow();
+
+        mvc.perform(get(GROUPS + "/" + filtered).with(user(bob))).andExpect(status().isOk());
+        mvc.perform(get(GROUPS + "/" + filtered + "/accounts").with(user(bob)))
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value(alice.id().toString()));
+        mvc.perform(post(GROUPS + "/" + filtered + "/dismiss").with(user(bob))).andExpect(status().isOk());
+        mvc.perform(get(GROUPS).param("include_filtered", "true").with(user(bob)))
+                .andExpect(jsonPath("$.notification_groups", hasSize(1)));
+    }
+
+    @Test
+    void acceptingARequestPutsItsNotificationsBackInTheirGroups() throws Exception {
+        policy(bob, "for_not_following", "filter");
+        var post = createStatus(bob, "a post", PUBLIC, null);
+        createStatus(alice, "@policybob makes a request", PUBLIC, null);
+        likes.favourite(post.id(), alice.id());
+        settled();
+        String id = values(get(REQUESTS).with(user(bob)), "$[0].id");
+        mvc.perform(post(REQUESTS + "/" + id + "/accept").with(user(bob))).andExpect(status().isOk());
+        mvc.perform(get(GROUPS).with(user(bob)))
+                .andExpect(jsonPath("$.notification_groups", hasSize(2)))
+                .andExpect(jsonPath("$.notification_groups[*].group_key", hasItem("favourite-" + post.id())));
     }
 
     @Test

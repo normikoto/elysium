@@ -45,13 +45,22 @@ public class NotificationRequestRepository {
         this.jdbc = jdbc;
     }
 
-    void add(UUID recipient, UUID sender) {
+    /**
+     * A row whose notifications were all dismissed one by one is made new again, so that it's listed as a new request
+     * rather than where the old one was.
+     *
+     * @param notification the filtered notification that's making the request, which doesn't count as already waiting
+     */
+    void add(UUID recipient, UUID sender, UUID notification) {
+        var now = Instant.now();
         jdbc.sql("""
-                        INSERT INTO notification_request (id, recipient_id, sender_id, created_at)
-                        VALUES (:id, :recipient, :sender, :created) ON CONFLICT (recipient_id, sender_id) DO NOTHING
-                        """)
-                .param("id", Ids.timeOrdered(Instant.now())).param("recipient", recipient).param("sender", sender)
-                .param("created", Instant.now().atOffset(ZoneOffset.UTC))
+                        INSERT INTO notification_request AS r (id, recipient_id, sender_id, created_at)
+                        VALUES (:id, :recipient, :sender, :created)
+                        ON CONFLICT (recipient_id, sender_id) DO UPDATE SET id = EXCLUDED.id, created_at = EXCLUDED.created_at
+                        WHERE NOT EXISTS (SELECT 1 FROM notification n WHERE %s AND n.id <> :notification)
+                        """.formatted(WAITING))
+                .param("id", Ids.timeOrdered(now)).param("recipient", recipient).param("sender", sender)
+                .param("created", now.atOffset(ZoneOffset.UTC)).param("notification", notification)
                 .update();
     }
 
@@ -86,11 +95,14 @@ public class NotificationRequestRepository {
      */
     public List<UUID> unfilter(UUID recipient, UUID sender) {
         return jdbc.sql("""
-                        UPDATE notification SET filtered = FALSE
+                        UPDATE notification SET filtered = FALSE,
+                            group_key = CASE WHEN starts_with(group_key, :prefix)
+                                             THEN substr(group_key, length(:prefix) + 1) ELSE group_key END
                         WHERE recipient_id = :recipient AND sender_id = :sender AND filtered AND NOT dismissed
                         RETURNING CASE WHEN type = 'mention' THEN status_id END
                         """)
                 .param("recipient", recipient).param("sender", sender)
+                .param("prefix", NotificationRepository.FILTERED_GROUP)
                 .query(UUID.class).list().stream().filter(Objects::nonNull).distinct().sorted().toList();
     }
 
