@@ -25,6 +25,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -50,6 +51,8 @@ class FeaturedTagFetch {
     static final TaskDescriptor<FeaturedTagFetchJob> TASK = TaskDescriptor.of(TASK_NAME, FeaturedTagFetchJob.class);
 
     private static final Logger log = LoggerFactory.getLogger(FeaturedTagFetch.class);
+
+    private static final Duration RECHECK_AFTER = Duration.ofMinutes(1);
 
     private final ActorService actors;
     private final RemoteActors remoteActors;
@@ -89,6 +92,18 @@ class FeaturedTagFetch {
      */
     void queue(UUID actorId) {
         Jobs.schedule(scheduler, TASK, FeaturedTagFetchJob.of(actorId.toString(), now()), TASK_NAME, actorId.toString());
+    }
+
+    /**
+     * Reads the collection again a minute after an {@code Add} or {@code Remove} of a {@code Hashtag}. A fetch that was
+     * already running when it arrived can have read the collection from before the change, and {@link #queue} doesn't
+     * queue another while one runs. Each activity has a job of its own, so a later change isn't merged with one that's
+     * running either.
+     */
+    void queueAgain(UUID actorId, String activityId) {
+        var now = now();
+        Jobs.scheduleAt(scheduler, TASK, FeaturedTagFetchJob.of(actorId.toString(), now), now.plus(RECHECK_AFTER),
+                TASK_NAME, actorId.toString(), activityId);
     }
 
     @Bean

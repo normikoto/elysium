@@ -91,6 +91,7 @@ abstract class FeaturedChangeHandler implements InboundActivityHandler {
             return;
         }
         featuredTags.queue(actor.id());
+        featuredTags.queueAgain(actor.id(), activity.id());
     }
 
     /**

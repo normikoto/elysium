@@ -56,14 +56,14 @@ public final class ActivityStreams {
             "publicKeyMultibase", SECURITY + "publicKeyMultibase");
 
     /**
-     * The {@code @context} of an actor document, which includes the terms for its {@code publicKey} and
-     * {@code assertionMethod}.
-     */
-    /**
      * The {@code @context} of a document whose items are {@link Hashtag}s, which aren't in the ActivityStreams vocabulary.
      */
     static final List<Object> HASHTAG_CONTEXT = List.of(CONTEXT, Map.of(Hashtag.CONTEXT_TERM, Hashtag.CONTEXT_IRI));
 
+    /**
+     * The {@code @context} of an actor document, which includes the terms for its {@code publicKey} and
+     * {@code assertionMethod}.
+     */
     static final List<Object> ACTOR_CONTEXT = List.of(CONTEXT, W3ID_SECURITY_V1, MULTIKEY_TERMS);
 
     /**

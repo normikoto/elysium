@@ -1266,7 +1266,8 @@ collection is only used if it's an HTTPS URL on the same host and port as the ac
 here is accepted, when the actor sends an `Update` of itself, and when it sends an `Add` or `Remove` of a `Hashtag`
 whose `target` is its `featured` or `featuredTags` collection, as Mastodon sends one when a tag is featured or no longer
 is. The `Add` or `Remove` only starts the fetch, so the collection decides which tags are featured, whatever order these
-arrive in.
+arrive in. It's fetched once more a minute later, in case a fetch that was already running read it from before the
+change.
 
 The fetch is signed as this server's [instance actor](#instance-actor), since featured tags are public, with a turn of
 its own, so an actor nobody here follows can have them too. The collection is read as [pins](#pinned-statuses) are:

@@ -73,8 +73,9 @@ boundaries. Allowed dependencies are declared in each module's `package-info.jav
 
 These reach beyond `activitypub`, and a change can break them without a test noticing.
 
-- **Outbound events:** a module publishes an event inside its transaction, holding only IDs and never a status's text,
-  since events are stored. `activitypub.outbound` builds the activity from it.
+- **Outbound events:** a module publishes an event inside its transaction, holding IDs, and never a status's text, since
+  events are stored. An event about a record that's been deleted also holds what its listener needs to undo it, as
+  `StatusUnpinned` and `TagUnfeatured` do. `activitypub.outbound` builds the activity from it.
 - **Remote actors:** other modules find them through `actor.RemoteActorResolver`, never by depending on `activitypub`.
 - **Account state:** `ActorService.findLocal*`, and status queries built on `content.StatusSql.FROM_ACTIVE`, only find
   active actors. Use `findAnyLocal*` only for what has to keep working for suspended or deleted ones, such as actor

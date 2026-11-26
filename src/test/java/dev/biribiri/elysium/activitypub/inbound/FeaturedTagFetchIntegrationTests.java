@@ -143,13 +143,21 @@ class FeaturedTagFetchIntegrationTests {
     }
 
     @Test
-    void anAddOfAHashtagToAFeaturedCollectionQueuesAFetch() {
+    void anAddOfAHashtagToAFeaturedCollectionQueuesAFetchNowAndAnotherAMinuteLater() {
         adds.handle(addOfHashtag(remote.uri() + "/collections/other"));
         assertThat(jobs()).isZero();
 
         adds.handle(addOfHashtag(remote.uri() + "/collections/featured"));
-        assertThat(jobs()).isOne();
+        assertThat(jobs()).isEqualTo(2);
+        assertThat(jdbc.sql("""
+                        SELECT count(*) FROM scheduled_tasks
+                        WHERE task_name = 'featured-tag-fetch' AND execution_time > now() + interval '30 seconds'
+                        """).query(Long.class).single()).isOne();
         assertThat(featuredTags.featured(remote.id())).isEmpty();
+
+        // Another change gets its own later fetch, while the one for now is still queued.
+        adds.handle(addOfHashtag(remote.uri() + "/collections/featured"));
+        assertThat(jobs()).isEqualTo(3);
     }
 
     @Test
