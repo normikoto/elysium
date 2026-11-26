@@ -111,6 +111,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   apps that support Pleroma's profile backgrounds, such as Pleroma-FE and Akkoma-FE. Backgrounds aren't sent to other
   servers, and those from other servers aren't shown. See `docs/accounts.md` and `docs/api.md`.
 
+### Changed
+
+- The web pages' top bar now stays at the top of the window as you scroll, and the "Edit your profile" button on your
+  own profile sits at the right.
+
 ### Fixed
 
 - The Mastodon API now accepts trailing slashes, as Mastodon does. Apps such as Brutaldon can connect using paths like

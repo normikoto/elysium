@@ -53,6 +53,11 @@
     box-sizing: border-box;
 }
 
+/* Keeps a linked heading from landing under the fixed top bar. */
+html {
+    scroll-padding-top: 4.5rem;
+}
+
 body {
     background: var(--bg);
     color: var(--text);
@@ -105,6 +110,10 @@ h2 {
 .topbar {
     background: var(--panel);
     border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    /* The profile's avatar row is positioned, so it would paint over the bar without this. */
+    z-index: 10;
 }
 
 .topbar nav {
@@ -683,6 +692,12 @@ td {
     flex: 0 1 24rem;
     min-width: 0;
     padding-bottom: 0.25rem;
+}
+
+.profile-top .follow-self {
+    flex: none;
+    margin-left: auto;
+    text-align: right;
 }
 
 .bio {
