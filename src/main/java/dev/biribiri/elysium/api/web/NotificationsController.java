@@ -61,8 +61,8 @@ public class NotificationsController {
                     their boost.
 
                     Resolving a follow request removes its notification. Approval adds a `follow` notification, \
-                    unlike Mastodon. Notification policies and requests are unavailable. Pages default to 40 and \
-                    allow up to 80 results.
+                    unlike Mastodon. Notifications that the user's notification policy filters are left out unless \
+                    `include_filtered` or `account_id` is given. Pages default to 40 and allow up to 80 results.
 
                     Pleroma's `pleroma.is_seen` is true for notifications at or before the notifications marker, \
                     which unread counts also use.
@@ -76,8 +76,8 @@ public class NotificationsController {
                     @Parameter(in = ParameterIn.QUERY, name = "min_id", description = "Closest newer notifications; takes precedence over since_id.", schema = @Schema(type = "string")),
                     @Parameter(in = ParameterIn.QUERY, name = "types[]", description = "Notification types to include.", array = @ArraySchema(schema = @Schema(type = "string"))),
                     @Parameter(in = ParameterIn.QUERY, name = "exclude_types[]", description = "Notification types to exclude; exclusions win.", array = @ArraySchema(schema = @Schema(type = "string"))),
-                    @Parameter(in = ParameterIn.QUERY, name = "account_id", description = "Only notifications from this account UUID.", schema = @Schema(type = "string")),
-                    @Parameter(in = ParameterIn.QUERY, name = "include_filtered", description = "Accepted without effect; notification policies are not implemented.", schema = @Schema(type = "boolean", defaultValue = "false")),
+                    @Parameter(in = ParameterIn.QUERY, name = "account_id", description = "Only notifications from this account UUID, including those its notification policy filtered.", schema = @Schema(type = "string")),
+                    @Parameter(in = ParameterIn.QUERY, name = "include_filtered", description = "Whether to include notifications that the user's notification policy filtered.", schema = @Schema(type = "boolean", defaultValue = "false")),
                     @Parameter(in = ParameterIn.QUERY, name = "supported_types[]", description = "Accepted; generated notification types have no fallback representation.", array = @ArraySchema(schema = @Schema(type = "string")))
             },
             responses = {@ApiResponse(responseCode = "200", description = "Successful response.")})
@@ -85,7 +85,7 @@ public class NotificationsController {
             @Parameter(hidden = true) @RequestParam MultiValueMap<String, String> query) {
         var viewer = NotificationRequests.viewer(token);
         var page = NotificationRequests.page(query);
-        var found = notifications.notifications(viewer, NotificationRequests.filter(query), page);
+        var found = notifications.notifications(viewer, NotificationRequests.filter(query, true), page);
         var response = ResponseEntity.ok();
         PageLinks.addTo(response, instance, "/api/v1/notifications", NotificationRequests.filters(query), page.limit(),
                 found.stream().map(Notification::id).toList());

@@ -78,7 +78,7 @@ class ThreadMutesIntegrationTests {
         jdbc.sql("DELETE FROM status_thread_mute").update();
         alice = local("tmalice");
         bob = local("tmbob");
-        carol = local("tmcarol");
+        carol = local("tmcarol");        TestAccounts.acceptPrivateMentions(jdbc);
     }
 
     @Test

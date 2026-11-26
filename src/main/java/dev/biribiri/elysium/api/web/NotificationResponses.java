@@ -14,6 +14,7 @@ import dev.biribiri.elysium.moderation.Reports;
 import dev.biribiri.elysium.notification.Conversation;
 import dev.biribiri.elysium.notification.Notification;
 import dev.biribiri.elysium.notification.NotificationGroup;
+import dev.biribiri.elysium.notification.NotificationRequest;
 import dev.biribiri.elysium.notification.NotificationService;
 import org.springframework.stereotype.Component;
 
@@ -88,6 +89,21 @@ class NotificationResponses {
                             n.targetId() == null ? null : accountMap.get(n.targetId()),
                             new NotificationResponse.Pleroma(seen.test(n)));
                 }).toList();
+    }
+
+    /**
+     * Leaves out a request whose sender can't be shown, as {@link #notifications} does.
+     */
+    List<NotificationRequestResponse> requests(UUID viewer, List<NotificationRequest> found) {
+        var accountMap = accounts(found.stream().map(NotificationRequest::senderId).distinct().toList());
+        var statusMap = statuses(viewer, found.stream().map(NotificationRequest::lastStatusId).filter(Objects::nonNull)
+                .distinct().toList(), NOTIFICATIONS);
+        return found.stream().filter(r -> accountMap.containsKey(r.senderId()))
+                .map(r -> new NotificationRequestResponse(r.id().toString(), ApiTimestamps.format(r.createdAt()),
+                        ApiTimestamps.format(r.updatedAt()), accountMap.get(r.senderId()),
+                        Long.toString(r.notificationsCount()),
+                        r.lastStatusId() == null ? null : statusMap.get(r.lastStatusId())))
+                .toList();
     }
 
     GroupedNotificationsResponse groups(UUID viewer, List<NotificationGroup> found, boolean partial) {
