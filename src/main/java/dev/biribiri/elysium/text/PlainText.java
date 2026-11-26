@@ -54,6 +54,13 @@ public final class PlainText {
     }
 
     /**
+     * A paragraph holding only a link to the whole of this URL.
+     */
+    public static String linkParagraph(URI url) {
+        return "<p>" + link(url.toString(), LINK) + "</p>";
+    }
+
+    /**
      * Renders a profile field's value, which is shown inline, so it has no paragraph. Its links say they're the author's
      * own with {@code rel="me"}, which is what lets the linked site and other servers check that they link back.
      */

@@ -67,10 +67,6 @@ record RemoteNote(
         String name,
         List<RemoteEmoji> emojis) {
 
-    /**
-     * The properties that say what a note quotes, in the order Mastodon reads them. Only FEP-044f's comes with a way to ask
-     * for consent, so a note with only the others is from a server that can't ask.
-     */
     private static final Set<String> STATUS_TYPES = Set.of("Note", "Question");
 
     /**
@@ -80,6 +76,10 @@ record RemoteNote(
      */
     private static final Set<String> CONVERTED_TYPES = Set.of("Article", "Page", "Event", "Video", "Audio", "Image");
 
+    /**
+     * The properties that say what a note quotes, in the order Mastodon reads them. Only FEP-044f's comes with a way to ask
+     * for consent, so a note with only the others is from a server that can't ask.
+     */
     private static final List<String> QUOTE_PROPERTIES = List.of("quote", "_misskey_quote", "quoteUrl", "quoteUri");
 
     /**
@@ -226,8 +226,10 @@ record RemoteNote(
                 parts.add(text);
             }
         }
-        parts.add(link.toString());
-        return PlainText.render(String.join("\n\n", parts));
+        // Linked as a whole rather than found in the text, which would cut a URL short at trailing punctuation or at a
+        // script that URLs in text can't contain.
+        var rendered = parts.isEmpty() ? "" : PlainText.render(String.join("\n\n", parts));
+        return rendered + PlainText.linkParagraph(link);
     }
 
     /**

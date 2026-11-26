@@ -36,6 +36,17 @@ class RemoteNoteTests {
     }
 
     @Test
+    void linksToTheWholeUrlEvenWhereTextWouldEndIt() {
+        var note = read("""
+                {"id": "https://w.test/a/1", "type": "Article", "attributedTo": "https://w.test/@a",
+                 "url": "https://w.test/2026/日本語_"}
+                """);
+
+        assertThat(note.content()).isEqualTo("<p><a href=\"https://w.test/2026/日本語_\" "
+                + "rel=\"nofollow noopener noreferrer\" target=\"_blank\">https://w.test/2026/日本語_</a></p>");
+    }
+
+    @Test
     void readsAConvertedObjectsSummaryAsTextNotAContentWarning() {
         var note = read("""
                 {"id": "https://w.test/a/1", "type": "Article", "attributedTo": "https://w.test/@a",
