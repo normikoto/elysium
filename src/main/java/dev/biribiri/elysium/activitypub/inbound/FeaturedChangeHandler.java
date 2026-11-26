@@ -12,8 +12,9 @@ import java.util.Optional;
 
 /**
  * An {@code Add} or {@code Remove} whose {@code target} is the actor's {@code featured} collection, which is how Mastodon
- * and Misskey send a pin or an unpin. Any other {@code target} is ignored, and so is an {@code object} that isn't a status,
- * such as the {@code Hashtag} Mastodon sends for a featured tag.
+ * and Misskey send a pin or an unpin. Any other {@code target} is ignored, and so is an {@code object} that isn't a status.
+ * Mastodon sends a featured tag as a {@code Hashtag} with the same {@code target}, and that only starts a
+ * {@link FeaturedTagFetch}, whose collection says which tags are featured however these arrive.
  *
  * <p>Mastodon and Misskey send these without an {@code id}, so {@link Inbox} makes one from the body, and pinning a status
  * again sends the same one as the first time. A repeat is processed, and which of an {@code Add} and a {@code Remove} came
@@ -26,11 +27,14 @@ abstract class FeaturedChangeHandler implements InboundActivityHandler {
     private final RemoteActors remoteActors;
     private final ActorService actors;
     private final JsonMapper json;
+    private final FeaturedTagFetch featuredTags;
 
-    FeaturedChangeHandler(RemoteActors remoteActors, ActorService actors, JsonMapper json) {
+    FeaturedChangeHandler(RemoteActors remoteActors, ActorService actors, JsonMapper json,
+                          FeaturedTagFetch featuredTags) {
         this.remoteActors = remoteActors;
         this.actors = actors;
         this.json = json;
+        this.featuredTags = featuredTags;
     }
 
     @Override
@@ -48,6 +52,10 @@ abstract class FeaturedChangeHandler implements InboundActivityHandler {
         var actorUri = URI.create(activity.actorUri());
         var document = json.readTree(activity.body());
         var target = Optional.ofNullable(ActivityJson.idOf(document.path("target"))).flatMap(ActivityObject::parseUri);
+        if (ActivityJson.types(document.path("object").path("type")).contains("Hashtag")) {
+            changeTag(activity, actorUri, target);
+            return;
+        }
         var status = ActivityObject.of(document)
                 .filter(object -> object.type() == null || RemoteNote.isStatusType(object.type()))
                 .map(ActivityObject::id)
@@ -66,6 +74,23 @@ abstract class FeaturedChangeHandler implements InboundActivityHandler {
             return;
         }
         apply(actor, status.get(), activity.receivedAt());
+    }
+
+    /**
+     * Mastodon's target is its {@code featured} collection, though it lists the tags in {@code featuredTags}, so either
+     * counts.
+     */
+    private void changeTag(InboundActivity activity, URI actorUri, Optional<URI> target) {
+        if (target.isEmpty()) {
+            log.debug("Ignoring {} {}, which doesn't have a target", type(), activity.id());
+            return;
+        }
+        var actor = remoteActors.fetchOrRefresh(actorUri);
+        if (!actors.findFeaturedUri(actor.id()).equals(target) && !actors.findFeaturedTagsUri(actor.id()).equals(target)) {
+            log.debug("Ignoring {} {}, whose target isn't one of the actor's featured collections", type(), activity.id());
+            return;
+        }
+        featuredTags.queue(actor.id());
     }
 
     /**

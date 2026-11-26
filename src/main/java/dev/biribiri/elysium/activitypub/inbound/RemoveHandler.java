@@ -18,8 +18,9 @@ class RemoveHandler extends FeaturedChangeHandler {
 
     private final StatusPinService pins;
 
-    RemoveHandler(RemoteActors remoteActors, ActorService actors, JsonMapper json, StatusPinService pins) {
-        super(remoteActors, actors, json);
+    RemoveHandler(RemoteActors remoteActors, ActorService actors, JsonMapper json, StatusPinService pins,
+                  FeaturedTagFetch featuredTags) {
+        super(remoteActors, actors, json, featuredTags);
         this.pins = pins;
     }
 

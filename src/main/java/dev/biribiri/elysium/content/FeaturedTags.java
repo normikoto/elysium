@@ -6,12 +6,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.SequencedCollection;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Hashtags local accounts feature on their profiles, by their normalized names, with how much each account has used
- * them. They aren't federated, so an account on another server has none here.
+ * Hashtags accounts feature on their profiles, by their normalized names, with how much each account has used them. A
+ * remote account's are what its server last listed, and how much it has used them is counted from its statuses stored
+ * here, as on Mastodon.
  */
 @Service
 public class FeaturedTags {
@@ -80,7 +82,31 @@ public class FeaturedTags {
         return tags.findSuggestions(accountId, MAX_SUGGESTIONS);
     }
 
+    /**
+     * Replaces what a remote account features, keeping the IDs of the tags it still does. Only the first
+     * {@value #MAX_PER_ACCOUNT} are kept, as on Mastodon.
+     *
+     * @param names normalized names, in the order its server listed them
+     */
+    @Transactional
+    public void replaceRemote(UUID accountId, SequencedCollection<String> names) {
+        var kept = names.stream().distinct().limit(MAX_PER_ACCOUNT).toList();
+        tags.lockAccount(accountId);
+        tags.deleteExcept(accountId, kept);
+        kept.forEach(name -> tags.insert(accountId, name));
+    }
+
     void removeForAccount(UUID accountId) {
         tags.deleteForAccount(accountId);
+    }
+
+    /**
+     * In batches, as pins are removed, so that a large server isn't one long delete.
+     */
+    void removeForDomain(String domain) {
+        int deleted;
+        do {
+            deleted = tags.deleteForDomain(domain, 1000);
+        } while (deleted == 1000);
     }
 }

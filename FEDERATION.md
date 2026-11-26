@@ -1192,7 +1192,8 @@ server has ended. Deleting a pinned status only sends its `Delete`, as on Mastod
 
 An `Add` or `Remove` from another server is acted on if its `target` is the `featured` collection given in its actor's
 document, and its `object` is the ID of a status on the actor's host and port, alone or embedded as a [status object](#receiving-statuses).
-Anything else is ignored, including Mastodon's `Add`s of a `Hashtag` and of its own collections. The `featured` collection
+An `Add` or `Remove` of a `Hashtag` is a change to the actor's [featured tags](#featured-tags), and anything else is
+ignored, including Mastodon's `Add`s of its own collections. The `featured` collection
 in an actor document is only used if it's an HTTPS URL on the same host and port as the actor. An `Add` or `Remove`
 without an `id`, as Mastodon and Misskey send them, is only accepted from the actor that signed it, and can't be
 [forwarded](#forwarded-activities).
@@ -1219,6 +1220,25 @@ it, or the ID of a status on the actor's host and port, which is fetched like a 
 stored.
 
 Other items are skipped. An actor whose document has no `featured` has no pins.
+
+### Featured tags
+
+Local users' featured tags aren't sent to other servers, and their actor documents have no `featuredTags`.
+
+An actor from another server features the hashtags its `featuredTags` collection lists, as Mastodon serves them. The
+collection is only used if it's an HTTPS URL on the same host and port as the actor. It's fetched when a `Follow` from
+here is accepted, when the actor sends an `Update` of itself, and when it sends an `Add` or `Remove` of a `Hashtag`
+whose `target` is its `featured` or `featuredTags` collection, as Mastodon sends one when a tag is featured or no longer
+is. The `Add` or `Remove` only starts the fetch, so the collection decides which tags are featured, whatever order these
+arrive in.
+
+The fetch is signed as this server's [instance actor](#instance-actor), since featured tags are public, with a turn of
+its own, so an actor nobody here follows can have them too. The collection is read as [pins](#pinned-statuses) are:
+it has to be an `OrderedCollection` or `Collection` with the `id` that was fetched, and its `first` page can be embedded
+or fetched. Of the first 10 items of `orderedItems` or `items`, each `Hashtag` with a valid tag name in its `name`, with
+or without its `#`, is featured, and the others are skipped. What's listed replaces what was featured. A collection that
+can't be fetched, or isn't one, leaves the tags as they were, and an actor whose document has no `featuredTags` features
+none.
 
 ### Quotes
 

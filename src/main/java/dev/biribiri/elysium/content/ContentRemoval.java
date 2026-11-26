@@ -76,5 +76,6 @@ class ContentRemoval implements ActorDataRemoval {
         followersOnly.removeForDomain(domain);
         statuses.removeForDomain(domain);
         emojis.removeForDomain(domain);
+        featuredTags.removeForDomain(domain);
     }
 }

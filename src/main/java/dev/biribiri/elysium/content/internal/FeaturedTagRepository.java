@@ -141,6 +141,29 @@ public class FeaturedTagRepository {
                 .list();
     }
 
+    public void deleteExcept(UUID accountId, Collection<String> names) {
+        jdbc.sql("DELETE FROM featured_tag WHERE account_id = :account AND NOT (name = ANY(:names))")
+                .param("account", accountId)
+                .param("names", names.toArray(String[]::new))
+                .update();
+    }
+
+    /**
+     * @return how many were deleted, up to {@code limit}
+     */
+    public int deleteForDomain(String domain, int limit) {
+        return jdbc.sql("""
+                        DELETE FROM featured_tag WHERE id IN (
+                            SELECT f.id FROM featured_tag f JOIN actor a ON a.id = f.account_id
+                            WHERE NOT a.is_local AND a.domain = :domain
+                            LIMIT :limit
+                        )
+                        """)
+                .param("domain", domain)
+                .param("limit", limit)
+                .update();
+    }
+
     public void deleteForAccount(UUID accountId) {
         jdbc.sql("DELETE FROM featured_tag WHERE account_id = :account").param("account", accountId).update();
     }

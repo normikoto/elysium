@@ -178,6 +178,13 @@ public class ActorService {
     }
 
     /**
+     * @return a remote actor's collection of featured hashtags, from its document, or empty if it doesn't have one
+     */
+    public Optional<URI> findFeaturedTagsUri(UUID actorId) {
+        return actors.findFeaturedTagsUri(actorId);
+    }
+
+    /**
      * Whether an actor is on this server. Local actors are stored with the account domain, and an actor from another server
      * can't be stored with it, or with this server's authority.
      */

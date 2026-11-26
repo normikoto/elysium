@@ -21,8 +21,8 @@ class AddHandler extends FeaturedChangeHandler {
     private final FeaturedFetch featured;
 
     AddHandler(RemoteActors remoteActors, ActorService actors, JsonMapper json, StatusService statuses,
-               StatusPinService pins, FeaturedFetch featured) {
-        super(remoteActors, actors, json);
+               StatusPinService pins, FeaturedFetch featured, FeaturedTagFetch featuredTags) {
+        super(remoteActors, actors, json, featuredTags);
         this.statuses = statuses;
         this.pins = pins;
         this.featured = featured;
