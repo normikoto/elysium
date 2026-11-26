@@ -131,6 +131,12 @@ tasks.test {
     }
     // Gradle's 512 MB default runs out with many cached contexts and concurrent Argon2 hashing in FirstAccountIntegrationTests.
     maxHeapSize = "2g"
+    // CI turns this on with -PlogEveryTest=true, since its log is all there is to read there. A local run has the HTML report.
+    if (providers.gradleProperty("logEveryTest").map { it.toBoolean() }.getOrElse(false)) {
+        testLogging {
+            events("passed", "skipped", "failed")
+        }
+    }
 }
 
 tasks.register<Test>("loadTest") {
