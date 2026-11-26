@@ -9,8 +9,8 @@ This reference describes what peers can send, receive, and fetch.
 
   - Elysium sends and receives `Follow`, `Like`, `EmojiReact`, `Announce`, and `Block` and their `Undo`s. It also
     sends and receives `QuoteRequest`, `Accept` and `Reject` of a `Follow` or `QuoteRequest`, `Delete`, `Flag`, and `Move`.
-  - Elysium sends and receives `Create` and `Update`. Incoming `Create` supports `Note` and `Question`. Incoming
-    `Update` supports actors, `Note`, and `Question`.
+  - Elysium sends and receives `Create` and `Update`. Incoming `Create` supports `Note` and `Question`, and
+    the [other types](#other-object-types) that Mastodon converts. Incoming `Update` supports actors and the same types.
 - [WebFinger](https://webfinger.net/)
 - [NodeInfo](https://nodeinfo.diaspora.software/) 2.0 and 2.1
 
@@ -408,13 +408,13 @@ for a status object on the actor’s host and port.
 
 - A `Delete`, such as Mastodon's, whose `id` has a fragment, has its `object` [checked with its own
   server](#receiving-deletes) instead.
-- A `Create` has its `object` fetched instead, signed as the instance actor. It's kept only if what's served is a `Note`
-  or a `Question` with exactly that `id`, attributed to the `actor` alone, and with a `published` no more than 3 days
+- A `Create` has its `object` fetched instead, signed as the instance actor. It's kept only if what's served is a
+  [status object](#receiving-statuses) with exactly that `id`, attributed to the `actor` alone, and with a `published` no more than 3 days
   before the first forwarded copy arrived. Who it's for comes from the fetched object's addressing, and nothing else from
   the forwarded copy is kept. The real `Create` is still accepted if it's delivered later, and its object is then already
   stored.
 - An `Update`, such as Mastodon's, whose `id` has a fragment, has its `object` fetched in the same way, and is kept if
-  what's served is a `Note` or a `Question` with that `id`, attributed to the `actor` alone. What's served is then
+  what's served is a [status object](#receiving-statuses) with that `id`, attributed to the `actor` alone. What's served is then
   [applied as an `Update`](#receiving-updates) would be, so its `updated` decides whether it's an edit, even if the same
   version was applied before. An `Update` of the `actor` itself isn't fetched this way, so it's lost if its origin doesn't
   serve it.
@@ -808,8 +808,9 @@ qualify this way.
 
 A `Note` that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts),
 [backfilled](#backfill), or [fetched for a thread](#fetching-threads). A `Question` is stored as a status with a
-[poll](#receiving-polls), and a `Note` that's a vote in a local poll is [counted](#voting-in-a-local-poll). Other
-object types, such as `Article` and `Page`, are ignored.
+[poll](#receiving-polls), and a `Note` that's a vote in a local poll is [counted](#voting-in-a-local-poll). A `Note`, a
+`Question`, and the [other types](#other-object-types) below are status objects, and what this section says of a `Note`
+applies to each of them. Other object types are ignored.
 
 - **Who it's from:** the `Note`'s `attributedTo` has to be exactly the `Create`'s `actor`, and its `id` an HTTPS URL on the
   same host and port. Anything else is dropped.
@@ -872,6 +873,20 @@ object types, such as `Article` and `Page`, are ignored.
 
 What happens to the statuses of [suspended](#suspended-and-deleted-accounts) actors and [blocked](#domain-blocks) servers is
 described with those.
+
+##### Other object types
+
+An `Article`, `Page`, `Event`, `Video`, `Audio`, or `Image` is stored as a status, as on Mastodon, but its `content`
+isn't shown. An object whose `type` also includes `Note` or `Question` is read as that type instead.
+
+- **Text:** its `name`, as plain text, then its `summary` as plain text, then a link to its `url`, or to its `id` if it
+  has no `url`, each in its own paragraph. Its `summary` isn't a content warning, and it can't be a vote in a poll.
+- **Authors:** a `Group` in its `attributedTo`, embedded with its `type`, is left out when there's another author, so a
+  PeerTube video attributed to its channel as well as to the account that sent it is that account's. This applies to a
+  `Note` too.
+- **Media:** only its `attachment` is read, as for a `Note`, so a video's files in its `url` aren't downloaded, and a
+  `Link` attachment, as Lemmy sends, isn't media.
+- **Other properties,** such as an `Event`'s `startTime` and `location`, aren't read.
 
 #### Receiving updates
 
@@ -952,7 +967,7 @@ lookups of accounts, a minute.
 
 - What's served at the URL decides what it is. An [actor](#profiles-from-other-servers) is fetched again from its `id`,
   as for a profile page.
-- A `Note` or `Question` can have an `id` other than the URL, as a status's page does on Mastodon. Unless that `id` is
+- A [status object](#receiving-statuses) can have an `id` other than the URL, as a status's page does on Mastodon. Unless that `id` is
   stored here, it's fetched from its `id` if it isn't the URL, and has to come back with that `id`, attributed to one
   actor on the same host and port. A page can name a status on another server that's stored here, and only finds that.
 - Only a public or unlisted status with a `published` is stored, read [as for a `Create`](#receiving-statuses). As with
@@ -969,7 +984,7 @@ A status's thread is fetched at most every 15 minutes, and fetching a new reply'
 from this server or a [blocked](#domain-blocks) one.
 
 - **Parents:** a status whose `inReplyTo` isn't stored has that fetched, and then that status's parent, and so on, until
-  40 ancestors are stored. Each has to come back as a `Note` or `Question` with the `id` fetched, attributed to one actor on
+  40 ancestors are stored. Each has to come back as a [status object](#receiving-statuses) with the `id` fetched, attributed to one actor on
   the same host and port. Fetching stops at the first that isn't stored.
 - **Replies:** for a status from another server, its `id` is fetched again, and has to come back with that `id`,
   attributed to its author. If it has a `context` that could be fetched, that's read instead, as **Context** describes
@@ -1176,7 +1191,7 @@ Its `id` is new for each pin, and can't be fetched. Unpinning cancels the `Add` 
 server has ended. Deleting a pinned status only sends its `Delete`, as on Mastodon.
 
 An `Add` or `Remove` from another server is acted on if its `target` is the `featured` collection given in its actor's
-document, and its `object` is the ID of a status on the actor's host and port, alone or embedded as a `Note` or `Question`.
+document, and its `object` is the ID of a status on the actor's host and port, alone or embedded as a [status object](#receiving-statuses).
 Anything else is ignored, including Mastodon's `Add`s of a `Hashtag` and of its own collections. The `featured` collection
 in an actor document is only used if it's an HTTPS URL on the same host and port as the actor. An `Add` or `Remove`
 without an `id`, as Mastodon and Misskey send them, is only accepted from the actor that signed it, and can't be
@@ -1601,7 +1616,7 @@ same `id` is ignored. Nothing is sent back, and this server never says whether a
 - A report is only sent to the reported account's server, and never to the servers of other statuses it's about, as
   Mastodon's `forward_to_domains` does.
 - Reports from a server aren't refused unless it's suspended: there's no `reject_reports` for a limited one.
-- Only `Note`s and `Question`s are stored. A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
+- A `Like` of a status from another server is ignored. A reply's parent isn't fetched, and neither
   are the replies to a status.
 - An `Update` from another server doesn't change who its status mentions, so an edit can't show a followers-only or
   direct status to more local users.

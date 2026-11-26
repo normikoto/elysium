@@ -373,12 +373,79 @@ class CreateIntegrationTests {
         note.put(changed, switch (changed) {
             case "attributedTo" -> "https://" + host + "/users/other";
             case "id" -> "https://elsewhere.test/notes/" + UUID.randomUUID();
-            default -> "Article";
+            default -> "Place";
         });
 
         handler.handle(create(note));
 
         assertThat(status((String) note.get("id"))).isEmpty();
+    }
+
+    @Test
+    void storesAnArticleAsItsTitleSummaryAndLink() {
+        var articleId = noteId();
+        var article = Map.<String, Object>of(
+                "id", articleId,
+                "type", "Article",
+                "attributedTo", author.uri().toString(),
+                "to", List.of(PUBLIC),
+                "cc", List.of(followers),
+                "name", "On <tags> & things",
+                "summary", "<p>A short <b>summary</b></p>",
+                "content", "<h1>The whole article</h1><p>Too long for a timeline</p>",
+                "url", "https://" + host + "/s/on-tags");
+
+        handler.handle(create(article));
+
+        var row = status(articleId).orElseThrow();
+        assertThat(row.get("content")).isEqualTo("<p>On &lt;tags&gt; &amp; things</p><p>A short summary</p><p>"
+                + "<a href=\"https://" + host + "/s/on-tags\" rel=\"nofollow noopener noreferrer\" target=\"_blank\">"
+                + "https://" + host + "/s/on-tags</a></p>");
+        assertThat(row.get("spoiler_text")).isEqualTo("");
+        assertThat(row.get("url")).isEqualTo("https://" + host + "/s/on-tags");
+    }
+
+    @Test
+    void storesAPeerTubeVideoAttributedToItsChannelToo() {
+        var videoId = "https://" + host + "/videos/watch/" + UUID.randomUUID();
+        var video = Map.<String, Object>of(
+                "id", videoId,
+                "type", "Video",
+                "attributedTo", List.of(
+                        Map.of("type", "Person", "id", author.uri().toString()),
+                        Map.of("type", "Group", "id", "https://" + host + "/video-channels/c")),
+                "to", List.of(PUBLIC),
+                "cc", List.of(followers),
+                "name", "A video",
+                "content", "<p>Its description</p>",
+                "url", List.of(
+                        Map.of("type", "Link", "mediaType", "text/html", "href", "https://" + host + "/w/1"),
+                        Map.of("type", "Link", "mediaType", "video/mp4", "href", "https://" + host + "/v.mp4")));
+
+        handler.handle(create(video));
+
+        var row = status(videoId).orElseThrow();
+        assertThat((String) row.get("text")).isEqualTo("A video\n\nhttps://" + host + "/w/1");
+        assertThat(attachments.findByStatuses(List.of((UUID) row.get("id"))).getOrDefault(row.get("id"), List.of())).isEmpty();
+    }
+
+    @Test
+    void storesALemmyReplyToAPageAsAReply() {
+        var pageId = "https://" + host + "/post/" + UUID.randomUUID();
+        var page = new HashMap<>(note(pageId, List.of(PUBLIC), List.of(followers)));
+        page.put("type", "Page");
+        page.put("name", "A link post");
+        page.put("attachment", List.of(Map.of("type", "Link", "href", "https://elsewhere.test/story")));
+        handler.handle(create(page));
+        var replyId = noteId();
+        var reply = new HashMap<>(note(replyId, List.of(PUBLIC), List.of(followers)));
+        reply.put("inReplyTo", pageId);
+
+        handler.handle(create(reply));
+
+        var pageStatus = statusId(pageId);
+        assertThat(attachments.findByStatuses(List.of(pageStatus)).getOrDefault(pageStatus, List.of())).isEmpty();
+        assertThat(status(replyId).orElseThrow().get("in_reply_to_id")).isEqualTo(pageStatus);
     }
 
     @Test

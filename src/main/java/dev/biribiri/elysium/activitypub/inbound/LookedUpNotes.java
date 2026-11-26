@@ -47,7 +47,7 @@ public class LookedUpNotes {
     }
 
     /**
-     * Whether a fetched document is a {@code Note} or {@code Question} that {@link #store} can read.
+     * Whether a fetched document is a status, such as a {@code Note}, that {@link #store} can read.
      */
     public static boolean isNote(JsonNode document) {
         return RemoteNote.read(document).isPresent();
