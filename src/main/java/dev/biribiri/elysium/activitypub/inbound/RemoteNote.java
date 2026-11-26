@@ -7,6 +7,8 @@ import dev.biribiri.elysium.content.RemoteEmoji;
 import dev.biribiri.elysium.content.RemotePoll;
 import dev.biribiri.elysium.content.RemoteQuote;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.text.PlainText;
+import dev.biribiri.elysium.text.RemoteHtml;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
@@ -24,9 +26,10 @@ import java.util.regex.Pattern;
 
 /**
  * A {@code Note} from another server, read from its JSON. Nothing here has been checked, and {@code content} and
- * {@code summary} are HTML that hasn't been sanitized.
+ * {@code summary} are HTML that hasn't been sanitized. Other types that make sense as a status, such as an
+ * {@code Article}, are {@linkplain #CONVERTED_TYPES converted} to one.
  *
- * @param attributedTo the IDs in its {@code attributedTo}
+ * @param attributedTo the IDs in its {@code attributedTo}, apart from any {@code Group}s alongside an author
  * @param url          the page that shows it, or null if it doesn't give an HTTP or HTTPS one
  * @param content      its {@code content}, or the one in {@code contentMap}, or null if it has none
  * @param summary      its {@code summary}, or the one in {@code summaryMap}, or null if it has none
@@ -68,6 +71,15 @@ record RemoteNote(
      * The properties that say what a note quotes, in the order Mastodon reads them. Only FEP-044f's comes with a way to ask
      * for consent, so a note with only the others is from a server that can't ask.
      */
+    private static final Set<String> STATUS_TYPES = Set.of("Note", "Question");
+
+    /**
+     * Mastodon's list of types it shows as a status made from their title, summary, and a link, rather than their
+     * {@code content}. Their own server shows them better: an article could fill a timeline, and a video's files aren't
+     * worth downloading. Clients show them as they look on Mastodon this way.
+     */
+    private static final Set<String> CONVERTED_TYPES = Set.of("Article", "Page", "Event", "Video", "Audio", "Image");
+
     private static final List<String> QUOTE_PROPERTIES = List.of("quote", "_misskey_quote", "quoteUrl", "quoteUri");
 
     /**
@@ -134,12 +146,12 @@ record RemoteNote(
      * @return whether an object of this type can be stored as a status
      */
     static boolean isStatusType(String type) {
-        return "Note".equals(type) || "Question".equals(type);
+        return STATUS_TYPES.contains(type) || CONVERTED_TYPES.contains(type);
     }
 
     /**
      * @param node an object, embedded or fetched
-     * @return the note, or empty if this isn't a {@code Note} or a {@code Question} with an ID
+     * @return the note, or empty if this isn't a type that can be stored as a status, or has no ID
      */
     static Optional<RemoteNote> read(JsonNode node) {
         if (!node.isObject()) {
@@ -153,12 +165,17 @@ record RemoteNote(
         if (id.isEmpty()) {
             return Optional.empty();
         }
+        var url = url(node.path("url"));
+        var converted = types.stream().noneMatch(STATUS_TYPES::contains);
+        var name = ActivityJson.naturalText(node, "name");
+        var summary = ActivityJson.naturalText(node, "summary");
         return Optional.of(new RemoteNote(
                 id.get(),
-                ActivityJson.ids(node.path("attributedTo")),
-                url(node.path("url")),
-                ActivityJson.naturalText(node, "content"),
-                ActivityJson.naturalText(node, "summary"),
+                authors(node.path("attributedTo")),
+                url,
+                converted ? convertedContent(name, summary, url == null ? id.get() : url)
+                        : ActivityJson.naturalText(node, "content"),
+                converted ? null : summary,
                 language(node.path("contentMap")),
                 ActivityJson.flag(node.path("sensitive")),
                 ActivityObject.uriOf(node.path("inReplyTo")).orElse(null),
@@ -171,8 +188,46 @@ record RemoteNote(
                 quote(node),
                 quotePolicy(node.path("interactionPolicy").path("canQuote")),
                 types.contains("Question") ? poll(node, Instant.now()) : null,
-                ActivityJson.naturalText(node, "name"),
+                // A converted object's name is its title, which mustn't make it look like a vote.
+                converted ? null : name,
                 RemoteEmojis.read(node.path("tag"))));
+    }
+
+    /**
+     * PeerTube attributes a video to its channel as well as to the person who uploaded it, and only the person can be the
+     * actor that sends it. A {@code Group} can only be told apart when it's embedded with its type, and is kept when
+     * there's no one else, so that nothing is attributed to no one.
+     */
+    private static List<String> authors(JsonNode attributedTo) {
+        if (!attributedTo.isArray()) {
+            return ActivityJson.ids(attributedTo);
+        }
+        var others = attributedTo.valueStream()
+                .filter(author -> !ActivityJson.types(author.path("type")).contains("Group"))
+                .map(ActivityJson::idOf)
+                .filter(author -> author != null)
+                .distinct()
+                .toList();
+        return others.isEmpty() ? ActivityJson.ids(attributedTo) : others;
+    }
+
+    /**
+     * The text Mastodon shows for a converted type: its title, its summary as plain text, and a link to it, each in its own
+     * paragraph.
+     */
+    private static String convertedContent(String name, String summary, URI link) {
+        var parts = new ArrayList<String>();
+        if (name != null && !name.isBlank()) {
+            parts.add(name.strip());
+        }
+        if (summary != null) {
+            var text = RemoteHtml.plainText(RemoteHtml.sanitize(summary));
+            if (!text.isBlank()) {
+                parts.add(text);
+            }
+        }
+        parts.add(link.toString());
+        return PlainText.render(String.join("\n\n", parts));
     }
 
     /**

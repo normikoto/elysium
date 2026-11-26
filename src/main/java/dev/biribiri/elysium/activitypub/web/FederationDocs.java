@@ -92,7 +92,8 @@ final class FederationDocs {
 
             Elysium handles `Follow`, `Like`, `Announce`, `EmojiReact`, and `Block` and their `Undo`s. It also handles \
             `QuoteRequest`, `Accept` and `Reject` of a follow or quote request, `Create` of a `Note` or `Question`, \
-            `Update` of an actor, `Note`, or `Question`, and `Delete`, `Flag`, `Move`, and pin `Add` and `Remove`. \
+            or an `Article`, `Page`, `Event`, `Video`, `Audio`, or `Image` shown as a link to it, `Update` of an actor \
+            or any of those, and `Delete`, `Flag`, `Move`, and pin `Add` and `Remove`. \
             See `FEDERATION.md` for details, including RFC 9421 signature components.
 
             A forwarded activity with a valid integrity proof from its `actor` is accepted as delivered. Otherwise \

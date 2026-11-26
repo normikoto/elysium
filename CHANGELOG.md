@@ -7,6 +7,12 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Articles, Lemmy posts, PeerTube videos, events, and other kinds of posts from other servers now show up as posts with
+  their title and a link to the original, as on Mastodon, instead of being left out. Replies to them now show as
+  replies too. See [Federation](FEDERATION.md#other-object-types).
+
 ## [0.4.0] - 2026-11-26
 
 ### Added
