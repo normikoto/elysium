@@ -1,7 +1,7 @@
 <!doctype html>
 <html xmlns:th="http://www.thymeleaf.org">
 <th:block th:fragment="controls(follow)">
-    <div class="follow" th:switch="${follow.state().name()}">
+    <div class="follow" th:classappend="${follow.state().name() == 'SELF'} ? 'follow-self'" th:switch="${follow.state().name()}">
         <th:block th:case="'ANONYMOUS'">
             <form class="follow-remote" method="post"
                   th:action="@{/users/{username}/remote-follow(username=${follow.account().username()})}">
