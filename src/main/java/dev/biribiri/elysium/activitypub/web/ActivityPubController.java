@@ -9,6 +9,7 @@ import dev.biribiri.elysium.activitypub.vocab.Create;
 import dev.biribiri.elysium.activitypub.vocab.Emoji;
 import dev.biribiri.elysium.activitypub.vocab.Like;
 import dev.biribiri.elysium.activitypub.vocab.Note;
+import dev.biribiri.elysium.activitypub.vocab.Hashtag;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollection;
 import dev.biribiri.elysium.activitypub.vocab.OrderedCollectionPage;
 import dev.biribiri.elysium.activitypub.vocab.Person;
@@ -27,12 +28,14 @@ import dev.biribiri.elysium.content.LikeService;
 import dev.biribiri.elysium.content.MediaAttachments;
 import dev.biribiri.elysium.content.PollService;
 import dev.biribiri.elysium.content.QuoteService;
+import dev.biribiri.elysium.content.FeaturedTags;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusBoost;
 import dev.biribiri.elysium.content.StatusLike;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusQuote;
 import dev.biribiri.elysium.content.StatusService;
+import dev.biribiri.elysium.graph.BlockService;
 import dev.biribiri.elysium.graph.FollowEntry;
 import dev.biribiri.elysium.graph.FollowService;
 import io.swagger.v3.oas.annotations.ExternalDocumentation;
@@ -99,6 +102,8 @@ public class ActivityPubController {
     private final StatusPinService pins;
     private final CustomEmojis emojis;
     private final FederationProperties federation;
+    private final FeaturedTags featuredTags;
+    private final BlockService blocks;
 
     ActivityPubController(
             ActorService actors,
@@ -115,7 +120,11 @@ public class ActivityPubController {
             PollService polls,
             StatusPinService pins,
             CustomEmojis emojis,
-            FederationProperties federation) {
+            FederationProperties federation,
+            FeaturedTags featuredTags,
+            BlockService blocks) {
+        this.featuredTags = featuredTags;
+        this.blocks = blocks;
         this.federation = federation;
         this.pins = pins;
         this.emojis = emojis;
@@ -385,6 +394,42 @@ public class ActivityPubController {
         }
         return ok.body(OrderedCollection.of(Person.featuredOf(author),
                 pinned.stream().map(status -> notesById.get(status.id()).withoutContext()).toList()));
+    }
+
+    /**
+     * Mastodon reads this to show the user's featured tags. Everyone can see them on the profile, but a signer the user
+     * blocks is shown none, as on Mastodon.
+     */
+    @CrossOrigin(allowedHeaders = HttpHeaders.ACCEPT)
+    @GetMapping(path = "/users/{username}/collections/tags", produces = {ACTIVITY_JSON, LD_JSON, ANY_LD_JSON})
+    @Operation(
+            operationId = "getFeaturedTagsCollection",
+            summary = "Fetch the hashtags a user features",
+            description = FederationDocs.FEATURED_TAGS,
+            parameters = @Parameter(name = "username", description = FederationDocs.USERNAME),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "The collection.", content = {
+                            @Content(mediaType = ACTIVITY_JSON, schema = @Schema(implementation = OrderedCollection.class))
+                    }),
+                    @ApiResponse(responseCode = "403", description = "The user is suspended."),
+                    @ApiResponse(responseCode = "404", description = "There's no such user."),
+                    @ApiResponse(responseCode = "406", description = "The `Accept` header doesn't allow JSON."),
+                    @ApiResponse(responseCode = "410", description = "The user was deleted.")
+            })
+    @SignedFetch
+    ResponseEntity<?> featuredTags(@PathVariable String username, HttpServletRequest request) {
+        var signer = signers.signer(request);
+        var actor = actors.findAnyLocalByUsername(username);
+        var unavailable = unavailable(actor);
+        if (unavailable.isPresent()) {
+            return unavailable.get();
+        }
+        var author = actor.get();
+        var refused = signer.isPresent() && !blocks.refusingSender(List.of(author.id()), signer.get().uri()).isEmpty();
+        var tags = refused
+                ? List.<Hashtag>of()
+                : featuredTags.featured(author.id()).stream().map(tag -> Hashtag.of(tag.name(), instance)).toList();
+        return ResponseEntity.ok(OrderedCollection.ofHashtags(Person.featuredTagsOf(author), tags));
     }
 
     private List<Object> outboxItems(Actor author, List<Status> entries) {

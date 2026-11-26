@@ -9,6 +9,7 @@ import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.ContentType;
 import dev.biribiri.elysium.content.NewStatus;
 import dev.biribiri.elysium.content.Status;
+import dev.biribiri.elysium.content.FeaturedTags;
 import dev.biribiri.elysium.content.StatusPinService;
 import dev.biribiri.elysium.content.StatusService;
 import dev.biribiri.elysium.content.Visibility;
@@ -40,6 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -59,6 +61,7 @@ class NoteFetchIntegrationTests {
     private static final String BASE = "https://elysium.example";
     private static final String ACTIVITY_JSON = "application/activity+json";
     private static final String FEATURED = "/users/alice/collections/featured";
+    private static final String FEATURED_TAGS = "/users/alice/collections/tags";
     private static final AtomicInteger nextAddress = new AtomicInteger();
 
     @Autowired
@@ -75,6 +78,8 @@ class NoteFetchIntegrationTests {
     private BlockService accountBlocks;
     @Autowired
     private StatusPinService pins;
+    @Autowired
+    private FeaturedTags featuredTags;
     @Autowired
     private CavageRequestSigner signer;
     @Autowired
@@ -334,6 +339,36 @@ class NoteFetchIntegrationTests {
     private ResultActions fetch(Status status, Signer as) throws Exception {
         var headers = signer.sign("GET", URI.create(BASE + path(status)), new byte[0], as.key());
         return send(get(path(status)).accept(ACTIVITY_JSON).headers(headers));
+    }
+
+    @Test
+    void servesFeaturedTagsAndAdvertisesThemButShowsABlockedSignerNone() throws Exception {
+        featuredTags.featured(alice().id()).forEach(tag -> featuredTags.unfeature(alice().id(), tag.id()));
+        featuredTags.feature(alice().id(), "café");
+        var blocked = remote("tagblocked");
+
+        send(get("/users/alice").accept(ACTIVITY_JSON))
+                .andExpect(jsonPath("$.featuredTags").value(BASE + FEATURED_TAGS))
+                .andExpect(jsonPath("$['@context'][2].featuredTags['@id']").value("toot:featuredTags"));
+        send(get(FEATURED_TAGS).accept(ACTIVITY_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['@context'][1].Hashtag").value("as:Hashtag"))
+                .andExpect(jsonPath("$.id").value(BASE + FEATURED_TAGS))
+                .andExpect(jsonPath("$.type").value("OrderedCollection"))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.orderedItems[0].type").value("Hashtag"))
+                .andExpect(jsonPath("$.orderedItems[0].name").value("#café"))
+                .andExpect(jsonPath("$.orderedItems[0].href").value(startsWith(BASE + "/tags/")));
+        fetchFeaturedTags(blocked).andExpect(jsonPath("$.totalItems").value(1));
+
+        accountBlocks.block(alice(), blocked.stored());
+        fetchFeaturedTags(blocked).andExpect(jsonPath("$.totalItems").value(0));
+        send(get("/users/nobody/collections/tags").accept(ACTIVITY_JSON)).andExpect(status().isNotFound());
+    }
+
+    private ResultActions fetchFeaturedTags(Signer as) throws Exception {
+        var headers = signer.sign("GET", URI.create(BASE + FEATURED_TAGS), new byte[0], as.key());
+        return send(get(FEATURED_TAGS).accept(ACTIVITY_JSON).headers(headers));
     }
 
     private ResultActions fetchFeatured(Signer as) throws Exception {

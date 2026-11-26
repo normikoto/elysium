@@ -73,11 +73,23 @@ public class FeaturedTagRepository {
                 .update();
     }
 
-    public boolean delete(UUID accountId, UUID id) {
-        return jdbc.sql("DELETE FROM featured_tag WHERE id = :id AND account_id = :account")
+    /**
+     * @return the deleted tag's name, or empty if the account doesn't feature one with this ID
+     */
+    public Optional<String> delete(UUID accountId, UUID id) {
+        return jdbc.sql("DELETE FROM featured_tag WHERE id = :id AND account_id = :account RETURNING name")
                 .param("id", id)
                 .param("account", accountId)
-                .update() > 0;
+                .query(String.class)
+                .optional();
+    }
+
+    public Optional<FeaturedTag> findById(UUID accountId, UUID id) {
+        return jdbc.sql(SELECT + "WHERE f.account_id = :account AND f.id = :id")
+                .param("account", accountId)
+                .param("id", id)
+                .query(MAPPER)
+                .optional();
     }
 
     public long count(UUID accountId) {

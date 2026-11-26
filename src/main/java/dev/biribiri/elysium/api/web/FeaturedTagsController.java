@@ -33,7 +33,7 @@ import java.util.UUID;
 @RestController
 @Tag(name = "Featured tags", description = """
         The hashtags accounts feature on their profiles. An account on another server features what its server \
-        last listed in its `featuredTags` collection. Local users' featured tags aren't sent to other servers.""",
+        last listed in its `featuredTags` collection, and a user's are sent to other servers, as on Mastodon.""",
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "featured_tags/"))
 public class FeaturedTagsController {
 

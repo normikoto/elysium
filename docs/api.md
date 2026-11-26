@@ -287,7 +287,7 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `GET /api/v1/featured_tags` and `GET /api/v1/accounts/:id/featured_tags` list the most used first, in one page.
   An account on another server features what its server last listed, as
   [Federation](../FEDERATION.md#featured-tags) describes, and its counts only include its statuses stored here.
-  Local users' featured tags aren't sent to other servers.
+  A user's featured tags are sent to other servers, as Mastodon sends them.
 - `GET /api/v1/featured_tags/suggestions` suggests up to 10 tags from the user's recent public and unlisted statuses
   that they don't feature, the most recently used first.
 
