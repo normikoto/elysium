@@ -196,10 +196,9 @@ class CavageSignatureScheme implements SignatureScheme {
      * Mastodon only accepts SHA-256, and so every server has to send it. Any other digests in the header are ignored.
      */
     private static void checkDigest(HttpRequestData request) {
+        // There is one, since the signature covers it, and building the signature base refuses a covered header that's
+        // missing.
         var digests = request.headers().get(DIGEST);
-        if (digests == null) {
-            throw rejected("Signature covers digest, but there's no Digest header");
-        }
         for (var entry : String.join(",", digests).split(",")) {
             // Only the first one splits, because base64 padding also has equals signs.
             var parts = entry.strip().split("=", 2);
