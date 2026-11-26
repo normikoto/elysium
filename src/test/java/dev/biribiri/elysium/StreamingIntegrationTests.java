@@ -116,7 +116,7 @@ class StreamingIntegrationTests {
         aliceToken = token("streamalice");
         bobToken = token("streambob");
         alice = actors.findLocalByUsername("streamalice").orElseThrow();
-        bob = actors.findLocalByUsername("streambob").orElseThrow();
+        bob = actors.findLocalByUsername("streambob").orElseThrow();        TestAccounts.acceptPrivateMentions(jdbc);
     }
 
     @AfterEach

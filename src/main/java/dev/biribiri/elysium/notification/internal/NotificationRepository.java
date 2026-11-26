@@ -7,6 +7,7 @@ import dev.biribiri.elysium.content.StatusSql;
 import dev.biribiri.elysium.notification.Notification;
 import dev.biribiri.elysium.notification.NotificationFilter;
 import dev.biribiri.elysium.notification.NotificationGroup;
+import dev.biribiri.elysium.notification.NotificationPolicy;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -29,7 +30,10 @@ public class NotificationRepository {
      * include them in. A report is for admins to act on whoever sent it, so a block or mute of the reporter doesn't hide it.
      */
     private static final String ADMIN_REPORT = "admin.report";
-    private static final String FROM = """
+    /**
+     * Includes filtered notifications, which are only shown when asked for, or to look into one sender's request.
+     */
+    private static final String FROM_ANY = """
              FROM notification n JOIN actor a ON a.id = n.sender_id
              LEFT JOIN status s ON s.id = n.status_id
              LEFT JOIN actor t ON t.id = n.target_id
@@ -39,6 +43,7 @@ public class NotificationRepository {
             + " AND (n.type <> '" + ADMIN_REPORT + "' OR " + AdminRole.viewerIsAdmin() + ")"
             + " AND (n.type = '" + ADMIN_REPORT + "' OR " + NotificationSql.notHidden("a") + ")"
             + " AND (n.status_id IS NULL OR (s.id IS NOT NULL AND " + StatusSql.visibleTo(":viewer") + "))";
+    private static final String FROM = FROM_ANY + " AND NOT n.filtered";
     private static final String GROUP = """
             CASE WHEN n.type = ANY(CAST(:groupedTypes AS text[])) AND n.group_key IS NOT NULL
                  THEN n.group_key ELSE 'ungrouped-' || n.id END
@@ -50,9 +55,13 @@ public class NotificationRepository {
             rs.getObject("reaction_id", UUID.class), rs.getObject("target_id", UUID.class));
 
     private final JdbcClient jdbc;
+    private final NotificationScreening screening;
+    private final NotificationRequestRepository requests;
 
-    NotificationRepository(JdbcClient jdbc) {
+    NotificationRepository(JdbcClient jdbc, NotificationScreening screening, NotificationRequestRepository requests) {
         this.jdbc = jdbc;
+        this.screening = screening;
+        this.requests = requests;
     }
 
     /** Serializes changes to notifications and conversations and ID assignment until commit, including across application instances. */
@@ -77,7 +86,8 @@ public class NotificationRepository {
     }
 
     /**
-     * Removes the notifications between two accounts, either way, once one has blocked the other, as on Mastodon.
+     * Removes the notifications, requests, and permissions between two accounts, either way, once one has blocked the
+     * other, as on Mastodon.
      */
     public void deleteBetween(UUID one, UUID other) {
         jdbc.sql("""
@@ -87,6 +97,7 @@ public class NotificationRepository {
                 .param("one", one)
                 .param("other", other)
                 .update();
+        requests.deleteBetween(one, other);
     }
 
     /**
@@ -193,9 +204,10 @@ public class NotificationRepository {
 
     /**
      * Nothing is added from a sender the recipient hides notifications from, as on Mastodon, so ending a mute doesn't bring
-     * back what was sent during it.
+     * back what was sent during it. Nor is anything that the recipient's policy drops, while what it filters is added, to
+     * wait for the recipient to accept its sender.
      *
-     * @return the new notification, or empty if nothing was added
+     * @return the new notification, or empty if nothing was added that the recipient is to be told of now
      */
     private Optional<UUID> insert(
             UUID recipient, UUID sender, String type, UUID source, UUID status, UUID follow, UUID like, UUID reblog,
@@ -213,6 +225,11 @@ public class NotificationRepository {
                 .query(Boolean.class).single() || (!type.equals(ADMIN_REPORT) && isHidden(recipient, sender))) {
             return Optional.empty();
         }
+        var treatment = screening.decide(recipient, sender, type, status);
+        if (treatment == NotificationPolicy.Treatment.DROP) {
+            return Optional.empty();
+        }
+        var filtered = treatment == NotificationPolicy.Treatment.FILTER;
         var previous = jdbc.sql("SELECT last_id FROM notification_sequence WHERE singleton").query(UUID.class).single();
         var now = Instant.now();
         var millis = Math.max(now.toEpochMilli(), (previous.getMostSignificantBits() >>> 16) + 1);
@@ -231,17 +248,21 @@ public class NotificationRepository {
         var inserted = jdbc.sql("""
                         INSERT INTO notification
                         (id, recipient_id, sender_id, type, source_id, status_id, follow_id, like_id, reblog_id,
-                         report_id, reaction_id, target_id, created_at, group_key)
+                         report_id, reaction_id, target_id, created_at, group_key, filtered)
                         VALUES (:id, :recipient, :sender, :type, :source, :status, :follow, :like, :reblog, :report,
-                                :reaction, :target, :created, :group)
+                                :reaction, :target, :created, :group, :filtered)
                         ON CONFLICT (recipient_id, type, source_id) DO NOTHING
                         """).param("id", id).param("recipient", recipient).param("sender", sender).param("type", type)
                 .param("source", source).param("status", status, Types.OTHER).param("follow", follow, Types.OTHER)
-                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("report", report, Types.OTHER).param("reaction", reaction, Types.OTHER).param("target", target, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).update();
+                .param("like", like, Types.OTHER).param("reblog", reblog, Types.OTHER).param("report", report, Types.OTHER).param("reaction", reaction, Types.OTHER).param("target", target, Types.OTHER).param("created", now.atOffset(ZoneOffset.UTC)).param("group", group, Types.VARCHAR).param("filtered", filtered).update();
         if (inserted == 0) {
             return Optional.empty();
         }
         jdbc.sql("UPDATE notification_sequence SET last_id = :id WHERE singleton").param("id", id).update();
+        if (filtered) {
+            if (type.equals("mention") || type.equals("quote")) requests.add(recipient, sender);
+            return Optional.empty();
+        }
         return Optional.of(id);
     }
 
@@ -266,7 +287,7 @@ public class NotificationRepository {
     }
 
     public Optional<Notification> find(UUID viewer, UUID id) {
-        return jdbc.sql("SELECT n.*" + FROM + " AND n.id = :id").param("viewer", viewer).param("id", id)
+        return jdbc.sql("SELECT n.*" + FROM_ANY + " AND n.id = :id").param("viewer", viewer).param("id", id)
                 .query(MAPPER).optional();
     }
 
@@ -386,7 +407,8 @@ public class NotificationRepository {
 
     public void dismissGroup(UUID viewer, String key) {
         var condition = key.startsWith("ungrouped-") ? "id = :groupId" : "group_key = :key";
-        jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed AND " + condition)
+        jdbc.sql("UPDATE notification SET dismissed = TRUE WHERE recipient_id = :viewer AND NOT dismissed AND NOT filtered AND "
+                        + condition)
                 .param("viewer", viewer).params(groupParameters(key)).update();
     }
 
@@ -395,7 +417,7 @@ public class NotificationRepository {
     }
 
     private static String filtered(NotificationFilter filter) {
-        return FROM + (filter.types().isEmpty() ? "" : " AND n.type = ANY(CAST(:types AS text[]))")
+        return (filter.includeFiltered() ? FROM_ANY : FROM) + (filter.types().isEmpty() ? "" : " AND n.type = ANY(CAST(:types AS text[]))")
                 + (filter.excludeTypes().isEmpty() ? "" : " AND NOT (n.type = ANY(CAST(:excluded AS text[])))")
                 + (filter.accountId() == null ? "" : " AND n.sender_id = :account");
     }

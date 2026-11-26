@@ -519,8 +519,9 @@ Follow [Mastodon's notifications API](https://docs.joinmastodon.org/methods/noti
 - V2: `GET /api/v2/notifications`, `GET /api/v2/notifications/:group_key`,
   `GET /api/v2/notifications/:group_key/accounts`, `POST /api/v2/notifications/:group_key/dismiss`, and
   `GET /api/v2/notifications/unread_count`. V1's clear endpoint clears notifications from both views.
-- Notification policies and notification requests aren't implemented. `include_filtered` has no effect, and
-  `supported_types[]` has no effect because generated types have no fallback representations.
+- [Policies and requests](#notification-policies-and-requests): `GET` and `PATCH /api/v2/notifications/policy`, and
+  `/api/v1/notifications/requests` with its endpoints.
+- `supported_types[]` has no effect, because generated types have no fallback representations.
 - [Push subscriptions](#push-notifications) and [streaming](#streaming) both deliver new notifications.
 
 ### Types
@@ -555,6 +556,8 @@ Only these types are generated: `mention`, `status`, `follow`, `follow_request`,
 - V2 groups follow events within a span of up to twelve hours, and favourites and reblogs by status. Mentions remain
   individual groups.
 - `types[]`, `exclude_types[]`, and `account_id` filter both lists and counts, and exclusions win over inclusions.
+- Lists leave out what the user's [policy](#notification-policies-and-requests) filtered unless `include_filtered` is
+  true, or, in V1 only, `account_id` is given, as on Mastodon. Unread counts always leave it out.
 
 ### What's hidden
 
@@ -565,6 +568,32 @@ Only these types are generated: `mention`, `status`, `follow`, `follow_request`,
   brings back only what came before the mute.
 - Notifications aren't suppressed by a per-domain quota.
 - Reads don't mark notifications as read, and dismissing a conversation doesn't dismiss its notifications.
+
+### Notification policies and requests
+
+Follow Mastodon's [policy](https://docs.joinmastodon.org/methods/notifications/#get-policy) and
+[requests](https://docs.joinmastodon.org/methods/notifications/#get-requests) API, which needs `read:notifications` or
+`write:notifications`.
+
+- The policy has Mastodon's V2 fields: `for_not_following`, `for_not_followers`, `for_new_accounts`,
+  `for_private_mentions`, `for_limited_accounts`, and `for_bots`, each `accept`, `filter`, or `drop`, and `summary`. The
+  V1 policy, with its `filter_*` booleans, isn't implemented.
+- The defaults are Mastodon's: private mentions from accounts the user doesn't follow, other than replies to a private
+  mention of the user's that mentioned the sender, are filtered, and everything else is accepted.
+- `for_limited_accounts` is kept, but has no effect, since accounts and servers can't be limited.
+- As on Mastodon, a follower counts as one after 3 days, an account is new for 30 days after it was created, and the
+  new-account, bot, and private-mention policies only apply to accounts the user doesn't follow. Admins' mentions are
+  never filtered or dropped, nor are `status`, `update`, `quoted_update`, `poll`, `move`, `admin.report`, and
+  `pending.quote`.
+- Only filtered mentions and quotes make a request. Other filtered notifications are only seen with
+  `include_filtered`. Filtered and dropped notifications aren't pushed or streamed.
+- Unlike Mastodon, a filtered direct status stays out of [conversations](#conversations) until its request is
+  accepted.
+- Accepting a request brings its notifications and conversations back straight away, without pushing them, and lets
+  the sender through from then on. So `GET /api/v1/notifications/requests/merged` is always true.
+- Dismissing a request dismisses its notifications. Later ones from the sender are filtered again, into a new request.
+- Requests are listed newest first, 40 to a page and at most 80, and their IDs are UUIDs. The bulk accept and dismiss
+  endpoints leave out IDs that aren't found.
 
 ### Seen notifications
 
@@ -622,6 +651,8 @@ Follow [Mastodon's conversations API](https://docs.joinmastodon.org/methods/conv
 - Suspended, deleted, and domain-blocked accounts are omitted from conversation accounts and message summaries.
   A conversation's latest status leaves out accounts hidden from the user's notifications, and a direct status from one
   of them doesn't start a conversation.
+- A direct status that the user's [notification policy](#notification-policies-and-requests) filters joins its
+  conversation only once its request is accepted, unlike on Mastodon.
 
 ## Markers
 

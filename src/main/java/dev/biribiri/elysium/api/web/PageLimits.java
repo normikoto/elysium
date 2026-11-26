@@ -15,6 +15,9 @@ final class PageLimits {
     static final int NOTIFICATIONS = 40;
     static final int MAX_NOTIFICATIONS = 80;
 
+    static final int NOTIFICATION_REQUESTS = 40;
+    static final int MAX_NOTIFICATION_REQUESTS = 80;
+
     static final int CONVERSATIONS = 20;
     static final int MAX_CONVERSATIONS = 40;
 

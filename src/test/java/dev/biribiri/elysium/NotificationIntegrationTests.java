@@ -106,7 +106,7 @@ class NotificationIntegrationTests {
         jdbc.sql("UPDATE profile SET manually_approves_followers = false").update();
         alice = local("inboxalice");
         bob = local("inboxbob");
-        carol = local("inboxcarol");
+        carol = local("inboxcarol");        TestAccounts.acceptPrivateMentions(jdbc);
     }
 
     /**

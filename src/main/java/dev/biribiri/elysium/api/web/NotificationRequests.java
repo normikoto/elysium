@@ -8,6 +8,7 @@ import org.springframework.util.MultiValueMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 final class NotificationRequests {
@@ -43,7 +44,26 @@ final class NotificationRequests {
     }
 
     static NotificationFilter filter(MultiValueMap<String, String> values) {
-        return new NotificationFilter(array(values, "types"), array(values, "exclude_types"), cursor(values, "account_id"));
+        return filter(values, false);
+    }
+
+    /**
+     * @param byAccount whether asking for one sender's notifications includes the filtered ones, as it does in Mastodon's
+     *                  v1 API, where its web interface reads a request's notifications that way
+     */
+    static NotificationFilter filter(MultiValueMap<String, String> values, boolean byAccount) {
+        var account = cursor(values, "account_id");
+        var includeFiltered = RequestParameters.flag(values.getFirst("include_filtered")) || (byAccount && account != null);
+        return new NotificationFilter(array(values, "types"), array(values, "exclude_types"), account, includeFiltered);
+    }
+
+    static List<UUID> ids(MultiValueMap<String, String> values) {
+        return array(values, "id").stream().map(RequestParameters::uuid).flatMap(Optional::stream).distinct().toList();
+    }
+
+    static IdPage requestPage(MultiValueMap<String, String> values) {
+        return RequestParameters.page(values.getFirst("limit"), values.getFirst("max_id"), values.getFirst("since_id"),
+                values.getFirst("min_id"), PageLimits.NOTIFICATION_REQUESTS, PageLimits.MAX_NOTIFICATION_REQUESTS);
     }
 
     static List<String> array(MultiValueMap<String, String> values, String name) {

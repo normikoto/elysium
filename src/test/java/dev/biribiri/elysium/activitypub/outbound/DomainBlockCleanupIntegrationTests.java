@@ -1,5 +1,6 @@
 package dev.biribiri.elysium.activitypub.outbound;
 
+import dev.biribiri.elysium.TestAccounts;
 import dev.biribiri.elysium.TestImages;
 import dev.biribiri.elysium.TestcontainersConfiguration;
 import dev.biribiri.elysium.actor.Actor;
@@ -334,6 +335,8 @@ class DomainBlockCleanupIntegrationTests {
 
     @Test
     void cleansInboxDataForADomainWithNoFollows() {
+        // Let the message into the conversation, so that waiting for the conversation to go waits for the cleanup.
+        TestAccounts.acceptPrivateMentions(jdbc);
         var blocked = remote("social." + domain + ":8443");
         var id = remoteStatuses.storeRemote(new RemoteStatus(URI.create(blocked.uri() + "/notes/1"), null, blocked.id(),
                 "<p>direct</p>", null, null, Visibility.DIRECT, false, null, Instant.now(), null,

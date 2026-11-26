@@ -12,6 +12,17 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - Articles, Lemmy posts, PeerTube videos, events, and other kinds of posts from other servers now show up as posts with
   their title and a link to the original, as on Mastodon, instead of being left out. Replies to them now show as
   replies too. See [Federation](FEDERATION.md#other-object-types).
+- People can keep unwanted notifications out of sight with Mastodon's notification policies, from apps that support
+  them, such as Mastodon's. Notifications from kinds of accounts a person chooses, such as ones they don't follow, new
+  accounts, or bots, can be filtered into requests to look at later, or dropped. Filtered direct messages also stay out
+  of their conversations until the request is accepted. See [Using the
+  API](docs/api.md#notification-policies-and-requests).
+
+### Changed
+
+- Private mentions from accounts someone doesn't follow are now filtered into requests by default, as on Mastodon,
+  for existing accounts too. They aren't pushed, and don't appear in notifications or conversations until the person
+  accepts the request. Each person can turn this off in their app.
 
 ## [0.4.0] - 2026-11-26
 

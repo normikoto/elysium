@@ -38,6 +38,19 @@ public final class TestAccounts {
         return INVITE;
     }
 
+    /**
+     * Lets private mentions between local accounts through, which the default notification policy filters unless the
+     * recipient follows the sender, for tests about what happens to them once they're let through.
+     */
+    public static void acceptPrivateMentions(JdbcClient jdbc) {
+        jdbc.sql("""
+                        INSERT INTO notification_policy (account_id, for_private_mentions)
+                        SELECT actor_id, 'accept' FROM local_account
+                        ON CONFLICT (account_id) DO UPDATE SET for_private_mentions = 'accept'
+                        """)
+                .update();
+    }
+
     private static String sha256Hex(String text) {
         try {
             var digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));

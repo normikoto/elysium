@@ -30,6 +30,7 @@ import dev.biribiri.elysium.moderation.ReportFiled;
 import dev.biribiri.elysium.moderation.Reports;
 import dev.biribiri.elysium.notification.internal.ConversationRepository;
 import dev.biribiri.elysium.notification.internal.NotificationRepository;
+import dev.biribiri.elysium.notification.internal.NotificationScreening;
 import dev.biribiri.elysium.timeline.TimelineService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -57,12 +58,14 @@ public class Notifier {
     private final ThreadMuteService threadMutes;
     private final FollowService follows;
     private final TimelineService timelines;
+    private final NotificationScreening screening;
     private final ApplicationEventPublisher events;
 
     Notifier(ConversationRepository conversations, NotificationRepository notifications, QuoteService quotes,
              BoostService boosts, Reports reports, AccountActions accounts, PollService polls,
              ThreadMuteService threadMutes, FollowService follows, TimelineService timelines,
-             ApplicationEventPublisher events) {
+             NotificationScreening screening, ApplicationEventPublisher events) {
+        this.screening = screening;
         this.follows = follows;
         this.timelines = timelines;
         this.threadMutes = threadMutes;
@@ -288,14 +291,22 @@ public class Notifier {
             }
             if (source.direct()) {
                 for (var recipient : conversations.localRecipients(people)) {
-                    if (told.test(recipient)
-                            && (recipient.equals(source.authorId()) || !notifications.isHidden(recipient, source.authorId()))) {
+                    if (told.test(recipient) && (recipient.equals(source.authorId()) || joins(recipient, source))) {
                         conversations.add(source, recipient, people).ifPresent(conversation ->
                                 events.publishEvent(new ConversationUpdated(conversation, recipient)));
                     }
                 }
             }
         });
+    }
+
+    /**
+     * A direct status that the recipient's policy filters joins its conversation only once the recipient accepts the
+     * sender's request, unlike on Mastodon, so that an unsolicited message stays out of sight until then.
+     */
+    private boolean joins(UUID recipient, ConversationRepository.Source source) {
+        return !notifications.isHidden(recipient, source.authorId())
+                && screening.decide(recipient, source.authorId(), "mention", source.id()) == NotificationPolicy.Treatment.ACCEPT;
     }
 
     private boolean concernsAnyoneHere(UUID statusId) {

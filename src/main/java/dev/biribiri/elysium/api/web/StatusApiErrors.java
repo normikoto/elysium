@@ -42,6 +42,8 @@ import java.util.Map;
         UserDomainBlocksController.class,
         NotificationsController.class,
         GroupedNotificationsController.class,
+        NotificationPolicyController.class,
+        NotificationRequestsController.class,
         ConversationsController.class,
         MarkersController.class,
         MediaController.class,
