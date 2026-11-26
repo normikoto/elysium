@@ -23,8 +23,13 @@ public record Hashtag(String type, URI href, String name) implements Tag {
      * @param names normalized names
      */
     public static List<Hashtag> of(Collection<String> names, InstanceProperties instance) {
-        return names.stream()
-                .map(name -> new Hashtag("Hashtag", Hashtags.url(instance.baseUrl(), name), "#" + name))
-                .toList();
+        return names.stream().map(name -> of(name, instance)).toList();
+    }
+
+    /**
+     * @param name a normalized name
+     */
+    public static Hashtag of(String name, InstanceProperties instance) {
+        return new Hashtag("Hashtag", Hashtags.url(instance.baseUrl(), name), "#" + name);
     }
 }

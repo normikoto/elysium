@@ -109,6 +109,7 @@ class AuthorizedFetchIntegrationTests {
                 .andExpect(jsonPath("$.assertionMethod[0].publicKeyMultibase").exists())
                 .andExpect(jsonPath("$.url").doesNotExist())
                 .andExpect(jsonPath("$.featured").doesNotExist())
+                .andExpect(jsonPath("$.featuredTags").doesNotExist())
                 .andExpect(jsonPath("$.manuallyApprovesFollowers").doesNotExist())
                 .andExpect(jsonPath("$.published").doesNotExist())
                 .andExpect(header().stringValues(HttpHeaders.VARY, hasItem(containsString("Signature"))));

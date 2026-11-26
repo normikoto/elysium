@@ -27,6 +27,8 @@ import java.util.List;
  * @param assertionMethod the Ed25519 key that checks the actor's integrity proofs, as FEP-521a has it, or left out if the
  *                   actor has none
  * @param featured   the collection of pinned statuses, left out while the actor is suspended, since it can't be read then
+ * @param featuredTags the collection of featured hashtags, at the path Mastodon uses, left out while the actor is
+ *                   suspended, as {@code featured} is
  * @param manuallyApprovesFollowers whether requests to follow the actor wait for it to approve them, left out of a
  *                   {@linkplain #minimal minimal} document, since a false one would say the actor isn't locked
  * @param indexable  whether any server's search may find the actor's public statuses, left out of a minimal or suspended
@@ -56,6 +58,7 @@ public record Person(
         URI followers,
         URI following,
         URI featured,
+        URI featuredTags,
         Endpoints endpoints,
         PublicKey publicKey,
         List<Multikey> assertionMethod,
@@ -112,6 +115,13 @@ public record Person(
     }
 
     /**
+     * @return the collection of a local actor's featured hashtags, at the path Mastodon uses
+     */
+    public static URI featuredTagsOf(Actor actor) {
+        return URI.create(actor.uri() + "/collections/tags");
+    }
+
+    /**
      * @param emojis       this server's custom emoji that the profile names
      * @param proofKeyPem  the actor's Ed25519 public key, or null if it has none
      */
@@ -133,6 +143,7 @@ public record Person(
                 followersOf(actor),
                 followingOf(actor),
                 featuredOf(actor),
+                featuredTagsOf(actor),
                 new Endpoints(instance.sharedInboxUri()),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
                 assertionMethod(actor, proofKeyPem),
@@ -161,7 +172,7 @@ public record Person(
      */
     public static Person suspended(Actor actor, String proofKeyPem, InstanceProperties instance) {
         return from(actor, Profile.EMPTY, List.of(), proofKeyPem, instance)
-                .with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, null, null, null, true);
+                .with(ActivityStreams.SUSPENDED_ACTOR_CONTEXT, null, null, null, null, null, true);
     }
 
     /**
@@ -187,6 +198,7 @@ public record Person(
                 actor.outboxUri(),
                 followersOf(actor),
                 followingOf(actor),
+                null,
                 null,
                 new Endpoints(instance.sharedInboxUri()),
                 new PublicKey(actor.publicKeyId(), actor.uri(), actor.publicKeyPem()),
@@ -218,14 +230,15 @@ public record Person(
      * This document as part of an activity, which has the {@code @context} for both.
      */
     Person withoutContext() {
-        return with(null, featured, indexable, discoverable, isCat, suspended);
+        return with(null, featured, featuredTags, indexable, discoverable, isCat, suspended);
     }
 
     private Person with(
-            List<?> context, URI featured, Boolean indexable, Boolean discoverable, Boolean isCat, Boolean suspended) {
+            List<?> context, URI featured, URI featuredTags, Boolean indexable, Boolean discoverable, Boolean isCat,
+            Boolean suspended) {
         return new Person(
                 context, id, type, preferredUsername, name, summary, url, inbox, outbox, followers, following, featured,
-                endpoints,
+                featuredTags, endpoints,
                 publicKey, assertionMethod, icon, image, attachment, tag, manuallyApprovesFollowers, indexable,
                 discoverable, isCat, published, updated, alsoKnownAs, movedTo, suspended);
     }

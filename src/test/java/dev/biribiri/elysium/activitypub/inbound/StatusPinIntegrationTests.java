@@ -179,7 +179,8 @@ class StatusPinIntegrationTests {
         actors.suspend(bob.id());
         try {
             mvc.perform(get("/users/pinbob/collections/featured").accept(AP)).andExpect(status().isForbidden());
-            mvc.perform(get("/users/pinbob").accept(AP)).andExpect(jsonPath("$.featured").doesNotExist());
+            mvc.perform(get("/users/pinbob").accept(AP)).andExpect(jsonPath("$.featured").doesNotExist())
+                    .andExpect(jsonPath("$.featuredTags").doesNotExist());
         } finally {
             actors.unsuspend(bob.id());
         }

@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.web;
 
 import dev.biribiri.elysium.activitypub.inbound.InboxLimitProperties;
+import dev.biribiri.elysium.content.FeaturedTags;
 import dev.biribiri.elysium.content.StatusPinService;
 
 import static dev.biribiri.elysium.activitypub.vocab.ActivityStreams.ACTIVITY_JSON;
@@ -66,6 +67,19 @@ final class FederationDocs {
             posts and boosts are excluded.
 
             """ + DOCUMENT + "\n\n" + SIGNED_FETCH;
+
+    static final String FEATURED_TAGS = """
+            An `OrderedCollection` with `totalItems` and embedded `Hashtag`s in `orderedItems`, as Mastodon serves it: \
+            the user's featured tags, most used first, without paging, out of a maximum of\s""" + FeaturedTags.MAX_PER_ACCOUNT + """
+            . Each `Hashtag`'s `name` is the normalized name with its `#`, and its `href` is the tag's page on this \
+            server.
+
+            Signers the user blocks, including by domain, get no items.
+
+            """ + DOCUMENT + "\n\n" + """
+            With authorized fetch on, unsigned requests get 401, and a signature failure gets the same status \
+            code as at an inbox. Signed responses with authorized fetch on include `Cache-Control: no-store, private`. \
+            With authorized fetch off, Elysium handles signature failures like unsigned requests.\s""" + VARIES_BY_SIGNATURE;
 
     static final String FEATURED = """
             An `OrderedCollection` with `totalItems` and embedded `Note`s in `orderedItems`, most recently pinned first. \

@@ -32,8 +32,8 @@ import java.util.UUID;
 
 @RestController
 @Tag(name = "Featured tags", description = """
-        The hashtags accounts feature on their profiles. Featured tags aren't sent to other servers or read from \
-        them, so an account on another server has none here.""",
+        The hashtags accounts feature on their profiles. An account on another server features what its server \
+        last listed in its `featuredTags` collection, and a user's are sent to other servers, as on Mastodon.""",
         externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "featured_tags/"))
 public class FeaturedTagsController {
 
@@ -165,8 +165,8 @@ public class FeaturedTagsController {
             operationId = "getAccountFeaturedTags",
             summary = "List the hashtags an account features",
             description = """
-                    Differences from Mastodon: an account on another server has none here, since featured tags \
-                    aren't read from other servers.
+                    An account on another server features what its server last listed, and its counts only include \
+                    its statuses stored here.
 
                     """ + COUNTS + " Any token works, with any scope, as does none. A suspended account gets 404.",
             externalDocs = @ExternalDocumentation(url = ApiDocs.MASTODON_DOCS + "accounts/#featured_tags"),

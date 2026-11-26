@@ -99,6 +99,8 @@ final class RemoteActorDocument {
         var outbox = onActorsServer(uri, document.path("outbox").stringValue(null));
         // Pins are read from it, and its Adds and Removes have to name it, so it has to be the actor's server's word too.
         var featured = onActorsServer(uri, ActivityJson.idOf(document.path("featured")));
+        // Featured tags are read from it too, as the actor's server's word.
+        var featuredTags = onActorsServer(uri, ActivityJson.idOf(document.path("featuredTags")));
         return new RemoteActorProfile(
                 uri,
                 username,
@@ -109,6 +111,7 @@ final class RemoteActorDocument {
                 publicKeyPem(document.path("publicKey")),
                 followers,
                 featured,
+                featuredTags,
                 profile(uri, document, alias));
     }
 

@@ -14,7 +14,7 @@ import java.util.List;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record OrderedCollection(
-        @JsonProperty("@context") String context,
+        @JsonProperty("@context") Object context,
         URI id,
         String type,
         long totalItems,
@@ -35,5 +35,12 @@ public record OrderedCollection(
      */
     public static OrderedCollection of(URI id, List<?> items) {
         return new OrderedCollection(ActivityStreams.CONTEXT, id, "OrderedCollection", items.size(), null, items);
+    }
+
+    /**
+     * As Mastodon serves a {@code featuredTags} collection.
+     */
+    public static OrderedCollection ofHashtags(URI id, List<Hashtag> items) {
+        return new OrderedCollection(ActivityStreams.HASHTAG_CONTEXT, id, "OrderedCollection", items.size(), null, items);
     }
 }

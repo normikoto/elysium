@@ -73,11 +73,23 @@ public class FeaturedTagRepository {
                 .update();
     }
 
-    public boolean delete(UUID accountId, UUID id) {
-        return jdbc.sql("DELETE FROM featured_tag WHERE id = :id AND account_id = :account")
+    /**
+     * @return the deleted tag's name, or empty if the account doesn't feature one with this ID
+     */
+    public Optional<String> delete(UUID accountId, UUID id) {
+        return jdbc.sql("DELETE FROM featured_tag WHERE id = :id AND account_id = :account RETURNING name")
                 .param("id", id)
                 .param("account", accountId)
-                .update() > 0;
+                .query(String.class)
+                .optional();
+    }
+
+    public Optional<FeaturedTag> findById(UUID accountId, UUID id) {
+        return jdbc.sql(SELECT + "WHERE f.account_id = :account AND f.id = :id")
+                .param("account", accountId)
+                .param("id", id)
+                .query(MAPPER)
+                .optional();
     }
 
     public long count(UUID accountId) {
@@ -139,6 +151,29 @@ public class FeaturedTagRepository {
                 .param("limit", limit)
                 .query(String.class)
                 .list();
+    }
+
+    public void deleteExcept(UUID accountId, Collection<String> names) {
+        jdbc.sql("DELETE FROM featured_tag WHERE account_id = :account AND NOT (name = ANY(:names))")
+                .param("account", accountId)
+                .param("names", names.toArray(String[]::new))
+                .update();
+    }
+
+    /**
+     * @return how many were deleted, up to {@code limit}
+     */
+    public int deleteForDomain(String domain, int limit) {
+        return jdbc.sql("""
+                        DELETE FROM featured_tag WHERE id IN (
+                            SELECT f.id FROM featured_tag f JOIN actor a ON a.id = f.account_id
+                            WHERE NOT a.is_local AND a.domain = :domain
+                            LIMIT :limit
+                        )
+                        """)
+                .param("domain", domain)
+                .param("limit", limit)
+                .update();
     }
 
     public void deleteForAccount(UUID accountId) {

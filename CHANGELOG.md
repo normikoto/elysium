@@ -17,6 +17,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   accounts, or bots, can be filtered into requests to look at later, or dropped. Filtered direct messages also stay out
   of their conversations until the request is accepted. See [Using the
   API](docs/api.md#notification-policies-and-requests).
+- Featured hashtags now federate, as on Mastodon. Other servers are told which hashtags people here feature on their
+  profiles, and accounts on other servers show the hashtags they feature, in apps that show featured tags. See
+  [Federation](FEDERATION.md#featured-tags).
 
 ### Changed
 

@@ -1,17 +1,21 @@
 package dev.biribiri.elysium.content;
 
 import dev.biribiri.elysium.content.internal.FeaturedTagRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import java.util.SequencedCollection;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Hashtags local accounts feature on their profiles, by their normalized names, with how much each account has used
- * them. They aren't federated, so an account on another server has none here.
+ * Hashtags accounts feature on their profiles, by their normalized names, with how much each account has used them. A
+ * remote account's are what its server last listed, and how much it has used them is counted from its statuses stored
+ * here, as on Mastodon.
  */
 @Service
 public class FeaturedTags {
@@ -27,14 +31,16 @@ public class FeaturedTags {
     public static final int MAX_SUGGESTIONS = 10;
 
     private final FeaturedTagRepository tags;
+    private final ApplicationEventPublisher events;
 
-    FeaturedTags(FeaturedTagRepository tags) {
+    FeaturedTags(FeaturedTagRepository tags, ApplicationEventPublisher events) {
         this.tags = tags;
+        this.events = events;
     }
 
     /**
      * Featuring a tag already featured changes nothing, and returns it, as on Mastodon. The limit's message is
-     * Mastodon's.
+     * Mastodon's. Only for local accounts, since it's sent to other servers.
      *
      * @param name a normalized name
      * @throws InvalidFeaturedTagException if the account has featured {@value #MAX_PER_ACCOUNT} other tags already
@@ -47,15 +53,27 @@ public class FeaturedTags {
                 throw new InvalidFeaturedTagException("You have already featured the maximum number of hashtags");
             }
             tags.insert(accountId, name);
-            return tags.find(accountId, name).orElseThrow();
+            var featured = tags.find(accountId, name).orElseThrow();
+            events.publishEvent(new TagFeatured(featured.id(), accountId));
+            return featured;
         });
     }
 
     /**
      * @return whether the account had featured the tag with this ID
      */
+    @Transactional
     public boolean unfeature(UUID accountId, UUID id) {
-        return tags.delete(accountId, id);
+        var name = tags.delete(accountId, id);
+        name.ifPresent(deleted -> events.publishEvent(new TagUnfeatured(id, accountId, deleted)));
+        return name.isPresent();
+    }
+
+    /**
+     * @return the tag, if the account still features it
+     */
+    public Optional<FeaturedTag> find(UUID accountId, UUID id) {
+        return tags.findById(accountId, id);
     }
 
     /**
@@ -80,7 +98,31 @@ public class FeaturedTags {
         return tags.findSuggestions(accountId, MAX_SUGGESTIONS);
     }
 
+    /**
+     * Replaces what a remote account features, keeping the IDs of the tags it still does. Only the first
+     * {@value #MAX_PER_ACCOUNT} are kept, as on Mastodon.
+     *
+     * @param names normalized names, in the order its server listed them
+     */
+    @Transactional
+    public void replaceRemote(UUID accountId, SequencedCollection<String> names) {
+        var kept = names.stream().distinct().limit(MAX_PER_ACCOUNT).toList();
+        tags.lockAccount(accountId);
+        tags.deleteExcept(accountId, kept);
+        kept.forEach(name -> tags.insert(accountId, name));
+    }
+
     void removeForAccount(UUID accountId) {
         tags.deleteForAccount(accountId);
+    }
+
+    /**
+     * In batches, as pins are removed, so that a large server isn't one long delete.
+     */
+    void removeForDomain(String domain) {
+        int deleted;
+        do {
+            deleted = tags.deleteForDomain(domain, 1000);
+        } while (deleted == 1000);
     }
 }

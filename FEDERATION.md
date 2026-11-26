@@ -94,12 +94,13 @@ the user says they're a cat. A suspended user's document leaves out all three.
 
 The `@context` adds `schema` (`http://schema.org#`), `PropertyValue`, and `value` (`schema:value`) for the fields,
 `Hashtag` (`as:Hashtag`), `manuallyApprovesFollowers` (`as:manuallyApprovesFollowers`), and `toot`
-(`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`), `indexable` (`toot:indexable`), `discoverable`
+(`http://joinmastodon.org/ns#`) with `featured` (`toot:featured`, an `@id`), `featuredTags` (`toot:featuredTags`, an
+`@id`), `indexable` (`toot:indexable`), `discoverable`
 (`toot:discoverable`), and `Emoji`
 (`toot:Emoji`), and `misskey` (`https://misskey-hub.net/ns#`) with `isCat` (`misskey:isCat`). It also adds `alsoKnownAs` (`as:alsoKnownAs`) and `movedTo` (`as:movedTo`), both `@id`s, as Mastodon
 defines them, rather than FEP-7628's IRIs. `featured` is the user's
-[pinned statuses](#pinned-statuses), at `/users/{username}/collections/featured`. A suspended user's document leaves it
-out.
+[pinned statuses](#pinned-statuses), at `/users/{username}/collections/featured`, and `featuredTags` is their
+[featured tags](#featured-tags), at `/users/{username}/collections/tags`. A suspended user's document leaves both out.
 
 When a user changes their profile, whether they approve followers by hand, whether they're indexable, discoverable, a
 bot, or a cat, or
@@ -1192,7 +1193,8 @@ server has ended. Deleting a pinned status only sends its `Delete`, as on Mastod
 
 An `Add` or `Remove` from another server is acted on if its `target` is the `featured` collection given in its actor's
 document, and its `object` is the ID of a status on the actor's host and port, alone or embedded as a [status object](#receiving-statuses).
-Anything else is ignored, including Mastodon's `Add`s of a `Hashtag` and of its own collections. The `featured` collection
+An `Add` or `Remove` of a `Hashtag` is a change to the actor's [featured tags](#featured-tags), and anything else is
+ignored, including Mastodon's `Add`s of its own collections. The `featured` collection
 in an actor document is only used if it's an HTTPS URL on the same host and port as the actor. An `Add` or `Remove`
 without an `id`, as Mastodon and Misskey send them, is only accepted from the actor that signed it, and can't be
 [forwarded](#forwarded-activities).
@@ -1219,6 +1221,61 @@ it, or the ID of a status on the actor's host and port, which is fetched like a 
 stored.
 
 Other items are skipped. An actor whose document has no `featured` has no pins.
+
+### Featured tags
+
+A user can feature up to 10 hashtags on their profile. Their actor's `featuredTags` collection, at
+`/users/{username}/collections/tags`, is an `OrderedCollection` that lists them all as `Hashtag`s, the most used first,
+without pages, as Mastodon serves it. Its `@context` adds `Hashtag` (`as:Hashtag`). Each `Hashtag` has the tag's
+normalized name with its `#` as its `name`, and the tag's page on this server as its `href`. A signer the user blocks,
+or whose server they block, gets no items.
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams", {"Hashtag": "as:Hashtag"}],
+  "id": "https://elysium.example/users/alice/collections/tags",
+  "type": "OrderedCollection",
+  "totalItems": 1,
+  "orderedItems": [
+    {"type": "Hashtag", "href": "https://elysium.example/tags/caf%C3%A9", "name": "#café"}
+  ]
+}
+```
+
+Featuring a tag sends the user's followers an `Add` of its `Hashtag`, and no longer featuring it sends a `Remove`, as
+Mastodon does. Their `target` is the `featured` collection rather than `featuredTags`, since that's what Mastodon sends
+and reads. Unlike Mastodon's, they have an `id`, `{actor}#featured_tags/{id}` for the `Add` and `{add-id}/remove` for
+the `Remove`, and are addressed to `as:Public`, with the followers in `cc`. A `Remove` is sent after any request with its
+`Add` to the same server has ended, and an `Add` that hasn't been sent by then isn't.
+
+```json
+{
+  "@context": ["https://www.w3.org/ns/activitystreams", {"Hashtag": "as:Hashtag"}],
+  "id": "https://elysium.example/users/alice#featured_tags/0198f1f2-7c3a-7d2e-9a51-3f0c2b6d8e41",
+  "type": "Add",
+  "actor": "https://elysium.example/users/alice",
+  "object": {"type": "Hashtag", "href": "https://elysium.example/tags/caf%C3%A9", "name": "#café"},
+  "target": "https://elysium.example/users/alice/collections/featured",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://elysium.example/users/alice/followers"]
+}
+```
+
+An actor from another server features the hashtags its `featuredTags` collection lists, as Mastodon serves them. The
+collection is only used if it's an HTTPS URL on the same host and port as the actor. It's fetched when a `Follow` from
+here is accepted, when the actor sends an `Update` of itself, and when it sends an `Add` or `Remove` of a `Hashtag`
+whose `target` is its `featured` or `featuredTags` collection, as Mastodon sends one when a tag is featured or no longer
+is. The `Add` or `Remove` only starts the fetch, so the collection decides which tags are featured, whatever order these
+arrive in. It's fetched once more a minute later, in case a fetch that was already running read it from before the
+change.
+
+The fetch is signed as this server's [instance actor](#instance-actor), since featured tags are public, with a turn of
+its own, so an actor nobody here follows can have them too. The collection is read as [pins](#pinned-statuses) are:
+it has to be an `OrderedCollection` or `Collection` with the `id` that was fetched, and its `first` page can be embedded
+or fetched. Of the first 10 items of `orderedItems` or `items`, each `Hashtag` with a valid tag name in its `name`, with
+or without its `#`, is featured, and the others are skipped. What's listed replaces what was featured. A collection that
+can't be fetched, or isn't one, leaves the tags as they were, and an actor whose document has no `featuredTags` features
+none.
 
 ### Quotes
 
@@ -1875,7 +1932,8 @@ when it cannot verify a proof.
 An admin can [require signed fetches](docs/configuration.md#authorized-fetch), as Mastodon's `AUTHORIZED_FETCH` does. It's
 off by default. When it's on, a `GET` or `HEAD` of these needs a signature, in either [format](#http-signatures):
 
-- A user's actor document, and their `followers`, `following`, `outbox`, and `featured` collections and their pages.
+- A user's actor document, and their `followers`, `following`, `outbox`, `featured`, and `featuredTags` collections and
+  their pages.
 - `Note`s and their `Tombstone`s, a `Note`'s `likes`, `shares`, and [thread](#threads), and `QuoteAuthorization`s.
 
 An unsigned request for a user’s actor document gets a shorter document so peers can fetch its signing keys. It
