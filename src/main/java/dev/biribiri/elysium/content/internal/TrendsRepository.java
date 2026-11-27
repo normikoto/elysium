@@ -3,22 +3,19 @@ package dev.biribiri.elysium.content.internal;
 import dev.biribiri.elysium.actor.ActorSql;
 import dev.biribiri.elysium.content.Status;
 import dev.biribiri.elysium.content.StatusSql;
+import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.content.Trends;
-import dev.biribiri.elysium.graph.HiddenAccounts;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Comparator;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.IntStream;
 
 /** Reads current activity so edits, moderation, and removed interactions take effect on the next request. */
 @Repository
@@ -28,6 +25,8 @@ public class TrendsRepository {
     private static final int RECENT_HOURS = 48;
     private static final String PUBLIC_ORIGINAL = "s.visibility = 'public' AND s.reblog_of_id IS NULL"
             + StatusSql.NOT_LOCAL_ONLY;
+    /** Links in sensitive or spoilered posts don't count, nor do those posts themselves. */
+    static final String WITHOUT_WARNING = PUBLIC_ORIGINAL + " AND NOT s.sensitive AND s.spoiler_text = ''";
     private static final String AUTHOR_ELIGIBLE = " AND " + ActorSql.serverNotSuspended("author");
 
     private final JdbcClient jdbc;
@@ -43,7 +42,7 @@ public class TrendsRepository {
     }
 
     public List<Trends.Sharing> links(Optional<UUID> viewer, int limit, int offset) {
-        return shares("status_link", "url", StatusLinks.ELIGIBLE, viewer, limit, offset);
+        return shares("status_link", "url", WITHOUT_WARNING, viewer, limit, offset);
     }
 
     private List<Trends.Sharing> shares(
@@ -51,56 +50,66 @@ public class TrendsRepository {
         var now = OffsetDateTime.now(ZoneOffset.UTC);
         var today = now.toLocalDate();
         var first = today.minusDays(HISTORY_DAYS - 1).atStartOfDay().atOffset(ZoneOffset.UTC);
-        var usage = new LinkedHashMap<String, Map<LocalDate, Trends.Day>>();
-        // Choose the ranked page before building history, using the same eligible shares for both.
+        var usage = new LinkedHashMap<String, List<TagDay>>();
+        // Ranking reads only the recent window, and the week of history is read only for the page that ranking chose,
+        // under the same conditions, so a busy week costs no more than a busy two days. Grouping by account first lets
+        // the ranking hash its rows, where count(DISTINCT) would sort them all, and spill to disk on a busy server.
         var sql = """
-                WITH shares AS (
-                    SELECT t.%s AS item, s.actor_id, s.published_at
-                    %s JOIN %s t ON t.status_id = s.id
-                    WHERE %s AND s.published_at >= :first AND s.published_at <= :now %s
+                WITH sharers AS (
+                    SELECT t.%1$s AS item, s.actor_id, max(s.published_at) AS latest
+                    %2$s JOIN %3$s t ON t.status_id = s.id
+                    WHERE %4$s AND s.published_at >= :recent AND s.published_at <= :now %5$s
+                    GROUP BY t.%1$s, s.actor_id
                 ), ranked AS (
-                    SELECT item, count(DISTINCT actor_id) AS accounts, max(published_at) AS latest
-                    FROM shares WHERE published_at >= :recent
-                    GROUP BY item HAVING count(DISTINCT actor_id) >= 2
+                    SELECT item, count(*) AS accounts, max(latest) AS latest
+                    FROM sharers
+                    GROUP BY item HAVING count(*) >= 2
                     ORDER BY accounts DESC, latest DESC, item
                     LIMIT :limit OFFSET :offset
                 )
-                SELECT r.item, (s.published_at AT TIME ZONE 'UTC')::date AS day,
-                       count(*) AS uses, count(DISTINCT s.actor_id) AS accounts
-                FROM ranked r JOIN shares s USING (item)
-                GROUP BY r.item, r.accounts, r.latest, day
-                ORDER BY r.accounts DESC, r.latest DESC, r.item, day DESC
+                SELECT r.item, used.day, used.uses, used.accounts
+                FROM ranked r CROSS JOIN LATERAL (
+                    SELECT (s.published_at AT TIME ZONE 'UTC')::date AS day,
+                           count(*) AS uses, count(DISTINCT s.actor_id) AS accounts
+                    %2$s JOIN %3$s t ON t.status_id = s.id
+                    WHERE t.%1$s = r.item AND %4$s AND s.published_at >= :first AND s.published_at <= :now %5$s
+                    GROUP BY day
+                ) used
+                ORDER BY r.accounts DESC, r.latest DESC, r.item, used.day DESC
                 """.formatted(column, StatusSql.FROM_ACTIVE, table, eligible, AUTHOR_ELIGIBLE + visible(viewer));
         page(sql, viewer, limit, offset, now).param("first", first).query(rs -> {
-            var day = rs.getObject("day", LocalDate.class);
-            usage.computeIfAbsent(rs.getString("item"), ignored -> new HashMap<>())
-                    .put(day, new Trends.Day(day, rs.getLong("uses"), rs.getLong("accounts")));
+            usage.computeIfAbsent(rs.getString("item"), ignored -> new ArrayList<>()).add(new TagDay(
+                    rs.getObject("day", LocalDate.class), rs.getLong("uses"), rs.getLong("accounts")));
         });
-        return usage.entrySet().stream().map(entry -> new Trends.Sharing(entry.getKey(), IntStream.range(0, HISTORY_DAYS)
-                .mapToObj(daysAgo -> today.minusDays(daysAgo))
-                .map(day -> entry.getValue().getOrDefault(day, new Trends.Day(day, 0, 0)))
-                .toList())).toList();
+        return usage.entrySet().stream()
+                .map(entry -> new Trends.Sharing(entry.getKey(), TagDay.lastDays(today, HISTORY_DAYS, entry.getValue())))
+                .toList();
     }
 
     public List<Status> statuses(Optional<UUID> viewer, int limit, int offset) {
         var now = OffsetDateTime.now(ZoneOffset.UTC);
+        // Starts from the recent likes and boosts, which are few, rather than from every post of the week, which mostly
+        // have none.
         var sql = """
+                WITH engagement AS (
+                    SELECT l.status_id, l.actor_id FROM status_like l
+                    WHERE l.activity_at BETWEEN :recent AND :now
+                    UNION ALL
+                    SELECT b.reblog_of_id, b.actor_id FROM status b
+                    WHERE b.reblog_of_id IS NOT NULL AND b.visibility = 'public' AND NOT b.local_only
+                    AND b.published_at BETWEEN :recent AND :now
+                ), score AS (
+                    SELECT e.status_id, count(DISTINCT a.id) AS accounts
+                    FROM engagement e
+                    JOIN status engaged ON engaged.id = e.status_id
+                    JOIN actor a ON a.id = e.actor_id AND %s
+                    WHERE a.id <> engaged.actor_id %s
+                    GROUP BY e.status_id HAVING count(DISTINCT a.id) >= 2
+                )
                 SELECT s.id
-                %s JOIN profile p ON p.actor_id = s.actor_id AND p.discoverable
-                JOIN LATERAL (
-                    SELECT count(DISTINCT a.id) AS accounts
-                    FROM (
-                        SELECT l.actor_id FROM status_like l
-                        WHERE l.status_id = s.id AND l.activity_at BETWEEN :recent AND :now
-                        UNION ALL
-                        SELECT b.actor_id FROM status b
-                        WHERE b.reblog_of_id = s.id AND b.visibility = 'public' AND NOT b.local_only
-                        AND b.published_at BETWEEN :recent AND :now
-                    ) engagement
-                    JOIN actor a ON a.id = engagement.actor_id AND %s
-                    WHERE a.id <> s.actor_id %s
-                ) score ON score.accounts >= 2
-                WHERE %s AND NOT s.reply AND NOT s.sensitive AND s.spoiler_text = ''
+                %s JOIN score ON score.status_id = s.id
+                JOIN profile p ON p.actor_id = s.actor_id AND p.discoverable
+                WHERE %s AND NOT s.reply
                 AND s.published_at BETWEEN :first AND :now %s
                 AND NOT EXISTS (
                     SELECT 1 FROM status_quote q WHERE q.status_id = s.id
@@ -114,16 +123,11 @@ public class TrendsRepository {
                 )
                 ORDER BY score.accounts DESC, s.published_at DESC, s.id DESC
                 LIMIT :limit OFFSET :offset
-                """.formatted(StatusSql.FROM_ACTIVE, LikeRepository.eligible("a"), visibleActor(viewer, "a"),
-                PUBLIC_ORIGINAL, AUTHOR_ELIGIBLE + visible(viewer), LikeRepository.eligible("qa"),
-                visibleActor(viewer, "qa"));
-        var ids = page(sql, viewer, limit, offset, now).param("first", now.minusDays(HISTORY_DAYS))
-                .query(UUID.class).list();
-        var rank = new HashMap<UUID, Integer>();
-        for (var i = 0; i < ids.size(); i++) {
-            rank.put(ids.get(i), i);
-        }
-        return statuses.findByIds(ids).stream().sorted(Comparator.comparingInt(status -> rank.get(status.id()))).toList();
+                """.formatted(LikeRepository.eligible("a"), LikeRepository.hiddenFrom(viewer, "a"),
+                StatusSql.FROM_ACTIVE, WITHOUT_WARNING, AUTHOR_ELIGIBLE + visible(viewer),
+                LikeRepository.eligible("qa"), LikeRepository.hiddenFrom(viewer, "qa"));
+        return statuses.findByIdsInOrder(page(sql, viewer, limit, offset, now)
+                .param("first", now.minusDays(HISTORY_DAYS)).query(UUID.class).list());
     }
 
     private JdbcClient.StatementSpec page(String sql, Optional<UUID> viewer, int limit, int offset, OffsetDateTime now) {
@@ -134,9 +138,5 @@ public class TrendsRepository {
 
     private static String visible(Optional<UUID> viewer) {
         return viewer.isPresent() ? StatusSql.notHidden(":viewer") : "";
-    }
-
-    private static String visibleActor(Optional<UUID> viewer, String actor) {
-        return viewer.isPresent() ? " AND " + HiddenAccounts.visibleInTimelines(actor) : "";
     }
 }

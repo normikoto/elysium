@@ -39,6 +39,7 @@ record TrendLinkResponse(
     static TrendLinkResponse from(Trends.Sharing link, boolean hasViewer) {
         var url = link.value();
         return new TrendLinkResponse(url, url, "", null, "link", "", "", URI.create(url).getHost(), "", "", 0, 0,
-                null, "", "", null, null, List.of(), hasViewer ? Boolean.FALSE : null, TagResponses.trendHistory(link));
+                null, "", "", null, null, List.of(), hasViewer ? Boolean.FALSE : null,
+                link.history().stream().map(TagResponse.History::from).toList());
     }
 }

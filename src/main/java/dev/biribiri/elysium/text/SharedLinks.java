@@ -1,4 +1,4 @@
-package dev.biribiri.elysium.content.internal;
+package dev.biribiri.elysium.text;
 
 import org.jsoup.Jsoup;
 
@@ -8,17 +8,26 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 
-final class StatusLinks {
+/**
+ * Finds the links a status shares, in the HTML that {@link PlainText}, {@link Markdown}, and {@link RemoteHtml} make.
+ * Mentions, hashtags, and the {@code RE:} line of a quote are links too, but they aren't shared, so the classes those
+ * give their markup decide what's left out.
+ */
+public final class SharedLinks {
 
+    /**
+     * Longer URLs aren't counted, so that one status can't fill the index with a URL thousands of characters long.
+     */
     private static final int MAX_URL_LENGTH = 2048;
 
-    static final String ELIGIBLE = "s.visibility = 'public' AND NOT s.local_only AND s.reblog_of_id IS NULL"
-            + " AND NOT s.sensitive AND s.spoiler_text = ''";
-
-    private StatusLinks() {
+    private SharedLinks() {
     }
 
-    static Set<String> from(String html) {
+    /**
+     * @return each link once, in order, written the same way however the HTML wrote it, so that one page counts as
+     * one link
+     */
+    public static Set<String> in(String html) {
         if (!html.contains("href=")) {
             return Set.of();
         }

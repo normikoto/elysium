@@ -11,6 +11,7 @@ import dev.biribiri.elysium.content.StatusVersion;
 import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.content.Visibility;
 import dev.biribiri.elysium.graph.HiddenAccounts;
+import dev.biribiri.elysium.text.SharedLinks;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -25,6 +26,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -204,8 +206,7 @@ public class StatusRepository {
                 .param("editedAt", status.editedAt() == null ? null : status.editedAt().atOffset(ZoneOffset.UTC),
                         Types.TIMESTAMP_WITH_TIMEZONE)
                 .update() == 1;
-        if (inserted && status.reblogOfId() == null && status.visibility() == Visibility.PUBLIC
-                && !status.localOnly() && !status.sensitive() && status.spoilerText().isEmpty()) {
+        if (inserted) {
             insertLinks(status.id(), status.content());
         }
         return inserted;
@@ -359,20 +360,21 @@ public class StatusRepository {
         edited.ifPresent(id -> {
             removeOldestEdits(id);
             jdbc.sql("DELETE FROM status_link WHERE status_id = :id").param("id", id).update();
-            if (!sensitive && spoilerText.isEmpty()) {
-                insertLinks(id, content);
-            }
+            insertLinks(id, content);
         });
         return edited;
     }
 
+    /**
+     * Only a status that can count toward trends keeps its links, and the query decides, so the rule is written once.
+     */
     private void insertLinks(UUID statusId, String content) {
-        var links = StatusLinks.from(content);
+        var links = SharedLinks.in(content);
         if (!links.isEmpty()) {
             jdbc.sql("""
                             INSERT INTO status_link (status_id, url)
                             SELECT s.id, links.url FROM status s CROSS JOIN unnest(CAST(:urls AS text[])) AS links(url)
-                            WHERE s.id = :id AND\s""" + StatusLinks.ELIGIBLE)
+                            WHERE s.id = :id AND\s""" + TrendsRepository.WITHOUT_WARNING)
                     .param("id", statusId)
                     .param("urls", links.toArray(String[]::new))
                     .update();
@@ -511,6 +513,17 @@ public class StatusRepository {
     public List<Status> findByIds(Collection<UUID> ids) {
         return ids.isEmpty() ? List.of() : jdbc.sql(SELECT + "WHERE s.id IN (:ids)")
                 .param("ids", ids).query(STATUS_MAPPER).list();
+    }
+
+    /**
+     * @return the statuses found, in the order of {@code ids}
+     */
+    public List<Status> findByIdsInOrder(List<UUID> ids) {
+        var order = new HashMap<UUID, Integer>();
+        for (var i = 0; i < ids.size(); i++) {
+            order.put(ids.get(i), i);
+        }
+        return findByIds(ids).stream().sorted(Comparator.comparing(status -> order.get(status.id()))).toList();
     }
 
     public Optional<Status> findById(UUID id) {

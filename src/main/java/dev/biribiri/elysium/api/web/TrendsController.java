@@ -22,6 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.function.BiFunction;
 
 @RestController
 @RequestMapping(TrendsController.PATH)
@@ -73,13 +75,8 @@ public class TrendsController {
             @RequestParam(required = false) String limit,
             @Parameter(description = OFFSET, schema = @Schema(type = "integer", defaultValue = "0"))
             @RequestParam(required = false) String offset) {
-        var page = Page.parse(limit, offset, PageLimits.TREND_TAGS_AND_LINKS, PageLimits.MAX_TREND_TAGS_AND_LINKS);
-        if (!trends.enabled()) {
-            return ResponseEntity.ok(List.of());
-        }
-        var viewer = RequestParameters.viewer(token);
-        var found = trends.tags(viewer, page.limit(), page.offset());
-        return page(TAGS, page, found.size()).body(tags.trending(found, viewer));
+        return respond(TAGS, token, limit, offset, PageLimits.TREND_TAGS_AND_LINKS, PageLimits.MAX_TREND_TAGS_AND_LINKS,
+                trends::tags, tags::trending);
     }
 
     @GetMapping(STATUSES)
@@ -100,13 +97,8 @@ public class TrendsController {
             @RequestParam(required = false) String limit,
             @Parameter(description = OFFSET, schema = @Schema(type = "integer", defaultValue = "0"))
             @RequestParam(required = false) String offset) {
-        var page = Page.parse(limit, offset, PageLimits.STATUSES, PageLimits.MAX_STATUSES);
-        if (!trends.enabled()) {
-            return ResponseEntity.ok(List.of());
-        }
-        var viewer = RequestParameters.viewer(token);
-        var found = trends.statuses(viewer, page.limit(), page.offset());
-        return page(STATUSES, page, found.size()).body(statuses.list(found, viewer, Optional.of(PostFilter.Context.PUBLIC)));
+        return respond(STATUSES, token, limit, offset, PageLimits.STATUSES, PageLimits.MAX_STATUSES, trends::statuses,
+                (found, viewer) -> statuses.list(found, viewer, Optional.of(PostFilter.Context.PUBLIC)));
     }
 
     @GetMapping(LINKS)
@@ -126,27 +118,31 @@ public class TrendsController {
             @RequestParam(required = false) String limit,
             @Parameter(description = OFFSET, schema = @Schema(type = "integer", defaultValue = "0"))
             @RequestParam(required = false) String offset) {
-        var page = Page.parse(limit, offset, PageLimits.TREND_TAGS_AND_LINKS, PageLimits.MAX_TREND_TAGS_AND_LINKS);
+        return respond(LINKS, token, limit, offset, PageLimits.TREND_TAGS_AND_LINKS, PageLimits.MAX_TREND_TAGS_AND_LINKS,
+                trends::links, (found, viewer) -> found.stream()
+                        .map(link -> TrendLinkResponse.from(link, viewer.isPresent())).toList());
+    }
+
+    /**
+     * Pages are linked by how many were found, before they become responses, since post filters can remove
+     * statuses from a full page.
+     */
+    private <T, R> ResponseEntity<List<R>> respond(String path, TokenPrincipal token, String limit, String offset,
+                                                   int defaultLimit, int maxLimit, Query<T> query,
+                                                   BiFunction<List<T>, Optional<UUID>, List<R>> toResponses) {
+        var pageLimit = Math.clamp(RequestParameters.number("limit", limit, defaultLimit), 1, maxLimit);
+        var pageOffset = Math.max(0, RequestParameters.number("offset", offset, 0));
         if (!trends.enabled()) {
             return ResponseEntity.ok(List.of());
         }
         var viewer = RequestParameters.viewer(token);
-        var found = trends.links(viewer, page.limit(), page.offset());
-        return page(LINKS, page, found.size()).body(found.stream()
-                .map(link -> TrendLinkResponse.from(link, viewer.isPresent())).toList());
-    }
-
-    private ResponseEntity.BodyBuilder page(String path, Page page, int found) {
+        var found = query.find(viewer, pageLimit, pageOffset);
         var response = ResponseEntity.ok();
-        PageLinks.addOffsetTo(response, instance, PATH + path, page.limit(), page.offset(), found);
-        return response;
+        PageLinks.addOffsetTo(response, instance, PATH + path, pageLimit, pageOffset, found.size());
+        return response.body(toResponses.apply(found, viewer));
     }
 
-    private record Page(int limit, int offset) {
-
-        static Page parse(String limit, String offset, int defaultLimit, int maxLimit) {
-            return new Page(Math.clamp(RequestParameters.number("limit", limit, defaultLimit), 1, maxLimit),
-                    Math.max(0, RequestParameters.number("offset", offset, 0)));
-        }
+    private interface Query<T> {
+        List<T> find(Optional<UUID> viewer, int limit, int offset);
     }
 }

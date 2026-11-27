@@ -12,9 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Finds statuses by their words, and hashtags by their names and how much they're used.
@@ -60,11 +57,7 @@ public class StatusSearch {
         var used = statuses.tagDays(names, first.atStartOfDay(ZoneOffset.UTC).toInstant());
         var history = new HashMap<String, List<TagDay>>();
         for (var name : names) {
-            var byDay = used.getOrDefault(name, List.of()).stream()
-                    .collect(Collectors.toMap(TagDay::day, Function.identity()));
-            history.put(name, Stream.iterate(today, day -> !day.isBefore(first), day -> day.minusDays(1))
-                    .map(day -> byDay.getOrDefault(day, new TagDay(day, 0, 0)))
-                    .toList());
+            history.put(name, TagDay.lastDays(today, days, used.getOrDefault(name, List.of())));
         }
         return history;
     }

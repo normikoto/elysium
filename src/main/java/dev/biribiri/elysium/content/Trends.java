@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,10 +13,7 @@ import java.util.UUID;
 @Service
 public class Trends {
 
-    public record Day(LocalDate date, long uses, long accounts) {
-    }
-
-    public record Sharing(String value, List<Day> history) {
+    public record Sharing(String value, List<TagDay> history) {
     }
 
     private final TrendsRepository trends;
