@@ -691,6 +691,14 @@ public class FollowService {
     }
 
     /**
+     * @param domain a remote actor's host, plus its port if it isn't the default, as actors' domains are stored
+     * @return whether a local account that's neither suspended nor deleted follows any actor on that domain
+     */
+    public boolean hasLocalFollowersOn(String domain) {
+        return follows.hasLocalFollowersOn(domain);
+    }
+
+    /**
      * @return whether a local account that's neither suspended nor deleted follows the actor
      */
     public boolean hasLocalFollowers(URI followedUri) {

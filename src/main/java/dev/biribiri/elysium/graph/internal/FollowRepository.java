@@ -583,6 +583,25 @@ public class FollowRepository {
     }
 
     /**
+     * @param domain a remote actor's domain, as stored
+     * @return whether a local account follows any actor on that domain, leaving out suspended and deleted ones
+     */
+    public boolean hasLocalFollowersOn(String domain) {
+        return jdbc.sql("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM actor followed
+                            JOIN follow f ON f.followed_id = followed.id
+                            JOIN actor a ON a.id = f.follower_id
+                            WHERE followed.domain = :domain AND NOT followed.is_local AND f.state = 'accepted'
+                              AND a.is_local AND %s
+                        )
+                        """.formatted(ActorSql.active("a")))
+                .param("domain", domain)
+                .query(Boolean.class)
+                .single();
+    }
+
+    /**
      * @return whether a local account follows an actor, leaving out suspended and deleted ones
      */
     public boolean hasLocalFollowers(URI followedUri) {

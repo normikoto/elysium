@@ -30,6 +30,12 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   for existing accounts too. They aren't pushed, and don't appear in notifications or conversations until the person
   accepts the request. Each person can turn this off in their app.
 
+### Fixed
+
+- A public reply to someone followed here is no longer lost when it arrives before the post it replies to, such as
+  when another server forwards it. It waits for that post, or fetches it, and both are kept. See
+  [Federation](FEDERATION.md#receiving-statuses).
+
 ## [0.4.0] - 2026-11-26
 
 ### Added

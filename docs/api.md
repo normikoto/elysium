@@ -239,7 +239,7 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
 - `GET /api/v1/timelines/home` reads the statuses currently stored here and never returns 206. Following an account
   immediately includes its eligible statuses, including older ones.
   - A followed account's reply is only listed when it's to its author, to the user, or to someone they follow, as on
-    Mastodon, and one to a status that isn't stored here is left out.
+    Mastodon, and one to a status that isn't stored here is left out until that status is, as on Mastodon too.
   - Direct messages addressed to the user are included only when they follow the author.
   - The user's own statuses and replies are always listed.
   - Statuses and boosts by members of the user's exclusive lists are left out, as on Mastodon, unless a followed

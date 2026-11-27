@@ -60,6 +60,7 @@ class UpdateHandler implements InboundActivityHandler {
     private final FeaturedTagFetch featuredTags;
     private final ActorRefetch refetch;
     private final ThreadFetches threads;
+    private final ReplyParentChecks replyParents;
 
     UpdateHandler(
             ActorService actors,
@@ -74,8 +75,10 @@ class UpdateHandler implements InboundActivityHandler {
             FeaturedFetch featured,
             FeaturedTagFetch featuredTags,
             ActorRefetch refetch,
-            ThreadFetches threads) {
+            ThreadFetches threads,
+            ReplyParentChecks replyParents) {
         this.threads = threads;
+        this.replyParents = replyParents;
         this.featured = featured;
         this.featuredTags = featuredTags;
         this.refetch = refetch;
@@ -186,8 +189,11 @@ class UpdateHandler implements InboundActivityHandler {
         var stored = published.isBefore(activity.firstReceivedAt().minus(NEW_FOR))
                 ? storage.storeOld(activity, document, read)
                 : storage.store(activity, document, read);
-        if (stored != NoteStorage.Result.IGNORED) {
-            threads.fetchParentsOf(read.note(), URI.create(activity.actorUri()));
+        switch (stored) {
+            case STORED, TAKEN -> threads.fetchParentsOf(read.note(), URI.create(activity.actorUri()));
+            case WAITING_FOR_PARENT -> replyParents.queue(activity, read.note().inReplyTo());
+            case IGNORED -> {
+            }
         }
         if (stored == NoteStorage.Result.TAKEN) {
             // Its Create was stored in between, with an older version, which can still be edited. Or it was deleted, which

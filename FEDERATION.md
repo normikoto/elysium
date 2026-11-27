@@ -804,8 +804,19 @@ that author must allow the replier and their server under its [blocks](#blocks).
 least one active local follower of that author must allow both.
 
 This covers replies that Mastodon [forwards](#forwarded-activities) to the parent author’s followers, even when the
-reply addresses only the replier’s followers and the parent author. A reply that arrives before the parent cannot
-qualify this way.
+reply addresses only the replier’s followers and the parent author.
+
+A reply that arrives before its parent, or whose parent was never sent here, waits about a minute for the parent to
+arrive, if a local user follows an actor on the parent's host and port. Otherwise it's ignored. If the parent hasn't
+arrived, it's fetched from its `inReplyTo` once for all the replies waiting for it, signed as the
+[instance actor](#instance-actor), once its host has a [turn](#forwarded-activities).
+
+- It has to come back as a public or unlisted [status object](#receiving-statuses) with that `id` and a `published`,
+  attributed to one actor on the same host and port.
+- That actor has to be stored here already, with an active local follower, or neither is kept.
+- The parent is then stored as for a [thread](#fetching-threads), and each reply is kept if it would have been had it
+  arrived after the parent.
+- A `404`, `410`, or other refusal drops the replies, and a server error or timeout is tried again later.
 
 A `Note` that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts),
 [backfilled](#backfill), or [fetched for a thread](#fetching-threads). A `Question` is stored as a status with a
@@ -981,6 +992,7 @@ lookups of accounts, a minute.
 When a local user views a status's thread, what it's missing is fetched in the background, signed as the
 [instance actor](#instance-actor), each fetch once its host has a [turn](#forwarded-activities). When a `Create` or
 `Update` stores a reply whose `inReplyTo` isn't stored here, its parents are fetched the same way, but not its replies.
+A reply that isn't for anyone here can [wait for its parent](#receiving-statuses) first.
 A status's thread is fetched at most every 15 minutes, and fetching a new reply's parents counts. Nothing is fetched
 from this server or a [blocked](#domain-blocks) one.
 
