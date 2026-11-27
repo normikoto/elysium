@@ -63,7 +63,8 @@ import java.util.Map;
         SearchController.class,
         StatusesController.class,
         TagsController.class,
-        TimelinesController.class})
+        TimelinesController.class,
+        TrendsController.class})
 class StatusApiErrors {
 
     @ExceptionHandler

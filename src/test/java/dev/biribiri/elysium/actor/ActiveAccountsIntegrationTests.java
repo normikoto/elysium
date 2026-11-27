@@ -30,17 +30,19 @@ class ActiveAccountsIntegrationTests {
     @Test
     void removesDaysNoCountReaches() {
         var id = newLocal();
+        // The database session's date can differ from the UTC day used for account activity.
+        var cutoff = LocalDate.now(ZoneOffset.UTC).minusDays(ActiveAccounts.DAYS_KEPT);
         jdbc.sql("""
                         INSERT INTO account_use_day (actor_id, day)
-                        VALUES (:id, current_date - :kept), (:id, current_date - :kept - 1)
+                        VALUES (:id, :cutoff), (:id, :expired)
                         """)
-                .param("id", id).param("kept", ActiveAccounts.DAYS_KEPT).update();
+                .param("id", id).param("cutoff", cutoff).param("expired", cutoff.minusDays(1)).update();
 
         activeAccounts.removeExpired();
 
         assertThat(jdbc.sql("SELECT day FROM account_use_day WHERE actor_id = :id").param("id", id)
                 .query(LocalDate.class).list())
-                .containsExactly(LocalDate.now(ZoneOffset.UTC).minusDays(ActiveAccounts.DAYS_KEPT));
+                .containsExactly(cutoff);
     }
 
     @Test

@@ -20,6 +20,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - Featured hashtags now federate, as on Mastodon. Other servers are told which hashtags people here feature on their
   profiles, and accounts on other servers show the hashtags they feature, in apps that show featured tags. See
   [Federation](FEDERATION.md#featured-tags).
+- Apps can show trending hashtags, posts, and links through the Mastodon API. Trends update automatically from recent
+  public activity. Set `elysium.trends.enabled=false` to hide them. See [Trends](docs/api.md#trends). The first
+  startup after upgrading may take longer on servers with many posts.
 
 ### Changed
 

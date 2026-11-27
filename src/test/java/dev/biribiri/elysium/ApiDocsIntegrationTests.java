@@ -55,6 +55,9 @@ class ApiDocsIntegrationTests {
                 .andExpect(jsonPath("$.paths['/api/v1/timelines/public']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/timelines/tag/{hashtag}']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/tags/{id}']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/trends/tags'].get").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/trends/statuses'].get").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/trends/links'].get.responses['200'].headers.Link").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/instance']").exists());
     }
 

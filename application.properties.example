@@ -35,6 +35,9 @@ spring.datasource.password=
 # logins, and sign-ups at /api/v1/instance/activity. With few users, these show when each of them is around.
 #elysium.usage.publish=true
 
+# Whether apps can see trending tags, posts, and links.
+#elysium.trends.enabled=true
+
 # The most characters a new status can have, counting its content warning. Each URL counts as 23 characters. Lowering this
 # doesn't affect existing statuses.
 #elysium.statuses.max-characters=5000

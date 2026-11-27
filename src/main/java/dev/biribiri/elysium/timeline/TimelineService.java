@@ -13,8 +13,6 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -129,14 +127,7 @@ public class TimelineService {
         return timelines.inTagged(statusId, tags, origin, onlyMedia, viewer.orElse(null));
     }
 
-    /**
-     * Loads a page in its order.
-     */
     private List<Status> load(List<UUID> ids) {
-        var order = new HashMap<UUID, Integer>();
-        for (var i = 0; i < ids.size(); i++) {
-            order.put(ids.get(i), i);
-        }
-        return statuses.findStored(ids).stream().sorted(Comparator.comparing(status -> order.get(status.id()))).toList();
+        return statuses.findStoredInOrder(ids);
     }
 }

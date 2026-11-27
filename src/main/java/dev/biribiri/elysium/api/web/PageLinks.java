@@ -52,8 +52,23 @@ final class PageLinks {
         }
     }
 
-    private static String link(UriComponentsBuilder base, String cursor, UUID id, String relation) {
-        var uri = base.cloneBuilder().queryParam(cursor, id).encode().build().toUriString();
+    static void addOffsetTo(ResponseEntity.BodyBuilder response, InstanceProperties instance, String path,
+                            int limit, int offset, int found) {
+        var base = UriComponentsBuilder.fromUri(instance.resolve(path)).queryParam("limit", limit);
+        var links = new ArrayList<String>();
+        if (found == limit && offset <= Integer.MAX_VALUE - limit) {
+            links.add(link(base, "offset", offset + limit, "next"));
+        }
+        if (offset > 0) {
+            links.add(link(base, "offset", Math.max(0, offset - limit), "prev"));
+        }
+        if (!links.isEmpty()) {
+            response.header(HttpHeaders.LINK, String.join(", ", links));
+        }
+    }
+
+    private static String link(UriComponentsBuilder base, String parameter, Object value, String relation) {
+        var uri = base.cloneBuilder().queryParam(parameter, value).encode().build().toUriString();
         return "<%s>; rel=\"%s\"".formatted(uri, relation);
     }
 }

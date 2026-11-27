@@ -903,6 +903,13 @@ public class StatusService {
     }
 
     /**
+     * @return the statuses found, in the order of {@code ids}
+     */
+    public List<Status> findStoredInOrder(List<UUID> ids) {
+        return statuses.findByIdsInOrder(ids);
+    }
+
+    /**
      * Finds an author's status by its URI, whoever can see it, if the author is active.
      */
     public Optional<Status> findStoredByUri(URI uri, UUID authorId) {
