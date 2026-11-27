@@ -33,7 +33,8 @@ import java.util.stream.Stream;
  * it, or when it's a public or unlisted reply to a status of a local account or of one that's followed here, as Mastodon
  * keeps them, unless whoever that makes it for blocks its author. That last case is what a reply forwarded by the
  * parent's server looks like. Notes that nobody here would see
- * aren't kept, which also stops any server from filling the database by delivering to the shared inbox.
+ * aren't kept, which also stops any server from filling the database by delivering to the shared inbox. A reply whose
+ * parent isn't stored yet can't be told apart from one nobody would see, so {@link ReplyParentChecks} decides later.
  *
  * <p>Who a followers-only or direct note is shown to here comes from its mentions, so a local account only counts as
  * mentioned by one of those if the note or its activity is addressed to it. Otherwise a {@code Mention} tag alone would show
@@ -78,7 +79,12 @@ class NoteStorage {
         /** It isn't for anyone here, or its author can't post here. */
         IGNORED,
         /** A status with its URI is already stored, or was deleted. */
-        TAKEN
+        TAKEN,
+        /**
+         * It's public or unlisted, and isn't for anyone here, but it replies to a status that isn't stored, which could be
+         * by someone followed here. {@link ReplyParentChecks} finds out.
+         */
+        WAITING_FOR_PARENT
     }
 
     /**
@@ -114,15 +120,19 @@ class NoteStorage {
             log.debug("Ignoring {} {}, whose note is old and direct", activity.type(), activity.id());
             return Result.IGNORED;
         }
+        // Fetching can take a while, and a block or suspension can have landed since the job started.
+        if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
+            return Result.IGNORED;
+        }
         if (forWhom.isEmpty() && !(everyone && note.inReplyTo() != null
                 && recipients.repliesToSomeoneHere(note.inReplyTo(), actorUri))
                 && !(everyone && note.quote() != null
                 && recipients.quotesSomeoneHere(note.quote().quotedUri(), actorUri))) {
+            if (everyone && note.inReplyTo() != null && !statuses.isStored(note.inReplyTo())) {
+                log.debug("Holding {} {} until its parent is found", activity.type(), activity.id());
+                return Result.WAITING_FOR_PARENT;
+            }
             log.debug("Ignoring {} {}, which isn't for any local account", activity.type(), activity.id());
-            return Result.IGNORED;
-        }
-        // Fetching can take a while, and a block or suspension can have landed since the job started.
-        if (blocks.isBlocked(actorUri.getHost()) || actors.isInactive(actorUri)) {
             return Result.IGNORED;
         }
         return save(note, author, visibility, activity.firstReceivedAt(),

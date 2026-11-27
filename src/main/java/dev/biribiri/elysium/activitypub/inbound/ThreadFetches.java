@@ -647,7 +647,7 @@ class ThreadFetches implements RemoteThreadFetcher {
     /**
      * Whether a status could be fetched from here, which this server's own and a blocked server's can't.
      */
-    private boolean isFetchable(URI uri) {
+    boolean isFetchable(URI uri) {
         return "https".equalsIgnoreCase(uri.getScheme())
                 && uri.getHost() != null
                 && !uri.getHost().equalsIgnoreCase(instance.baseUrl().getHost())
