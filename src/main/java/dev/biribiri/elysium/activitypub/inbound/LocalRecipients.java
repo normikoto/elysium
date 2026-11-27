@@ -125,19 +125,8 @@ class LocalRecipients {
      */
     boolean repliesToSomeoneHere(URI parentUri, URI senderUri) {
         return statuses.findAuthorOf(parentUri)
-                .filter(author -> concernsSomeoneHere(author, senderUri))
+                .filter(author -> blocks.isAcceptedThrough(author, senderUri))
                 .isPresent();
-    }
-
-    /**
-     * Whether a reply to a status by this author concerns someone here, as for {@link #repliesToSomeoneHere}, for a caller
-     * that knows the parent's author without the parent being stored.
-     *
-     * @param authorUri which has to be stored already, or nobody here can follow it
-     * @param senderUri the activity's actor, which has to be stored already
-     */
-    boolean concernsSomeoneHere(URI authorUri, URI senderUri) {
-        return blocks.isAcceptedThrough(authorUri, senderUri);
     }
 
     /**

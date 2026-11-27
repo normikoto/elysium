@@ -5,15 +5,16 @@ import dev.biribiri.elysium.jobs.QueuedJob;
 import java.time.Instant;
 
 /**
- * Finds the parent of a reply that was addressed to nobody here, through {@link ReplyParentChecks}.
+ * Keeps a reply that was addressed to nobody here once its parent is stored, through {@link ReplyParentChecks}.
  *
- * @param activityId the {@code Create} or {@code Update} of the reply, which is handled again once the parent is stored
- * @param parentUri  the reply's {@code inReplyTo}, which is where it's fetched from
- * @param turn       the turn {@link TargetFetchTurns} gave it to fetch the parent, or null if it hasn't waited for one
+ * @param activityId   the {@code Create} or {@code Update} of the reply, which is handled again once the parent is stored
+ * @param parentUri    the reply's {@code inReplyTo}
+ * @param fetchQueued  whether this has queued a {@link ParentFetchJob}, which it does if the parent hasn't arrived after
+ *                     its first wait
  */
-record ReplyParentJob(String activityId, String parentUri, Instant queuedAt, Instant turn) implements QueuedJob {
+record ReplyParentJob(String activityId, String parentUri, Instant queuedAt, boolean fetchQueued) implements QueuedJob {
 
-    ReplyParentJob withTurn(Instant turn) {
-        return new ReplyParentJob(activityId, parentUri, queuedAt, turn);
+    ReplyParentJob afterQueuingFetch() {
+        return new ReplyParentJob(activityId, parentUri, queuedAt, true);
     }
 }

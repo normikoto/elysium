@@ -1,6 +1,7 @@
 package dev.biribiri.elysium.activitypub.inbound;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
+import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.ExecutionComplete;
 import com.github.kagkarlsson.scheduler.task.ExecutionOperations;
 import dev.biribiri.elysium.TestcontainersConfiguration;
@@ -62,7 +63,8 @@ class ReplyParentIntegrationTests {
     @BeforeEach
     void setUp() throws Exception {
         doThrow(DocumentFetchException.permanent("Not found", null)).when(documents).fetch(any());
-        jdbc.sql("DELETE FROM scheduled_tasks WHERE task_name = :name").param("name", ReplyParentChecks.TASK.getTaskName())
+        jdbc.sql("DELETE FROM scheduled_tasks WHERE task_name IN (:names)")
+                .param("names", List.of(ReplyParentChecks.TASK.getTaskName(), ReplyParentChecks.FETCH_TASK.getTaskName()))
                 .update();
         follower = actors.createLocalIfAbsent("p" + UUID.randomUUID().toString().replace("-", "").substring(0, 20),
                 actor -> {
@@ -103,9 +105,10 @@ class ReplyParentIntegrationTests {
 
     @Test
     void keepsNeitherWhenTheParentsAuthorIsntFollowedHere() throws Exception {
-        var stranger = remote();
+        // On the followed account's server, so that the replies wait.
+        var stranger = remoteOn(followed.domain(), "stranger");
         var byStranger = noteUri(stranger);
-        var unknownAuthor = URI.create("https://" + stranger.domain() + "/users/unknown");
+        var unknownAuthor = URI.create("https://" + followed.domain() + "/users/unknown");
         var byUnknown = URI.create(unknownAuthor + "/statuses/" + UUID.randomUUID());
         var first = noteUri(replier);
         var second = noteUri(replier);
@@ -123,6 +126,35 @@ class ReplyParentIntegrationTests {
         assertThat(status(byUnknown)).isEmpty();
         assertThat(status(second)).isEmpty();
         verify(documents, never()).fetch(unknownAuthor);
+    }
+
+    @Test
+    void doesNotWaitForAParentOnAServerWhereNobodyIsFollowed() throws Exception {
+        var stranger = remote();
+        var parent = noteUri(stranger);
+        serve(parent, note(parent, stranger, null));
+
+        handle(creates, activity("Create", replier, note(noteUri(replier), replier, parent)));
+
+        assertThat(jobs()).isEmpty();
+        verify(documents, never()).fetch(parent);
+    }
+
+    @Test
+    void fetchesAParentOnceForEveryReplyWaitingForIt() throws Exception {
+        var parent = noteUri(followed);
+        serve(parent, note(parent, followed, null));
+        var replies = List.of(noteUri(replier), noteUri(replier), noteUri(replier));
+
+        for (var reply : replies) {
+            handle(creates, activity("Create", replier, note(reply, replier, parent)));
+        }
+        drain();
+
+        verify(documents).fetch(parent);
+        for (var reply : replies) {
+            assertThat(status(reply)).isPresent();
+        }
     }
 
     @Test
@@ -172,31 +204,48 @@ class ReplyParentIntegrationTests {
     }
 
     /**
-     * Runs every queued job, and each step it goes on to, until nothing is left.
+     * Runs the queued jobs in rounds, the parents' fetches before the replies, until nothing is left. A reply that checks
+     * again later is queued again for the next round.
      */
     private void drain() {
-        for (var execution : scheduler.getScheduledExecutionsForTask(ReplyParentChecks.TASK.getTaskName(),
-                ReplyParentJob.class)) {
-            scheduler.cancel(execution.getTaskInstance());
-            var job = execution.getData();
-            while (job != null) {
-                job = runOnce(job);
+        for (var round = 0; round < 10; round++) {
+            var fetches = scheduler.getScheduledExecutionsForTask(ReplyParentChecks.FETCH_TASK.getTaskName(),
+                    ParentFetchJob.class);
+            var replies = scheduler.getScheduledExecutionsForTask(ReplyParentChecks.TASK.getTaskName(),
+                    ReplyParentJob.class);
+            if (fetches.isEmpty() && replies.isEmpty()) {
+                return;
+            }
+            for (var execution : fetches) {
+                scheduler.cancel(execution.getTaskInstance());
+                var job = execution.getData();
+                while (job != null) {
+                    job = runOnce(checks.fetch(job));
+                }
+            }
+            for (var execution : replies) {
+                scheduler.cancel(execution.getTaskInstance());
+                ReplyParentJob next = runOnce(checks.run(execution.getData()));
+                if (next != null) {
+                    scheduler.schedule(ReplyParentChecks.TASK.instance(execution.getTaskInstance().getId())
+                            .data(next).scheduledTo(Instant.now()));
+                }
             }
         }
+        throw new AssertionError("Jobs kept being queued");
     }
 
     /**
      * @return what the job goes on to, or null if it's done
      */
     @SuppressWarnings("unchecked")
-    private ReplyParentJob runOnce(ReplyParentJob job) {
-        var completion = checks.run(job);
+    private <T> T runOnce(CompletionHandler<T> completion) {
         ExecutionComplete complete = mock();
-        ExecutionOperations<ReplyParentJob> operations = mock();
+        ExecutionOperations<T> operations = mock();
         completion.complete(complete, operations);
         return Mockito.mockingDetails(operations).getInvocations().stream()
                 .filter(call -> call.getMethod().getName().equals("reschedule") && call.getArguments().length == 3)
-                .map(call -> (ReplyParentJob) call.getArguments()[2])
+                .map(call -> (T) call.getArguments()[2])
                 .findFirst()
                 .orElse(null);
     }
@@ -233,9 +282,12 @@ class ReplyParentIntegrationTests {
     }
 
     private Actor remote() {
-        var host = "p" + UUID.randomUUID() + ".test";
-        var uri = URI.create("https://" + host + "/users/someone");
-        return actors.upsertRemote(new RemoteActorProfile(uri, "someone", host, URI.create(uri + "/inbox"), null, null,
+        return remoteOn("p" + UUID.randomUUID() + ".test", "someone");
+    }
+
+    private Actor remoteOn(String host, String name) {
+        var uri = URI.create("https://" + host + "/users/" + name);
+        return actors.upsertRemote(new RemoteActorProfile(uri, name, host, URI.create(uri + "/inbox"), null, null,
                 null, URI.create(uri + "/followers")));
     }
 

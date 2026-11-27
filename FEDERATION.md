@@ -804,13 +804,19 @@ that author must allow the replier and their server under its [blocks](#blocks).
 least one active local follower of that author must allow both.
 
 This covers replies that Mastodon [forwards](#forwarded-activities) to the parent author’s followers, even when the
-reply addresses only the replier’s followers and the parent author. A reply that arrives before its parent, or whose
-parent was never sent here, waits about a minute for the parent to arrive. If it hasn't, the parent is fetched from its
-`inReplyTo`, signed as the [instance actor](#instance-actor), once its host has a [turn](#forwarded-activities). It has
-to come back as a public or unlisted [status object](#receiving-statuses) with that `id` and a `published`, attributed
-to one actor on the same host and port. That actor has to be stored here already, and qualify as above, or neither is
-kept. The parent is then stored as for a [thread](#fetching-threads), and the reply is stored as if it had arrived
-after it. A `404`, `410`, or other refusal drops the reply, and a server error or timeout is tried again later.
+reply addresses only the replier’s followers and the parent author.
+
+A reply that arrives before its parent, or whose parent was never sent here, waits about a minute for the parent to
+arrive, if a local user follows an actor on the parent's host and port. Otherwise it's ignored. If the parent hasn't
+arrived, it's fetched from its `inReplyTo` once for all the replies waiting for it, signed as the
+[instance actor](#instance-actor), once its host has a [turn](#forwarded-activities).
+
+- It has to come back as a public or unlisted [status object](#receiving-statuses) with that `id` and a `published`,
+  attributed to one actor on the same host and port.
+- That actor has to be stored here already, with an active local follower, or neither is kept.
+- The parent is then stored as for a [thread](#fetching-threads), and each reply is kept if it would have been had it
+  arrived after the parent.
+- A `404`, `410`, or other refusal drops the replies, and a server error or timeout is tried again later.
 
 A `Note` that isn't for anyone here is ignored, even if it's public, unless it's [boosted](#boosts),
 [backfilled](#backfill), or [fetched for a thread](#fetching-threads). A `Question` is stored as a status with a

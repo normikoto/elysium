@@ -9,6 +9,7 @@ import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;
 import dev.biribiri.elysium.activitypub.signature.ActivityDocuments;
 import dev.biribiri.elysium.actor.ActorService;
 import dev.biribiri.elysium.content.RemoteStatuses;
+import dev.biribiri.elysium.graph.FollowService;
 import dev.biribiri.elysium.jobs.Jobs;
 import dev.biribiri.elysium.jobs.PermanentJobFailure;
 import dev.biribiri.elysium.moderation.DomainBlocks;
@@ -26,23 +27,32 @@ import java.util.Optional;
 
 /**
  * Keeps a public or unlisted reply that's addressed to nobody here, and whose parent isn't stored, if the parent turns out
- * to be by a local account or one followed here. That's how a reply that the parent's server forwards to its author's
- * followers looks when it arrives before the parent does, since jobs have no order, or when the parent was posted before
- * anyone here followed its author. {@link NoteStorage} would otherwise ignore it for good.
+ * to be by an account followed here. That's how a reply that the parent's server forwards to its author's followers looks
+ * when it arrives before the parent does, since jobs have no order, or when the parent was posted before anyone here
+ * followed its author. {@link NoteStorage} would otherwise ignore it for good.
  *
- * <p>It waits {@link ThreadFetches#PARENT_WAIT} first, since the parent's own {@code Create} is usually only a little
- * behind, and then needs no request. Otherwise the parent is fetched, signed as the instance actor, as a thread's parents
- * are. Anyone can send a reply naming any status, so the parent is only stored if its author is already stored here and
- * {@link LocalRecipients#concernsSomeoneHere} passes for them. Otherwise any server could have strangers' posts stored,
- * which is what {@link NoteStorage} keeps out, and an author who isn't stored can't be followed here anyway.
+ * <p>Anyone can send a reply naming any URL as its parent, so a reply only waits if someone here follows an actor on the
+ * parent's server. Otherwise any server could have this one fetch whatever it liked, and the parent couldn't be by anyone
+ * followed here anyway.
  *
- * <p>Once the parent is stored, the activity is handled again, so it goes through every check it would have if the parent
- * had come first. Those find the parent stored, so they don't queue this again.
+ * <p>Each reply waits {@link ThreadFetches#PARENT_WAIT} first, since the parent's own {@code Create} is usually only a
+ * little behind, and then needs no request. Otherwise one {@link ParentFetchJob} fetches the parent for every reply waiting
+ * for it, signed as the instance actor, as a thread's parents are. Each reply fetching it would use up its server's turns in
+ * {@link TargetFetchTurns}, and the replies refused one would be lost. The parent is only stored if its author is already
+ * stored here and has a local follower, since storing it is what a stranger's post mustn't get, which is what
+ * {@link NoteStorage} keeps out. Each reply checks again every {@link ThreadFetches#PARENT_WAIT}, until the parent is stored
+ * or its fetch is over.
+ *
+ * <p>Once the parent is stored, each reply's activity is handled again, so it goes through every check it would have if the
+ * parent had come first, such as a follower's block of its author. Those find the parent stored, so they don't queue this
+ * again.
  */
 @Component
 class ReplyParentChecks {
 
     static final TaskDescriptor<ReplyParentJob> TASK = TaskDescriptor.of("reply-parent", ReplyParentJob.class);
+
+    static final TaskDescriptor<ParentFetchJob> FETCH_TASK = TaskDescriptor.of("reply-parent-fetch", ParentFetchJob.class);
 
     private static final Logger log = LoggerFactory.getLogger(ReplyParentChecks.class);
 
@@ -54,7 +64,7 @@ class ReplyParentChecks {
     private final ThreadFetches threads;
     private final RemoteStatuses statuses;
     private final NoteStorage storage;
-    private final LocalRecipients recipients;
+    private final FollowService follows;
     private final ActorService actors;
     private final DomainBlocks blocks;
 
@@ -71,7 +81,7 @@ class ReplyParentChecks {
             ThreadFetches threads,
             RemoteStatuses statuses,
             NoteStorage storage,
-            LocalRecipients recipients,
+            FollowService follows,
             ActorService actors,
             DomainBlocks blocks) {
         this.scheduler = scheduler;
@@ -82,17 +92,22 @@ class ReplyParentChecks {
         this.threads = threads;
         this.statuses = statuses;
         this.storage = storage;
-        this.recipients = recipients;
+        this.follows = follows;
         this.actors = actors;
         this.blocks = blocks;
     }
 
     /**
-     * Queues a check, unless one for the same activity is already queued.
+     * Queues a check, unless one for the same activity is already queued, or the parent couldn't be by anyone followed here.
      */
     void queue(InboundActivity activity, URI parent) {
+        // One on this server or a blocked one could never be fetched.
+        if (!threads.isFetchable(parent) || !follows.hasLocalFollowersOn(RemoteActorDocument.domainOf(parent))) {
+            log.debug("Ignoring {}, whose parent {} can't be by anyone followed here", activity.id(), parent);
+            return;
+        }
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        Jobs.scheduleAt(scheduler, TASK, new ReplyParentJob(activity.id(), parent.toString(), now, null),
+        Jobs.scheduleAt(scheduler, TASK, new ReplyParentJob(activity.id(), parent.toString(), now, false),
                 now.plus(ThreadFetches.PARENT_WAIT), "reply-parent", activity.id());
     }
 
@@ -101,9 +116,13 @@ class ReplyParentChecks {
         return Jobs.task(TASK, job -> replyParents.getObject().run(job));
     }
 
+    @Bean
+    static Task<ParentFetchJob> replyParentFetch(ObjectProvider<ReplyParentChecks> replyParents) {
+        return Jobs.task(FETCH_TASK, job -> replyParents.getObject().fetch(job));
+    }
+
     /**
-     * @return what to do with the job, which is to wait if its turn to fetch the parent hasn't come yet
-     * @throws IllegalStateException if the parent's server couldn't be reached, which is worth trying again
+     * @return what to do with the job, which is to check again later while the parent is being fetched
      */
     CompletionHandler<ReplyParentJob> run(ReplyParentJob job) {
         try {
@@ -126,17 +145,40 @@ class ReplyParentChecks {
             return Jobs.done();
         }
         var parent = URI.create(job.parentUri());
+        // Before looking for the parent, since a fetch that stores it and finishes in between would otherwise look like one
+        // that found nothing.
+        var fetching = job.fetchQueued() && Jobs.isQueued(scheduler, FETCH_TASK, job.parentUri());
         if (statuses.isStored(parent)) {
             handleAgain(activity.get());
             return Jobs.done();
         }
-        if (!threads.isFetchable(parent)) {
+        var now = Instant.now();
+        if (!job.fetchQueued()) {
+            Jobs.schedule(scheduler, FETCH_TASK,
+                    new ParentFetchJob(job.parentUri(), now.truncatedTo(ChronoUnit.MICROS), null), job.parentUri());
+            return Jobs.rescheduleAt(now.plus(ThreadFetches.PARENT_WAIT), job.afterQueuingFetch());
+        }
+        // A fetch that's waited this long for its server has stopped being retried.
+        if (fetching && !job.isOverdue(now)) {
+            return Jobs.rescheduleAt(now.plus(ThreadFetches.PARENT_WAIT), job);
+        }
+        log.debug("Ignoring {}, whose parent {} wasn't found", activity.get().id(), parent);
+        return Jobs.done();
+    }
+
+    /**
+     * @return what to do with the job, which is to wait if its turn to fetch the parent hasn't come yet
+     * @throws IllegalStateException if the parent's server couldn't be reached, which is worth trying again
+     */
+    CompletionHandler<ParentFetchJob> fetch(ParentFetchJob job) {
+        var parent = URI.create(job.parentUri());
+        if (statuses.isStored(parent) || !threads.isFetchable(parent)) {
             return Jobs.done();
         }
         var now = Instant.now();
         var turn = turns.take(parent, job.turn(), now);
         if (turn.isEmpty()) {
-            log.debug("Not fetching {} for a reply to it, since too many fetches are waiting for its server", parent);
+            log.debug("Not fetching {} for replies to it, since too many fetches are waiting for its server", parent);
             return Jobs.done();
         }
         if (turn.get().isAfter(now)) {
@@ -151,12 +193,18 @@ class ReplyParentChecks {
         if (note.isEmpty()) {
             return Jobs.done();
         }
-        if (!recipients.concernsSomeoneHere(note.get().author(), sender)) {
-            log.debug("Ignoring {}, whose parent {} isn't by anyone followed here", activity.get().id(), parent);
+        // The replies' own handling checks blocks, since they can have different authors.
+        if (!follows.hasLocalFollowers(note.get().author())) {
+            log.debug("Not storing {}, which isn't by anyone followed here", parent);
             return Jobs.done();
         }
-        if (storage.storeInThread(note.get().note(), note.get().author()) != NoteStorage.Result.IGNORED) {
-            handleAgain(activity.get());
+        try {
+            if (storage.storeInThread(note.get().note(), note.get().author()) != NoteStorage.Result.IGNORED) {
+                // As its own Create would have, since the replies' handling finds it stored and fetches nothing above it.
+                threads.fetchParentsOf(note.get().note(), note.get().author());
+            }
+        } catch (PermanentJobFailure e) {
+            log.debug("Not storing {}: {}", parent, e.getMessage());
         }
         return Jobs.done();
     }
