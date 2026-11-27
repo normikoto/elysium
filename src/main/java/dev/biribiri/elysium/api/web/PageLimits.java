@@ -9,6 +9,9 @@ final class PageLimits {
     static final int STATUSES = 20;
     static final int MAX_STATUSES = 40;
 
+    static final int TREND_TAGS_AND_LINKS = 10;
+    static final int MAX_TREND_TAGS_AND_LINKS = 20;
+
     static final int ACCOUNTS = 40;
     static final int MAX_ACCOUNTS = 80;
 

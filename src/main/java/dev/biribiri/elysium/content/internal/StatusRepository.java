@@ -166,7 +166,7 @@ public class StatusRepository {
      * its actor has already boosted the same status
      */
     public boolean insert(Status status, Instant activityAt) {
-        return jdbc.sql("""
+        var inserted = jdbc.sql("""
                         INSERT INTO status (id, uri, actor_id, text, content, spoiler_text, language, visibility, sensitive,
                                             reply, in_reply_to_id, in_reply_to_account_id, in_reply_to_uri, url,
                                             published_at, edited_at, reblog_of_id, activity_at, quote_automatic,
@@ -204,6 +204,11 @@ public class StatusRepository {
                 .param("editedAt", status.editedAt() == null ? null : status.editedAt().atOffset(ZoneOffset.UTC),
                         Types.TIMESTAMP_WITH_TIMEZONE)
                 .update() == 1;
+        if (inserted && status.reblogOfId() == null && status.visibility() == Visibility.PUBLIC
+                && !status.localOnly() && !status.sensitive() && status.spoilerText().isEmpty()) {
+            insertLinks(status.id(), status.content());
+        }
+        return inserted;
     }
 
     /**
@@ -351,8 +356,27 @@ public class StatusRepository {
                 .param("editedAt", editedAt.atOffset(ZoneOffset.UTC))
                 .query(UUID.class)
                 .optional();
-        edited.ifPresent(this::removeOldestEdits);
+        edited.ifPresent(id -> {
+            removeOldestEdits(id);
+            jdbc.sql("DELETE FROM status_link WHERE status_id = :id").param("id", id).update();
+            if (!sensitive && spoilerText.isEmpty()) {
+                insertLinks(id, content);
+            }
+        });
         return edited;
+    }
+
+    private void insertLinks(UUID statusId, String content) {
+        var links = StatusLinks.from(content);
+        if (!links.isEmpty()) {
+            jdbc.sql("""
+                            INSERT INTO status_link (status_id, url)
+                            SELECT s.id, links.url FROM status s CROSS JOIN unnest(CAST(:urls AS text[])) AS links(url)
+                            WHERE s.id = :id AND\s""" + StatusLinks.ELIGIBLE)
+                    .param("id", statusId)
+                    .param("urls", links.toArray(String[]::new))
+                    .update();
+        }
     }
 
     /**

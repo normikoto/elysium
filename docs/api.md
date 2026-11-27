@@ -270,8 +270,7 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   token works, or none.
 - `history` counts only public statuses stored here, over the last 7 days.
 - `following` and `featuring` are left out without a user token. `POST /api/v1/tags/:id/feature` and `/unfeature`
-  aren't implemented, so tags are featured through `/api/v1/featured_tags`. The endpoints for trending tags aren't
-  implemented either.
+  aren't implemented, so tags are featured through `/api/v1/featured_tags`.
 - `POST /api/v1/tags/:id/follow` and `/unfollow` take any valid tag name, even one that nothing uses, and get a 404 for
   an invalid one. Doing either again has no further effect. Other servers aren't told about tag follows, so they
   only bring in statuses that already reach this server.
@@ -290,6 +289,28 @@ Follows [Mastodon's statuses API](https://docs.joinmastodon.org/methods/statuses
   A user's featured tags are sent to other servers, as Mastodon sends them.
 - `GET /api/v1/featured_tags/suggestions` suggests up to 10 tags from the user's recent public and unlisted statuses
   that they don't feature, the most recently used first.
+
+### Trends
+
+Follows [Mastodon's trends API](https://docs.joinmastodon.org/methods/trends/) at `GET /api/v1/trends/tags`,
+`/api/v1/trends/statuses`, and `/api/v1/trends/links`. The older `/api/v1/trends` alias is unsupported.
+
+- The lists are public, accept any valid token, and return empty arrays if the operator turns trends off. A malformed
+  `limit` or `offset` gets 422. Limits are clamped to the supported range and negative offsets count as zero. The
+  `Link` header points to the previous page for any positive offset and the next page when the query fills the page.
+- Ranking is automatic and independent of language. Tags and links rank by how many different accounts used them in
+  the last 48 hours, with at least two accounts. Their seven days of history count eligible public statuses stored here.
+  Tags are identified by their normalized names, and their responses omit the numeric `id`.
+- Statuses from the past seven days rank by how many different accounts favourited or publicly boosted them in the
+  last 48 hours, with at least two accounts other than the author. Only public original statuses from discoverable
+  accounts are eligible. Replies, sensitive statuses, and statuses with content warnings are excluded. Quotes require
+  consent and a public, non-sensitive quoted status from a discoverable account. A user's public post filters can
+  shorten the returned page.
+- Local-only statuses are excluded from all three lists. A signed-in user's blocks, mutes, and domain blocks are
+  applied before ranking.
+- Link cards use the URL as the title and its host as the provider name. Page metadata and images are empty. Only links
+  in eligible original posts count, with one use per URL per post. Sensitive posts and posts with content warnings don't
+  contribute to link trends.
 
 ### Boosts
 

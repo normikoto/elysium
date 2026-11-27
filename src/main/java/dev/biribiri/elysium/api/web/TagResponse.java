@@ -6,6 +6,7 @@ import dev.biribiri.elysium.content.TagDay;
 import dev.biribiri.elysium.text.Hashtags;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 
@@ -34,19 +35,23 @@ record TagResponse(
     record History(String day, String uses, String accounts) {
 
         static History from(TagDay day) {
+            return of(day.day(), day.uses(), day.accounts());
+        }
+
+        static History of(LocalDate day, long uses, long accounts) {
             return new History(
-                    Long.toString(day.day().atStartOfDay(ZoneOffset.UTC).toEpochSecond()),
-                    Long.toString(day.uses()),
-                    Long.toString(day.accounts()));
+                    Long.toString(day.atStartOfDay(ZoneOffset.UTC).toEpochSecond()),
+                    Long.toString(uses),
+                    Long.toString(accounts));
         }
     }
 
-    static TagResponse of(String name, List<TagDay> days, Boolean following, Boolean featuring,
+    static TagResponse of(String name, List<History> history, Boolean following, Boolean featuring,
                           InstanceProperties instance) {
         return new TagResponse(
                 name,
                 Hashtags.url(instance.baseUrl(), name).toString(),
-                days.stream().map(History::from).toList(),
+                history,
                 following,
                 featuring);
     }
