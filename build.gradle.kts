@@ -140,7 +140,7 @@ tasks.test {
 }
 
 tasks.register<Test>("loadTest") {
-    description = "Measures delivery under load, and prints the numbers. Takes minutes, and needs Docker."
+    description = "Measures delivery under load, and how long removing old remote statuses holds up storing new ones, and prints the numbers. Takes minutes, and needs Docker."
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath

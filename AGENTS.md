@@ -13,7 +13,7 @@ what's live today, so check it before assuming a federation feature exists.
 ./gradlew test --tests '*StatusesIntegrationTests'                  # One class
 ./gradlew test --tests '*StatusesIntegrationTests.someMethodName'   # One method
 ./gradlew test --tests '*ModularityTests'        # Module boundaries only, with no Docker needed
-./gradlew loadTest                               # Measures delivery under load, and prints the numbers. Takes minutes
+./gradlew loadTest                               # Measures delivery, and removing old remote statuses, under load. Takes minutes
 ./gradlew bootJar                                # Builds build/libs/elysium.jar
 ./gradlew bootBuildImage                         # Builds elysium:latest. -PbindDockerHostToBuilder=false for Docker Desktop or Colima
 federation/smoke.sh gotosocial                   # Or mastodon, or misskey. Needs Docker, jq, openssl, and a fresh bootBuildImage
