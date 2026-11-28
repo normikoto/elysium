@@ -28,9 +28,16 @@ public class HostRequests {
      */
     public static final int MAX_DELIVERIES_WAITING_PER_HOST = 12;
 
+    /**
+     * The same for every host together, since a few hosts with backlogs could otherwise hold every job thread between them,
+     * leaving none for other tasks. It's well under the 64 threads that {@code db-scheduler.threads} gives by default.
+     */
+    public static final int MAX_DELIVERIES_WAITING = 24;
+
     private final RunningLimit fetches = new RunningLimit(FederationHttpClient.MAX_CONNECTIONS_PER_HOST);
     private final RunningLimit all = new RunningLimit(Integer.MAX_VALUE);
     private final RunningLimit waitingDeliveries = new RunningLimit(MAX_DELIVERIES_WAITING_PER_HOST);
+    private final RunningLimit allWaitingDeliveries = new RunningLimit(MAX_DELIVERIES_WAITING);
 
     /**
      * @return whether there was room. If so, this needs a call to {@link #finishFetch} afterward.
@@ -57,19 +64,26 @@ public class HostRequests {
 
     /**
      * Like {@link #tryStartDelivery(String)}, but waits for room for up to this long, unless too many deliveries are waiting
-     * for this host already.
+     * for this host, or for every host, already.
      */
     public boolean tryStartDelivery(String host, Duration wait) {
         if (tryStartDelivery(host)) {
             return true;
         }
-        if (!waitingDeliveries.tryStart(host)) {
+        if (!allWaitingDeliveries.tryStart("")) {
             return false;
         }
         try {
-            return all.tryStart(host, MAX_DELIVERIES_PER_HOST, wait);
+            if (!waitingDeliveries.tryStart(host)) {
+                return false;
+            }
+            try {
+                return all.tryStart(host, MAX_DELIVERIES_PER_HOST, wait);
+            } finally {
+                waitingDeliveries.finish(host);
+            }
         } finally {
-            waitingDeliveries.finish(host);
+            allWaitingDeliveries.finish("");
         }
     }
 

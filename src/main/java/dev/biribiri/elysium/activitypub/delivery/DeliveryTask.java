@@ -49,7 +49,8 @@ class DeliveryTask {
     /**
      * How long a run can still be going after it was picked. A run sends one request, which can't outlast the client's
      * deadline, and no heartbeat is written during a run that short, so a picked job older than this belongs to a node that
-     * died. db-scheduler only notices that after several missed heartbeats, which takes half an hour.
+     * died. db-scheduler only notices that after several missed heartbeats, which takes half an hour. Each node writes its
+     * heartbeat from its own clock and this compares it with the database's, so it assumes those agree to within the margin.
      */
     private static final Duration RUN_LASTS = FederationHttpClient.DEADLINE.plus(Duration.ofMinutes(2));
 

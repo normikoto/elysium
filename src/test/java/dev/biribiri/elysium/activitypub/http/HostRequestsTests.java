@@ -96,4 +96,32 @@ class HostRequestsTests {
             }
         }
     }
+
+    @Test
+    void onlySoManyDeliveriesCanWaitForEveryHost() throws Exception {
+        var hosts = HostRequests.MAX_DELIVERIES_WAITING / HostRequests.MAX_DELIVERIES_WAITING_PER_HOST;
+        for (var host = 0; host <= hosts; host++) {
+            for (var i = 0; i < HostRequests.MAX_DELIVERIES_PER_HOST; i++) {
+                requests.tryStartDelivery("busy" + host + ".example");
+            }
+        }
+
+        try (var threads = Executors.newVirtualThreadPerTaskExecutor()) {
+            var waiting = new ArrayList<Future<Boolean>>();
+            for (var host = 0; host < hosts; host++) {
+                var name = "busy" + host + ".example";
+                for (var i = 0; i < HostRequests.MAX_DELIVERIES_WAITING_PER_HOST; i++) {
+                    waiting.add(threads.submit(() -> requests.tryStartDelivery(name, Duration.ofSeconds(2))));
+                }
+            }
+            Thread.sleep(200);
+            var started = System.nanoTime();
+
+            assertThat(requests.tryStartDelivery("busy" + hosts + ".example", Duration.ofSeconds(2))).isFalse();
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(1));
+            for (var future : waiting) {
+                assertThat(future.get()).isFalse();
+            }
+        }
+    }
 }
