@@ -403,9 +403,10 @@ contain no post text.
   days, so retrying an older job can fail with "Its activity is gone".
 - **Servers that keep failing:** After 3 failures in a row, sending to that server waits, for up to 6 hours. These jobs show
   as scheduled, not failed.
-- **Limits:** Each copy of the server sends at most 3 activities at a time to another server, and starts about 3 jobs a
-  second for one server, so a large backlog for one server drains at about 180 a minute for each copy. A job that's waited 3 days
-  for its turn gives up, as for a server that keeps failing.
+- **Limits:** Each copy of the server sends at most 3 activities at a time to another server. How fast a large backlog
+  for one server drains depends on how fast that server answers: from about 180 a minute for each copy, for a server that
+  takes a second or more, up to about 900 a minute for one that takes a fifth of a second or less. A job that's waited
+  3 days for its turn gives up, as for a server that keeps failing.
 
 ## Two-factor login
 People can turn on two-factor login at `/settings/two-factor`. After they enter their password, they supply a

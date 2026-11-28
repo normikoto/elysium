@@ -141,7 +141,8 @@ class FeaturedTagFetch {
             return Jobs.done();
         }
         var now = now();
-        var turn = turns.take(target.get(), job.turn(), now);
+        // Only from the actor's own server, which a share of its turns wouldn't protect from anyone.
+        var turn = turns.take(target.get(), null, job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not reading the featured tags of {}, since too many fetches are waiting for its server",
                     actor.uri());

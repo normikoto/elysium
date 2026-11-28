@@ -264,7 +264,7 @@ class OutboxBackfillIntegrationTests {
     void waitsForItsServersTurnWithoutFetching() throws Exception {
         follow(alice, remote);
         var later = Instant.now().plusSeconds(30).truncatedTo(ChronoUnit.MICROS);
-        doReturn(Optional.of(later)).when(turns).take(any(), any(), any());
+        doReturn(Optional.of(later)).when(turns).take(any(), any(), any(), any());
         var job = job();
 
         var completion = backfill.run(job);

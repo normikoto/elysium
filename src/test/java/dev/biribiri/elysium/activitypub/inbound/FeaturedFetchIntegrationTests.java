@@ -100,7 +100,7 @@ class FeaturedFetchIntegrationTests {
         runToTheEnd(job());
 
         assertThat(pinned()).containsExactly(statusId(embedded).orElseThrow(), stored.id());
-        verify(turns).take(eq(featuredUri()), any(), any());
+        verify(turns).take(eq(featuredUri()), any(), any(), any());
     }
 
     @Test

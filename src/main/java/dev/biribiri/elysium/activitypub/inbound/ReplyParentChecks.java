@@ -155,7 +155,8 @@ class ReplyParentChecks {
         var now = Instant.now();
         if (!job.fetchQueued()) {
             Jobs.schedule(scheduler, FETCH_TASK,
-                    new ParentFetchJob(job.parentUri(), now.truncatedTo(ChronoUnit.MICROS), null), job.parentUri());
+                    new ParentFetchJob(job.parentUri(), now.truncatedTo(ChronoUnit.MICROS), null,
+                            TargetFetchTurns.senderOf(sender)), job.parentUri());
             return Jobs.rescheduleAt(now.plus(ThreadFetches.PARENT_WAIT), job.afterQueuingFetch());
         }
         // A fetch that's waited this long for its server has stopped being retried.
@@ -176,7 +177,7 @@ class ReplyParentChecks {
             return Jobs.done();
         }
         var now = Instant.now();
-        var turn = turns.take(parent, job.turn(), now);
+        var turn = turns.take(parent, job.sender(), job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not fetching {} for replies to it, since too many fetches are waiting for its server", parent);
             return Jobs.done();

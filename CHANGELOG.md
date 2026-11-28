@@ -30,12 +30,20 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   for existing accounts too. They aren't pushed, and don't appear in notifications or conversations until the person
   accepts the request. Each person can turn this off in their app.
 - Project relicensed to GNU Affero General Public License 3.0 (or later).
+- A large backlog of deliveries to one server drains faster when that server answers quickly, up to about 900 a minute
+  for each copy of Elysium instead of about 180. See [Job queue](docs/accounts.md#job-queue).
+- The limit on fetches that other servers' activities cause from one server is now shared by every copy of Elysium,
+  and survives restarts. Each sending server also gets only a quarter of it, so that one server sending many such
+  activities can no longer make others' wait for an hour, or be dropped. See
+  [Federation](FEDERATION.md#forwarded-activities).
 
 ### Fixed
 
 - A public reply to someone followed here is no longer lost when it arrives before the post it replies to, such as
   when another server forwards it. It waits for that post, or fetches it, and both are kept. See
   [Federation](FEDERATION.md#receiving-statuses).
+- When several copies of Elysium share a database and one stops in the middle of delivering a post, deleting that post
+  no longer holds up the deletion's delivery to that server for half an hour.
 
 ## [0.4.0] - 2026-11-26
 

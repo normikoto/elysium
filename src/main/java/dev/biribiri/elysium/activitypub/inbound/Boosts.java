@@ -144,7 +144,7 @@ class Boosts {
                 return Jobs.done();
             }
             var now = Instant.now();
-            var turn = turns.take(noteUri.get(), job.turn(), now);
+            var turn = turns.take(noteUri.get(), TargetFetchTurns.senderOf(actorUri), job.turn(), now);
             if (turn.isEmpty()) {
                 log.debug("Ignoring a boost of {}, since too many fetches are waiting for its server", noteUri.get());
                 return Jobs.done();

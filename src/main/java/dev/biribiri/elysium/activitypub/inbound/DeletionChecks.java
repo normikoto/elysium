@@ -62,18 +62,19 @@ class DeletionChecks {
     /**
      * Queues a check, unless one for the same object is already queued.
      *
-     * @param object an object on the actor's server
+     * @param object an object on the actor's server, which is charged for the fetch, since it's the actor's own
      */
     void queue(URI object, URI actor) {
-        queue(object, actor, Instant.now().truncatedTo(ChronoUnit.MICROS));
+        queue(object, actor, Instant.now().truncatedTo(ChronoUnit.MICROS), TargetFetchTurns.senderOf(actor));
     }
 
     /**
      * @param queuedAt when the {@code Delete} arrived, for one that has already waited in another job, so that retries are
      *                 timed from then
+     * @param sender   who {@link TargetFetchTurns} charges for the fetch, or null if that isn't known
      */
-    void queue(URI object, URI actor, Instant queuedAt) {
-        Jobs.schedule(scheduler, TASK, new DeletionCheckJob(object.toString(), actor.toString(), queuedAt, null),
+    void queue(URI object, URI actor, Instant queuedAt, String sender) {
+        Jobs.schedule(scheduler, TASK, new DeletionCheckJob(object.toString(), actor.toString(), queuedAt, null, sender),
                 "deletion-check", object.toString(), actor.toString());
     }
 
@@ -95,7 +96,7 @@ class DeletionChecks {
             return Jobs.done();
         }
         var now = Instant.now();
-        var turn = turns.take(object, job.turn(), now);
+        var turn = turns.take(object, job.sender(), job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Ignoring a Delete of {}, since too many fetches are waiting for its server", object);
             return Jobs.done();
