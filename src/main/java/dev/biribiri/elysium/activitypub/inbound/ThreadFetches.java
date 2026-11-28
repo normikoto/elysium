@@ -680,10 +680,15 @@ class ThreadFetches implements RemoteThreadFetcher {
 
     /**
      * The server of the status whose thread this is, which is what led to each URL in it, whether its thread was opened here
-     * or one of its posts was sent here. Without that status, only the target's own limit applies.
+     * or one of its posts was sent here. A thread of this server's own status, or one whose status is gone, only counts
+     * against the target's own limit.
      */
     private String sender(ThreadFetchJob job) {
-        return statuses.findStored(job.statusId()).map(status -> TargetFetchTurns.senderOf(status.uri())).orElse(null);
+        return statuses.findStored(job.statusId())
+                .map(Status::uri)
+                .filter(this::isFetchable)
+                .map(TargetFetchTurns::senderOf)
+                .orElse(null);
     }
 
     /**

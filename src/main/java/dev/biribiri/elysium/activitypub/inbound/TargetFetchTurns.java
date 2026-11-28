@@ -28,8 +28,9 @@ import java.util.stream.Collectors;
  *
  * <p>Each sender also gets only a {@linkplain #SHARES share} of a host's rate, and can wait only a share as long, so that a
  * flood from one server can't make others' fetches from that host wait an hour, or be refused. The turns a flood does get
- * still count against the host, so each flooding server holds others up for about 3 minutes, and it takes about 16 together
- * to have them refused. The host's own limit is what protects it, however many there are. Senders are counted as
+ * still count against the host when they run, so that the host never gets more than its rate: others wait behind a flood
+ * for up to as long as one sender can wait, or about 4 minutes for each flooding server once there are more than 3, and it
+ * takes about 16 together to have them refused. Senders are counted as
  * {@link ServerActivityLimits} counts them, so one domain's subdomains share a share. A job that merges what several senders
  * sent, such as one fetch of a parent that several replies wait for, is charged to the first.
  *
@@ -82,8 +83,9 @@ class TargetFetchTurns {
     /**
      * Takes a turn to fetch from this host, unless the job already holds one that's current.
      *
-     * @param sender what {@link #senderOf} says for the server whose word the fetch is made on, or null if that isn't known,
-     *               as for a job queued before senders were counted, which only counts against the host
+     * @param sender what {@link #senderOf} says for the server whose word the fetch is made on, or null for one that only
+     *               counts against the host: a fetch from the sender's own server, which can only flood itself, one that
+     *               people here started, or a job queued before senders were counted
      * @param held   the turn the job was given before, or null if it hasn't waited for one
      * @return when the fetch can be made, which is {@code now} if there's room, or empty if it would be too long to wait. No
      * turn is taken then.
@@ -125,7 +127,9 @@ class TargetFetchTurns {
             }
             turn = senderTurn.get().isAfter(turn.get()) ? senderTurn : turn;
         }
-        save(host, HOST_ROW, hostFree.plus(HOST.spacing()));
+        // Charged for when the fetch runs, which a sender's share can put later than the host's own turn, so that the host
+        // still gets no more than its rate.
+        save(host, HOST_ROW, (turn.get().isAfter(hostFree) ? turn.get() : hostFree).plus(HOST.spacing()));
         if (sender != null) {
             save(host, sender, senderFree.plus(SENDER.spacing()));
         }

@@ -107,19 +107,41 @@ class TargetFetchTurnsTests {
     }
 
     @Test
-    void aFloodFromOneSenderOnlyHoldsOthersUpForAFewMinutes() {
+    void aFloodFromOneSenderOnlyHoldsOthersUpForAsLongAsItCanWait() {
         var flooder = sender("flooder");
         var taken = 0;
-        while (turns.take(target, flooder, null, NOW).isPresent()) {
+        Instant last = null;
+        for (var turn = turns.take(target, flooder, null, NOW); turn.isPresent();
+                turn = turns.take(target, flooder, null, NOW)) {
+            last = turn.get();
             taken++;
         }
 
         assertThat(taken).isEqualTo(PER_SENDER
                 + (int) (TargetFetchTurns.MAX_WAIT_PER_SENDER.toSeconds() * PER_SENDER / 60));
-        // The flood used up the host's burst and these turns of its rate.
-        var heldUp = Duration.ofSeconds(taken - TargetFetchTurns.FETCHES_PER_MINUTE + 1);
-        assertThat(heldUp).isLessThanOrEqualTo(Duration.ofMinutes(4));
-        assertThat(turns.take(target, sender("bystander"), null, NOW)).contains(NOW.plus(heldUp));
+        assertThat(last).isEqualTo(NOW.plus(TargetFetchTurns.MAX_WAIT_PER_SENDER));
+        // The host's burst is free again, apart from the flood's last fetch.
+        var bystander = turns.take(target, sender("bystander"), null, NOW);
+        assertThat(bystander).contains(last.plusSeconds(1 - TargetFetchTurns.FETCHES_PER_MINUTE + 1));
+        assertThat(bystander.get()).isBefore(NOW.plus(TargetFetchTurns.MAX_WAIT_PER_SENDER));
+    }
+
+    @Test
+    void aSendersLaterTurnIsChargedToTheHostWhenItRuns() {
+        var flooder = sender("flooder");
+        Instant last = null;
+        // The sender's turns are 4 seconds apart and the host's 1, so by these the sender's have overtaken the host's.
+        for (var i = 0; i < PER_SENDER + 6; i++) {
+            last = turns.take(target, flooder, null, NOW).orElseThrow();
+        }
+        assertThat(last).isEqualTo(NOW.plusSeconds(24));
+
+        // The host was charged for that fetch at its turn, so what's left of its burst ends a second after it.
+        var left = TargetFetchTurns.FETCHES_PER_MINUTE - 25;
+        for (var i = 0; i < left; i++) {
+            assertThat(turns.take(target, null, null, NOW)).contains(NOW);
+        }
+        assertThat(turns.take(target, null, null, NOW)).contains(NOW.plusSeconds(1));
     }
 
     @Test

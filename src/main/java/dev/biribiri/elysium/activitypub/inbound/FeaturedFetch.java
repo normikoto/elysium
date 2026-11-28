@@ -166,7 +166,8 @@ class FeaturedFetch {
             return Jobs.done();
         }
         var now = now();
-        var turn = turns.take(target.get(), TargetFetchTurns.senderOf(actor.uri()), job.turn(), now);
+        // Only from the actor's own server, which a share of its turns wouldn't protect from anyone.
+        var turn = turns.take(target.get(), null, job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not reading the pins of {}, since too many fetches are waiting for its server", actor.uri());
             return Jobs.done();

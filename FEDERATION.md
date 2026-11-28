@@ -426,7 +426,8 @@ the fetches of forwarded activities, of the objects of forwarded `Create`s and `
 nodes. A fetch over that waits for its turn, and is dropped if that's more than an hour away. Each sending server, counted
 by its registrable domain, gets a quarter of that: 15 a minute, with bursts of up to 15, and a fetch of its is dropped if
 its turn is more than 15 minutes away. So one server sending many of these holds up others' fetches from the same host
-for a few minutes at most. No more than 4 requests to one host are made at once for fetches of any kind, and a fetch that
+for 15 minutes at most. Fetches from the sending server itself, such as of its own outbox or pins, only count against
+the host's limit. No more than 4 requests to one host are made at once for fetches of any kind, and a fetch that
 would be over that is tried again later.
 
 #### Reading activities
