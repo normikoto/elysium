@@ -22,6 +22,14 @@ public final class StatusIds {
     }
 
     /**
+     * The lowest ID this can give a status published at this millisecond, which no status has, since its version bits
+     * are never zero. So it bounds a range of IDs by time without leaving out a status.
+     */
+    public static UUID firstAt(Instant instant) {
+        return new UUID(instant.toEpochMilli() << 16, 0);
+    }
+
+    /**
      * Generates an ID that sorts after {@code previous}, even if they share a millisecond or the clock has moved back.
      */
     public static UUID after(UUID previous, Instant timestamp) {

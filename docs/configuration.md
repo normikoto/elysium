@@ -17,6 +17,7 @@ Set these in your `application.properties`:
 | `elysium.usage.publish`            | Optional. Set to `false` to hide [account activity and weekly counts](#usage-statistics). Defaults to `true`. Elysium still records account activity when publishing is off. |
 | `elysium.trends.enabled`           | Optional. Whether apps can see [trending tags, posts, and links](api.md#trends). Defaults to `true`. When set to `false`, the trends lists are empty. Elysium keeps tracking links in public posts. |
 | `elysium.statuses.max-characters`  | Optional. Character limit for new posts, including the content warning and [URL counting rules](api.md#length-and-links). Defaults to `5000`. Existing posts keep their text. |
+| `elysium.statuses.remote-retention` | Optional. Removes other servers' posts once they've been stored this long, such as `90d`, unless people here interacted with them. At least `1d`. Off unless set. See [Posts from other servers](#posts-from-other-servers). |
 | `elysium.profiles.max-fields`      | Optional. How many fields each profile can have, from 0 to 50. Defaults to `4`, as on Mastodon. Lowering it doesn't remove any, but a profile with more can't save its fields until it has few enough. |
 | `elysium.profiles.directory`       | Optional. Whether the directory lists the accounts that choose to be in it, at `/directory` and for apps. Defaults to `true`. Turning it off keeps each account's choice, which other servers still see. |
 | `elysium.profiles.max-image-size`  | Optional. The largest avatar, header, or background that can be uploaded, or avatar or header downloaded from another server, such as `4MB`. Defaults to `8MB`. Larger ones from other servers are linked to their server. |
@@ -133,7 +134,28 @@ Remote avatars and headers use the same cache and hourly budget. Elysium downloa
 the account or when its profile is refreshed. It replaces copies when the account changes its images and removes them
 when the server is suspended or its media is rejected.
 
-## Inbox limits
+## Posts from other servers
+
+Elysium keeps the posts it receives from other servers for good unless you set `remote-retention`. Once you set it,
+Elysium removes other servers' posts that have been stored for longer, a batch at a time, so a large backlog takes a while
+to clear. Removed posts can't be restored from your server, but they're stored again if they're fetched or delivered
+again, such as when someone opens a link to one or searches for it.
+
+Elysium keeps a post if:
+
+- someone here favourited, boosted, bookmarked, reacted to, voted in, quoted, filtered, or reported it
+- it mentions someone here, or is in their notifications or direct messages
+- it's in a thread that someone here posted in, or a thread with posts newer than the retention period
+- it's pinned to a profile, or quoted or boosted by a post that's kept
+
+Removal has these effects:
+
+- Older posts disappear from hashtag pages, search results, public timelines, and other servers' profiles, and home
+  timelines have gaps further back than the retention period.
+- Post counts on other servers' profiles go down.
+- Their attachments' files are deleted from your media directory.
+- Other servers aren't told, since only the author's server can delete a post.
+
 A delivery that would exceed the server’s activity count or data limit gets `429`. Mastodon and other common servers
 retry those deliveries automatically. The limits protect your database from one server sending too much data.
 
