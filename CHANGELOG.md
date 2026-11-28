@@ -36,6 +36,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - A public reply to someone followed here is no longer lost when it arrives before the post it replies to, such as
   when another server forwards it. It waits for that post, or fetches it, and both are kept. See
   [Federation](FEDERATION.md#receiving-statuses).
+- When several copies of Elysium share a database and one stops in the middle of delivering a post, deleting that post
+  no longer holds up the deletion's delivery to that server for half an hour.
 
 ## [0.4.0] - 2026-11-26
 

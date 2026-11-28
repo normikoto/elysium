@@ -3,6 +3,7 @@ package dev.biribiri.elysium.activitypub.delivery;
 import com.github.kagkarlsson.scheduler.task.CompletionHandler;
 import com.github.kagkarlsson.scheduler.task.Task;
 import dev.biribiri.elysium.http.BlockedTargetException;
+import dev.biribiri.elysium.activitypub.http.FederationHttpClient;
 import dev.biribiri.elysium.activitypub.http.FederationHttpClient.Response;
 import dev.biribiri.elysium.activitypub.http.ResponseTooLargeException;
 import dev.biribiri.elysium.activitypub.jobs.ActivityJobs;
@@ -44,6 +45,13 @@ class DeliveryTask {
     private static final Duration BACKOFF_SPREAD = Duration.ofSeconds(10);
     private static final Duration BEHIND_DELAY = Duration.ofSeconds(5);
     private static final Duration SUSPENDED_DELAY = Duration.ofMinutes(10);
+
+    /**
+     * How long a run can still be going after it was picked. A run sends one request, which can't outlast the client's
+     * deadline, and no heartbeat is written during a run that short, so a picked job older than this belongs to a node that
+     * died. db-scheduler only notices that after several missed heartbeats, which takes half an hour.
+     */
+    private static final Duration RUN_LASTS = FederationHttpClient.DEADLINE.plus(Duration.ofMinutes(2));
 
     private final JdbcClient jdbc;
     private final ActorService actors;
@@ -170,20 +178,21 @@ class DeliveryTask {
     }
 
     /**
-     * By host and not by inbox, because a server's followers can have moved to its shared inbox since. A job that's dead stays
-     * picked until another node notices, so this can wait for that.
+     * By host and not by inbox, because a server's followers can have moved to its shared inbox since. A job left picked by a
+     * node that died isn't running, and when it's picked up again it finds its activity cancelled.
      */
     private boolean isRunningFor(String activityId, String activityIdPrefix, String host) {
         return jdbc.sql("""
                         SELECT task.data ->> 'inbox' FROM scheduled_tasks
                         CROSS JOIN LATERAL (SELECT convert_from(task_data, 'UTF8')::json AS data) task
-                        WHERE task_name = :task AND picked
+                        WHERE task_name = :task AND picked AND last_heartbeat > now() - CAST(:runLasts AS interval)
                           AND (task.data ->> 'activityId' = :id
                                OR starts_with(task.data ->> 'activityId', CAST(:prefix AS text)))
                         """)
                 .param("task", ActivityDeliveries.TASK.getTaskName())
                 .param("id", activityId, Types.VARCHAR)
                 .param("prefix", activityIdPrefix, Types.VARCHAR)
+                .param("runLasts", RUN_LASTS.toSeconds() + " seconds")
                 .query(String.class)
                 .list()
                 .stream()
