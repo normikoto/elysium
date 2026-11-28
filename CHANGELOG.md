@@ -32,6 +32,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - Project relicensed to GNU Affero General Public License 3.0 (or later).
 - A large backlog of deliveries to one server drains faster when that server answers quickly, up to about 900 a minute
   for each copy of Elysium instead of about 180. See [Job queue](docs/accounts.md#job-queue).
+- The limit on fetches that other servers' activities cause from one server is now shared by every copy of Elysium,
+  and survives restarts. Each sending server also gets only a quarter of it, so that one server sending many such
+  activities can no longer make others' wait for an hour, or be dropped. See
+  [Federation](FEDERATION.md#forwarded-activities).
 
 ### Fixed
 

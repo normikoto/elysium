@@ -93,9 +93,10 @@ class ForwardedNotes {
      * @param type        {@code Create} or {@code Update}
      * @param forwardedId the forwarded copy's {@code id}, which only keeps apart the fetches of {@code Update}s
      * @param queuedAt    when the forwarded copy arrived, which has already waited in another job
+     * @param sender      who {@link TargetFetchTurns} charges for the fetch, or null if that isn't known
      */
-    void queue(URI note, URI actor, String type, String forwardedId, Instant queuedAt) {
-        var job = new ForwardedNoteJob(note.toString(), actor.toString(), type, queuedAt, null);
+    void queue(URI note, URI actor, String type, String forwardedId, Instant queuedAt, String sender) {
+        var job = new ForwardedNoteJob(note.toString(), actor.toString(), type, queuedAt, null, sender);
         if (job.isUpdate()) {
             Jobs.schedule(scheduler, TASK, job, "forwarded-note", type, note.toString(), actor.toString(), forwardedId);
         } else {
@@ -131,7 +132,7 @@ class ForwardedNotes {
             return Jobs.done();
         }
         var now = Instant.now();
-        var turn = turns.take(note, job.turn(), now);
+        var turn = turns.take(note, job.sender(), job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Dropping a forwarded {} of {}, since too many fetches are waiting for its server", type, note);
             return Jobs.done();

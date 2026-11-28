@@ -86,7 +86,7 @@ class FeaturedTagFetchIntegrationTests {
         assertThat(featuredTags.featured(remote.id())).extracting(FeaturedTag::name).containsExactly("kept", "café");
         assertThat(idOf("kept")).isEqualTo(kept);
         assertThat(featuredTags.featured(remote.id()).getFirst().statusesCount()).isOne();
-        verify(turns).take(eq(featuredTagsUri()), any(), any());
+        verify(turns).take(eq(featuredTagsUri()), any(), any(), any());
         verify(documents, never()).fetchAs(any(), any());
     }
 

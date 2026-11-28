@@ -136,7 +136,7 @@ class OutboxBackfill {
             return Jobs.done();
         }
         var now = Instant.now();
-        var turn = turns.take(target, job.turn(), now);
+        var turn = turns.take(target, TargetFetchTurns.senderOf(actor.uri()), job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not backfilling {}, since too many fetches are waiting for its server", actor.uri());
             return Jobs.done();

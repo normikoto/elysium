@@ -211,13 +211,13 @@ class ForwardedNotesIntegrationTests {
         var data = ArgumentCaptor.forClass(ForwardedNoteJob.class);
         verify(operations).reschedule(eq(complete), time.capture(), data.capture());
         assertThat(data.getValue()).isEqualTo(job.withTurn(time.getValue()));
-        verify(turns, times(1)).take(any(), any(), any());
+        verify(turns, times(1)).take(any(), any(), any(), any());
     }
 
     @Test
     void waitsForItsTurnWithoutFetching() throws Exception {
         var later = now().plusSeconds(30);
-        doReturn(Optional.of(later)).when(turns).take(any(), any(), any());
+        doReturn(Optional.of(later)).when(turns).take(any(), any(), any(), any());
         var job = noteJob(now());
 
         var handler = notes.run(job);
@@ -231,7 +231,7 @@ class ForwardedNotesIntegrationTests {
 
     @Test
     void dropsAForwardWhoseTurnIsTooFarAway() throws Exception {
-        doReturn(Optional.empty()).when(turns).take(any(), any(), any());
+        doReturn(Optional.empty()).when(turns).take(any(), any(), any(), any());
 
         notes.run(noteJob(now()));
 
@@ -242,7 +242,7 @@ class ForwardedNotesIntegrationTests {
     void dropsAForwardWhoseActorIsTooLongToStoreUnder() throws Exception {
         var longActor = "https://" + origin + "/users/" + "a".repeat(InboundActivity.MAX_ID_BYTES);
 
-        notes.run(new ForwardedNoteJob(note, longActor, "Create", now(), null));
+        notes.run(new ForwardedNoteJob(note, longActor, "Create", now(), null, null));
 
         verify(documents, never()).fetch(URI.create(note));
     }
@@ -352,8 +352,8 @@ class ForwardedNotesIntegrationTests {
         serveNote(editedNote(published, published.plusSeconds(60), "Edited"));
         var first = now().minusSeconds(60);
 
-        notes.run(new ForwardedNoteJob(note, actor, "Update", first, null));
-        notes.run(new ForwardedNoteJob(note, actor, "Update", first.plusSeconds(30), null));
+        notes.run(new ForwardedNoteJob(note, actor, "Update", first, null, null));
+        notes.run(new ForwardedNoteJob(note, actor, "Update", first.plusSeconds(30), null, null));
 
         assertThat(storedUpdates()).hasSize(1);
         assertThat(jobs("inbound-activity", storedUpdates().getFirst())).isEqualTo(2);
@@ -384,7 +384,7 @@ class ForwardedNotesIntegrationTests {
     }
 
     private ForwardedNoteJob updateJob() {
-        return new ForwardedNoteJob(note, actor, "Update", now(), null);
+        return new ForwardedNoteJob(note, actor, "Update", now(), null, null);
     }
 
     private String editedNote(Instant published, Instant updated, String content) {
@@ -433,7 +433,7 @@ class ForwardedNotesIntegrationTests {
     }
 
     private ForwardedNoteJob noteJob(Instant queuedAt) {
-        return new ForwardedNoteJob(note, actor, "Create", queuedAt, null);
+        return new ForwardedNoteJob(note, actor, "Create", queuedAt, null, null);
     }
 
     private String createId() {

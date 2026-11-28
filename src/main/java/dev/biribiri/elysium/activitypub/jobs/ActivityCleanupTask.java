@@ -69,6 +69,8 @@ class ActivityCleanupTask {
         jdbc.sql("DELETE FROM deleted_remote_status WHERE deleted_at < :before")
                 .param("before", before(now, ActivityJobs.ACTIVITIES_KEPT))
                 .update();
+        // A turn whose time has passed limits nothing.
+        jdbc.sql("DELETE FROM fetch_turn WHERE next_free < :now").param("now", now.atOffset(ZoneOffset.UTC)).update();
         jdbc.sql("DELETE FROM federation_host WHERE retry_after < :before")
                 .param("before", before(now, HOSTS_KEPT))
                 .update();

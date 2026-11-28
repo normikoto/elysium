@@ -209,7 +209,7 @@ class BoostedNotesIntegrationTests {
         follow(alice, booster);
         var announce = accepted(announce(booster, noteUri(author), "wait"));
         var later = Instant.now().plusSeconds(30).truncatedTo(ChronoUnit.MICROS);
-        doReturn(Optional.of(later)).when(turns).take(any(), any(), any());
+        doReturn(Optional.of(later)).when(turns).take(any(), any(), any(), any());
         var job = job(announce);
 
         var completion = boosts.run(job);

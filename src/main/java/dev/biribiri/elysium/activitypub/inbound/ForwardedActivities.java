@@ -83,8 +83,9 @@ class ForwardedActivities {
      * @param id     an ID that {@link Inbox} has checked
      * @param object for a {@code Delete}, a {@code Create}, or an {@code Update} of a note, its object, checked to be on the
      *               actor's server, and otherwise empty
+     * @param sender the server that forwarded it, which is charged for the fetches, from {@link TargetFetchTurns#senderOf}
      */
-    void queue(String id, URI actor, String type, Optional<URI> object) {
+    void queue(String id, URI actor, String type, Optional<URI> object, String sender) {
         // PostgreSQL stores microseconds, so this matches what a later read of the activity returns.
         var arrivedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
         var checked = object.map(URI::toString).orElse(null);
@@ -95,7 +96,8 @@ class ForwardedActivities {
                 "Create".equals(type) ? checked : null,
                 "Update".equals(type) ? checked : null,
                 checked != null ? actor.toString() : null,
-                null);
+                null,
+                sender);
         Jobs.schedule(scheduler, TASK, job, "forwarded", id);
     }
 
@@ -125,7 +127,7 @@ class ForwardedActivities {
             return Jobs.done();
         }
         var now = Instant.now();
-        var turn = turns.take(uri, job.turn(), now);
+        var turn = turns.take(uri, job.sender(), job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Dropping forwarded activity {}, since too many fetches are waiting for its origin", id);
             return Jobs.done();
@@ -141,11 +143,13 @@ class ForwardedActivities {
         }
         if (!fetched) {
             if (job.deletedObject() != null) {
-                deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt());
+                deletions.queue(URI.create(job.deletedObject()), URI.create(job.actorId()), job.queuedAt(), job.sender());
             } else if (job.createdObject() != null) {
-                notes.queue(URI.create(job.createdObject()), URI.create(job.actorId()), "Create", id, job.queuedAt());
+                notes.queue(URI.create(job.createdObject()), URI.create(job.actorId()), "Create", id, job.queuedAt(),
+                        job.sender());
             } else if (job.updatedObject() != null) {
-                notes.queue(URI.create(job.updatedObject()), URI.create(job.actorId()), "Update", id, job.queuedAt());
+                notes.queue(URI.create(job.updatedObject()), URI.create(job.actorId()), "Update", id, job.queuedAt(),
+                        job.sender());
             }
         }
         return Jobs.done();

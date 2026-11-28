@@ -98,7 +98,7 @@ class MoveChecks {
                 return Jobs.done();
             }
             var now = Instant.now();
-            var turn = turns.take(target, job.turn(), now);
+            var turn = turns.take(target, TargetFetchTurns.senderOf(URI.create(job.actorId())), job.turn(), now);
             if (turn.isEmpty()) {
                 log.debug("Ignoring Move {}, since too many fetches are waiting for {}'s server", job.activityId(), target);
                 return Jobs.done();

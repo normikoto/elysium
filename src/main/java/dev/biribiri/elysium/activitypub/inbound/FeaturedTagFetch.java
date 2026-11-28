@@ -141,7 +141,7 @@ class FeaturedTagFetch {
             return Jobs.done();
         }
         var now = now();
-        var turn = turns.take(target.get(), job.turn(), now);
+        var turn = turns.take(target.get(), TargetFetchTurns.senderOf(actor.uri()), job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not reading the featured tags of {}, since too many fetches are waiting for its server",
                     actor.uri());

@@ -121,7 +121,7 @@ class QuoteVerifications {
         try {
             var quoted = quotedOf(quote.get());
             if (quoted.isEmpty() && !quote.get().linked() && job.fetchQuoted()) {
-                var fetched = fetchQuoted(job, quotedUri);
+                var fetched = fetchQuoted(job, quotedUri, quoting.get());
                 if (fetched.isPresent()) {
                     return fetched.get();
                 }
@@ -145,11 +145,12 @@ class QuoteVerifications {
     /**
      * @return what to do with the job if it has to wait, or empty once the quoted status is stored, or can't be
      */
-    private Optional<CompletionHandler<QuoteVerificationJob>> fetchQuoted(QuoteVerificationJob job, URI quotedUri) {
+    private Optional<CompletionHandler<QuoteVerificationJob>> fetchQuoted(
+            QuoteVerificationJob job, URI quotedUri, Status quoting) {
         if (blocks.isBlocked(quotedUri.getHost())) {
             return Optional.of(Jobs.done());
         }
-        var turn = take(quotedUri, job.noteTurn());
+        var turn = take(quotedUri, quoting, job.noteTurn());
         if (turn.isEmpty()) {
             return Optional.of(Jobs.done());
         }
@@ -192,7 +193,7 @@ class QuoteVerifications {
                 || !Inbox.isOnActorsServer(approvalUri, quotedAuthor.get()) || blocks.isBlocked(approvalUri.getHost())) {
             return Jobs.done();
         }
-        var turn = take(approvalUri, job.stampTurn());
+        var turn = take(approvalUri, quoting, job.stampTurn());
         if (turn.isEmpty()) {
             return Jobs.done();
         }
@@ -228,8 +229,11 @@ class QuoteVerifications {
                 && ActivityObject.uriOf(stamp.path("interactionTarget")).equals(Optional.of(quoted));
     }
 
-    private Optional<Instant> take(URI target, Instant held) {
-        var turn = turns.take(target, held, Instant.now());
+    /**
+     * @param quoting charged for the fetch, since its server chose what to fetch
+     */
+    private Optional<Instant> take(URI target, Status quoting, Instant held) {
+        var turn = turns.take(target, TargetFetchTurns.senderOf(quoting.uri()), held, Instant.now());
         if (turn.isEmpty()) {
             log.debug("Not checking a quote, since too many fetches are waiting for {}", target.getHost());
         }

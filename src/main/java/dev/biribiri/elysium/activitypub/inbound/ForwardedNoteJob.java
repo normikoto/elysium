@@ -13,11 +13,14 @@ import java.time.Instant;
  *                 for a {@code Create}.
  * @param queuedAt when the first forwarded copy arrived, which is also stored as when the activity did
  * @param turn     the turn {@link TargetFetchTurns} gave it to fetch the note, or null if it hasn't waited for one
+ * @param sender   who {@link TargetFetchTurns} charges for the fetch, which is the server that forwarded the activity, or
+ *                 null for a job queued before senders were counted
  */
-record ForwardedNoteJob(String noteId, String actorId, String type, Instant queuedAt, Instant turn) implements QueuedJob {
+record ForwardedNoteJob(String noteId, String actorId, String type, Instant queuedAt, Instant turn, String sender)
+        implements QueuedJob {
 
     ForwardedNoteJob withTurn(Instant turn) {
-        return new ForwardedNoteJob(noteId, actorId, type, queuedAt, turn);
+        return new ForwardedNoteJob(noteId, actorId, type, queuedAt, turn, sender);
     }
 
     boolean isUpdate() {

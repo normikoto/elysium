@@ -667,7 +667,7 @@ class ThreadFetches implements RemoteThreadFetcher {
     private Optional<CompletionHandler<ThreadFetchJob>> waitForTurn(
             URI target, ThreadFetchJob job, Supplier<CompletionHandler<ThreadFetchJob>> refused) {
         var now = Instant.now();
-        var turn = turns.take(target, job.turn(), now);
+        var turn = turns.take(target, sender(job), job.turn(), now);
         if (turn.isEmpty()) {
             log.debug("Not fetching {} for a thread, since too many fetches are waiting for its server", target);
             return Optional.of(refused.get());
@@ -676,6 +676,14 @@ class ThreadFetches implements RemoteThreadFetcher {
             return Optional.of(Jobs.waitUntil(turn.get(), job.withTurn(turn.get())));
         }
         return Optional.empty();
+    }
+
+    /**
+     * The server of the status whose thread this is, which is what led to each URL in it, whether its thread was opened here
+     * or one of its posts was sent here. Without that status, only the target's own limit applies.
+     */
+    private String sender(ThreadFetchJob job) {
+        return statuses.findStored(job.statusId()).map(status -> TargetFetchTurns.senderOf(status.uri())).orElse(null);
     }
 
     /**

@@ -194,7 +194,8 @@ public class Inbox {
         }
         return admitted(signer.owner(), bodyBytes, () -> {
             if (!stored.exists(envelope.id())) {
-                forwarded.queue(envelope.id(), actor.get(), envelope.type(), checkedObject(envelope, actor.get()));
+                forwarded.queue(envelope.id(), actor.get(), envelope.type(), checkedObject(envelope, actor.get()),
+                        TargetFetchTurns.senderOf(signer.owner()));
             }
         }, Outcome.FORWARDED);
     }

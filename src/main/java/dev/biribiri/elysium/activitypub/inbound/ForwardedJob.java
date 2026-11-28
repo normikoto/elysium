@@ -18,6 +18,8 @@ import java.time.Instant;
  *                      null
  * @param turn          the turn {@link TargetFetchTurns} gave it to fetch from the origin, or null if it hasn't waited for
  *                      one
+ * @param sender        who {@link TargetFetchTurns} charges for its fetches, which is the server that forwarded it first, or
+ *                      null for a job queued before senders were counted
  */
 record ForwardedJob(
         String activityId,
@@ -26,10 +28,11 @@ record ForwardedJob(
         String createdObject,
         String updatedObject,
         String actorId,
-        Instant turn)
+        Instant turn,
+        String sender)
         implements QueuedJob {
 
     ForwardedJob withTurn(Instant turn) {
-        return new ForwardedJob(activityId, queuedAt, deletedObject, createdObject, updatedObject, actorId, turn);
+        return new ForwardedJob(activityId, queuedAt, deletedObject, createdObject, updatedObject, actorId, turn, sender);
     }
 }
