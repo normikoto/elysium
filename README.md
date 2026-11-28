@@ -16,3 +16,19 @@ including [partial federation support](FEDERATION.md).
 ## Local development
 Run `./gradlew bootRun` to start Elysium at `http://localhost:8080` with the `dev` profile and PostgreSQL from
 `compose.dev.yaml`. If you launch the app from your IDE or another tool, activate the `dev` profile yourself.
+
+## [License](./LICENSE)
+Copyright (C) 2026 Norm
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.

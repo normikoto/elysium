@@ -29,6 +29,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - Private mentions from accounts someone doesn't follow are now filtered into requests by default, as on Mastodon,
   for existing accounts too. They aren't pushed, and don't appear in notifications or conversations until the person
   accepts the request. Each person can turn this off in their app.
+- Project relicensed to GNU Affero General Public License 3.0 (or later).
 
 ### Fixed
 
