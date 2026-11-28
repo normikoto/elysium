@@ -21,12 +21,17 @@ import java.util.stream.Collectors;
  * everything else that stores statuses. It goes on from where the last run stopped, since statuses grow old in the order
  * of their IDs. It only goes back over the statuses it kept now and then, which is how one that's been unbookmarked since,
  * or that was backfilled with an old ID, is found.
+ *
+ * <p>Each query only checks a window of so many statuses, local ones included, and a run only checks so many windows,
+ * so that a stretch where nearly everything is kept, as on a pass back over them, takes many short queries rather than
+ * one that reads the whole table.
  */
 @Service
 public class RemoteStatusExpiry {
 
-    static final int BATCH_SIZE = 500;
-    static final int BATCHES_PER_RUN = 20;
+    static final int WINDOW = 500;
+    static final int WINDOWS_PER_RUN = 100;
+    static final int MAX_REMOVED_PER_RUN = 10_000;
     static final Duration PASS_INTERVAL = Duration.ofDays(7);
 
     private final RemoteStatusExpiryRepository repository;
@@ -51,6 +56,10 @@ public class RemoteStatusExpiry {
      * Like {@link #runDue}, as if it were {@code now}, so that tests needn't wait for statuses to grow old.
      */
     public int run(Instant now) {
+        return run(now, WINDOW, WINDOWS_PER_RUN);
+    }
+
+    int run(Instant now, int window, int windowsPerRun) {
         if (properties.remoteRetention() == null) return 0;
         var before = now.minus(properties.remoteRetention());
         var conditions = references.stream()
@@ -60,12 +69,13 @@ public class RemoteStatusExpiry {
         UUID after = cursor.scannedTo();
         var passStartedAt = after == null ? now : cursor.passStartedAt();
         var removed = 0;
-        for (var i = 0; i < BATCHES_PER_RUN; i++) {
-            var expired = repository.findExpired(conditions, before, after, BATCH_SIZE);
+        for (var i = 0; i < windowsPerRun && removed < MAX_REMOVED_PER_RUN; i++) {
+            var end = repository.findWindowEnd(before, after, window);
+            var expired = repository.findExpired(conditions, before, after, end.orElse(null));
             if (!expired.isEmpty()) {
                 removed += repository.remove(expired, conditions, before);
             }
-            if (expired.size() < BATCH_SIZE) {
+            if (end.isEmpty()) {
                 // Everything older than the cutoff has been looked at, so the next run only needs what's grown old
                 // since, unless it's time to go back over what was kept.
                 after = passStartedAt != null && passStartedAt.isAfter(now.minus(PASS_INTERVAL))
@@ -73,7 +83,7 @@ public class RemoteStatusExpiry {
                         : null;
                 break;
             }
-            after = expired.getLast();
+            after = end.get();
         }
         repository.saveCursor(new Cursor(after, passStartedAt));
         return removed;

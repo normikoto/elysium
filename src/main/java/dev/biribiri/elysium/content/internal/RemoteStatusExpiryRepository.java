@@ -10,6 +10,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -83,20 +84,40 @@ public class RemoteStatusExpiryRepository {
     }
 
     /**
-     * Other servers' statuses stored before the cutoff, after {@code after}, that nothing keeps, oldest first. A status
-     * that was backfilled has an ID from when it was published, earlier than when it was stored, so it's passed over until
-     * the scan comes back to it. Bounding the ID as well lets the scan stop at the cutoff.
+     * The status that ends a window of this many after {@code after}, among those with IDs from before the cutoff, so
+     * that {@link #findExpired} only checks so many however few of them it finds. Only the primary key is read.
      *
-     * @param references the other modules' conditions, as {@link #remove} takes them
+     * @return empty if fewer than that many are left before the cutoff
      */
-    public List<UUID> findExpired(String references, Instant before, UUID after, int limit) {
-        return jdbc.sql("SELECT s.id FROM status s JOIN actor a ON a.id = s.actor_id "
-                        + "WHERE s.id > :after AND s.id < :idBefore AND NOT a.is_local AND s.created_at < :before "
-                        + "AND NOT (" + keep(references) + ") ORDER BY s.id LIMIT :limit")
+    public Optional<UUID> findWindowEnd(Instant before, UUID after, int window) {
+        return jdbc.sql("""
+                        SELECT id FROM status WHERE id > :after AND id < :idBefore ORDER BY id OFFSET :skip LIMIT 1
+                        """)
                 .param("after", after == null ? new UUID(0, 0) : after)
                 .param("idBefore", StatusIds.firstAt(before))
+                .param("skip", window - 1)
+                .query(UUID.class)
+                .optional();
+    }
+
+    /**
+     * Other servers' statuses stored before the cutoff that nothing keeps, after {@code after} and up to
+     * {@code upTo}, oldest first. A status that was backfilled has an ID from when it was published, earlier than when it
+     * was stored, so it's passed over until the scan comes back to it. Bounding the ID by the cutoff as well lets the
+     * last window stop there.
+     *
+     * @param references the other modules' conditions, as {@link #remove} takes them
+     * @param upTo       the last status of the window, or null to go up to the cutoff
+     */
+    public List<UUID> findExpired(String references, Instant before, UUID after, UUID upTo) {
+        return jdbc.sql("SELECT s.id FROM status s JOIN actor a ON a.id = s.actor_id "
+                        + "WHERE s.id > :after AND s.id <= :upTo AND s.id < :idBefore "
+                        + "AND NOT a.is_local AND s.created_at < :before "
+                        + "AND NOT (" + keep(references) + ") ORDER BY s.id")
+                .param("after", after == null ? new UUID(0, 0) : after)
+                .param("upTo", upTo == null ? new UUID(-1, -1) : upTo)
+                .param("idBefore", StatusIds.firstAt(before))
                 .param("before", before.atOffset(ZoneOffset.UTC))
-                .param("limit", limit)
                 .query(UUID.class)
                 .list();
     }

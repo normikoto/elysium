@@ -235,19 +235,50 @@ class RemoteStatusExpiryIntegrationTests {
     @Test
     void goesOnFromWhereTheLastRunStopped() {
         var author = remoteAuthor();
-        var count = RemoteStatusExpiry.BATCH_SIZE * RemoteStatusExpiry.BATCHES_PER_RUN + 1;
+        // More than a run removes, even if it stops a window past its limit.
+        var count = RemoteStatusExpiry.MAX_REMOVED_PER_RUN + RemoteStatusExpiry.WINDOW + 1;
+        bulkInsert(author, count);
+        var later = Instant.now().plus(LATER);
+
+        // Other tests' statuses can be removed with them, so only the limit is exact.
+        assertThat(expiry.run(later)).isBetween(RemoteStatusExpiry.MAX_REMOVED_PER_RUN,
+                RemoteStatusExpiry.MAX_REMOVED_PER_RUN + RemoteStatusExpiry.WINDOW - 1);
+        assertThat(countBy(author)).isPositive();
+        expiry.run(later);
+
+        assertThat(countBy(author)).isZero();
+    }
+
+    @Test
+    void aRunOnlyChecksSoManyStatuses() {
+        // Statuses that are never removed, ahead of one that is.
+        statuses.create(account(), new NewStatus("first", "", null, Visibility.PUBLIC, false, null));
+        statuses.create(account(), new NewStatus("second", "", null, Visibility.PUBLIC, false, null));
+        statuses.create(account(), new NewStatus("third", "", null, Visibility.PUBLIC, false, null));
+        var status = remoteStatus(remoteAuthor());
+        var later = Instant.now().plus(LATER);
+
+        expiry.run(later, 2, 1);
+        assertThat(exists(status)).isTrue();
+
+        // It's reached by going on from each window, however many statuses other tests left ahead of it.
+        for (var runs = 0; runs < 10_000 && exists(status); runs++) {
+            expiry.run(later, 2, 1);
+        }
+        assertThat(exists(status)).isFalse();
+    }
+
+    private void bulkInsert(Actor author, int count) {
         jdbc.sql("""
                         INSERT INTO status (id, uri, actor_id, text, content, visibility, published_at)
                         SELECT uuidv7(), :prefix || n, :author, '', '', 'public', now() FROM generate_series(1, :count) n
                         """)
                 .param("prefix", author.uri() + "/bulk/").param("author", author.id()).param("count", count).update();
-        var later = Instant.now().plus(LATER);
+    }
 
-        assertThat(expiry.run(later)).isEqualTo(count - 1);
-        expiry.run(later);
-
-        assertThat(jdbc.sql("SELECT count(*) FROM status WHERE actor_id = :author")
-                .param("author", author.id()).query(Long.class).single()).isZero();
+    private long countBy(Actor author) {
+        return jdbc.sql("SELECT count(*) FROM status WHERE actor_id = :author")
+                .param("author", author.id()).query(Long.class).single();
     }
 
     private Actor remoteAuthor() {
