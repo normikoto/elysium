@@ -99,7 +99,7 @@ class DeliveryTask {
         var host = inbox.getHost().toLowerCase(Locale.ROOT);
 
         var now = Instant.now();
-        if (!gate.tryAcquire(host)) {
+        if (!gate.tryAcquireWaiting(host)) {
             var busySince = job.busySince() == null ? now : job.busySince();
             if (busySince.plus(Jobs.RETRIED_FOR).isAfter(now)) {
                 return Jobs.waitUntil(gate.nextTurn(host, now), job.withBusySince(busySince));
@@ -240,6 +240,7 @@ class DeliveryTask {
             throw new PermanentJobFailure("The inbox URL isn't allowed", e);
         } catch (ResponseTooLargeException e) {
             // The host answered, and would answer the same way again, having probably received the activity each time.
+            gate.took(host, Duration.ofNanos(System.nanoTime() - started));
             gate.succeeded(host);
             recordRequest("too_large", started);
             throw new PermanentJobFailure("The inbox's answer was too large", e);
@@ -253,6 +254,7 @@ class DeliveryTask {
             throw new UncheckedIOException(e);
         }
 
+        gate.took(host, Duration.ofNanos(System.nanoTime() - started));
         var status = response.status();
         if (status >= 500 || status == 408 || status == 429) {
             var now = Instant.now();

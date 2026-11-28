@@ -2,6 +2,11 @@ package dev.biribiri.elysium.activitypub.http;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class HostRequestsTests {
@@ -52,5 +57,43 @@ class HostRequestsTests {
 
         assertThat(requests.tryStartFetch("quiet.example")).isTrue();
         assertThat(requests.tryStartDelivery("quiet.example")).isTrue();
+    }
+
+    @Test
+    void aDeliveryCanWaitForAnotherToFinish() throws Exception {
+        for (var i = 0; i < HostRequests.MAX_DELIVERIES_PER_HOST; i++) {
+            requests.tryStartDelivery("busy.example");
+        }
+
+        try (var threads = Executors.newVirtualThreadPerTaskExecutor()) {
+            var waiting = threads.submit(() -> requests.tryStartDelivery("busy.example", Duration.ofSeconds(10)));
+            Thread.sleep(50);
+            requests.finishDelivery("busy.example");
+
+            assertThat(waiting).succeedsWithin(Duration.ofSeconds(5)).isEqualTo(true);
+        }
+    }
+
+    @Test
+    void onlySoManyDeliveriesCanWaitForOneHost() throws Exception {
+        for (var i = 0; i < HostRequests.MAX_DELIVERIES_PER_HOST; i++) {
+            requests.tryStartDelivery("busy.example");
+        }
+
+        try (var threads = Executors.newVirtualThreadPerTaskExecutor()) {
+            var waiting = new ArrayList<Future<Boolean>>();
+            for (var i = 0; i < HostRequests.MAX_DELIVERIES_WAITING_PER_HOST; i++) {
+                waiting.add(threads.submit(() -> requests.tryStartDelivery("busy.example", Duration.ofSeconds(2))));
+            }
+            Thread.sleep(200);
+            var started = System.nanoTime();
+
+            assertThat(requests.tryStartDelivery("busy.example", Duration.ofSeconds(2))).isFalse();
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(1));
+            assertThat(requests.tryStartDelivery("quiet.example", Duration.ofSeconds(2))).isTrue();
+            for (var future : waiting) {
+                assertThat(future.get()).isFalse();
+            }
+        }
     }
 }

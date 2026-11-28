@@ -44,8 +44,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /**
- * Sends a large fan-out through the real scheduler with production settings, against a slow-ish server on the loopback
- * address, and prints what it cost. Run with {@code ./gradlew loadTest}, which needs Docker. {@code ./gradlew test} leaves it
+ * Sends a large fan-out through the real scheduler with production settings, against servers on the loopback address, and
+ * prints what it cost. Run with {@code ./gradlew loadTest}, which needs Docker. {@code ./gradlew test} leaves it
  * out, because it takes minutes and its numbers are what matter.
  *
  * <p>Only what has to hold at any speed is asserted, along with finishing in time. The numbers depend on the machine, so
@@ -57,7 +57,9 @@ import static org.awaitility.Awaitility.await;
 @SpringBootTest
 class DeliveryLoadTests {
 
-    private static final Duration LATENCY = Duration.ofMillis(200);
+    private static final Duration SLOW_ISH = Duration.ofMillis(200);
+    private static final Duration FAST = Duration.ofMillis(20);
+    private static final Duration SLOW = Duration.ofSeconds(1);
     private static final Duration WAIT = Duration.ofMinutes(10);
 
     @Autowired
@@ -78,6 +80,7 @@ class DeliveryLoadTests {
     private final AtomicInteger mostRunningForAHost = new AtomicInteger();
     private HttpServer server;
     private UUID actorId;
+    private volatile Duration latency = SLOW_ISH;
 
     @BeforeEach
     void start() throws IOException {
@@ -89,7 +92,7 @@ class DeliveryLoadTests {
             mostRunningForAHost.accumulateAndGet(running.incrementAndGet(), Math::max);
             try {
                 exchange.getRequestBody().readAllBytes();
-                Thread.sleep(LATENCY);
+                Thread.sleep(latency);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } finally {
@@ -119,12 +122,27 @@ class DeliveryLoadTests {
 
     @Test
     void manyInboxesOnOneHost() throws Exception {
-        run("1000 inboxes on one host", inboxes(1, 1000));
+        run("1000 inboxes on one host", inboxes("medium", 1, 1000));
+    }
+
+    @Test
+    void manyInboxesOnOneFastHost() throws Exception {
+        latency = FAST;
+        run("1000 inboxes on one fast host", inboxes("fast", 1, 1000));
+    }
+
+    /**
+     * A host whose speed isn't known is guessed to be fast, so this shows what that guess costs one that isn't.
+     */
+    @Test
+    void manyInboxesOnOneSlowHost() throws Exception {
+        latency = SLOW;
+        run("300 inboxes on one slow host", inboxes("slow", 1, 300));
     }
 
     @Test
     void aFanOutAcrossManyHosts() throws Exception {
-        run("2000 inboxes across 500 hosts", inboxes(500, 4));
+        run("2000 inboxes across 500 hosts", inboxes("many", 500, 4));
     }
 
     private void run(String name, List<URI> inboxes) throws Exception {
@@ -218,12 +236,15 @@ class DeliveryLoadTests {
         assertThat(receivedByInbox.values()).allMatch(count -> count.get() == 1);
     }
 
-    private List<URI> inboxes(int hosts, int perHost) {
+    /**
+     * @param prefix keeps each scenario's hosts apart, since what's learned about a host's speed lasts between scenarios
+     */
+    private List<URI> inboxes(String prefix, int hosts, int perHost) {
         var port = server.getAddress().getPort();
         var inboxes = new ArrayList<URI>();
         for (var host = 0; host < hosts; host++) {
             for (var inbox = 0; inbox < perHost; inbox++) {
-                inboxes.add(URI.create("http://load" + host + ".test:" + port + "/users/" + inbox + "/inbox"));
+                inboxes.add(URI.create("http://" + prefix + host + ".test:" + port + "/users/" + inbox + "/inbox"));
             }
         }
         return inboxes;

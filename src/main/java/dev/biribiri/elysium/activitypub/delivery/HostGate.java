@@ -1,5 +1,7 @@
 package dev.biribiri.elysium.activitypub.delivery;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.biribiri.elysium.activitypub.http.HostRequests;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -17,14 +19,30 @@ import java.util.Optional;
  * Keeps this server from overloading others: it limits how many requests run at once for each host, spaces out the jobs
  * waiting for one, and backs off from hosts that keep failing.
  *
- * <p>The limit and the spacing are per node, because sharing them would mean a database write around every request, so the
- * real limit is this many times the number of nodes. Backoff is in the database, so nodes share it and it survives a restart.
+ * <p>The spacing follows how fast each host answers, so that a backlog for a fast host drains as fast as its requests can run,
+ * and one for a slow host doesn't keep running jobs that can't send. Jobs due at the same poll start within moments, so those
+ * that find every slot taken wait in their thread for a while, as requests finish.
+ *
+ * <p>The limit, the spacing, and what's known of each host's speed are per node, because sharing them would mean a database
+ * write around every request, so the real limit is this many times the number of nodes. Backoff is in the database, so nodes
+ * share it and it survives a restart.
  */
 @Component
 class HostGate {
 
     static final int MAX_REQUESTS_PER_HOST = HostRequests.MAX_DELIVERIES_PER_HOST;
 
+    /**
+     * The most jobs that can come due for one host at each poll: those that can send at once, and those that can wait in
+     * their threads for a slot.
+     */
+    static final int MAX_TURNS_PER_POLL = MAX_REQUESTS_PER_HOST + HostRequests.MAX_DELIVERIES_WAITING_PER_HOST;
+
+    /**
+     * How much each request's time moves a host's average. Answers vary, so one slow one shouldn't decide the spacing.
+     */
+    private static final double LATENCY_WEIGHT = 0.2;
+    private static final long MAX_TRACKED_HOSTS = 10_000;
 
     /**
      * One failure could just be one bad request, or a brief problem that a retry gets past.
@@ -37,17 +55,20 @@ class HostGate {
     private final JdbcClient jdbc;
     private final HostRequests requests;
 
-    /**
-     * Lets about as many waiting jobs come due between polls as can get a slot. All the jobs due at a poll run within moments,
-     * before any request has finished, so any more would only be refused, with each refusal writing to the database. For a
-     * host that answers slowly, this still limits how often its jobs run.
-     */
-    private final Duration turnSpacing;
+    private final Duration pollingInterval;
 
     /**
      * The last turn given out for each host. A host only stays here while that's in the future.
      */
     private final Map<String, Instant> lastTurns = new HashMap<>();
+
+    /**
+     * Each host's average request time, in nanoseconds.
+     */
+    private final Cache<String, Double> latencies = Caffeine.newBuilder()
+            .maximumSize(MAX_TRACKED_HOSTS)
+            .expireAfterWrite(Duration.ofHours(1))
+            .build();
 
     HostGate(
             JdbcClient jdbc,
@@ -55,7 +76,7 @@ class HostGate {
             @Value("${db-scheduler.polling-interval}") Duration pollingInterval) {
         this.jdbc = jdbc;
         this.requests = requests;
-        this.turnSpacing = pollingInterval.dividedBy(MAX_REQUESTS_PER_HOST);
+        this.pollingInterval = pollingInterval;
     }
 
     /**
@@ -65,8 +86,24 @@ class HostGate {
         return requests.tryStartDelivery(host);
     }
 
+    /**
+     * Like {@link #tryAcquire}, but waits for a slot until about when the next poll could start the job again.
+     */
+    boolean tryAcquireWaiting(String host) {
+        return requests.tryStartDelivery(host, pollingInterval);
+    }
+
     void release(String host) {
         requests.finishDelivery(host);
+    }
+
+    /**
+     * Records how long a request that this host answered took. One that failed could have failed at once, which says nothing
+     * about its speed, and a host that keeps failing is backed off from anyway.
+     */
+    void took(String host, Duration time) {
+        latencies.asMap().merge(host, (double) time.toNanos(),
+                (average, latest) -> average + LATENCY_WEIGHT * (latest - average));
     }
 
     /**
@@ -75,9 +112,33 @@ class HostGate {
     synchronized Instant nextTurn(String host, Instant now) {
         lastTurns.values().removeIf(now::isAfter);
         var last = lastTurns.getOrDefault(host, now);
-        var turn = (last.isAfter(now) ? last : now).plus(turnSpacing);
+        var turn = (last.isAfter(now) ? last : now).plus(turnSpacing(host));
         lastTurns.put(host, turn);
         return turn;
+    }
+
+    /**
+     * Lets about as many waiting jobs come due between polls as can get a slot before the next poll, as requests finish. Any
+     * more would only be refused, with each refusal writing to the database.
+     *
+     * <p>A host whose speed isn't known yet gets as many turns as can send or wait. A fan-out books every job's turn before
+     * the first answer, and a turn isn't moved once it's booked, so a slower guess would hold a fast host's whole backlog
+     * to it. If the host turns out to be slow, the jobs that come due too early are refused after waiting, and take turns
+     * again, spaced by then for its speed.
+     */
+    private Duration turnSpacing(String host) {
+        return pollingInterval.dividedBy(turnsPerPoll(latencies.getIfPresent(host), pollingInterval));
+    }
+
+    /**
+     * @param latency the host's average request time in nanoseconds, or null if it isn't known
+     */
+    static int turnsPerPoll(Double latency, Duration pollingInterval) {
+        if (latency == null) {
+            return MAX_TURNS_PER_POLL;
+        }
+        var fit = Math.floor(MAX_REQUESTS_PER_HOST * pollingInterval.toNanos() / Math.max(1, latency));
+        return (int) Math.max(MAX_REQUESTS_PER_HOST, Math.min(MAX_TURNS_PER_POLL, fit));
     }
 
     /**

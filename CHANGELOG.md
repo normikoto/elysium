@@ -30,6 +30,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   for existing accounts too. They aren't pushed, and don't appear in notifications or conversations until the person
   accepts the request. Each person can turn this off in their app.
 - Project relicensed to GNU Affero General Public License 3.0 (or later).
+- A large backlog of deliveries to one server drains faster when that server answers quickly, up to about 900 a minute
+  for each copy of Elysium instead of about 180. See [Job queue](docs/accounts.md#job-queue).
 
 ### Fixed
 
