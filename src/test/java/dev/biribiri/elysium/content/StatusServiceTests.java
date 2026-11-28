@@ -62,7 +62,7 @@ class StatusServiceTests {
                 mock(StatusThreads.class),
                 actors,
                 new InstanceProperties(BASE_URL),
-                new StatusProperties(10),
+                new StatusProperties(10, null),
                 mock(PlatformTransactionManager.class),
                 mock(ApplicationEventPublisher.class),
                 mock(FollowService.class),
@@ -249,6 +249,6 @@ class StatusServiceTests {
 
     @Test
     void propertiesRejectLimitsBelowOne() {
-        assertThatThrownBy(() -> new StatusProperties(0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new StatusProperties(0, null)).isInstanceOf(IllegalArgumentException.class);
     }
 }

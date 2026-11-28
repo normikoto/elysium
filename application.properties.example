@@ -42,6 +42,10 @@ spring.datasource.password=
 # doesn't affect existing statuses.
 #elysium.statuses.max-characters=5000
 
+# Remove other servers' posts once they've been stored this long, unless someone here interacted with them. Off unless
+# set. Removed posts come back when they're fetched again.
+#elysium.statuses.remote-retention=90d
+
 # How many fields each profile can have. Lowering this doesn't remove any, but a profile with more can't save its fields
 # until it has few enough.
 #elysium.profiles.max-fields=4

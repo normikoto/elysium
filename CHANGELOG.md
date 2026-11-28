@@ -23,6 +23,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - Apps can show trending hashtags, posts, and links through the Mastodon API. Trends update automatically from recent
   public activity. Set `elysium.trends.enabled=false` to hide them. See [Trends](docs/api.md#trends). The first
   startup after upgrading may take longer on servers with many posts.
+- Admins can have other servers' old posts removed, as Mastodon's content cache retention does, by setting
+  `elysium.statuses.remote-retention`, such as to `90d`. Posts that people here interacted with are kept. It's off
+  unless set. See [Posts from other servers](docs/configuration.md#posts-from-other-servers).
 
 ### Changed
 

@@ -148,7 +148,7 @@ public class PostCleanupRepository {
                         + "AND s.published_at < :before ORDER BY s.id LIMIT :limit")
                 .param("actorId", actorId)
                 .param("after", after == null ? new UUID(0, 0) : after)
-                .param("idBefore", firstIdAt(publishedBefore))
+                .param("idBefore", StatusIds.firstAt(publishedBefore))
                 .param("before", publishedBefore.atOffset(ZoneOffset.UTC))
                 .param("limit", limit);
         if (policy.minFavourites() != null) {
@@ -159,13 +159,6 @@ public class PostCleanupRepository {
         }
         return query.query((rs, row) -> new Scanned(
                 rs.getObject("id", UUID.class), rs.getBoolean("boost"), rs.getBoolean("deletable"))).list();
-    }
-
-    /**
-     * The lowest ID {@link StatusIds} can give a status published at this millisecond.
-     */
-    private static UUID firstIdAt(Instant instant) {
-        return new UUID(instant.toEpochMilli() << 16, 0);
     }
 
     private static PostCleanupPolicy policy(ResultSet rs) throws SQLException {
